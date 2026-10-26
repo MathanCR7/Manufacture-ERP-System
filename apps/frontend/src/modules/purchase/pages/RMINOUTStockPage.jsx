@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -6,7 +6,6 @@ import {
   Package,
   Search,
   AlertTriangle,
-  RefreshCw,
   Clock,
   Eye,
   FileSpreadsheet,
@@ -39,7 +38,8 @@ import {
   AlertOctagon,
   ShieldAlert,
   SlidersHorizontal,
-  TableProperties
+  TableProperties,
+  BarChart3
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Swal from 'sweetalert2';
@@ -51,6 +51,152 @@ import { Pagination } from '@/components/ui/Pagination';
 import RMHistoryDrawer from '@/modules/purchase/components/RMHistoryDrawer';
 import RMStockQueryModal from '@/modules/purchase/components/RMStockQueryModal';
 
+// Reusable Searchable Dropdown Component for Category & Code Filters
+function SearchableFilterDropdown({
+  label,
+  placeholder,
+  value,
+  onChange,
+  options = [],
+  className = '',
+  icon: Icon = Search
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef(null);
+
+  // Close when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return options;
+    const term = search.toLowerCase();
+    return options.filter(opt =>
+      (opt.label || '').toLowerCase().includes(term) ||
+      (opt.subLabel || '').toLowerCase().includes(term) ||
+      (opt.value || '').toLowerCase().includes(term)
+    );
+  }, [options, search]);
+
+  const selectedOption = options.find(opt => opt.value === value) || options[0];
+  const isFiltered = value && value !== 'ALL';
+
+  return (
+    <div ref={dropdownRef} className={`relative ${className}`}>
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border transition-all flex items-center justify-between gap-1.5 text-left cursor-pointer ${
+          isFiltered
+            ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 font-semibold shadow-2xs'
+            : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-slate-400'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 truncate">
+          <Icon className={`w-3.5 h-3.5 shrink-0 ${isFiltered ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`} />
+          <span className="truncate">
+            {selectedOption ? selectedOption.label : placeholder}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isFiltered && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('ALL');
+              }}
+              className="p-0.5 rounded-full hover:bg-emerald-200 dark:hover:bg-emerald-800 text-emerald-700 dark:text-emerald-300 transition-colors"
+              title="Reset selection"
+            >
+              <X className="w-3 h-3" />
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180 text-emerald-600' : ''}`} />
+        </div>
+      </button>
+
+      {/* Popover Dropdown Menu */}
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full min-w-[260px] max-w-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-2 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
+          {/* Internal Search Input */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              autoFocus
+              placeholder={`Search ${placeholder.toLowerCase()}...`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full text-xs pl-8 pr-6 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1.5 focus:ring-emerald-500"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Options List */}
+          <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 pr-0.5">
+            {filteredOptions.length === 0 ? (
+              <div className="py-3 text-center text-[11px] text-slate-400">
+                No matching options found
+              </div>
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = value === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value);
+                      setIsOpen(false);
+                      setSearch('');
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-semibold'
+                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <div className="truncate flex-1">
+                      <div className="truncate font-medium">{opt.label}</div>
+                      {opt.subLabel && (
+                        <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                          {opt.subLabel}
+                        </div>
+                      )}
+                    </div>
+                    {opt.badge !== undefined && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono shrink-0">
+                        {opt.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RMINOUTStockPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -60,6 +206,7 @@ export default function RMINOUTStockPage() {
   const initialPeriod = searchParams.get('period') || 'this_month';
   const initialSearch = searchParams.get('search') || '';
   const initialCategory = searchParams.get('category') || 'ALL';
+  const initialCode = searchParams.get('code') || 'ALL';
   const initialStartDate = searchParams.get('startDate') || '';
   const initialEndDate = searchParams.get('endDate') || '';
 
@@ -77,16 +224,17 @@ export default function RMINOUTStockPage() {
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [categoryFilter, setCategoryFilter] = useState(initialCategory);
-  const [movementFilter, setMovementFilter] = useState('ALL'); // ALL | IN_PROGRESS | LAB_REJECTED | WITH_MOVEMENT | IN_ONLY | OUT_ONLY | NET_POSITIVE | NET_NEGATIVE | LOW_STOCK | OUT_OF_STOCK
+  const [codeFilter, setCodeFilter] = useState(initialCode);
+  const [movementFilter, setMovementFilter] = useState('ALL'); // ALL | IN_PROGRESS | FREE_AVAILABLE | LAB_REJECTED | WITH_MOVEMENT | IN_ONLY | OUT_ONLY | NET_POSITIVE | NET_NEGATIVE | LOW_STOCK | OUT_OF_STOCK
   const [sortBy, setSortBy] = useState('code_asc');
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
   // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  // Pagination State
+  // Pagination State - Default 15 items per page as requested
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(15);
 
   // Expanded Material Rows for inline ledger view
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
@@ -100,7 +248,7 @@ export default function RMINOUTStockPage() {
   const [selectedStockQueryId, setSelectedStockQueryId] = useState(null);
   const [isStockQueryOpen, setIsStockQueryOpen] = useState(false);
 
-  // 1. Primary Query: Fetch Base RM Stock
+  // 1. Primary Query: Fetch Base RM Stock (Auto-refresh enabled on mount and focus)
   const {
     data: baseStock = [],
     isLoading: isBaseLoading,
@@ -114,10 +262,11 @@ export default function RMINOUTStockPage() {
       return response.data || [];
     },
     refetchOnMount: 'always',
-    staleTime: 15000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
-  // 2. Secondary Query: Dedicated /rm-stock/in-out endpoint
+  // 2. Secondary Query: Dedicated /rm-stock/in-out endpoint (Auto-refresh enabled on mount and focus)
   const {
     data: dedicatedData = null,
     isFetching: isDedicatedFetching,
@@ -139,8 +288,15 @@ export default function RMINOUTStockPage() {
       }
     },
     refetchOnMount: 'always',
-    staleTime: 30000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
+
+  // Automatically refresh data when opening the page
+  useEffect(() => {
+    refetchBase();
+    refetchDedicated();
+  }, [refetchBase, refetchDedicated]);
 
   // Calculate Date Boundaries for current period
   const dateRange = useMemo(() => {
@@ -566,13 +722,42 @@ export default function RMINOUTStockPage() {
     };
   }, [dedicatedData, unifiedMaterials]);
 
-  // Distinct Categories
+  // Distinct Categories for Searchable Dropdown
   const categoryOptions = useMemo(() => {
-    const set = new Set();
+    const counts = {};
     unifiedMaterials.forEach(item => {
-      if (item.category) set.add(item.category);
+      const cat = item.category || 'Uncategorised';
+      counts[cat] = (counts[cat] || 0) + 1;
     });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+
+    const list = Object.keys(counts)
+      .sort((a, b) => a.localeCompare(b))
+      .map(cat => ({
+        value: cat,
+        label: cat,
+        subLabel: `${counts[cat]} materials`,
+        badge: counts[cat]
+      }));
+
+    return [
+      { value: 'ALL', label: `All Categories (${unifiedMaterials.length})`, badge: unifiedMaterials.length },
+      ...list
+    ];
+  }, [unifiedMaterials]);
+
+  // Distinct RM Codes for Searchable Dropdown
+  const codeOptions = useMemo(() => {
+    const list = unifiedMaterials.map(item => ({
+      value: item.code,
+      label: item.code,
+      subLabel: `${item.name} (${item.category || 'Uncategorised'})`,
+      badge: `${item.currentStock} ${item.uom}`
+    }));
+
+    return [
+      { value: 'ALL', label: `All RM Codes (${unifiedMaterials.length})`, badge: unifiedMaterials.length },
+      ...list
+    ];
   }, [unifiedMaterials]);
 
   // Sync state with URL params
@@ -585,13 +770,14 @@ export default function RMINOUTStockPage() {
     }
     if (searchTerm) params.set('search', searchTerm);
     if (categoryFilter !== 'ALL') params.set('category', categoryFilter);
+    if (codeFilter !== 'ALL') params.set('code', codeFilter);
     setSearchParams(params, { replace: true });
-  }, [period, appliedCustomStart, appliedCustomEnd, searchTerm, categoryFilter, setSearchParams]);
+  }, [period, appliedCustomStart, appliedCustomEnd, searchTerm, categoryFilter, codeFilter, setSearchParams]);
 
-  // Reset pagination on filter changes
+  // Reset pagination on filter or view changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter, movementFilter, sortBy, period, appliedCustomStart, appliedCustomEnd, viewMode]);
+  }, [searchTerm, categoryFilter, codeFilter, movementFilter, sortBy, period, appliedCustomStart, appliedCustomEnd, viewMode]);
 
   // Handle Custom Date Range Apply
   const handleApplyCustomRange = (e) => {
@@ -612,9 +798,32 @@ export default function RMINOUTStockPage() {
     setAppliedCustomEnd(customEndDate);
   };
 
+  // Universal Column Sorting Handler (Toggles ASC / DESC or changes field)
+  const handleColumnSort = (field) => {
+    setSortBy(prev => {
+      if (prev === `${field}_asc`) return `${field}_desc`;
+      if (prev === `${field}_desc`) return `${field}_asc`;
+      // Default initial direction: numbers descending, strings ascending
+      const defaultDescFields = ['stock', 'wip', 'free', 'in', 'out', 'net', 'valuation', 'amount', 'rate', 'date'];
+      return defaultDescFields.includes(field) ? `${field}_desc` : `${field}_asc`;
+    });
+  };
+
+  // Helper to render sort arrows in table headers
+  const renderSortIndicator = (field) => {
+    if (sortBy === `${field}_desc`) {
+      return <ArrowDown className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />;
+    }
+    if (sortBy === `${field}_asc`) {
+      return <ArrowUp className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />;
+    }
+    return <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100 shrink-0 transition-opacity" />;
+  };
+
   // Filtered & Sorted Materials
   const filteredMaterials = useMemo(() => {
     let result = unifiedMaterials.filter(item => {
+      // 1. Text Search across multiple dimensions
       const term = searchTerm.toLowerCase().trim();
       if (term) {
         const matchesTerm = (
@@ -634,12 +843,21 @@ export default function RMINOUTStockPage() {
         if (!matchesTerm) return false;
       }
 
+      // 2. Category Dropdown Filter
       if (categoryFilter !== 'ALL') {
         if ((item.category || 'Uncategorised') !== categoryFilter) return false;
       }
 
+      // 3. RM Code Dropdown Filter
+      if (codeFilter !== 'ALL') {
+        if (item.code !== codeFilter) return false;
+      }
+
+      // 4. Movement & Status Filters (Interactive from KPI Cards & Charts)
       if (movementFilter === 'IN_PROGRESS') {
         if (Number(item.inProgressStock || 0) <= 0) return false;
+      } else if (movementFilter === 'FREE_AVAILABLE') {
+        if (Number(item.availableStock !== undefined ? item.availableStock : Math.max(0, (item.currentStock || 0) - (item.inProgressStock || 0))) <= 0) return false;
       } else if (movementFilter === 'LAB_REJECTED') {
         if (!item.hasLabRejection && item.labStatus !== 'LAB_REJECTED') return false;
       } else if (movementFilter === 'WITH_MOVEMENT') {
@@ -661,29 +879,66 @@ export default function RMINOUTStockPage() {
       return true;
     });
 
+    // Dynamic Multi-Field Sorting
     result.sort((a, b) => {
+      // Code
       if (sortBy === 'code_asc') return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
       if (sortBy === 'code_desc') return (b.code || '').localeCompare(a.code || '', undefined, { numeric: true, sensitivity: 'base' });
+
+      // Name
       if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
       if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
+
+      // Category
       if (sortBy === 'category_asc') return (a.category || '').localeCompare(b.category || '', undefined, { sensitivity: 'base' });
+      if (sortBy === 'category_desc') return (b.category || '').localeCompare(a.category || '', undefined, { sensitivity: 'base' });
+
+      // In-Hand Stock
       if (sortBy === 'stock_desc') return Number(b.currentStock || 0) - Number(a.currentStock || 0);
       if (sortBy === 'stock_asc') return Number(a.currentStock || 0) - Number(b.currentStock || 0);
+
+      // Floor WIP
       if (sortBy === 'wip_desc') return Number(b.inProgressStock || 0) - Number(a.inProgressStock || 0);
+      if (sortBy === 'wip_asc') return Number(a.inProgressStock || 0) - Number(b.inProgressStock || 0);
+
+      // Free Available
+      if (sortBy === 'free_desc') return Number(b.availableStock || 0) - Number(a.availableStock || 0);
+      if (sortBy === 'free_asc') return Number(a.availableStock || 0) - Number(b.availableStock || 0);
+
+      // Period Inward
       if (sortBy === 'in_desc') return Number(b.periodInQty || 0) - Number(a.periodInQty || 0);
+      if (sortBy === 'in_asc') return Number(a.periodInQty || 0) - Number(b.periodInQty || 0);
+
+      // Period Outward
       if (sortBy === 'out_desc') return Number(b.periodOutQty || 0) - Number(a.periodOutQty || 0);
+      if (sortBy === 'out_asc') return Number(a.periodOutQty || 0) - Number(b.periodOutQty || 0);
+
+      // Net Movement
       if (sortBy === 'net_desc') return Number(b.netMovement || 0) - Number(a.netMovement || 0);
       if (sortBy === 'net_asc') return Number(a.netMovement || 0) - Number(b.netMovement || 0);
+
+      // Valuation
       if (sortBy === 'valuation_desc') return Number(b.valuation || 0) - Number(a.valuation || 0);
+      if (sortBy === 'valuation_asc') return Number(a.valuation || 0) - Number(b.valuation || 0);
+
+      // Rate
+      if (sortBy === 'rate_desc') return Number(b.ratePerUnit || 0) - Number(a.ratePerUnit || 0);
+      if (sortBy === 'rate_asc') return Number(a.ratePerUnit || 0) - Number(b.ratePerUnit || 0);
+
+      // QC Status (Rejections first)
+      if (sortBy === 'qc_desc') return (b.hasLabRejection ? 1 : 0) - (a.hasLabRejection ? 1 : 0);
+      if (sortBy === 'qc_asc') return (a.hasLabRejection ? 1 : 0) - (b.hasLabRejection ? 1 : 0);
+
       return 0;
     });
 
     return result;
-  }, [unifiedMaterials, searchTerm, categoryFilter, movementFilter, sortBy]);
+  }, [unifiedMaterials, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy]);
 
   // Filtered Date-Wise Ledger Transactions
   const filteredTransactions = useMemo(() => {
     let result = unifiedAllTransactions.filter(tx => {
+      // 1. Keyword search
       const term = searchTerm.toLowerCase().trim();
       if (term) {
         const matchesTerm = (
@@ -701,10 +956,17 @@ export default function RMINOUTStockPage() {
         if (!matchesTerm) return false;
       }
 
+      // 2. Category Dropdown
       if (categoryFilter !== 'ALL') {
         if ((tx.category || 'Uncategorised') !== categoryFilter) return false;
       }
 
+      // 3. RM Code Dropdown
+      if (codeFilter !== 'ALL') {
+        if (tx.rawMaterialCode !== codeFilter) return false;
+      }
+
+      // 4. Movement Filter
       if (movementFilter === 'IN_PROGRESS') {
         if (!tx.isInProgress && tx.batchStatus !== 'IN_PROGRESS') return false;
       } else if (movementFilter === 'LAB_REJECTED') {
@@ -718,8 +980,35 @@ export default function RMINOUTStockPage() {
       return true;
     });
 
+    // Ledger Sorting
+    result.sort((a, b) => {
+      if (sortBy === 'date_desc') return new Date(b.date) - new Date(a.date);
+      if (sortBy === 'date_asc') return new Date(a.date) - new Date(b.date);
+      if (sortBy === 'code_asc') return (a.rawMaterialCode || '').localeCompare(b.rawMaterialCode || '', undefined, { numeric: true });
+      if (sortBy === 'code_desc') return (b.rawMaterialCode || '').localeCompare(a.rawMaterialCode || '', undefined, { numeric: true });
+      if (sortBy === 'name_asc') return (a.rawMaterialName || '').localeCompare(b.rawMaterialName || '');
+      if (sortBy === 'name_desc') return (b.rawMaterialName || '').localeCompare(a.rawMaterialName || '');
+      if (sortBy === 'ref_asc') return (a.referenceNo || '').localeCompare(b.referenceNo || '');
+      if (sortBy === 'ref_desc') return (b.referenceNo || '').localeCompare(a.referenceNo || '');
+      if (sortBy === 'batch_asc') return (a.batchNumber || '').localeCompare(b.batchNumber || '');
+      if (sortBy === 'batch_desc') return (b.batchNumber || '').localeCompare(a.batchNumber || '');
+      if (sortBy === 'in_desc') return (b.flow === 'IN' ? b.quantity : 0) - (a.flow === 'IN' ? a.quantity : 0);
+      if (sortBy === 'in_asc') return (a.flow === 'IN' ? a.quantity : 0) - (b.flow === 'IN' ? b.quantity : 0);
+      if (sortBy === 'out_desc') return (b.flow === 'OUT' ? b.quantity : 0) - (a.flow === 'OUT' ? a.quantity : 0);
+      if (sortBy === 'out_asc') return (a.flow === 'OUT' ? a.quantity : 0) - (b.flow === 'OUT' ? b.quantity : 0);
+      if (sortBy === 'rate_desc') return Number(b.rate || 0) - Number(a.rate || 0);
+      if (sortBy === 'rate_asc') return Number(a.rate || 0) - Number(b.rate || 0);
+      if (sortBy === 'amount_desc') return Number(b.amount || 0) - Number(a.amount || 0);
+      if (sortBy === 'amount_asc') return Number(a.amount || 0) - Number(b.amount || 0);
+      if (sortBy === 'qc_desc') return (b.isLabRejected ? 1 : 0) - (a.isLabRejected ? 1 : 0);
+      if (sortBy === 'qc_asc') return (a.isLabRejected ? 1 : 0) - (b.isLabRejected ? 1 : 0);
+      if (sortBy === 'party_asc') return (a.partyName || '').localeCompare(b.partyName || '');
+      if (sortBy === 'party_desc') return (b.partyName || '').localeCompare(a.partyName || '');
+      return 0;
+    });
+
     return result;
-  }, [unifiedAllTransactions, searchTerm, categoryFilter, movementFilter]);
+  }, [unifiedAllTransactions, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy]);
 
   // Pagination for Materials
   const totalMaterialPages = Math.ceil(filteredMaterials.length / itemsPerPage) || 1;
@@ -1014,9 +1303,14 @@ export default function RMINOUTStockPage() {
   const isAnyLoading = isBaseLoading;
   const isAnyFetching = isBaseFetching || isDedicatedFetching;
 
+  // Total volume moved for visual distribution chart calculation
+  const totalVolumeCalculated = useMemo(() => {
+    return Math.max(1, (summary.totalPeriodIn || 0) + (summary.totalPeriodOut || 0) + (summary.totalInProgressStock || 0));
+  }, [summary]);
+
   return (
     <div className="w-full min-h-screen bg-slate-50/70 dark:bg-slate-950 px-2 sm:px-4 py-2 sm:py-3 space-y-2.5 transition-colors">
-      {/* ── TOP HEADER & ACTIONS (High-Density Bar) ── */}
+      {/* ── TOP HEADER & ACTIONS (High-Density Bar with Auto-Refresh & No Refresh Button) ── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-2xs">
         <div className="space-y-0.5">
           <div className="flex items-center gap-2 flex-wrap">
@@ -1029,16 +1323,46 @@ export default function RMINOUTStockPage() {
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 font-semibold uppercase tracking-wider">
               Stock In & Out Ledger
             </span>
+
+            {/* Interactive Header WIP Badge - Clickable to Filter */}
             {summary.totalInProgressStock > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <button
+                type="button"
+                onClick={() => setMovementFilter(movementFilter === 'IN_PROGRESS' ? 'ALL' : 'IN_PROGRESS')}
+                className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
+                  movementFilter === 'IN_PROGRESS'
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
+                    : 'bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                }`}
+                title="Click to filter by Floor WIP Run"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${movementFilter === 'IN_PROGRESS' ? 'bg-white' : 'bg-amber-500'} animate-pulse`} />
                 <span>Floor WIP: {summary.totalInProgressStock}</span>
-              </span>
+              </button>
             )}
+
+            {/* Interactive Header Lab Rejected Badge - Clickable to Filter */}
             {summary.totalLabRejectedCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 font-bold border border-rose-300 dark:border-rose-800">
+              <button
+                type="button"
+                onClick={() => setMovementFilter(movementFilter === 'LAB_REJECTED' ? 'ALL' : 'LAB_REJECTED')}
+                className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
+                  movementFilter === 'LAB_REJECTED'
+                    ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-2 ring-rose-300'
+                    : 'bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                }`}
+                title="Click to filter by Lab Rejections"
+              >
                 <AlertOctagon className="w-3 h-3 text-rose-600" />
                 <span>Lab Rejected: {summary.totalLabRejectedCount} Items</span>
+              </button>
+            )}
+
+            {/* Live Auto-Refresh Indicator Pulse */}
+            {isAnyFetching && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium animate-pulse ml-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Auto-refreshing...</span>
               </span>
             )}
           </div>
@@ -1047,13 +1371,13 @@ export default function RMINOUTStockPage() {
           </p>
         </div>
 
-        {/* View Switcher, Density & Actions */}
+        {/* View Switcher, Density & Export Actions (Refresh button removed per request) */}
         <div className="flex flex-wrap items-center gap-2">
           {/* View Mode Switcher */}
           <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
             <button
               onClick={() => setViewMode('material')}
-              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all text-xs ${
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer ${
                 viewMode === 'material'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -1064,7 +1388,7 @@ export default function RMINOUTStockPage() {
             </button>
             <button
               onClick={() => setViewMode('ledger')}
-              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all text-xs ${
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer ${
                 viewMode === 'ledger'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -1078,33 +1402,18 @@ export default function RMINOUTStockPage() {
           {/* Density Toggle */}
           <button
             onClick={() => setIsCompactDensity(!isCompactDensity)}
-            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
             title={isCompactDensity ? 'Switch to Comfortable View' : 'Switch to Compact ERP View'}
           >
             <TableProperties className="w-4 h-4" />
           </button>
 
-          {/* Quick Refresh */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              refetchBase();
-              refetchDedicated();
-            }}
-            disabled={isAnyFetching}
-            className="h-8 px-2.5 text-xs border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isAnyFetching ? 'animate-spin text-emerald-600' : ''}`} />
-            <span>Refresh</span>
-          </Button>
-
-          {/* Export Report Dropdown Trigger */}
+          {/* Export Report Trigger */}
           <Button
             variant="default"
             size="sm"
             onClick={() => setIsExportModalOpen(true)}
-            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1.5"
+            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export Report</span>
@@ -1144,7 +1453,7 @@ export default function RMINOUTStockPage() {
                     setAppliedCustomEnd('');
                   }
                 }}
-                className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-all ${
+                className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
                   period === p.id
                     ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -1190,7 +1499,7 @@ export default function RMINOUTStockPage() {
               <Button
                 type="submit"
                 size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3 cursor-pointer"
               >
                 Apply Range
               </Button>
@@ -1206,7 +1515,7 @@ export default function RMINOUTStockPage() {
                     setAppliedCustomEnd('');
                     setPeriod('this_month');
                   }}
-                  className="text-xs h-8 px-2.5 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                  className="text-xs h-8 px-2.5 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer"
                 >
                   Clear
                 </Button>
@@ -1216,10 +1525,18 @@ export default function RMINOUTStockPage() {
         )}
       </div>
 
-      {/* ── KPI EXECUTIVE STAT CARDS (Compact 6-Metric Strip) ── */}
+      {/* ── KPI EXECUTIVE STAT CARDS (Interactive Click-to-Filter enabled) ── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
-        {/* Card 1: Total Current Stock */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+        {/* Card 1: Total Current Stock (Click to show All / Reset) */}
+        <Card
+          onClick={() => setMovementFilter('ALL')}
+          className={`border transition-all cursor-pointer hover:shadow-md ${
+            movementFilter === 'ALL'
+              ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 dark:bg-blue-950/20'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
+          }`}
+          title="Click to view all raw materials"
+        >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px]">
               <span className="font-medium">Total Current Stock</span>
@@ -1237,8 +1554,16 @@ export default function RMINOUTStockPage() {
           </CardContent>
         </Card>
 
-        {/* Card 2: In-Progress WIP */}
-        <Card className="border-amber-300 dark:border-amber-900/60 shadow-2xs bg-amber-50/60 dark:bg-amber-950/20">
+        {/* Card 2: In-Progress WIP (Click to filter WIP) */}
+        <Card
+          onClick={() => setMovementFilter(movementFilter === 'IN_PROGRESS' ? 'ALL' : 'IN_PROGRESS')}
+          className={`border transition-all cursor-pointer hover:shadow-md ${
+            movementFilter === 'IN_PROGRESS'
+              ? 'border-amber-500 ring-2 ring-amber-500/30 bg-amber-100/70 dark:bg-amber-950/40 shadow-xs'
+              : 'border-amber-300 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 hover:border-amber-400'
+          }`}
+          title="Click to filter materials running on floor WIP"
+        >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-amber-800 dark:text-amber-400 text-[11px]">
               <span className="font-bold flex items-center gap-1">
@@ -1250,14 +1575,23 @@ export default function RMINOUTStockPage() {
             <div className="text-base sm:text-lg font-bold text-amber-700 dark:text-amber-300 font-mono">
               {Number(summary.totalInProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] text-amber-700/80 dark:text-amber-400/80 truncate">
-              Active floor batches
+            <div className="text-[10px] text-amber-700/80 dark:text-amber-400/80 truncate flex items-center justify-between">
+              <span>Active floor batches</span>
+              {movementFilter === 'IN_PROGRESS' && <span className="font-bold text-[9px] text-amber-800">Filtered</span>}
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 3: Free Available Stock */}
-        <Card className="border-emerald-200 dark:border-emerald-900/50 shadow-2xs bg-emerald-50/40 dark:bg-emerald-950/20">
+        {/* Card 3: Free Available Stock (Click to filter available) */}
+        <Card
+          onClick={() => setMovementFilter(movementFilter === 'FREE_AVAILABLE' ? 'ALL' : 'FREE_AVAILABLE')}
+          className={`border transition-all cursor-pointer hover:shadow-md ${
+            movementFilter === 'FREE_AVAILABLE'
+              ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-100/70 dark:bg-emerald-950/40 shadow-xs'
+              : 'border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/20 hover:border-emerald-300'
+          }`}
+          title="Click to filter materials with free available stock"
+        >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[11px]">
               <span className="font-semibold">Free Available</span>
@@ -1266,14 +1600,23 @@ export default function RMINOUTStockPage() {
             <div className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-300 font-mono">
               {Number(summary.totalAvailableStock !== undefined ? summary.totalAvailableStock : Math.max(0, (summary.totalCurrentStock || 0) - (summary.totalInProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 truncate">
-              Ready for new orders
+            <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 truncate flex items-center justify-between">
+              <span>Ready for orders</span>
+              {movementFilter === 'FREE_AVAILABLE' && <span className="font-bold text-[9px]">Filtered</span>}
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 4: Period Inward (IN) */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+        {/* Card 4: Period Inward (IN) (Click to filter Inward receipts) */}
+        <Card
+          onClick={() => setMovementFilter(movementFilter === 'IN_ONLY' ? 'ALL' : 'IN_ONLY')}
+          className={`border transition-all cursor-pointer hover:shadow-md ${
+            movementFilter === 'IN_ONLY'
+              ? 'border-emerald-500 ring-2 ring-emerald-500/30 bg-emerald-50/70 dark:bg-emerald-950/40 shadow-xs'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-300'
+          }`}
+          title="Click to filter materials with Inward receipts in this period"
+        >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[11px]">
               <span className="font-semibold">Period Inward (IN)</span>
@@ -1282,14 +1625,23 @@ export default function RMINOUTStockPage() {
             <div className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-300 font-mono">
               +{Number(summary.totalPeriodIn || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] text-slate-500 truncate">
-              GRN receipts & additions
+            <div className="text-[10px] text-slate-500 truncate flex items-center justify-between">
+              <span>GRN receipts</span>
+              {movementFilter === 'IN_ONLY' && <span className="font-bold text-[9px] text-emerald-600">Filtered</span>}
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 5: Period Outward (OUT) */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+        {/* Card 5: Period Outward (OUT) (Click to filter Outward consumption) */}
+        <Card
+          onClick={() => setMovementFilter(movementFilter === 'OUT_ONLY' ? 'ALL' : 'OUT_ONLY')}
+          className={`border transition-all cursor-pointer hover:shadow-md ${
+            movementFilter === 'OUT_ONLY'
+              ? 'border-rose-500 ring-2 ring-rose-500/30 bg-rose-50/70 dark:bg-rose-950/40 shadow-xs'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-rose-300'
+          }`}
+          title="Click to filter materials consumed/dispatched outward"
+        >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-rose-700 dark:text-rose-400 text-[11px]">
               <span className="font-semibold">Period Outward (OUT)</span>
@@ -1298,14 +1650,23 @@ export default function RMINOUTStockPage() {
             <div className="text-base sm:text-lg font-bold text-rose-700 dark:text-rose-300 font-mono">
               -{Number(summary.totalPeriodOut || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] text-slate-500 truncate">
-              Production, sales & waste
+            <div className="text-[10px] text-slate-500 truncate flex items-center justify-between">
+              <span>Prod & sales waste</span>
+              {movementFilter === 'OUT_ONLY' && <span className="font-bold text-[9px] text-rose-600">Filtered</span>}
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 6: Net Movement */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+        {/* Card 6: Net Movement (Click to filter movement) */}
+        <Card
+          onClick={() => setMovementFilter(movementFilter === 'WITH_MOVEMENT' ? 'ALL' : 'WITH_MOVEMENT')}
+          className={`border transition-all cursor-pointer hover:shadow-md ${
+            movementFilter === 'WITH_MOVEMENT'
+              ? 'border-purple-500 ring-2 ring-purple-500/30 bg-purple-50/70 dark:bg-purple-950/40 shadow-xs'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-purple-300'
+          }`}
+          title="Click to filter materials with active movement in period"
+        >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px]">
               <span className="font-medium">Net Movement</span>
@@ -1323,22 +1684,86 @@ export default function RMINOUTStockPage() {
               {Number(summary.netMovement || 0) > 0 ? '+' : ''}
               {Number(summary.netMovement || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] text-slate-500 truncate">
-              {summary.activeMovementCount || 0} / {summary.totalMaterials || 0} moved in period
+            <div className="text-[10px] text-slate-500 truncate flex items-center justify-between">
+              <span>{summary.activeMovementCount || 0} / {summary.totalMaterials || 0} active</span>
+              {movementFilter === 'WITH_MOVEMENT' && <span className="font-bold text-[9px] text-purple-600">Filtered</span>}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* ── TOOLBAR: SEARCH, CATEGORY, STATUS & SORT ── */}
+      {/* ── INTERACTIVE VISUAL STOCK FLOW BAR (Click any segment to filter) ── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 shadow-2xs space-y-1.5">
+        <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+          <div className="flex items-center gap-1.5">
+            <BarChart3 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Interactive Movement Breakdown (Click to filter table):</span>
+          </div>
+          {movementFilter !== 'ALL' && (
+            <button
+              onClick={() => setMovementFilter('ALL')}
+              className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
+            >
+              <span>Reset filter ({movementFilter})</span>
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex cursor-pointer shadow-inner">
+          {/* Segment 1: Inward (Green) */}
+          <div
+            onClick={() => setMovementFilter('IN_ONLY')}
+            style={{ width: `${Math.max(5, ((summary.totalPeriodIn || 0) / totalVolumeCalculated) * 100)}%` }}
+            className={`h-full bg-emerald-500 hover:bg-emerald-600 transition-all ${movementFilter === 'IN_ONLY' ? 'ring-2 ring-white z-10' : ''}`}
+            title={`Period Inward: +${summary.totalPeriodIn} (Click to filter)`}
+          />
+          {/* Segment 2: Outward (Red) */}
+          <div
+            onClick={() => setMovementFilter('OUT_ONLY')}
+            style={{ width: `${Math.max(3, ((summary.totalPeriodOut || 0) / totalVolumeCalculated) * 100)}%` }}
+            className={`h-full bg-rose-500 hover:bg-rose-600 transition-all ${movementFilter === 'OUT_ONLY' ? 'ring-2 ring-white z-10' : ''}`}
+            title={`Period Outward: -${summary.totalPeriodOut} (Click to filter)`}
+          />
+          {/* Segment 3: Floor WIP (Amber) */}
+          <div
+            onClick={() => setMovementFilter('IN_PROGRESS')}
+            style={{ width: `${Math.max(3, ((summary.totalInProgressStock || 0) / totalVolumeCalculated) * 100)}%` }}
+            className={`h-full bg-amber-400 hover:bg-amber-500 transition-all ${movementFilter === 'IN_PROGRESS' ? 'ring-2 ring-white z-10' : ''}`}
+            title={`Floor WIP: ${summary.totalInProgressStock} (Click to filter)`}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] text-slate-500 flex-wrap gap-2 pt-0.5">
+          <div className="flex items-center gap-3">
+            <span onClick={() => setMovementFilter('IN_ONLY')} className="flex items-center gap-1 cursor-pointer hover:text-emerald-600">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>Inward ({summary.totalPeriodIn})</span>
+            </span>
+            <span onClick={() => setMovementFilter('OUT_ONLY')} className="flex items-center gap-1 cursor-pointer hover:text-rose-600">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>Outward ({summary.totalPeriodOut})</span>
+            </span>
+            <span onClick={() => setMovementFilter('IN_PROGRESS')} className="flex items-center gap-1 cursor-pointer hover:text-amber-600">
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span>Floor WIP ({summary.totalInProgressStock})</span>
+            </span>
+          </div>
+          <div>
+            Total Monitored Volume: <strong className="font-mono text-slate-700 dark:text-slate-300">{Number(totalVolumeCalculated).toLocaleString('en-IN', { maximumFractionDigits: 1 })}</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* ── TOOLBAR: SEARCH, SEARCHABLE CATEGORY, SEARCHABLE CODE & STATUS ── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 sm:p-3 shadow-2xs space-y-2">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-          {/* 1. Search Input */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+          {/* 1. Global Text Search Input */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search code, name, PO, batch, party..."
+              placeholder="Search keyword, PO, batch..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full text-xs pl-8 pr-7 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-1 focus:ring-emerald-500 outline-hidden"
@@ -1346,36 +1771,43 @@ export default function RMINOUTStockPage() {
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          {/* 2. Category Dropdown */}
-          <div>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden"
-            >
-              <option value="ALL">All Categories ({unifiedMaterials.length})</option>
-              {categoryOptions.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
+          {/* 2. Searchable Category Dropdown with internal Search Bar */}
+          <SearchableFilterDropdown
+            label="Category"
+            placeholder="All Categories"
+            value={categoryFilter}
+            onChange={(val) => setCategoryFilter(val)}
+            options={categoryOptions}
+            icon={Layers}
+          />
 
-          {/* 3. Movement / Stock Filter */}
+          {/* 3. Searchable RM Code Dropdown with internal Search Bar */}
+          <SearchableFilterDropdown
+            label="RM Code"
+            placeholder="All RM Codes"
+            value={codeFilter}
+            onChange={(val) => setCodeFilter(val)}
+            options={codeOptions}
+            icon={Package}
+          />
+
+          {/* 4. Movement / Stock Filter */}
           <div>
             <select
               value={movementFilter}
               onChange={(e) => setMovementFilter(e.target.value)}
-              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
             >
               <option value="ALL">All Movement Status</option>
               <option value="IN_PROGRESS">🟡 In-Progress WIP (Floor Runs)</option>
+              <option value="FREE_AVAILABLE">🟢 Free Available Stock (&gt; 0)</option>
               <option value="LAB_REJECTED">❌ Lab Rejected / QC Discrepancies</option>
               <option value="WITH_MOVEMENT">With Movement In Period</option>
               <option value="IN_ONLY">Inward Only (IN &gt; 0)</option>
@@ -1387,38 +1819,43 @@ export default function RMINOUTStockPage() {
             </select>
           </div>
 
-          {/* 4. Sorting Dropdown */}
+          {/* 5. Sorting Selector Dropdown */}
           <div className="flex items-center gap-1.5">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
             >
-              <option value="code_asc">Code (RM-00001)</option>
+              <option value="code_asc">Code (RM-00001 First)</option>
               <option value="code_desc">Code (Descending)</option>
               <option value="name_asc">Name (A → Z)</option>
               <option value="name_desc">Name (Z → A)</option>
+              <option value="category_asc">Category (A → Z)</option>
               <option value="stock_desc">In-Hand Stock (High → Low)</option>
               <option value="stock_asc">In-Hand Stock (Low → High)</option>
               <option value="wip_desc">In-Progress WIP (High → Low)</option>
+              <option value="free_desc">Free Stock (High → Low)</option>
               <option value="in_desc">Period IN (High → Low)</option>
               <option value="out_desc">Period OUT (High → Low)</option>
               <option value="net_desc">Net Movement (+ to -)</option>
               <option value="valuation_desc">Valuation (High → Low)</option>
+              <option value="rate_desc">Standard Rate (High → Low)</option>
+              <option value="qc_desc">QC Rejections First</option>
             </select>
 
-            {(searchTerm || categoryFilter !== 'ALL' || movementFilter !== 'ALL') && (
+            {(searchTerm || categoryFilter !== 'ALL' || codeFilter !== 'ALL' || movementFilter !== 'ALL') && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setSearchTerm('');
                   setCategoryFilter('ALL');
+                  setCodeFilter('ALL');
                   setMovementFilter('ALL');
                   setSortBy('code_asc');
                 }}
-                className="h-8 px-2 text-xs border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
-                title="Reset Filters"
+                className="h-8 px-2 text-xs border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer"
+                title="Reset all filters"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
               </Button>
@@ -1426,7 +1863,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Status Pills Bar */}
+        {/* Status & Active Filter Pills Bar */}
         <div className="flex items-center justify-between flex-wrap gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
           <div className="flex items-center gap-2 flex-wrap">
             <span>Showing:</span>
@@ -1437,62 +1874,169 @@ export default function RMINOUTStockPage() {
             <span className="font-semibold text-emerald-600 dark:text-emerald-400 capitalize">
               {period.replace('_', ' ')}
             </span>
+            {categoryFilter !== 'ALL' && (
+              <span className="px-2 py-0.2 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-bold text-[10px]">
+                Cat: {categoryFilter}
+              </span>
+            )}
+            {codeFilter !== 'ALL' && (
+              <span className="px-2 py-0.2 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 font-bold text-[10px]">
+                Code: {codeFilter}
+              </span>
+            )}
             {movementFilter === 'IN_PROGRESS' && (
               <span className="px-2 py-0.2 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold text-[10px]">
-                🟡 Filtered: In-Progress WIP Only
+                🟡 In-Progress WIP Floor
+              </span>
+            )}
+            {movementFilter === 'FREE_AVAILABLE' && (
+              <span className="px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 font-bold text-[10px]">
+                🟢 Free Available Stock
               </span>
             )}
             {movementFilter === 'LAB_REJECTED' && (
               <span className="px-2 py-0.2 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 font-bold text-[10px]">
-                ❌ Filtered: Lab Rejections Only
+                ❌ Lab Rejections Only
               </span>
             )}
           </div>
 
           <div className="text-[10px] text-slate-400">
-            Refreshed: {lastRefreshed.toLocaleTimeString()}
+            Auto-Refreshed: {lastRefreshed.toLocaleTimeString()}
           </div>
         </div>
       </div>
 
       {/* ── MAIN CONTENT AREA ── */}
       {viewMode === 'material' ? (
-        /* MODE 1: MATERIAL-WISE SUMMARY TABLE WITH EXPANDABLE IN-ROW LEDGER */
+        /* MODE 1: MATERIAL-WISE SUMMARY TABLE WITH COLUMN SORTING */
         <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
-          {/* Desktop Table View */}
+          {/* Desktop Table View with Clickable Column Sorting */}
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
                   <TableHead className="w-8 text-center"></TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[100px]">
-                    Code
+
+                  {/* 1. Code Column Header */}
+                  <TableHead className="min-w-[100px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('code')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                      title="Sort by RM Code"
+                    >
+                      <span>Code</span>
+                      {renderSortIndicator('code')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[190px]">
-                    Raw Material Name
+
+                  {/* 2. Raw Material Name Header */}
+                  <TableHead className="min-w-[190px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('name')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                      title="Sort by Raw Material Name"
+                    >
+                      <span>Raw Material Name</span>
+                      {renderSortIndicator('name')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[120px]">
-                    Category & UOM
+
+                  {/* 3. Category & UOM Header */}
+                  <TableHead className="min-w-[120px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('category')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                      title="Sort by Category"
+                    >
+                      <span>Category & UOM</span>
+                      {renderSortIndicator('category')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[140px]">
-                    Current Stock & WIP
+
+                  {/* 4. Current Stock & WIP Header */}
+                  <TableHead className="text-right min-w-[140px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('stock')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                      title="Sort by Current Stock"
+                    >
+                      <span>Current Stock & WIP</span>
+                      {renderSortIndicator('stock')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[115px]">
-                    Period IN
+
+                  {/* 5. Period IN Header */}
+                  <TableHead className="text-right min-w-[115px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('in')}
+                      className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 transition-colors cursor-pointer select-none ml-auto"
+                      title="Sort by Period Inward"
+                    >
+                      <span>Period IN</span>
+                      {renderSortIndicator('in')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[115px]">
-                    Period OUT
+
+                  {/* 6. Period OUT Header */}
+                  <TableHead className="text-right min-w-[115px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('out')}
+                      className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-800 transition-colors cursor-pointer select-none ml-auto"
+                      title="Sort by Period Outward"
+                    >
+                      <span>Period OUT</span>
+                      {renderSortIndicator('out')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[105px]">
-                    Net Flow
+
+                  {/* 7. Net Flow Header */}
+                  <TableHead className="text-right min-w-[105px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('net')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                      title="Sort by Net Movement"
+                    >
+                      <span>Net Flow</span>
+                      {renderSortIndicator('net')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[115px]">
-                    Valuation
+
+                  {/* 8. Valuation Header */}
+                  <TableHead className="text-right min-w-[115px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('valuation')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                      title="Sort by Valuation"
+                    >
+                      <span>Valuation</span>
+                      {renderSortIndicator('valuation')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[100px]">
-                    QC Status
+
+                  {/* 9. QC Status Header */}
+                  <TableHead className="text-center min-w-[100px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('qc')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none mx-auto"
+                      title="Sort by QC Status / Rejections"
+                    >
+                      <span>QC Status</span>
+                      {renderSortIndicator('qc')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[130px]">
+
+                  {/* 10. Actions Header */}
+                  <TableHead className="text-center min-w-[130px] font-semibold text-slate-700 dark:text-slate-200">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -1538,7 +2082,7 @@ export default function RMINOUTStockPage() {
                           <TableCell className={`text-center ${pyClass} px-1`}>
                             <button
                               onClick={() => toggleExpandRow(mat.id)}
-                              className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                               title={isExpanded ? 'Collapse movements' : 'Expand date-wise in/out breakdown'}
                             >
                               {isLoadingHistory ? (
@@ -1555,7 +2099,7 @@ export default function RMINOUTStockPage() {
                           <TableCell className={`font-mono font-semibold ${pyClass}`}>
                             <button
                               onClick={() => handleOpenHistory(mat.id)}
-                              className="text-emerald-700 dark:text-emerald-400 hover:underline hover:text-emerald-800 text-left font-bold"
+                              className="text-emerald-700 dark:text-emerald-400 hover:underline hover:text-emerald-800 text-left font-bold cursor-pointer"
                               title="Click to view full lifecycle audit drawer"
                             >
                               {mat.code || '—'}
@@ -1583,7 +2127,7 @@ export default function RMINOUTStockPage() {
                             {mat.poReferenceNo && (
                               <button
                                 onClick={() => handleRedirectToPO(mat.latestPoId, mat.poReferenceNo)}
-                                className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 mt-0.5"
+                                className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 mt-0.5 cursor-pointer"
                                 title="Redirect to Purchase Order"
                               >
                                 <span>PO: {mat.poReferenceNo}</span>
@@ -1650,7 +2194,7 @@ export default function RMINOUTStockPage() {
                                   if (mat.lastIn.poId) handleRedirectToPO(mat.lastIn.poId, mat.lastIn.ref);
                                   else if (mat.lastIn.grnId) handleRedirectToGRN(mat.lastIn.grnId, mat.lastIn.ref);
                                 }}
-                                className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 hover:underline block text-right truncate max-w-[120px] ml-auto"
+                                className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 hover:underline block text-right truncate max-w-[120px] ml-auto cursor-pointer"
                                 title={`Last In: ${mat.lastIn.party} on ${formatDate(mat.lastIn.date)}`}
                               >
                                 {mat.lastIn.ref}
@@ -1721,7 +2265,7 @@ export default function RMINOUTStockPage() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleOpenHistory(mat.id)}
-                                className="h-6 px-1.5 text-[10px] border-slate-300 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50"
+                                className="h-6 px-1.5 text-[10px] border-slate-300 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 cursor-pointer"
                                 title="Open full history drawer"
                               >
                                 <Eye className="w-2.5 h-2.5 mr-0.5" />
@@ -1732,7 +2276,7 @@ export default function RMINOUTStockPage() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleOpenStockQuery(mat.id)}
-                                className="h-6 px-1.5 text-[10px] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                                className="h-6 px-1.5 text-[10px] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 cursor-pointer"
                                 title="Instant stock query"
                               >
                                 <span>Query</span>
@@ -1769,7 +2313,7 @@ export default function RMINOUTStockPage() {
                                         size="sm"
                                         variant="outline"
                                         onClick={() => handleRedirectToPO(mat.latestPoId, mat.poReferenceNo)}
-                                        className="h-6 text-[10px] border-blue-200 text-blue-600"
+                                        className="h-6 text-[10px] border-blue-200 text-blue-600 cursor-pointer"
                                       >
                                         <ExternalLink className="w-2.5 h-2.5 mr-1" />
                                         PO ({mat.poReferenceNo})
@@ -1779,7 +2323,7 @@ export default function RMINOUTStockPage() {
                                       size="sm"
                                       variant="outline"
                                       onClick={() => handleOpenHistory(mat.id)}
-                                      className="h-6 text-[10px] border-emerald-300 text-emerald-600"
+                                      className="h-6 text-[10px] border-emerald-300 text-emerald-600 cursor-pointer"
                                     >
                                       Lifecycle Audit
                                     </Button>
@@ -1891,7 +2435,7 @@ export default function RMINOUTStockPage() {
                                                 {tx.poId ? (
                                                   <button
                                                     onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
-                                                    className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold"
+                                                    className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold cursor-pointer"
                                                   >
                                                     <span>{tx.referenceNo}</span>
                                                     <ExternalLink className="w-2 h-2" />
@@ -1899,7 +2443,7 @@ export default function RMINOUTStockPage() {
                                                 ) : tx.grnId ? (
                                                   <button
                                                     onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)}
-                                                    className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
+                                                    className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold cursor-pointer"
                                                   >
                                                     <span>{tx.referenceNo}</span>
                                                     <ExternalLink className="w-2 h-2" />
@@ -1907,7 +2451,7 @@ export default function RMINOUTStockPage() {
                                                 ) : tx.batchId || isInProgress ? (
                                                   <button
                                                     onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                                                    className={`hover:underline flex items-center gap-0.5 font-semibold ${
+                                                    className={`hover:underline flex items-center gap-0.5 font-semibold cursor-pointer ${
                                                       isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
                                                     }`}
                                                   >
@@ -2001,7 +2545,7 @@ export default function RMINOUTStockPage() {
                         <div className="flex items-center gap-1 flex-wrap">
                           <button
                             onClick={() => handleOpenHistory(mat.id)}
-                            className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
+                            className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
                           >
                             {mat.code}
                           </button>
@@ -2068,7 +2612,7 @@ export default function RMINOUTStockPage() {
                     <div className="flex items-center justify-between gap-1 pt-1">
                       <button
                         onClick={() => toggleExpandRow(mat.id)}
-                        className="text-xs flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium"
+                        className="text-xs flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium cursor-pointer"
                       >
                         {isLoadingHistory ? (
                           <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
@@ -2085,7 +2629,7 @@ export default function RMINOUTStockPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleOpenHistory(mat.id)}
-                          className="h-6 px-1.5 text-[10px]"
+                          className="h-6 px-1.5 text-[10px] cursor-pointer"
                         >
                           Audit
                         </Button>
@@ -2093,7 +2637,7 @@ export default function RMINOUTStockPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => handleOpenStockQuery(mat.id)}
-                          className="h-6 px-1 text-[10px]"
+                          className="h-6 px-1 text-[10px] cursor-pointer"
                         >
                           Query
                         </Button>
@@ -2159,67 +2703,199 @@ export default function RMINOUTStockPage() {
             )}
           </div>
 
-          {/* Pagination Controls */}
-          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-1.5">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalMaterialPages}
-              totalRecords={filteredMaterials.length}
-              pageSize={itemsPerPage}
-              onPageChange={(page) => setCurrentPage(page)}
-              onPageSizeChange={(newSize) => {
-                setItemsPerPage(newSize);
-                setCurrentPage(1);
-              }}
-            />
+          {/* Pagination Controls with Page Size Dropdown (Just like rm/stock) */}
+          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2 px-3 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="font-medium text-[11px]">Per page:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="h-7 px-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+
+            <div className="flex-1 w-full sm:w-auto">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalMaterialPages}
+                totalRecords={filteredMaterials.length}
+                pageSize={itemsPerPage}
+                onPageChange={(page) => setCurrentPage(page)}
+              />
+            </div>
           </div>
         </Card>
       ) : (
-        /* MODE 2: GLOBAL DATE-WISE TRANSACTION STREAM LEDGER */
+        /* MODE 2: GLOBAL DATE-WISE TRANSACTION STREAM LEDGER WITH COLUMN SORTING */
         <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[110px]">
-                    Date & Time
+                  {/* Date & Time Header */}
+                  <TableHead className="min-w-[110px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('date')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>Date & Time</span>
+                      {renderSortIndicator('date')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[100px]">
-                    Flow & Status
+
+                  {/* Flow & Status Header */}
+                  <TableHead className="text-center min-w-[100px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('flow')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none mx-auto"
+                    >
+                      <span>Flow & Status</span>
+                      {renderSortIndicator('flow')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[140px]">
-                    Transaction Type
+
+                  {/* Transaction Type Header */}
+                  <TableHead className="min-w-[140px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('type')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>Transaction Type</span>
+                      {renderSortIndicator('type')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[90px]">
-                    RM Code
+
+                  {/* RM Code Header */}
+                  <TableHead className="min-w-[90px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('code')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>RM Code</span>
+                      {renderSortIndicator('code')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[170px]">
-                    Raw Material Name
+
+                  {/* Raw Material Name Header */}
+                  <TableHead className="min-w-[170px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('name')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>Raw Material Name</span>
+                      {renderSortIndicator('name')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[115px]">
-                    Document Ref
+
+                  {/* Document Ref Header */}
+                  <TableHead className="min-w-[115px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('ref')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>Document Ref</span>
+                      {renderSortIndicator('ref')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[90px]">
-                    Batch / Lot
+
+                  {/* Batch / Lot Header */}
+                  <TableHead className="min-w-[90px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('batch')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>Batch / Lot</span>
+                      {renderSortIndicator('batch')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[85px]">
-                    Inward (IN)
+
+                  {/* Inward (IN) Header */}
+                  <TableHead className="text-right min-w-[85px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('in')}
+                      className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 transition-colors cursor-pointer select-none ml-auto"
+                    >
+                      <span>Inward (IN)</span>
+                      {renderSortIndicator('in')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[85px]">
-                    Outward (OUT)
+
+                  {/* Outward (OUT) Header */}
+                  <TableHead className="text-right min-w-[85px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('out')}
+                      className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-800 transition-colors cursor-pointer select-none ml-auto"
+                    >
+                      <span>Outward (OUT)</span>
+                      {renderSortIndicator('out')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[85px]">
-                    Rate (₹)
+
+                  {/* Rate Header */}
+                  <TableHead className="text-right min-w-[85px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('rate')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                    >
+                      <span>Rate (₹)</span>
+                      {renderSortIndicator('rate')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[85px]">
-                    Amount (₹)
+
+                  {/* Amount Header */}
+                  <TableHead className="text-right min-w-[85px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('amount')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                    >
+                      <span>Amount (₹)</span>
+                      {renderSortIndicator('amount')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[95px]">
-                    QC Status
+
+                  {/* QC Status Header */}
+                  <TableHead className="text-center min-w-[95px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('qc')}
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none mx-auto"
+                    >
+                      <span>QC Status</span>
+                      {renderSortIndicator('qc')}
+                    </button>
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[150px]">
-                    Party / Notes
+
+                  {/* Party / Notes Header */}
+                  <TableHead className="min-w-[150px]">
+                    <button
+                      type="button"
+                      onClick={() => handleColumnSort('party')}
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                    >
+                      <span>Party / Notes</span>
+                      {renderSortIndicator('party')}
+                    </button>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -2290,7 +2966,7 @@ export default function RMINOUTStockPage() {
                         <TableCell className={`font-mono font-semibold ${pyClass}`}>
                           <button
                             onClick={() => handleOpenHistory(tx.rawMaterialId)}
-                            className="text-emerald-700 dark:text-emerald-400 hover:underline font-bold"
+                            className="text-emerald-700 dark:text-emerald-400 hover:underline font-bold cursor-pointer"
                           >
                             {tx.rawMaterialCode}
                           </button>
@@ -2307,7 +2983,7 @@ export default function RMINOUTStockPage() {
                           {tx.poId ? (
                             <button
                               onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
-                              className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold"
+                              className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold cursor-pointer"
                             >
                               <span>{tx.referenceNo}</span>
                               <ExternalLink className="w-2.5 h-2.5" />
@@ -2315,7 +2991,7 @@ export default function RMINOUTStockPage() {
                           ) : tx.grnId ? (
                             <button
                               onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)}
-                              className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
+                              className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold cursor-pointer"
                             >
                               <span>{tx.referenceNo}</span>
                               <ExternalLink className="w-2.5 h-2.5" />
@@ -2323,7 +2999,7 @@ export default function RMINOUTStockPage() {
                           ) : tx.batchId || isInProgress ? (
                             <button
                               onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                              className={`hover:underline flex items-center gap-0.5 font-semibold ${
+                              className={`hover:underline flex items-center gap-0.5 font-semibold cursor-pointer ${
                                 isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
                               }`}
                             >
@@ -2444,19 +3120,35 @@ export default function RMINOUTStockPage() {
             )}
           </div>
 
-          {/* Pagination Controls */}
-          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-1.5">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalTransactionPages}
-              totalRecords={filteredTransactions.length}
-              pageSize={itemsPerPage}
-              onPageChange={(page) => setCurrentPage(page)}
-              onPageSizeChange={(newSize) => {
-                setItemsPerPage(newSize);
-                setCurrentPage(1);
-              }}
-            />
+          {/* Pagination Controls with Page Size Dropdown */}
+          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2 px-3 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="font-medium text-[11px]">Per page:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="h-7 px-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+
+            <div className="flex-1 w-full sm:w-auto">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalTransactionPages}
+                totalRecords={filteredTransactions.length}
+                pageSize={itemsPerPage}
+                onPageChange={(page) => setCurrentPage(page)}
+              />
+            </div>
           </div>
         </Card>
       )}
@@ -2474,7 +3166,7 @@ export default function RMINOUTStockPage() {
               </div>
               <button
                 onClick={() => setIsExportModalOpen(false)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2560,7 +3252,7 @@ export default function RMINOUTStockPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsExportModalOpen(false)}
-                className="text-xs h-8"
+                className="text-xs h-8 cursor-pointer"
               >
                 Cancel
               </Button>
