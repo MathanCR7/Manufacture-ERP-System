@@ -3734,9 +3734,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       grnItems,
       usages,
       adjustments,
-      wasteItems,
-      returns,
-      resaleItems
+      wasteItems
     ] = await Promise.all([
       prisma.rawMaterial.findMany({
         include: { category: true, uoms: true },
@@ -3744,21 +3742,17 @@ exports.getRmInOutStock = async (req, res, next) => {
       }),
       prisma.rawMaterialPO.findMany({
         where: { status: { not: 'DELETED' } },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          referenceNo: true,
-          rmId: true,
-          name: true,
-          quantity: true,
-          amount: true,
-          subtotal: true,
-          grandTotal: true,
-          items: true,
-          createdAt: true,
-          status: true,
-          supplier: { select: { id: true, name: true } }
-        }
+        include: {
+          supplier: { select: { id: true, name: true, phone: true } },
+          user: { select: { id: true, name: true } },
+          grnReceives: {
+            include: {
+              items: true,
+              receiver: { select: { id: true, name: true } }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
       }),
       prisma.gRNReceiveItem.findMany({
         include: {
@@ -3776,7 +3770,7 @@ exports.getRmInOutStock = async (req, res, next) => {
             }
           }
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { id: 'desc' }
       }),
       prisma.productionBatchRMUsage.findMany({
         include: {
@@ -3789,11 +3783,12 @@ exports.getRmInOutStock = async (req, res, next) => {
               cancelledAt: true,
               startDate: true,
               createdAt: true,
-              product: { select: { id: true, name: true, code: true } }
+              startedBy: true,
+              product: { select: { id: true, name: true, sku: true } }
             }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
+          },
+          rawMaterial: true
+        }
       }),
       prisma.rMStockAdjustment.findMany({
         include: {
@@ -3814,103 +3809,20 @@ exports.getRmInOutStock = async (req, res, next) => {
           }
         },
         orderBy: { createdAt: 'desc' }
-      }),
-      prisma.purchaseReturn.findMany({
-        include: {
-          po: {
-            select: {
-              id: true,
-              referenceNo: true,
-              supplier: { select: { id: true, name: true } }
-            }
-          },
-          creator: { select: { id: true, name: true } }
-        },
-        orderBy: { returnDate: 'desc' }
-      }),
-      prisma.customerOrderItem.findMany({
-        where: {
-          rawMaterialId: { not: null },
-          order: { deletedAt: null }
-        },
-        include: {
-          order: {
-            select: {
-              id: true,
-              docNo: true,
-              referenceNo: true,
-              type: true,
-              status: true,
-              customer: { select: { id: true, name: true } },
-              createdAt: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
       })
     ]);
 
-    // Map each raw material to its latest PO rate for valuation
-    const rmRateMap = new Map();
-    for (const rm of rms) {
-      let matchedPo = null;
-      let matchedItem = null;
-      for (const po of pos) {
-        if (Array.isArray(po.items)) {
-          const it = po.items.find(i => {
-            if (i.id === rm.id || i.rmId === rm.code || i.rmId === rm.id || i.id === rm.code) return true;
-            if (!i.id && !i.rmId && i.name && i.name.trim().toLowerCase() === rm.name.trim().toLowerCase()) {
-              const itemCat = (i.category || i.categoryName || '').trim().toLowerCase();
-              const rmCat = (rm.category?.name || '').trim().toLowerCase();
-              return !itemCat || !rmCat || itemCat === rmCat;
-            }
-            return false;
-          });
-          if (it) {
-            matchedPo = po;
-            matchedItem = it;
-            break;
-          }
-        } else if (po.rmId === rm.code || po.rmId === rm.id) {
-          matchedPo = po;
-          break;
-        }
-      }
-
-      let rate = Number(rm.ratePerUnit || 0);
-      let poRef = null;
-      let poId = null;
-      if (matchedPo) {
-        poRef = matchedPo.referenceNo;
-        poId = matchedPo.id;
-        if (matchedItem) {
-          const poLineQty = Number(matchedItem.quantity || 0);
-          const unitPrice = Number(matchedItem.unitPrice || 0);
-          const gstApplicable = matchedItem.gstApplicable !== false;
-          const gstPercentage = gstApplicable ? Number(matchedItem.gstPercentage || 0) : 0;
-          rate = gstApplicable ? unitPrice * (1 + gstPercentage / 100) : unitPrice;
-        } else if (Number(matchedPo.quantity || 0) > 0) {
-          rate = (Number(matchedPo.grandTotal) || Number(matchedPo.amount || 0)) / Number(matchedPo.quantity);
-        }
-      }
-      rmRateMap.set(rm.id, {
-        rate: Math.round(rate * 100) / 100,
-        poRef,
-        poId
-      });
-    }
-
-    // Material index helpers
-    const idToRm = new Map(rms.map(r => [r.id, r]));
-    const codeToRm = new Map(rms.map(r => [r.code, r]));
-    const findRm = (rmId) => {
-      if (!rmId) return null;
-      return idToRm.get(rmId) || codeToRm.get(rmId) || null;
-    };
-
-    // Store categorized transactions per RM
+    // Build Fast Lookup Maps for Raw Materials (ID, Code, Name)
+    const rmById = new Map();
+    const rmByCode = new Map();
+    const rmByName = new Map();
     const rmTxMap = new Map();
-    for (const rm of rms) {
+
+    rms.forEach(rm => {
+      rmById.set(rm.id, rm);
+      if (rm.code) rmByCode.set(rm.code.trim().toUpperCase(), rm);
+      if (rm.name) rmByName.set(rm.name.trim().toLowerCase(), rm);
+
       rmTxMap.set(rm.id, {
         periodIn: 0,
         periodOut: 0,
@@ -3920,22 +3832,71 @@ exports.getRmInOutStock = async (req, res, next) => {
         lastIn: null,
         lastOut: null
       });
+    });
+
+    const findRm = (idOrCodeOrName) => {
+      if (!idOrCodeOrName) return null;
+      const str = String(idOrCodeOrName).trim();
+      if (rmById.has(str)) return rmById.get(str);
+      if (rmByCode.has(str.toUpperCase())) return rmByCode.get(str.toUpperCase());
+      if (rmByName.has(str.toLowerCase())) return rmByName.get(str.toLowerCase());
+      return null;
+    };
+
+    // Calculate Latest PO Rates for Stock Valuation
+    const rmRateMap = new Map();
+    for (const po of pos) {
+      if (Array.isArray(po.items) && po.items.length > 0) {
+        for (const item of po.items) {
+          const matched = findRm(item.id) || findRm(item.rmId) || findRm(item.name);
+          if (matched && !rmRateMap.has(matched.id)) {
+            const unitPrice = Number(item.unitPrice || 0);
+            const gstApplicable = item.gstApplicable !== false;
+            const gstPct = gstApplicable ? Number(item.gstPercentage || 0) : 0;
+            const rate = gstApplicable ? unitPrice * (1 + gstPct / 100) : unitPrice;
+            if (rate > 0) {
+              rmRateMap.set(matched.id, {
+                rate: Math.round(rate * 100) / 100,
+                poRef: po.referenceNo,
+                poId: po.id
+              });
+            }
+          }
+        }
+      } else {
+        const matched = findRm(po.rmId) || findRm(po.name);
+        if (matched && !rmRateMap.has(matched.id)) {
+          const qty = Number(po.quantity || 0);
+          const total = Number(po.grandTotal || po.amount || 0);
+          const rate = qty > 0 ? total / qty : 0;
+          if (rate > 0) {
+            rmRateMap.set(matched.id, {
+              rate: Math.round(rate * 100) / 100,
+              poRef: po.referenceNo,
+              poId: po.id
+            });
+          }
+        }
+      }
     }
 
     const allTransactions = [];
 
-    // 1. Process GRN Receipts (IN)
+    // 1. Process GRN Receipts (Warehouse Physical Inward Receipts)
     for (const item of grnItems) {
-      const rm = findRm(item.rmId);
+      const rm = findRm(item.rmId) || findRm(item.rmName);
       if (!rm) continue;
+
       const target = rmTxMap.get(rm.id);
       const date = item.grn?.receivedDate || item.createdAt;
-      const qty = Number(item.actualReceivedQty || 0);
+      const qty = Number(item.actualReceivedQty || item.expectedQty || 0);
       const isPeriod = inRange(date);
-      const batchNo = item.grn?.inventoryBatches?.[0]?.batchNumber || '—';
-      const supplierName = item.grn?.po?.supplier?.name || 'Supplier Receipt';
-      const poRef = item.grn?.po?.referenceNo || '—';
       const grnRef = item.grn?.referenceNo || 'GRN';
+      const poRef = item.grn?.po?.referenceNo || 'PO';
+      const poId = item.grn?.po?.id || null;
+      const grnId = item.grn?.id || null;
+      const supplierName = item.grn?.po?.supplier?.name || 'Vendor Receipt';
+      const batchNo = item.batchNumber || item.grn?.inventoryBatches?.[0]?.batchNumber || '—';
 
       target.lifetimeIn += qty;
 
@@ -3953,16 +3914,16 @@ exports.getRmInOutStock = async (req, res, next) => {
         quantity: qty,
         referenceNo: grnRef,
         poReferenceNo: poRef,
-        poId: item.grn?.po?.id || null,
-        grnId: item.grn?.id || null,
+        poId,
+        grnId,
         batchNumber: batchNo,
-        partyName: supplierName,
+        partyName: `Vendor: ${supplierName}`,
         user: item.grn?.receiver?.name || 'Store Receiver',
-        notes: item.grn?.discrepancyNotes || `Challan: ${item.grn?.challanNumber || 'N/A'}`
+        notes: `Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${item.grn?.invoiceNumber || 'N/A'}`
       };
 
       if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId: tx.poId, grnId: tx.grnId };
+        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId };
       }
 
       if (isPeriod) {
@@ -3972,102 +3933,81 @@ exports.getRmInOutStock = async (req, res, next) => {
       }
     }
 
-    // 2. Process RM Stock Adjustments (ADDITION = IN, SUBTRACTION = OUT)
-    for (const adj of adjustments) {
-      const rm = idToRm.get(adj.rawMaterialId);
-      if (!rm) continue;
-      const target = rmTxMap.get(rm.id);
-      const date = adj.createdAt;
-      const qty = Number(adj.quantity || 0);
-      const isPeriod = inRange(date);
-      const isAdd = adj.type === 'ADDITION';
-      const adjRef = `ADJ-${adj.id.slice(-6).toUpperCase()}`;
-      const userName = adj.user?.name || 'Supervisor';
+    // 2. Process Purchase Orders without GRN (Procured & In-Transit Purchases)
+    for (const po of pos) {
+      const hasGRN = Array.isArray(po.grnReceives) && po.grnReceives.length > 0;
+      if (!hasGRN) {
+        const itemsList = Array.isArray(po.items) && po.items.length > 0
+          ? po.items
+          : [{ id: po.rmId, name: po.name, quantity: po.quantity }];
 
-      if (isAdd) {
-        target.lifetimeIn += qty;
-        const tx = {
-          id: `adj-${adj.id}`,
-          rawMaterialId: rm.id,
-          rawMaterialCode: rm.code,
-          rawMaterialName: rm.name,
-          category: rm.category?.name || 'Uncategorised',
-          uom: rm.unitId,
-          date,
-          flow: 'IN',
-          type: 'ADJUSTMENT_ADD',
-          typeLabel: 'Stock Adjustment (+)',
-          quantity: qty,
-          referenceNo: adjRef,
-          poReferenceNo: null,
-          poId: null,
-          grnId: null,
-          batchNumber: 'Manual Correction',
-          partyName: `Adjustment: ${adj.notes || 'Addition'}`,
-          user: userName,
-          notes: adj.notes || 'Inventory Audit Correction'
-        };
-        if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-          target.lastIn = { date, ref: adjRef, qty, party: 'Adjustment (+)' };
-        }
-        if (isPeriod) {
-          target.periodIn += qty;
-          target.transactions.push(tx);
-          allTransactions.push(tx);
-        }
-      } else {
-        target.lifetimeOut += qty;
-        const tx = {
-          id: `adj-${adj.id}`,
-          rawMaterialId: rm.id,
-          rawMaterialCode: rm.code,
-          rawMaterialName: rm.name,
-          category: rm.category?.name || 'Uncategorised',
-          uom: rm.unitId,
-          date,
-          flow: 'OUT',
-          type: 'ADJUSTMENT_SUB',
-          typeLabel: 'Stock Adjustment (-)',
-          quantity: qty,
-          referenceNo: adjRef,
-          poReferenceNo: null,
-          poId: null,
-          grnId: null,
-          batchNumber: 'Manual Correction',
-          partyName: `Adjustment: ${adj.notes || 'Deduction'}`,
-          user: userName,
-          notes: adj.notes || 'Inventory Audit Correction'
-        };
-        if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-          target.lastOut = { date, ref: adjRef, qty, party: 'Adjustment (-)' };
-        }
-        if (isPeriod) {
-          target.periodOut += qty;
-          target.transactions.push(tx);
-          allTransactions.push(tx);
+        for (const pItem of itemsList) {
+          const rm = findRm(pItem.id) || findRm(pItem.rmId) || findRm(pItem.name) || findRm(po.rmId) || findRm(po.name);
+          if (!rm) continue;
+
+          const target = rmTxMap.get(rm.id);
+          const date = po.createdAt;
+          const qty = Number(pItem.quantity || po.quantity || 0);
+          const isPeriod = inRange(date);
+          const poRef = po.referenceNo || 'PO';
+          const supplierName = po.supplier?.name || 'Vendor';
+
+          target.lifetimeIn += qty;
+
+          const tx = {
+            id: `po-${po.id}-${pItem.id || 'single'}`,
+            rawMaterialId: rm.id,
+            rawMaterialCode: rm.code,
+            rawMaterialName: rm.name,
+            category: rm.category?.name || 'Uncategorised',
+            uom: rm.unitId,
+            date,
+            flow: 'IN',
+            type: 'PO_PROCUREMENT',
+            typeLabel: `PO Inward (${po.status})`,
+            quantity: qty,
+            referenceNo: poRef,
+            poReferenceNo: poRef,
+            poId: po.id,
+            grnId: null,
+            batchNumber: po.mfgBatchNo || 'PO Ordered',
+            partyName: `Vendor: ${supplierName}`,
+            user: po.user?.name || 'Purchase Staff',
+            notes: `Status: ${po.status} | Total: ₹${po.grandTotal || po.amount || 0}`
+          };
+
+          if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
+            target.lastIn = { date, ref: poRef, qty, party: supplierName, poId: po.id };
+          }
+
+          if (isPeriod) {
+            target.periodIn += qty;
+            target.transactions.push(tx);
+            allTransactions.push(tx);
+          }
         }
       }
     }
 
-    // 3. Process Production Usages (OUT)
+    // 3. Process Production Usages (Manufacturing Consumption - OUT)
     for (const u of usages) {
-      const rm = findRm(u.rmId);
+      const rm = findRm(u.rmId) || findRm(u.rawMaterial?.id) || findRm(u.rawMaterial?.code) || findRm(u.rawMaterial?.name);
       if (!rm) continue;
-      const target = rmTxMap.get(rm.id);
 
+      const target = rmTxMap.get(rm.id);
       const isCancelled = Boolean(
         u.batch?.cancelledAt ||
         String(u.batch?.status || '').toLowerCase() === 'cancelled' ||
         String(u.status || '').toLowerCase() === 'cancelled'
       );
-      if (isCancelled) continue; // Cancelled production runs don't deduct stock
+      if (isCancelled) continue;
 
-      const date = u.batch?.startDate || u.batch?.createdAt || u.createdAt;
+      const date = u.batch?.startDate || u.batch?.createdAt || new Date();
       const qty = Number(u.actualUsedQty || u.requiredQty || 0);
       const isPeriod = inRange(date);
       const batchRef = u.batch?.batchNo || u.batch?.referenceNo || 'Prod Batch';
-      const productName = u.batch?.product?.name || 'Production Run';
-      const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'RM Batch';
+      const productName = u.batch?.product?.name || 'Manufactured Item';
+      const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
 
       target.lifetimeOut += qty;
 
@@ -4084,13 +4024,13 @@ exports.getRmInOutStock = async (req, res, next) => {
         typeLabel: 'Production Consumption',
         quantity: qty,
         referenceNo: batchRef,
-        batchId: u.batchId || null,
+        productionBatchId: u.batchId || u.batch?.id || null,
         poReferenceNo: null,
         poId: null,
         grnId: null,
         batchNumber: rmBatchTaken,
         partyName: `Production: ${productName}`,
-        user: 'Production Team',
+        user: u.batch?.startedBy || 'Operator',
         notes: `Product: ${productName} (Status: ${u.batch?.status || 'Completed'})`
       };
 
@@ -4105,57 +4045,94 @@ exports.getRmInOutStock = async (req, res, next) => {
       }
     }
 
-    // 4. Process Resale / Sales Dispatches (OUT)
-    for (const item of resaleItems) {
-      const rm = idToRm.get(item.rawMaterialId);
+    // 4. Process RM Stock Adjustments (ADDITION = IN, SUBTRACTION = OUT)
+    for (const adj of adjustments) {
+      const rm = findRm(adj.rawMaterialId);
       if (!rm) continue;
+
       const target = rmTxMap.get(rm.id);
-      const date = item.order?.createdAt;
-      const qty = Number(item.quantity || 0);
+      const date = adj.createdAt;
+      const qty = Number(adj.quantity || 0);
       const isPeriod = inRange(date);
-      const docNo = item.order?.docNo || item.order?.referenceNo || 'SO';
-      const customerName = item.order?.customer?.name || 'Customer Dispatch';
+      const isAdd = adj.type === 'ADDITION' || adj.type === 'ADD';
+      const absQty = Math.abs(qty);
+      const adjRef = `ADJ-${adj.id.slice(-6).toUpperCase()}`;
+      const userName = adj.user?.name || 'Supervisor';
 
-      target.lifetimeOut += qty;
+      if (isAdd) {
+        target.lifetimeIn += absQty;
+        const tx = {
+          id: `adj-${adj.id}`,
+          rawMaterialId: rm.id,
+          rawMaterialCode: rm.code,
+          rawMaterialName: rm.name,
+          category: rm.category?.name || 'Uncategorised',
+          uom: rm.unitId,
+          date,
+          flow: 'IN',
+          type: 'ADJUSTMENT_ADD',
+          typeLabel: 'Stock Adjustment (+)',
+          quantity: absQty,
+          referenceNo: adjRef,
+          poReferenceNo: null,
+          poId: null,
+          grnId: null,
+          batchNumber: 'Manual Correction',
+          partyName: `Adjustment: ${adj.notes || 'Addition'}`,
+          user: userName,
+          notes: adj.notes || 'Inventory Audit Correction'
+        };
 
-      const tx = {
-        id: `resale-${item.id}`,
-        rawMaterialId: rm.id,
-        rawMaterialCode: rm.code,
-        rawMaterialName: rm.name,
-        category: rm.category?.name || 'Uncategorised',
-        uom: rm.unitId,
-        date,
-        flow: 'OUT',
-        type: 'RESALE',
-        typeLabel: 'Direct Resale / Dispatch',
-        quantity: qty,
-        referenceNo: docNo,
-        orderId: item.orderId || null,
-        poReferenceNo: null,
-        poId: null,
-        grnId: null,
-        batchNumber: item.batchNo || 'Direct Stock',
-        partyName: `Customer: ${customerName}`,
-        user: 'Sales Team',
-        notes: `Document: ${docNo} (${item.order?.status || 'Confirmed'})`
-      };
+        if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
+          target.lastIn = { date, ref: adjRef, qty: absQty, party: 'Adjustment (+)' };
+        }
 
-      if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-        target.lastOut = { date, ref: docNo, qty, party: customerName, orderId: item.orderId };
-      }
+        if (isPeriod) {
+          target.periodIn += absQty;
+          target.transactions.push(tx);
+          allTransactions.push(tx);
+        }
+      } else {
+        target.lifetimeOut += absQty;
+        const tx = {
+          id: `adj-${adj.id}`,
+          rawMaterialId: rm.id,
+          rawMaterialCode: rm.code,
+          rawMaterialName: rm.name,
+          category: rm.category?.name || 'Uncategorised',
+          uom: rm.unitId,
+          date,
+          flow: 'OUT',
+          type: 'ADJUSTMENT_SUB',
+          typeLabel: 'Stock Adjustment (-)',
+          quantity: absQty,
+          referenceNo: adjRef,
+          poReferenceNo: null,
+          poId: null,
+          grnId: null,
+          batchNumber: 'Manual Correction',
+          partyName: `Adjustment: ${adj.notes || 'Deduction'}`,
+          user: userName,
+          notes: adj.notes || 'Inventory Audit Correction'
+        };
 
-      if (isPeriod) {
-        target.periodOut += qty;
-        target.transactions.push(tx);
-        allTransactions.push(tx);
+        if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
+          target.lastOut = { date, ref: adjRef, qty: absQty, party: 'Adjustment (-)' };
+        }
+
+        if (isPeriod) {
+          target.periodOut += absQty;
+          target.transactions.push(tx);
+          allTransactions.push(tx);
+        }
       }
     }
 
     // 5. Process RM Waste (OUT)
     for (const item of wasteItems) {
-      const rm = idToRm.get(item.rawMaterialId);
+      const rm = findRm(item.rawMaterialId);
       if (!rm) continue;
+
       const target = rmTxMap.get(rm.id);
       const date = item.waste?.date || item.createdAt;
       const qty = Number(item.quantity || 0);
@@ -4198,61 +4175,6 @@ exports.getRmInOutStock = async (req, res, next) => {
       }
     }
 
-    // 6. Process Purchase Returns (OUT)
-    for (const ret of returns) {
-      const targetPo = pos.find(p => p.id === ret.poId);
-      let matchedRmId = null;
-      if (targetPo) {
-        if (targetPo.rmId && idToRm.has(targetPo.rmId)) matchedRmId = targetPo.rmId;
-        else if (Array.isArray(targetPo.items) && targetPo.items[0]?.id && idToRm.has(targetPo.items[0].id)) {
-          matchedRmId = targetPo.items[0].id;
-        }
-      }
-      if (!matchedRmId) continue;
-      const rm = idToRm.get(matchedRmId);
-      if (!rm) continue;
-      const target = rmTxMap.get(rm.id);
-      const date = ret.returnDate || ret.createdAt;
-      const qty = Number(ret.returnQty || 0);
-      const isPeriod = inRange(date);
-      const retRef = ret.referenceNo || 'RETURN';
-      const supplierName = ret.po?.supplier?.name || 'Supplier Return';
-
-      target.lifetimeOut += qty;
-
-      const tx = {
-        id: `ret-${ret.id}`,
-        rawMaterialId: rm.id,
-        rawMaterialCode: rm.code,
-        rawMaterialName: rm.name,
-        category: rm.category?.name || 'Uncategorised',
-        uom: rm.unitId,
-        date,
-        flow: 'OUT',
-        type: 'RETURN',
-        typeLabel: 'Purchase Return to Vendor',
-        quantity: qty,
-        referenceNo: retRef,
-        poReferenceNo: ret.po?.referenceNo || '—',
-        poId: ret.poId || null,
-        grnId: ret.grnId || null,
-        batchNumber: 'Vendor Return',
-        partyName: `Return: ${supplierName}`,
-        user: ret.creator?.name || 'Purchase Staff',
-        notes: ret.returnReason || 'Defective / Rejected return'
-      };
-
-      if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-        target.lastOut = { date, ref: retRef, qty, party: supplierName, poId: ret.poId };
-      }
-
-      if (isPeriod) {
-        target.periodOut += qty;
-        target.transactions.push(tx);
-        allTransactions.push(tx);
-      }
-    }
-
     // Sort all transactions newest to oldest
     allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -4274,7 +4196,6 @@ exports.getRmInOutStock = async (req, res, next) => {
         lastOut: null
       };
 
-      // Sort this item's transactions newest first
       txData.transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       const curStock = Number(rm.currentStock || 0);
