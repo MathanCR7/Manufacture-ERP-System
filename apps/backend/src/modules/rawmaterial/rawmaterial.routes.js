@@ -33,9 +33,10 @@ router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
 router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.deleteWaste);
 
 // --- RM Stock Routes (/api/rm-stock) ---
+router.get('/rm-stock/in-out', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getRmInOutStock);
 router.get('/rm-stock/fefo', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getFefoStock);
 router.get('/rm-stock/:id/batches', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getRMBatches);
-router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']), rmController.getStock);
+router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getStock);
 router.get('/rm-stock/:id/history', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getMaterialHistory);
 router.get('/rm-stock/:id/stock-query', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getMaterialHistory);
 

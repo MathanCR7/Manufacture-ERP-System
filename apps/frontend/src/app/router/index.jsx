@@ -18,6 +18,7 @@ const RMQuotationPage = lazy(() => import('@/modules/purchase/pages/RMQuotationP
 const SupplierQuotationPublicPage = lazy(() => import('@/modules/purchase/pages/SupplierQuotationPublicPage'));
 const AssetQuotationPublicPage = lazy(() => import('@/modules/asset-management/pages/AssetQuotationPublicPage'));
 const RMStockPage = lazy(() => import('@/modules/purchase/pages/RMStockPage'));
+const RMINOUTStockPage = lazy(() => import('@/modules/purchase/pages/RMINOUTStockPage'));
 const RMExpiryStockPage = lazy(() => import('@/modules/purchase/pages/RMExpiryStockPage'));
 const RMLowStockPage = lazy(() => import('@/modules/purchase/pages/RMLowStockPage'));
 const PurchaseReturnAddPage = lazy(() => import('@/modules/purchase/pages/PurchaseReturnAddPage'));
@@ -398,6 +399,7 @@ const AppRouter = () => {
             {/* RM Stock */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']} />}>
               <Route path="/rm/stock" element={<RMStockPage />} />
+              <Route path="/rm/stock/in-out" element={<RMINOUTStockPage />} />
               <Route path="/rm/stock/expiry" element={<RMExpiryStockPage />} />
               <Route path="/rm/stock/low" element={<RMLowStockPage />} />
               <Route path="/rm/stock-adjustment/add" element={<StockAdjustmentListPage />} />
