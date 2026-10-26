@@ -1458,30 +1458,63 @@ const AppShell = () => {
     }));
   };
 
+  const getCleanPath = (p) => (p || '').split('?')[0].split('#')[0];
+
   const allLeafItems = MENU_GROUPS.flatMap(group => 
     group.items.flatMap(item => item.isNested ? item.children : item)
   );
 
-  const activeItemPath = allLeafItems
-    .filter(item => item.path && location.pathname.startsWith(item.path))
-    .reduce((longest, current) => 
-      (current.path?.length || 0) > (longest?.path?.length || 0) ? current : longest
-    , null)?.path;
+  // Determine active item: exact pathname match takes priority, followed by longest prefix with boundary
+  const activeItem = allLeafItems.reduce((best, current) => {
+    if (!current?.path) return best;
+    const currentClean = getCleanPath(current.path);
+    const isExact = location.pathname === currentClean;
+    const isPrefix = location.pathname.startsWith(currentClean.endsWith('/') ? currentClean : currentClean + '/');
 
-  const isItemActive = (path) => path && path === activeItemPath;
+    if (!isExact && !isPrefix) return best;
+    if (!best) return current;
+
+    const bestClean = getCleanPath(best.path);
+    const bestIsExact = location.pathname === bestClean;
+
+    if (isExact && !bestIsExact) return current;
+    if (!isExact && bestIsExact) return best;
+
+    // Both exact or both prefix: pick the more specific (longer) clean path
+    return currentClean.length > bestClean.length ? current : best;
+  }, null);
+
+  const isItemActive = (path) => {
+    if (!path || !activeItem) return false;
+    return path === activeItem.path || getCleanPath(path) === getCleanPath(activeItem.path);
+  };
 
   // Auto-expand group if it contains the active route (accordion mode)
   useEffect(() => {
     let bestGroup = null;
-    let maxLength = 0;
+    let bestMatchLength = 0;
+    let hasExactMatch = false;
 
     MENU_GROUPS.forEach(group => {
       group.items.forEach(item => {
         const subList = item.isNested ? item.children : [item];
         subList.forEach(sub => {
-          if (sub.path && location.pathname.startsWith(sub.path) && sub.path.length > maxLength) {
-            maxLength = sub.path.length;
-            bestGroup = group;
+          if (!sub.path) return;
+          const clean = getCleanPath(sub.path);
+          const isExact = location.pathname === clean;
+          const isPrefix = location.pathname.startsWith(clean.endsWith('/') ? clean : clean + '/');
+
+          if (isExact) {
+            if (!hasExactMatch || clean.length > bestMatchLength) {
+              hasExactMatch = true;
+              bestMatchLength = clean.length;
+              bestGroup = group;
+            }
+          } else if (isPrefix && !hasExactMatch) {
+            if (clean.length > bestMatchLength) {
+              bestMatchLength = clean.length;
+              bestGroup = group;
+            }
           }
         });
       });
@@ -1839,7 +1872,7 @@ const AppShell = () => {
                   <div className="ml-6 pl-4 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 py-1">
                     {visibleItems.map((item) => {
                       if (item.isNested) {
-                        const isChildActive = item.children.some(child => isItemActive(child.path) || location.pathname.startsWith(child.path));
+                        const isChildActive = item.children.some(child => isItemActive(child.path) || (child.path && location.pathname.startsWith(getCleanPath(child.path) + '/')));
                         const isRmExpanded = Boolean(expandedNestedItems[item.id]);
 
                         return (
