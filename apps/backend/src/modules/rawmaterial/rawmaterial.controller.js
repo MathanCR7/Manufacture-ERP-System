@@ -3764,7 +3764,9 @@ exports.getRmInOutStock = async (req, res, next) => {
                 select: {
                   id: true,
                   referenceNo: true,
-                  supplier: { select: { id: true, name: true } }
+                  supplier: { select: { id: true, name: true } },
+                  supplierInvoiceNo: true,
+                  supplierInvoiceDate: true
                 }
               },
               receiver: { select: { id: true, name: true } },
@@ -3951,6 +3953,10 @@ exports.getRmInOutStock = async (req, res, next) => {
       const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
       const amount = Math.round(qty * rate * 100) / 100;
 
+      const supplierInvNo = item.grn?.po?.supplierInvoiceNo || item.grn?.invoiceNumber || null;
+      const supplierInvDate = item.grn?.po?.supplierInvoiceDate || null;
+      const invDateFormatted = supplierInvDate ? new Date(supplierInvDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+
       const tx = {
         id: `grn-${item.id}`,
         rawMaterialId: rm.id,
@@ -3971,17 +3977,19 @@ exports.getRmInOutStock = async (req, res, next) => {
         grnId,
         batchNumber: batchNo,
         partyName: `Vendor: ${supplierName}`,
+        supplierInvoiceNo: supplierInvNo,
+        supplierInvoiceDate: supplierInvDate,
         user: item.grn?.receiver?.name || 'Store Receiver',
         labStatus,
         isLabRejected,
         rejectedQty,
         rejectionReason,
-        notes: `Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${item.grn?.invoiceNumber || 'N/A'}${rejectionReason ? ` | QC: ${rejectionReason}` : ''}`,
-        compositeComment: `PO: ${poRef} | Batch: ${batchNo} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Lab/QC: ${labStatus}${rejectionReason ? ` | Rejection: ${rejectionReason}` : ''}`
+        notes: `Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${supplierInvNo || item.grn?.invoiceNumber || 'N/A'}${invDateFormatted ? ` (${invDateFormatted})` : ''}${rejectionReason ? ` | QC: ${rejectionReason}` : ''}`,
+        compositeComment: `PO: ${poRef}${invDateFormatted ? ` | Supplier Inv Date: ${invDateFormatted}` : ''}${supplierInvNo ? ` | Inv No: ${supplierInvNo}` : ''} | Batch: ${batchNo} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Lab/QC: ${labStatus}${rejectionReason ? ` | Rejection: ${rejectionReason}` : ''}`
       };
 
       if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId, isLabRejected, labStatus };
+        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId, isLabRejected, labStatus, supplierInvoiceDate: supplierInvDate };
       }
 
       if (isPeriod) {
@@ -4009,6 +4017,9 @@ exports.getRmInOutStock = async (req, res, next) => {
           const isPeriod = inRange(date);
           const poRef = po.referenceNo || 'PO';
           const supplierName = po.supplier?.name || 'Vendor';
+          const supplierInvNo = po.supplierInvoiceNo || null;
+          const supplierInvDate = po.supplierInvoiceDate || null;
+          const invDateFormatted = supplierInvDate ? new Date(supplierInvDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
 
           target.lifetimeIn += qty;
 
@@ -4030,12 +4041,15 @@ exports.getRmInOutStock = async (req, res, next) => {
             grnId: null,
             batchNumber: po.mfgBatchNo || 'PO Ordered',
             partyName: `Vendor: ${supplierName}`,
+            supplierInvoiceNo: supplierInvNo,
+            supplierInvoiceDate: supplierInvDate,
             user: po.user?.name || 'Purchase Staff',
-            notes: `Status: ${po.status} | Total: ₹${po.grandTotal || po.amount || 0}`
+            notes: `Status: ${po.status}${invDateFormatted ? ` | Inv Date: ${invDateFormatted}` : ''} | Total: ₹${po.grandTotal || po.amount || 0}`,
+            compositeComment: `PO: ${poRef}${invDateFormatted ? ` | Supplier Inv Date: ${invDateFormatted}` : ''}${supplierInvNo ? ` | Inv No: ${supplierInvNo}` : ''} | Qty: ${qty} ${rm.unitId || ''} | Status: ${po.status}`
           };
 
           if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-            target.lastIn = { date, ref: poRef, qty, party: supplierName, poId: po.id };
+            target.lastIn = { date, ref: poRef, qty, party: supplierName, poId: po.id, supplierInvoiceDate: supplierInvDate };
           }
 
           if (isPeriod) {

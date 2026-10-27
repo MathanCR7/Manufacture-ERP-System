@@ -133,6 +133,13 @@ function styleHeaderRow(row) {
   });
 }
 
+export const cleanUOM = (uom) => {
+  if (!uom) return 'Nos';
+  const str = String(uom).trim();
+  if (/^[0-9a-fA-F-]{32,36}$/.test(str)) return 'Nos';
+  return str;
+};
+
 /**
  * Main export function for Raw Material Lifecycle History & Ledger
  */
@@ -142,10 +149,10 @@ export async function exportRMHistoryToExcel(historyData) {
   }
 
   const {
-    material,
+    material: rawMaterial,
     summary = {},
     timeline = [],
-    purchases = [],
+    purchases: rawPurchases = [],
     grnReceipts = [],
     batches = [],
     labReports = [],
@@ -154,6 +161,16 @@ export async function exportRMHistoryToExcel(historyData) {
     productionUsages = [],
     purchaseReturns = []
   } = historyData;
+
+  const material = {
+    ...rawMaterial,
+    unit: cleanUOM(rawMaterial?.unit)
+  };
+
+  const purchases = rawPurchases.map(p => ({
+    ...p,
+    uom: cleanUOM(p.uom || material.unit)
+  }));
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Manufacturing ERP System';

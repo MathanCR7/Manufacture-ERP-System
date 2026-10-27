@@ -72,8 +72,18 @@ export default function RMHistoryDrawer({
 
   if (!isOpen) return null;
 
+  const formatUOM = (uom) => {
+    if (!uom) return '';
+    const str = String(uom).trim();
+    if (/^[0-9a-fA-F-]{32,36}$/.test(str)) {
+      return 'Nos';
+    }
+    return str;
+  };
+
   const material = data?.material;
-  const convFactor = getConversionFactor(material?.unit, material?.alternateUom, material?.conversionFactor);
+  const materialUnit = formatUOM(material?.unit);
+  const convFactor = getConversionFactor(materialUnit, material?.alternateUom, material?.conversionFactor);
   const summary = data?.summary;
   const timeline = data?.timeline || [];
   const purchases = data?.purchases || [];
@@ -330,7 +340,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
                       {material?.currentStock?.toLocaleString()}
-                      <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-slate-500 uppercase">{materialUnit}</span>
                     </div>
                     {material?.hasAlternateUom && material?.alternateUom && (
                       <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
@@ -349,7 +359,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
                       {summary?.totalPurchasedQty?.toLocaleString() || 0}
-                      <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-slate-500 uppercase">{materialUnit}</span>
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium truncate">
                       Total: {formatCurrency(summary?.totalPurchasedValue)}
@@ -363,7 +373,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
                       {summary?.totalInwardedQty?.toLocaleString() || 0}
-                      <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-slate-500 uppercase">{materialUnit}</span>
                     </div>
                     <div className="text-[10px] text-teal-600 dark:text-teal-400 font-medium">
                       {grnReceipts.length} GRN Receipts
@@ -377,7 +387,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
                       {summary?.totalConsumedQty?.toLocaleString() || 0}
-                      <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-slate-500 uppercase">{materialUnit}</span>
                     </div>
                     {material?.hasAlternateUom && material?.alternateUom && (
                       <div className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
@@ -413,7 +423,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
                       {summary?.netAdjustedQty > 0 ? `+${summary.netAdjustedQty}` : (summary?.netAdjustedQty || 0)}
-                      <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-slate-500 uppercase">{materialUnit}</span>
                     </div>
                     <div className="text-[10px] text-slate-500 font-medium truncate">
                       +{summary?.totalAdjustmentAddition || 0} / -{summary?.totalAdjustmentSubtraction || 0}
@@ -431,7 +441,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 flex items-baseline gap-1">
                       {summary?.totalWastedQty?.toLocaleString() || 0}
-                      <span className="text-xs font-semibold text-rose-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-rose-500 uppercase">{materialUnit}</span>
                     </div>
                     <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold truncate">
                       Loss: {formatCurrency(summary?.totalWastedLoss)}
@@ -449,7 +459,7 @@ export default function RMHistoryDrawer({
                     </span>
                     <div className="text-base sm:text-lg font-black text-purple-700 dark:text-purple-300 flex items-baseline gap-1">
                       {summary?.totalResaleQty?.toLocaleString() || 0}
-                      <span className="text-xs font-semibold text-purple-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-purple-500 uppercase">{materialUnit}</span>
                     </div>
                     <div className="text-[10px] text-purple-600 dark:text-purple-400 font-bold truncate">
                       Value: {formatCurrency(summary?.totalResaleAmount || 0)} ({resales.length})
@@ -474,10 +484,10 @@ export default function RMHistoryDrawer({
 
                     <div className="inline-flex flex-wrap items-center justify-center gap-2 pt-2">
                       <span className="text-[11px] px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium">
-                        Current Stock: {material?.currentStock} {material?.unit}
+                        Current Stock: {material?.currentStock} {materialUnit}
                       </span>
                       <span className="text-[11px] px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium">
-                        Alert Threshold: {material?.alertLevel} {material?.unit}
+                        Alert Threshold: {material?.alertLevel} {materialUnit}
                       </span>
                       <span className="text-[11px] px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 font-medium">
                         Standard Rate: {formatCurrency(material?.ratePerUnit)}
@@ -748,7 +758,7 @@ export default function RMHistoryDrawer({
                                       )}
                                     </td>
                                     <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
-                                      {po.orderedQty?.toLocaleString()} <span className="text-[10px] font-semibold text-slate-400">{po.uom}</span>
+                                      {po.orderedQty?.toLocaleString()} <span className="text-[10px] font-semibold text-slate-400">{formatUOM(po.uom || materialUnit)}</span>
                                     </td>
                                     <td className="p-3 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                       {formatCurrency(po.unitPrice)}
@@ -781,7 +791,7 @@ export default function RMHistoryDrawer({
                                     Total Ordered ({purchases.length} POs):
                                   </td>
                                   <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
-                                    {purchases.reduce((acc, p) => acc + Number(p.orderedQty || 0), 0).toLocaleString()} <span className="text-[10px] text-slate-400">{material?.unit}</span>
+                                    {purchases.reduce((acc, p) => acc + Number(p.orderedQty || 0), 0).toLocaleString()} <span className="text-[10px] text-slate-400">{materialUnit}</span>
                                   </td>
                                   <td></td>
                                   <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
