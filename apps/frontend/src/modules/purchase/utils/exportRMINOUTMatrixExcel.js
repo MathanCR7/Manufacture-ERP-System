@@ -435,12 +435,9 @@ export async function exportStockInOutMatrixToExcel({
       dateInSums[dIdx] += cData.inQty;
       dateOutSums[dIdx] += cData.outQty;
 
-      // Check PO Supplier Invoice Date
-      const poTx = cData.transactions.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo);
-      const invNote = poTx?.supplierInvoiceDate ? ` (Inv: ${formatShortDate(poTx.supplierInvoiceDate)})` : '';
-
+      // Quantity only in cell.value (+10, no date string in cell)
       if (hasIn && hasOut) {
-        cell.value = `+${cData.inQty} / -${cData.outQty}${invNote}`;
+        cell.value = `+${cData.inQty} / -${cData.outQty}`;
         cell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: COLORS.BOTH_TEXT } };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.BOTH_FILL } };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -451,8 +448,7 @@ export async function exportStockInOutMatrixToExcel({
           right: { style: 'thin', color: { argb: COLORS.BOTH_BORDER } }
         };
       } else if (hasIn) {
-        cell.value = invNote ? `+${cData.inQty}${invNote}` : Number(cData.inQty);
-        if (!invNote) cell.numFmt = '#,##0.00';
+        cell.value = `+${cData.inQty}`;
         cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.IN_TEXT } };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.IN_FILL } };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -463,8 +459,7 @@ export async function exportStockInOutMatrixToExcel({
           right: { style: 'thin', color: { argb: COLORS.IN_BORDER } }
         };
       } else if (hasOut) {
-        cell.value = Number(cData.outQty);
-        cell.numFmt = '#,##0.00';
+        cell.value = `-${cData.outQty}`;
         cell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.OUT_TEXT } };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.OUT_FILL } };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -480,6 +475,25 @@ export async function exportStockInOutMatrixToExcel({
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
         cell.border = BORDERS.thin;
+      }
+
+      // Add Excel Cell Note (Comment) with PO Number, GRN Number, Invoice No, and Date for Hover
+      if (cData.transactions && cData.transactions.length > 0) {
+        const noteLines = cData.transactions.map(t => {
+          const parts = [];
+          const flowSym = t.flow === 'IN' ? '+' : '-';
+          parts.push(`${flowSym}${t.quantity} ${mat.uom || ''} (${t.typeLabel || t.type})`);
+          const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
+          const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
+          if (poNo && poNo !== '—') parts.push(`PO No: ${poNo}`);
+          if (grnNo && grnNo !== '—') parts.push(`GRN No: ${grnNo}`);
+          if (t.supplierInvoiceNo) parts.push(`Inv No: ${t.supplierInvoiceNo}`);
+          if (t.supplierInvoiceDate) parts.push(`Inv Date: ${formatShortDate(t.supplierInvoiceDate)}`);
+          if (t.partyName) parts.push(t.partyName);
+          if (t.batchNumber && t.batchNumber !== '—') parts.push(`Batch: ${t.batchNumber}`);
+          return parts.join(' | ');
+        });
+        cell.note = noteLines.join('\n');
       }
     });
 

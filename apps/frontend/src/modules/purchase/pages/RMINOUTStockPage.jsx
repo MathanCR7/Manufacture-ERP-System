@@ -3292,19 +3292,109 @@ export default function RMINOUTStockPage() {
                                 const hasOut = cell.outQty > 0;
 
                                 // PO Supplier Invoice Date check
-                                const poTx = cell.transactions.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo);
+                                const poTx = cell.transactions.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo || t.poReferenceNo);
                                 const invDateFormatted = poTx?.supplierInvoiceDate ? formatDate(poTx.supplierInvoiceDate) : null;
+
+                                // Format comprehensive native title for mouse hover
+                                const tooltipTitle = cell.transactions.length > 0
+                                  ? `${dateStr} Movement Details:\n` + cell.transactions.map((t, idx) => {
+                                      const parts = [];
+                                      const flowText = t.flow === 'IN' ? `IN (+${t.quantity} ${formatUOM(mat.uom)})` : `OUT (-${t.quantity} ${formatUOM(mat.uom)})`;
+                                      parts.push(`[${idx + 1}] ${flowText} - ${t.typeLabel || t.type}`);
+                                      const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
+                                      const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
+                                      if (poNo && poNo !== '—') parts.push(`    PO Number: ${poNo}`);
+                                      if (grnNo && grnNo !== '—') parts.push(`    GRN Number: ${grnNo}`);
+                                      if (t.supplierInvoiceNo) parts.push(`    Invoice No: ${t.supplierInvoiceNo}`);
+                                      if (t.supplierInvoiceDate) parts.push(`    Invoice Date: ${formatDate(t.supplierInvoiceDate)}`);
+                                      if (t.partyName) parts.push(`    Party: ${t.partyName}`);
+                                      if (t.batchNumber && t.batchNumber !== '—') parts.push(`    Batch: ${t.batchNumber}`);
+                                      return parts.join('\n');
+                                    }).join('\n\n')
+                                  : 'No movement';
 
                                 return (
                                   <TableCell
                                     key={dateStr}
-                                    className="text-center font-mono py-1.5 px-1.5 border-r border-slate-100 dark:border-slate-800/80 align-middle"
-                                    title={
-                                      cell.transactions.length > 0
-                                        ? `${dateStr} Movements:\n${cell.transactions.map(t => `• ${t.flow}: ${t.quantity} ${mat.uom} (${t.typeLabel} - ${t.referenceNo})${t.supplierInvoiceDate ? ` | Supplier Inv Date: ${formatDate(t.supplierInvoiceDate)}` : ''}`).join('\n')}`
-                                        : 'No movement'
-                                    }
+                                    className="text-center font-mono py-1.5 px-1.5 border-r border-slate-100 dark:border-slate-800/80 align-middle relative group"
+                                    title={tooltipTitle}
                                   >
+                                    {/* Interactive Floating Hover Card displaying PO Number & GRN Number */}
+                                    {cell.transactions.length > 0 && (
+                                      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col z-[9999] w-72 p-2.5 rounded-lg bg-slate-900/95 text-white shadow-2xl backdrop-blur-md border border-slate-700/80 text-left text-xs font-sans transition-all duration-150 ease-out">
+                                        <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5 mb-1.5">
+                                          <span className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+                                            <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                                            {dateStr}
+                                          </span>
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono font-medium">
+                                            {cell.transactions.length} movement{cell.transactions.length > 1 ? 's' : ''}
+                                          </span>
+                                        </div>
+                                        <div className="space-y-2 max-h-52 overflow-y-auto pr-0.5">
+                                          {cell.transactions.map((t, idx) => {
+                                            const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
+                                            const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
+                                            const invDate = t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : null;
+                                            return (
+                                              <div key={idx} className="space-y-1 bg-slate-800/80 rounded-md p-2 border border-slate-700/60 shadow-sm">
+                                                <div className="flex items-center justify-between">
+                                                  <span className={`font-bold font-mono text-xs ${t.flow === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    {t.flow === 'IN' ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(mat.uom)}
+                                                  </span>
+                                                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">{t.typeLabel || t.type}</span>
+                                                </div>
+
+                                                {/* PO Number Highlight */}
+                                                {poNo && poNo !== '—' && (
+                                                  <div className="text-[11px] text-slate-200 flex items-center justify-between bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/40">
+                                                    <span className="text-emerald-400 font-medium">PO Number:</span>
+                                                    <span className="font-mono font-bold text-emerald-300">{poNo}</span>
+                                                  </div>
+                                                )}
+
+                                                {/* GRN Number Highlight */}
+                                                {grnNo && grnNo !== '—' && (
+                                                  <div className="text-[11px] text-slate-200 flex items-center justify-between bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-800/40">
+                                                    <span className="text-indigo-400 font-medium">GRN Number:</span>
+                                                    <span className="font-mono font-bold text-indigo-300">{grnNo}</span>
+                                                  </div>
+                                                )}
+
+                                                {t.supplierInvoiceNo && (
+                                                  <div className="text-[10px] text-slate-300 flex items-center justify-between px-0.5">
+                                                    <span className="text-slate-400">Invoice No:</span>
+                                                    <span className="font-mono text-slate-200">{t.supplierInvoiceNo}</span>
+                                                  </div>
+                                                )}
+
+                                                {invDate && (
+                                                  <div className="text-[10px] text-slate-300 flex items-center justify-between px-0.5">
+                                                    <span className="text-slate-400">Invoice Date:</span>
+                                                    <span className="font-medium text-amber-300">{invDate}</span>
+                                                  </div>
+                                                )}
+
+                                                {t.batchNumber && t.batchNumber !== '—' && (
+                                                  <div className="text-[10px] text-slate-300 flex items-center justify-between px-0.5">
+                                                    <span className="text-slate-400">Batch/Lot:</span>
+                                                    <span className="font-mono text-slate-300">{t.batchNumber}</span>
+                                                  </div>
+                                                )}
+
+                                                {t.partyName && (
+                                                  <div className="text-[10px] text-slate-400 truncate px-0.5" title={t.partyName}>
+                                                    {t.partyName}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        <div className="w-2.5 h-2.5 bg-slate-900 border-r border-b border-slate-700/80 rotate-45 absolute -bottom-1.5 left-1/2 -translate-x-1/2" />
+                                      </div>
+                                    )}
+
                                     {hasIn && hasOut ? (
                                       <div className="flex flex-col items-center gap-0.5">
                                         <span className="w-full text-center px-1.5 py-0.5 rounded-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 text-[11px] leading-tight border border-emerald-200 dark:border-emerald-800/60">
@@ -3313,11 +3403,16 @@ export default function RMINOUTStockPage() {
                                         <span className="w-full text-center px-1.5 py-0.5 rounded-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 text-[11px] leading-tight border border-rose-200 dark:border-rose-800/60">
                                           -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
+                                        {invDateFormatted && (
+                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold">
+                                            Inv: {invDateFormatted}
+                                          </span>
+                                        )}
                                       </div>
                                     ) : hasIn ? (
                                       <div className="inline-flex flex-col items-center">
                                         <span className="px-2 py-0.5 rounded-md font-bold text-emerald-600 dark:text-emerald-400 text-xs">
-                                          {cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                                          +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
                                         {invDateFormatted && (
                                           <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold" title={`Supplier Invoice Date: ${invDateFormatted}`}>
@@ -3327,7 +3422,7 @@ export default function RMINOUTStockPage() {
                                       </div>
                                     ) : hasOut ? (
                                       <span className="px-2 py-0.5 rounded-md font-bold text-rose-600 dark:text-rose-400 text-xs">
-                                        {cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                                        -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                       </span>
                                     ) : (
                                       <span className="text-slate-300 dark:text-slate-700 select-none">—</span>
@@ -3400,10 +3495,17 @@ export default function RMINOUTStockPage() {
                           ) : (
                             <div className="grid grid-cols-2 gap-1.5">
                               {activeDates.map(dStr => {
-                                const c = matrixData[mat.id]?.[dStr] || { inQty: 0, outQty: 0 };
-                                const poTx = c.transactions?.find(t => t.supplierInvoiceDate);
+                                const c = matrixData[mat.id]?.[dStr] || { inQty: 0, outQty: 0, transactions: [] };
+                                const poTx = c.transactions?.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo || t.poReferenceNo);
+                                const poNo = poTx?.poReferenceNo || poTx?.poNumber;
+                                const grnNo = poTx?.grnNumber || (poTx?.type === 'GRN' ? poTx?.referenceNo : null);
+                                const invDate = poTx?.supplierInvoiceDate ? formatDate(poTx.supplierInvoiceDate) : null;
                                 return (
-                                  <div key={dStr} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center font-mono">
+                                  <div
+                                    key={dStr}
+                                    className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center font-mono space-y-0.5"
+                                    title={c.transactions?.map(t => `• ${t.flow}: ${t.quantity} (${t.typeLabel}) | PO: ${t.poReferenceNo || t.poNumber || '—'} | GRN: ${t.grnNumber || (t.type === 'GRN' ? t.referenceNo : '—')}`).join('\n')}
+                                  >
                                     <div className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{dStr}</div>
                                     <div className="flex items-center justify-center gap-1.5 mt-0.5 text-xs">
                                       {c.inQty > 0 && (
@@ -3417,9 +3519,19 @@ export default function RMINOUTStockPage() {
                                         </span>
                                       )}
                                     </div>
-                                    {poTx?.supplierInvoiceDate && (
-                                      <div className="text-[9px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5">
-                                        Inv: {formatDate(poTx.supplierInvoiceDate)}
+                                    {invDate && (
+                                      <div className="text-[9px] text-emerald-700 dark:text-emerald-400 font-semibold">
+                                        Inv: {invDate}
+                                      </div>
+                                    )}
+                                    {poNo && poNo !== '—' && (
+                                      <div className="text-[9px] text-slate-600 dark:text-slate-400 truncate">
+                                        PO: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{poNo}</span>
+                                      </div>
+                                    )}
+                                    {grnNo && grnNo !== '—' && (
+                                      <div className="text-[9px] text-slate-600 dark:text-slate-400 truncate">
+                                        GRN: <span className="font-semibold text-indigo-600 dark:text-indigo-400">{grnNo}</span>
                                       </div>
                                     )}
                                   </div>

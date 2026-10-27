@@ -4008,10 +4008,13 @@ exports.getRmInOutStock = async (req, res, next) => {
         amount,
         referenceNo: grnRef,
         poReferenceNo: poRef,
+        poNumber: poRef,
+        grnNumber: grnRef,
         poId,
         grnId,
         batchNumber: batchNo,
         partyName: `Vendor: ${supplierName}`,
+        supplierName,
         supplierInvoiceNo: supplierInvNo,
         supplierInvoiceDate: supplierInvDate,
         user: item.grn?.receiver?.name || 'Store Receiver',
@@ -4019,8 +4022,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         isLabRejected,
         rejectedQty,
         rejectionReason,
-        notes: `Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${supplierInvNo || item.grn?.invoiceNumber || 'N/A'}${invDateFormatted ? ` (${invDateFormatted})` : ''}${rejectionReason ? ` | QC: ${rejectionReason}` : ''}`,
-        compositeComment: `PO: ${poRef}${invDateFormatted ? ` | Supplier Inv Date: ${invDateFormatted}` : ''}${supplierInvNo ? ` | Inv No: ${supplierInvNo}` : ''} | Batch: ${batchNo} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Lab/QC: ${labStatus}${rejectionReason ? ` | Rejection: ${rejectionReason}` : ''}`
+        notes: `PO: ${poRef} | GRN: ${grnRef} | Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${supplierInvNo || item.grn?.invoiceNumber || 'N/A'}${invDateFormatted ? ` (${invDateFormatted})` : ''}${rejectionReason ? ` | QC: ${rejectionReason}` : ''}`,
+        compositeComment: `PO Number: ${poRef} | GRN Number: ${grnRef}${invDateFormatted ? ` | Supplier Inv Date: ${invDateFormatted}` : ''}${supplierInvNo ? ` | Inv No: ${supplierInvNo}` : ''} | Batch: ${batchNo} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Lab/QC: ${labStatus}${rejectionReason ? ` | Rejection: ${rejectionReason}` : ''}`
       };
 
       if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
@@ -4075,15 +4078,18 @@ exports.getRmInOutStock = async (req, res, next) => {
             quantity: qty,
             referenceNo: poRef,
             poReferenceNo: poRef,
+            poNumber: poRef,
+            grnNumber: null,
             poId: po.id,
             grnId: null,
             batchNumber: po.mfgBatchNo || 'PO Ordered',
             partyName: `Vendor: ${supplierName}`,
+            supplierName,
             supplierInvoiceNo: supplierInvNo,
             supplierInvoiceDate: supplierInvDate,
             user: po.user?.name || 'Purchase Staff',
-            notes: `Status: ${po.status}${invDateFormatted ? ` | Inv Date: ${invDateFormatted}` : ''} | Total: ₹${po.grandTotal || po.amount || 0}`,
-            compositeComment: `PO: ${poRef}${invDateFormatted ? ` | Supplier Inv Date: ${invDateFormatted}` : ''}${supplierInvNo ? ` | Inv No: ${supplierInvNo}` : ''} | Qty: ${qty} ${rm.unitId || ''} | Status: ${po.status}`
+            notes: `PO Number: ${poRef} | Status: ${po.status}${invDateFormatted ? ` | Inv Date: ${invDateFormatted}` : ''} | Total: ₹${po.grandTotal || po.amount || 0}`,
+            compositeComment: `PO Number: ${poRef}${invDateFormatted ? ` | Supplier Inv Date: ${invDateFormatted}` : ''}${supplierInvNo ? ` | Inv No: ${supplierInvNo}` : ''} | Qty: ${qty} ${rm.unitId || ''} | Status: ${po.status}`
           };
 
           if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
