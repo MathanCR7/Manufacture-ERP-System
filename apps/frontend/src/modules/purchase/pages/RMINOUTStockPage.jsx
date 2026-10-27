@@ -42,6 +42,12 @@ import {
   BarChart3
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import {
+  exportStockInOutMatrixToExcel,
+  exportMasterSummaryToExcel,
+  exportDateWiseLedgerToExcel,
+  exportCompleteEnterpriseWorkbookToExcel
+} from '../utils/exportRMINOUTMatrixExcel';
 import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -1333,181 +1339,91 @@ export default function RMINOUTStockPage() {
   }, [unifiedAllTransactions]);
 
   // Export Trigger: Type 1 (Date-Wise In-Out Matrix Report matching user's Excel format)
-  const handleExportMatrixOnly = () => {
+  const handleExportMatrixOnly = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-
-      // Sheet 1: Raw Material Stock In-Out Matrix Grid
-      const matrixRows = generateMatrixExportRows();
-      const wsMatrix = XLSX.utils.json_to_sheet(matrixRows);
-
-      // Set optimal column widths
-      const colWidths = [
-        { wch: 14 }, // RM Code
-        { wch: 28 }, // Raw Material Name
-        { wch: 22 }, // Category
-        { wch: 8 },  // UOM
-        { wch: 12 }, // TotalStock
-        { wch: 15 }, // Available Stock
-        { wch: 22 }, // Period Inward IN
-        { wch: 22 }, // Period Outward OUT
-        { wch: 18 }, // Total Valuation (₹)
-        ...matrixDates.map(() => ({ wch: 14 })) // Each dynamic date column
-      ];
-      wsMatrix['!cols'] = colWidths;
-      XLSX.utils.book_append_sheet(wb, wsMatrix, 'RM Stock In-Out Matrix');
-
-      // Sheet 2: PO Supplier Invoice Audit (with 15 Oct 2026 dates)
-      const invRows = generateSupplierInvoiceAuditRows();
-      if (invRows.length > 0) {
-        const wsInv = XLSX.utils.json_to_sheet(invRows);
-        wsInv['!cols'] = [
-          { wch: 15 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 26 },
-          { wch: 18 }, { wch: 16 }, { wch: 8 }, { wch: 18 }, { wch: 18 },
-          { wch: 22 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 26 }, { wch: 16 }
-        ];
-        XLSX.utils.book_append_sheet(wb, wsInv, 'PO Supplier Invoice Audit');
-      }
-
-      const fileName = `RM_Stock_InOut_Matrix_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
       setIsExportModalOpen(false);
+      const fileName = await exportStockInOutMatrixToExcel({
+        materials: filteredMaterials,
+        matrixDates,
+        matrixData,
+        period,
+        allTransactions: unifiedAllTransactions
+      });
 
       Swal.fire({
         icon: 'success',
         title: 'Stock In-Out Matrix Exported',
-        text: `Exported ${matrixRows.length} raw materials across ${matrixDates.length} date columns with PO Supplier Invoice audit to ${fileName}`,
+        text: `Exported ${filteredMaterials.length} raw materials across ${matrixDates.length} date columns with PO Supplier Invoice audit to ${fileName}`,
         timer: 3500,
         toast: true,
         position: 'top-end',
         showConfirmButton: false
       });
     } catch (err) {
+      console.error('Export matrix failed:', err);
       Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
     }
   };
 
   // Export Trigger: Type 2 (Master Summary Only)
-  const handleExportSummaryOnly = () => {
+  const handleExportSummaryOnly = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-      const rows = generateSummaryExportRows();
-      const ws = XLSX.utils.json_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, 'RM Stock Summary');
-      const fileName = `RM_Stock_Summary_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
       setIsExportModalOpen(false);
+      const fileName = await exportMasterSummaryToExcel({
+        materials: filteredMaterials,
+        period
+      });
+
       Swal.fire({
         icon: 'success',
         title: 'Master Summary Exported',
-        text: `Exported ${rows.length} raw material records to ${fileName}`,
+        text: `Exported ${filteredMaterials.length} raw material records with Green IN & Red OUT indicators to ${fileName}`,
         timer: 3000,
         toast: true,
         position: 'top-end',
         showConfirmButton: false
       });
     } catch (err) {
+      console.error('Export summary failed:', err);
       Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
     }
   };
 
   // Export Trigger: Type 3 (Ledger Only)
-  const handleExportLedgerOnly = () => {
+  const handleExportLedgerOnly = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-      const rows = generateLedgerExportRows();
-      const ws = XLSX.utils.json_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, 'Date-Wise In-Out Ledger');
-      const fileName = `RM_Date_InOut_Ledger_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
       setIsExportModalOpen(false);
+      const fileName = await exportDateWiseLedgerToExcel({
+        transactions: filteredTransactions,
+        period
+      });
+
       Swal.fire({
         icon: 'success',
         title: 'Date Ledger Exported',
-        text: `Exported ${rows.length} chronological audit transactions to ${fileName}`,
+        text: `Exported ${filteredTransactions.length} chronological audit transactions with Green IN & Red OUT indicators to ${fileName}`,
         timer: 3000,
         toast: true,
         position: 'top-end',
         showConfirmButton: false
       });
     } catch (err) {
+      console.error('Export ledger failed:', err);
       Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
     }
   };
 
   // Export Trigger: Type 4 (All-in-One Multi-Sheet Master Enterprise Workbook)
-  const handleExportCompleteWorkbook = () => {
+  const handleExportCompleteWorkbook = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-
-      // Sheet 1: Date-Wise Movement Matrix (Matching user's Excel layout)
-      const matrixRows = generateMatrixExportRows();
-      const wsMatrix = XLSX.utils.json_to_sheet(matrixRows);
-      XLSX.utils.book_append_sheet(wb, wsMatrix, '1. Stock In-Out Matrix');
-
-      // Sheet 2: Master Summary
-      const summaryRows = generateSummaryExportRows();
-      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-      XLSX.utils.book_append_sheet(wb, wsSummary, '2. RM Stock Summary');
-
-      // Sheet 3: Date-Wise Ledger (with PO Supplier Invoice Date)
-      const ledgerRows = generateLedgerExportRows();
-      const wsLedger = XLSX.utils.json_to_sheet(ledgerRows);
-      XLSX.utils.book_append_sheet(wb, wsLedger, '3. Chronological Ledger');
-
-      // Sheet 4: PO Supplier Invoice Date Audit
-      const invRows = generateSupplierInvoiceAuditRows();
-      if (invRows.length > 0) {
-        const wsInv = XLSX.utils.json_to_sheet(invRows);
-        XLSX.utils.book_append_sheet(wb, wsInv, '4. PO Supplier Invoices');
-      }
-
-      // Sheet 5: Active Floor WIP (Filtered to WIP items)
-      const wipRows = filteredMaterials
-        .filter(m => Number(m.inProgressStock || 0) > 0)
-        .map(m => ({
-          'RM Code': m.code,
-          'Material Name': m.name,
-          'Category': m.category,
-          'UOM': m.uom,
-          'In-Progress Floor WIP': m.inProgressStock,
-          'Total In-Hand Stock': m.currentStock,
-          'Free Available Stock': m.availableStock,
-          'Standard Rate (₹)': m.ratePerUnit,
-          'WIP Valuation (₹)': Math.round((m.inProgressStock * m.ratePerUnit) * 100) / 100,
-          'Active Batches Running': 'YES (On Floor)'
-        }));
-      if (wipRows.length > 0) {
-        const wsWip = XLSX.utils.json_to_sheet(wipRows);
-        XLSX.utils.book_append_sheet(wb, wsWip, '5. Active Floor WIP');
-      }
-
-      // Sheet 6: Lab & Quality Inspection Audit
-      const labRows = filteredTransactions
-        .filter(t => t.isLabRejected || String(t.labStatus || '').includes('REJECT') || Number(t.rejectedQty || 0) > 0)
-        .map(t => ({
-          'Date': formatDateTime(t.date),
-          'RM Code': t.rawMaterialCode,
-          'Material Name': t.rawMaterialName,
-          'Flow': t.flow,
-          'Reference': t.referenceNo,
-          'PO Reference': t.poReferenceNo || 'N/A',
-          'Supplier Invoice Date': t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : 'N/A',
-          'Batch / Lot': t.batchNumber || 'N/A',
-          'Rejected Quantity': t.rejectedQty || t.quantity,
-          'Inspection Decision': '❌ LAB REJECTED',
-          'Rejection Reason': t.rejectionReason || t.notes || 'Quality Discrepancy',
-          'Vendor / Party': t.partyName,
-          'Inspector / User': t.user
-        }));
-      if (labRows.length > 0) {
-        const wsLab = XLSX.utils.json_to_sheet(labRows);
-        XLSX.utils.book_append_sheet(wb, wsLab, '6. Lab Quality Audit');
-      }
-
-      const fileName = `RM_InOut_Enterprise_Master_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
       setIsExportModalOpen(false);
+      const fileName = await exportCompleteEnterpriseWorkbookToExcel({
+        materials: filteredMaterials,
+        matrixDates,
+        matrixData,
+        period,
+        allTransactions: unifiedAllTransactions
+      });
 
       Swal.fire({
         icon: 'success',
@@ -1519,6 +1435,7 @@ export default function RMINOUTStockPage() {
         showConfirmButton: false
       });
     } catch (err) {
+      console.error('Export workbook failed:', err);
       Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
     }
   };

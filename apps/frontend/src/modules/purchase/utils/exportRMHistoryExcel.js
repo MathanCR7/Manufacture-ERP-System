@@ -544,9 +544,15 @@ export async function exportRMHistoryToExcel(historyData) {
       cStatus.value = item.status;
       cStatus.alignment = { vertical: 'middle', horizontal: 'center' };
 
-      // Apply border & zebra fill
-      row.eachCell({ includeEmpty: true }, (c) => {
-        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+      // Apply border & zebra fill with Green IN and Red OUT visual indicators
+      row.eachCell({ includeEmpty: true }, (c, colIdx) => {
+        if (colIdx === 6 && item.inward != null && Number(item.inward) > 0) {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+        } else if (colIdx === 7 && item.outward != null && Number(item.outward) > 0) {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+        } else {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+        }
         c.border = BORDERS.thin;
       });
 
@@ -594,8 +600,14 @@ export async function exportRMHistoryToExcel(historyData) {
     totRow.getCell(11).font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.GREEN_TEXT } };
     totRow.getCell(11).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    totRow.eachCell({ includeEmpty: true }, (c) => {
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOTALS_BG } };
+    totRow.eachCell({ includeEmpty: true }, (c, colIdx) => {
+      if (colIdx === 6 && totalInward > 0) {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+      } else if (colIdx === 7 && totalOutward > 0) {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+      } else {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOTALS_BG } };
+      }
       c.border = BORDERS.totals;
     });
 
@@ -1813,8 +1825,19 @@ export async function exportRMHistoryToExcel(historyData) {
   // ══════════════════════════════════════════════════════════════════════════
   const cleanCode = (material.code || 'RM').replace(/[^a-zA-Z0-9_-]/g, '_');
   const cleanName = (material.name || 'Material').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const dateStamp = new Date().toISOString().slice(0, 10);
-  const fileName = `${cleanCode}_${cleanName}_Complete_Lifecycle_Audit_${dateStamp}.xlsx`;
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, '0');
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthStr = monthNames[now.getMonth()];
+  const year = now.getFullYear();
+  let hours = now.getHours();
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  const hourStr = String(hours).padStart(2, '0');
+
+  const fileName = `${cleanCode}_${cleanName}_Complete_Lifecycle_Audit_${day}-${monthStr}-${year}_${hourStr}-${minutes}-${seconds}-${ampm}.xlsx`;
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
