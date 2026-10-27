@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -255,6 +256,118 @@ export default function RMINOUTStockPage() {
   const [historyInitialTab, setHistoryInitialTab] = useState('timeline');
   const [selectedStockQueryId, setSelectedStockQueryId] = useState(null);
   const [isStockQueryOpen, setIsStockQueryOpen] = useState(false);
+
+  // Single Active Cell Hover Tooltip state (Guarantees only ONE popup can ever show at a time)
+  const [activeCellTooltip, setActiveCellTooltip] = useState(null);
+  const tooltipHideTimerRef = useRef(null);
+
+  const handleCellMouseEnter = useCallback((e, mat, dateStr, cell) => {
+    if (!cell || !cell.transactions || cell.transactions.length === 0) {
+      setActiveCellTooltip(null);
+      return;
+    }
+    if (tooltipHideTimerRef.current) {
+      clearTimeout(tooltipHideTimerRef.current);
+      tooltipHideTimerRef.current = null;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveCellTooltip({
+      matId: mat.id,
+      matName: mat.name,
+      matCode: mat.code,
+      uom: mat.uom,
+      dateStr,
+      cell,
+      rect: {
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        height: rect.height
+      }
+    });
+  }, []);
+
+  const handleCellMouseLeave = useCallback(() => {
+    tooltipHideTimerRef.current = setTimeout(() => {
+      setActiveCellTooltip(null);
+    }, 120);
+  }, []);
+
+  const handleCellClick = useCallback((e, mat, dateStr, cell) => {
+    if (!cell || !cell.transactions || cell.transactions.length === 0) {
+      setActiveCellTooltip(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveCellTooltip(prev => {
+      if (prev && prev.matId === mat.id && prev.dateStr === dateStr) {
+        return null;
+      }
+      return {
+        matId: mat.id,
+        matName: mat.name,
+        matCode: mat.code,
+        uom: mat.uom,
+        dateStr,
+        cell,
+        rect: {
+          top: rect.top,
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height
+        }
+      };
+    });
+  }, []);
+
+  // Close tooltip on scroll, resize, or outside click so it never floats disconnectedly
+  useEffect(() => {
+    const handleClose = () => {
+      setActiveCellTooltip(null);
+    };
+    window.addEventListener('scroll', handleClose, true);
+    window.addEventListener('resize', handleClose);
+    return () => {
+      window.removeEventListener('scroll', handleClose, true);
+      window.removeEventListener('resize', handleClose);
+    };
+  }, []);
+
+  // Compute smart tooltip positioning with collision detection (above vs below, screen edge clamping)
+  const tooltipPosition = useMemo(() => {
+    if (!activeCellTooltip?.rect) return null;
+    const { top: rTop, bottom: rBottom, left: rLeft, width: rWidth } = activeCellTooltip.rect;
+
+    const tooltipWidth = 320;
+    const estimatedHeight = 240;
+    const padding = 12;
+
+    const spaceAbove = rTop;
+    const spaceBelow = window.innerHeight - rBottom;
+
+    // Smart vertical collision detection: if space above is less than 240px and space below is greater, show BELOW cell!
+    const placeBelow = spaceAbove < estimatedHeight && spaceBelow >= spaceAbove;
+
+    const top = placeBelow ? rBottom + 8 : rTop - 8;
+    const targetCenterX = rLeft + rWidth / 2;
+
+    // Clamp horizontal center so tooltip card never overflows window left or right edge
+    const minCenter = tooltipWidth / 2 + padding;
+    const maxCenter = window.innerWidth - tooltipWidth / 2 - padding;
+    const clampedCenter = Math.max(minCenter, Math.min(targetCenterX, maxCenter));
+    const arrowOffset = targetCenterX - clampedCenter;
+
+    return {
+      top,
+      left: clampedCenter,
+      placeBelow,
+      arrowOffset
+    };
+  }, [activeCellTooltip]);
 
   // 1. Primary Query: Fetch Base RM Stock (Auto-refresh enabled on mount and focus)
   const {
@@ -3316,85 +3429,14 @@ export default function RMINOUTStockPage() {
                                 return (
                                   <TableCell
                                     key={dateStr}
-                                    className="text-center font-mono py-1.5 px-1.5 border-r border-slate-100 dark:border-slate-800/80 align-middle relative group"
+                                    className={`text-center font-mono py-1.5 px-1.5 border-r border-slate-100 dark:border-slate-800/80 align-middle select-none transition-colors duration-100 ${
+                                      cell.transactions.length > 0 ? 'cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/70' : ''
+                                    }`}
                                     title={tooltipTitle}
+                                    onMouseEnter={(e) => handleCellMouseEnter(e, mat, dateStr, cell)}
+                                    onMouseLeave={handleCellMouseLeave}
+                                    onClick={(e) => handleCellClick(e, mat, dateStr, cell)}
                                   >
-                                    {/* Interactive Floating Hover Card displaying PO Number & GRN Number */}
-                                    {cell.transactions.length > 0 && (
-                                      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col z-[9999] w-72 p-2.5 rounded-lg bg-slate-900/95 text-white shadow-2xl backdrop-blur-md border border-slate-700/80 text-left text-xs font-sans transition-all duration-150 ease-out">
-                                        <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5 mb-1.5">
-                                          <span className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
-                                            <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                                            {dateStr}
-                                          </span>
-                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono font-medium">
-                                            {cell.transactions.length} movement{cell.transactions.length > 1 ? 's' : ''}
-                                          </span>
-                                        </div>
-                                        <div className="space-y-2 max-h-52 overflow-y-auto pr-0.5">
-                                          {cell.transactions.map((t, idx) => {
-                                            const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
-                                            const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
-                                            const invDate = t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : null;
-                                            return (
-                                              <div key={idx} className="space-y-1 bg-slate-800/80 rounded-md p-2 border border-slate-700/60 shadow-sm">
-                                                <div className="flex items-center justify-between">
-                                                  <span className={`font-bold font-mono text-xs ${t.flow === 'IN' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                    {t.flow === 'IN' ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(mat.uom)}
-                                                  </span>
-                                                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">{t.typeLabel || t.type}</span>
-                                                </div>
-
-                                                {/* PO Number Highlight */}
-                                                {poNo && poNo !== '—' && (
-                                                  <div className="text-[11px] text-slate-200 flex items-center justify-between bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/40">
-                                                    <span className="text-emerald-400 font-medium">PO Number:</span>
-                                                    <span className="font-mono font-bold text-emerald-300">{poNo}</span>
-                                                  </div>
-                                                )}
-
-                                                {/* GRN Number Highlight */}
-                                                {grnNo && grnNo !== '—' && (
-                                                  <div className="text-[11px] text-slate-200 flex items-center justify-between bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-800/40">
-                                                    <span className="text-indigo-400 font-medium">GRN Number:</span>
-                                                    <span className="font-mono font-bold text-indigo-300">{grnNo}</span>
-                                                  </div>
-                                                )}
-
-                                                {t.supplierInvoiceNo && (
-                                                  <div className="text-[10px] text-slate-300 flex items-center justify-between px-0.5">
-                                                    <span className="text-slate-400">Invoice No:</span>
-                                                    <span className="font-mono text-slate-200">{t.supplierInvoiceNo}</span>
-                                                  </div>
-                                                )}
-
-                                                {invDate && (
-                                                  <div className="text-[10px] text-slate-300 flex items-center justify-between px-0.5">
-                                                    <span className="text-slate-400">Invoice Date:</span>
-                                                    <span className="font-medium text-amber-300">{invDate}</span>
-                                                  </div>
-                                                )}
-
-                                                {t.batchNumber && t.batchNumber !== '—' && (
-                                                  <div className="text-[10px] text-slate-300 flex items-center justify-between px-0.5">
-                                                    <span className="text-slate-400">Batch/Lot:</span>
-                                                    <span className="font-mono text-slate-300">{t.batchNumber}</span>
-                                                  </div>
-                                                )}
-
-                                                {t.partyName && (
-                                                  <div className="text-[10px] text-slate-400 truncate px-0.5" title={t.partyName}>
-                                                    {t.partyName}
-                                                  </div>
-                                                )}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                        <div className="w-2.5 h-2.5 bg-slate-900 border-r border-b border-slate-700/80 rotate-45 absolute -bottom-1.5 left-1/2 -translate-x-1/2" />
-                                      </div>
-                                    )}
-
                                     {hasIn && hasOut ? (
                                       <div className="flex flex-col items-center gap-0.5">
                                         <span className="w-full text-center px-1.5 py-0.5 rounded-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 text-[11px] leading-tight border border-emerald-200 dark:border-emerald-800/60">
@@ -3503,8 +3545,9 @@ export default function RMINOUTStockPage() {
                                 return (
                                   <div
                                     key={dStr}
-                                    className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center font-mono space-y-0.5"
+                                    className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center font-mono space-y-0.5 cursor-pointer hover:border-emerald-500 transition-colors"
                                     title={c.transactions?.map(t => `• ${t.flow}: ${t.quantity} (${t.typeLabel}) | PO: ${t.poReferenceNo || t.poNumber || '—'} | GRN: ${t.grnNumber || (t.type === 'GRN' ? t.referenceNo : '—')}`).join('\n')}
+                                    onClick={(e) => handleCellClick(e, mat, dStr, c)}
                                   >
                                     <div className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{dStr}</div>
                                     <div className="flex items-center justify-center gap-1.5 mt-0.5 text-xs">
@@ -4177,6 +4220,147 @@ export default function RMINOUTStockPage() {
             setIsHistoryOpen(true);
           }}
         />
+      )}
+      {/* ── PORTAL FLOATING POPUP: GUARANTEED SINGLE POPUP, LIGHT & DARK THEME, SMART COLLISION & Z-INDEX ── */}
+      {activeCellTooltip && tooltipPosition && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed z-[99999] transition-opacity duration-150 ease-out animate-in fade-in-0 zoom-in-95 pointer-events-auto"
+          style={{
+            top: `${tooltipPosition.top}px`,
+            left: `${tooltipPosition.left}px`,
+            transform: tooltipPosition.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
+          }}
+          onMouseEnter={() => {
+            if (tooltipHideTimerRef.current) {
+              clearTimeout(tooltipHideTimerRef.current);
+            }
+          }}
+          onMouseLeave={handleCellMouseLeave}
+        >
+          <div className="w-[325px] max-w-[calc(100vw-24px)] rounded-2xl bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 shadow-2xl backdrop-blur-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
+            {/* Dynamic Arrow Pointer */}
+            <div
+              className={`w-3.5 h-3.5 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
+                tooltipPosition.placeBelow
+                  ? '-top-2 border-t border-l'
+                  : '-bottom-2 border-b border-r'
+              }`}
+              style={{
+                left: `calc(50% + ${Math.max(-135, Math.min(135, tooltipPosition.arrowOffset))}px - 7px)`
+              }}
+            />
+
+            {/* Card Header: Date, Material & Movement Count */}
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-xs text-slate-900 dark:text-white block tracking-tight">
+                    {activeCellTooltip.dateStr}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate block font-medium">
+                    {activeCellTooltip.matCode} • {activeCellTooltip.matName}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-semibold shrink-0 border border-slate-200/60 dark:border-slate-700/60">
+                {activeCellTooltip.cell.transactions.length} movement{activeCellTooltip.cell.transactions.length > 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Transactions List */}
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
+              {activeCellTooltip.cell.transactions.map((t, idx) => {
+                const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
+                const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
+                const invDate = t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : null;
+                const isIN = t.flow === 'IN';
+
+                return (
+                  <div
+                    key={idx}
+                    className="space-y-1.5 bg-slate-50/90 dark:bg-slate-800/70 rounded-xl p-2.5 border border-slate-200/70 dark:border-slate-700/60 transition-colors shadow-xs"
+                  >
+                    {/* Header row: Flow Quantity & Type Badge */}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className={`font-bold font-mono text-xs flex items-center gap-1 ${
+                        isIN ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                      }`}>
+                        {isIN ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(activeCellTooltip.uom)}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                        {t.typeLabel || t.type}
+                      </span>
+                    </div>
+
+                    {/* PO Number Highlight Card (Styled for Light & Dark Theme) */}
+                    {poNo && poNo !== '—' && (
+                      <div className="text-[11px] flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded-lg border border-emerald-200/80 dark:border-emerald-800/50">
+                        <span className="text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
+                          <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          PO Number:
+                        </span>
+                        <span className="font-mono font-bold text-emerald-800 dark:text-emerald-300">{poNo}</span>
+                      </div>
+                    )}
+
+                    {/* GRN Number Highlight Card (Styled for Light & Dark Theme) */}
+                    {grnNo && grnNo !== '—' && (
+                      <div className="text-[11px] flex items-center justify-between bg-indigo-50 dark:bg-indigo-950/50 px-2 py-1 rounded-lg border border-indigo-200/80 dark:border-indigo-800/50">
+                        <span className="text-indigo-700 dark:text-indigo-400 font-medium flex items-center gap-1">
+                          <Package className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          GRN Number:
+                        </span>
+                        <span className="font-mono font-bold text-indigo-800 dark:text-indigo-300">{grnNo}</span>
+                      </div>
+                    )}
+
+                    {/* Invoice Number & Date */}
+                    {(t.supplierInvoiceNo || invDate) && (
+                      <div className="grid grid-cols-2 gap-1.5 text-[10px] pt-0.5">
+                        {t.supplierInvoiceNo && (
+                          <div className="bg-white dark:bg-slate-900/90 px-2 py-1 rounded-md border border-slate-200/80 dark:border-slate-700/60">
+                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] font-medium">Invoice No</span>
+                            <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate block">
+                              {t.supplierInvoiceNo}
+                            </span>
+                          </div>
+                        )}
+                        {invDate && (
+                          <div className="bg-amber-50/70 dark:bg-amber-950/40 px-2 py-1 rounded-md border border-amber-200/80 dark:border-amber-800/50">
+                            <span className="text-amber-600 dark:text-amber-400 block text-[9px] font-medium">Invoice Date</span>
+                            <span className="font-semibold text-amber-800 dark:text-amber-300 truncate block">
+                              {invDate}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Batch / Lot */}
+                    {t.batchNumber && t.batchNumber !== '—' && (
+                      <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between px-0.5">
+                        <span className="text-slate-400">Batch/Lot:</span>
+                        <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{t.batchNumber}</span>
+                      </div>
+                    )}
+
+                    {/* Party / Supplier */}
+                    {t.partyName && (
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate px-0.5 flex items-center gap-1.5 pt-0.5" title={t.partyName}>
+                        <Truck className="w-3 h-3 shrink-0 opacity-70" />
+                        <span className="truncate">{t.partyName}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
