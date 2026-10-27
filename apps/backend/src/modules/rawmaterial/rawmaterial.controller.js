@@ -3667,15 +3667,26 @@ exports.getRmInOutStock = async (req, res, next) => {
     const now = new Date();
     let rangeStart = null;
     let rangeEnd = null;
+    let periodLabel = 'All Time';
+    let periodDateRange = 'All Time';
+
+    const fmtDate = (d) => {
+      if (!d) return '';
+      return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
 
     if (period === 'today') {
       rangeStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      periodLabel = 'Today';
+      periodDateRange = `${fmtDate(rangeStart)} (00:00 - 23:59)`;
     } else if (period === 'yesterday') {
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
       rangeStart = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 0, 0, 0, 0);
       rangeEnd = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23, 59, 59, 999);
+      periodLabel = 'Yesterday';
+      periodDateRange = `${fmtDate(rangeStart)} (00:00 - 23:59)`;
     } else if (period === 'this_week') {
       const dayOfWeek = (now.getDay() + 6) % 7; // Monday = 0
       const monday = new Date(now);
@@ -3683,6 +3694,8 @@ exports.getRmInOutStock = async (req, res, next) => {
       monday.setHours(0, 0, 0, 0);
       rangeStart = monday;
       rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      periodLabel = 'This Week';
+      periodDateRange = `${fmtDate(rangeStart)} to ${fmtDate(rangeEnd)}`;
     } else if (period === 'last_week') {
       const dayOfWeek = (now.getDay() + 6) % 7;
       const lastMonday = new Date(now);
@@ -3693,12 +3706,18 @@ exports.getRmInOutStock = async (req, res, next) => {
       lastSunday.setHours(23, 59, 59, 999);
       rangeStart = lastMonday;
       rangeEnd = lastSunday;
+      periodLabel = 'Last Week';
+      periodDateRange = `${fmtDate(rangeStart)} to ${fmtDate(rangeEnd)}`;
     } else if (period === 'this_month') {
       rangeStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
       rangeEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      periodLabel = 'This Month';
+      periodDateRange = `${fmtDate(rangeStart)} to ${fmtDate(rangeEnd)}`;
     } else if (period === 'last_month') {
       rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
       rangeEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      periodLabel = 'Last Month';
+      periodDateRange = `${fmtDate(rangeStart)} to ${fmtDate(rangeEnd)}`;
     } else if (period === 'custom' || startDate || endDate) {
       if (startDate) {
         const parts = String(startDate).split('-');
@@ -3716,6 +3735,11 @@ exports.getRmInOutStock = async (req, res, next) => {
           rangeEnd = new Date(endDate);
         }
       }
+      periodLabel = 'Custom Range';
+      periodDateRange = `${fmtDate(rangeStart) || 'Start'} to ${fmtDate(rangeEnd) || 'End'}`;
+    } else {
+      periodLabel = 'All Time';
+      periodDateRange = `Lifetime stock up to ${fmtDate(now)}`;
     }
 
     const inRange = (d) => {
@@ -3725,6 +3749,12 @@ exports.getRmInOutStock = async (req, res, next) => {
       if (rangeStart && t < rangeStart.getTime()) return false;
       if (rangeEnd && t > rangeEnd.getTime()) return false;
       return true;
+    };
+
+    const isAfterRange = (d) => {
+      if (!rangeEnd) return false;
+      if (!d) return false;
+      return new Date(d).getTime() > rangeEnd.getTime();
     };
 
     // Parallel fetch of all raw materials, POs, and transaction sources
@@ -3788,6 +3818,8 @@ exports.getRmInOutStock = async (req, res, next) => {
               startDate: true,
               createdAt: true,
               startedBy: true,
+              completeDate: true,
+              completedAt: true,
               product: { select: { id: true, name: true, sku: true } }
             }
           },
@@ -3861,6 +3893,8 @@ exports.getRmInOutStock = async (req, res, next) => {
       rmTxMap.set(rm.id, {
         periodIn: 0,
         periodOut: 0,
+        postPeriodIn: 0,
+        postPeriodOut: 0,
         lifetimeIn: 0,
         lifetimeOut: 0,
         inProgressStock: 0,
@@ -3929,6 +3963,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       const date = item.grn?.receivedDate || item.createdAt;
       const qty = Number(item.actualReceivedQty || item.expectedQty || 0);
       const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
       const grnRef = item.grn?.referenceNo || 'GRN';
       const poRef = item.grn?.po?.referenceNo || 'PO';
       const poId = item.grn?.po?.id || null;
@@ -3996,6 +4031,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         target.periodIn += qty;
         target.transactions.push(tx);
         allTransactions.push(tx);
+      } else if (isAfter) {
+        target.postPeriodIn += qty;
       }
     }
 
@@ -4015,6 +4052,7 @@ exports.getRmInOutStock = async (req, res, next) => {
           const date = po.createdAt;
           const qty = Number(pItem.quantity || po.quantity || 0);
           const isPeriod = inRange(date);
+          const isAfter = isAfterRange(date);
           const poRef = po.referenceNo || 'PO';
           const supplierName = po.supplier?.name || 'Vendor';
           const supplierInvNo = po.supplierInvoiceNo || null;
@@ -4056,6 +4094,8 @@ exports.getRmInOutStock = async (req, res, next) => {
             target.periodIn += qty;
             target.transactions.push(tx);
             allTransactions.push(tx);
+          } else if (isAfter) {
+            target.postPeriodIn += qty;
           }
         }
       }
@@ -4077,11 +4117,12 @@ exports.getRmInOutStock = async (req, res, next) => {
       const date = u.batch?.startDate || u.batch?.createdAt || new Date();
       const qty = Number(u.actualUsedQty || u.requiredQty || 0);
       const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
       const batchRef = u.batch?.batchNo || u.batch?.referenceNo || 'Prod Batch';
       const productName = u.batch?.product?.name || 'Manufactured Item';
       const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
 
-      // Check if batch is currently In Progress (WIP)
+      // Check if batch is currently or was in progress during selected period (WIP)
       const rawBatchStatus = u.batch?.status || u.batch?.approvalStatus || 'Completed';
       const isInProgress = String(rawBatchStatus).toLowerCase().includes('progress') ||
                            String(rawBatchStatus).toLowerCase().includes('running') ||
@@ -4089,7 +4130,25 @@ exports.getRmInOutStock = async (req, res, next) => {
                            String(rawBatchStatus).toLowerCase().includes('draft');
 
       if (isInProgress) {
-        target.inProgressStock += qty;
+        const batchStart = u.batch?.startDate || u.batch?.createdAt || date;
+        const batchStartMs = batchStart ? new Date(batchStart).getTime() : 0;
+        const batchEnd = u.batch?.completeDate || u.batch?.completedAt || u.batch?.cancelledAt || null;
+        const batchEndMs = batchEnd ? new Date(batchEnd).getTime() : null;
+
+        let activeInPeriod = false;
+        if (!rangeStart && !rangeEnd) {
+          // All Time: count all active in-progress batches
+          activeInPeriod = true;
+        } else {
+          // Batch started on or before rangeEnd AND was not finished before rangeStart
+          const startedBeforeEnd = !rangeEnd || (batchStartMs <= rangeEnd.getTime());
+          const notEndedBeforeStart = !rangeStart || !batchEndMs || (batchEndMs >= rangeStart.getTime());
+          activeInPeriod = startedBeforeEnd && notEndedBeforeStart;
+        }
+
+        if (activeInPeriod) {
+          target.inProgressStock += qty;
+        }
       }
 
       target.lifetimeOut += qty;
@@ -4135,6 +4194,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         target.periodOut += qty;
         target.transactions.push(tx);
         allTransactions.push(tx);
+      } else if (isAfter) {
+        target.postPeriodOut += qty;
       }
     }
 
@@ -4147,6 +4208,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       const date = adj.createdAt;
       const qty = Number(adj.quantity || 0);
       const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
       const isAdd = adj.type === 'ADDITION' || adj.type === 'ADD';
       const absQty = Math.abs(qty);
       const adjRef = `ADJ-${adj.id.slice(-6).toUpperCase()}`;
@@ -4184,6 +4246,8 @@ exports.getRmInOutStock = async (req, res, next) => {
           target.periodIn += absQty;
           target.transactions.push(tx);
           allTransactions.push(tx);
+        } else if (isAfter) {
+          target.postPeriodIn += absQty;
         }
       } else {
         target.lifetimeOut += absQty;
@@ -4217,6 +4281,8 @@ exports.getRmInOutStock = async (req, res, next) => {
           target.periodOut += absQty;
           target.transactions.push(tx);
           allTransactions.push(tx);
+        } else if (isAfter) {
+          target.postPeriodOut += absQty;
         }
       }
     }
@@ -4230,6 +4296,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       const date = item.waste?.date || item.createdAt;
       const qty = Number(item.quantity || 0);
       const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
       const wasteRef = item.waste?.referenceNo || 'WASTE';
       const reason = item.remarks || item.waste?.note || 'Scrap / Expired Loss';
 
@@ -4265,6 +4332,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         target.periodOut += qty;
         target.transactions.push(tx);
         allTransactions.push(tx);
+      } else if (isAfter) {
+        target.postPeriodOut += qty;
       }
     }
 
@@ -4277,6 +4346,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       const date = item.order?.createdAt || new Date();
       const qty = Number(item.quantity || 0);
       const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
       const docNo = item.order?.docNo || item.order?.referenceNo || 'SO';
       const customerName = item.order?.customer?.name || 'Customer Dispatch';
 
@@ -4313,6 +4383,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         target.periodOut += qty;
         target.transactions.push(tx);
         allTransactions.push(tx);
+      } else if (isAfter) {
+        target.postPeriodOut += qty;
       }
     }
 
@@ -4332,6 +4404,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       const date = ret.returnDate || ret.createdAt;
       const qty = Number(ret.returnQty || 0);
       const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
       const retRef = ret.referenceNo || 'RETURN';
       const supplierName = ret.po?.supplier?.name || 'Supplier Return';
 
@@ -4384,13 +4457,15 @@ exports.getRmInOutStock = async (req, res, next) => {
         target.periodOut += qty;
         target.transactions.push(tx);
         allTransactions.push(tx);
+      } else if (isAfter) {
+        target.postPeriodOut += qty;
       }
     }
 
     // Sort all transactions newest to oldest
     allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Construct final material records
+    // Construct final material records with period-specific stock balances
     let totalStockValuation = 0;
     let totalCurrentStock = 0;
     let totalInProgressStock = 0;
@@ -4401,10 +4476,14 @@ exports.getRmInOutStock = async (req, res, next) => {
     let totalLabRejectedCount = 0;
     let activeMovementCount = 0;
 
+    const isHistorical = Boolean(rangeEnd && rangeEnd.getTime() < now.getTime());
+
     const materials = rms.map(rm => {
       const txData = rmTxMap.get(rm.id) || {
         periodIn: 0,
         periodOut: 0,
+        postPeriodIn: 0,
+        postPeriodOut: 0,
         lifetimeIn: 0,
         lifetimeOut: 0,
         inProgressStock: 0,
@@ -4417,7 +4496,17 @@ exports.getRmInOutStock = async (req, res, next) => {
 
       txData.transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-      const curStock = Number(rm.currentStock || 0);
+      const liveStock = Number(rm.currentStock || 0);
+
+      // Period Stock Balance:
+      // When reviewing historical periods (e.g. Yesterday, Last Week, Last Month, or past Custom Range),
+      // we reconcile backward from liveStock by subtracting post-period receipts and adding back post-period issues:
+      // periodStock = liveStock - postPeriodIn + postPeriodOut
+      let curStock = liveStock;
+      if (isHistorical) {
+        curStock = Math.max(0, Math.round((liveStock - txData.postPeriodIn + txData.postPeriodOut) * 1000) / 1000);
+      }
+
       const alert = Number(rm.alertLevel || 0);
       const poRateInfo = rmRateMap.get(rm.id) || { rate: 0, poRef: null, poId: null };
       const rate = poRateInfo.rate || Number(rm.ratePerUnit || 0);
@@ -4453,6 +4542,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         categoryId: rm.categoryId,
         uom: rm.unitId,
         currentStock: curStock,
+        liveStock,
+        isHistorical,
         inProgressStock,
         availableStock,
         labRejectedQty,
@@ -4480,6 +4571,9 @@ exports.getRmInOutStock = async (req, res, next) => {
     res.json({
       success: true,
       period,
+      periodLabel,
+      periodDateRange,
+      isHistorical,
       startDate: rangeStart,
       endDate: rangeEnd,
       summary: {
@@ -4493,7 +4587,10 @@ exports.getRmInOutStock = async (req, res, next) => {
         totalLabRejectedCount,
         netMovement: Math.round((totalPeriodIn - totalPeriodOut) * 100) / 100,
         totalValuation: Math.round(totalStockValuation * 100) / 100,
-        activeMovementCount
+        activeMovementCount,
+        periodLabel,
+        periodDateRange,
+        isHistorical
       },
       materials,
       allTransactions

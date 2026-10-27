@@ -366,6 +366,97 @@ export default function RMINOUTStockPage() {
     return true;
   }, [dateRange]);
 
+  const isDateAfterPeriod = useCallback((dateStr) => {
+    if (!dateRange.end) return false;
+    if (!dateStr) return false;
+    return new Date(dateStr).getTime() > dateRange.end.getTime();
+  }, [dateRange]);
+
+  // Comprehensive human-readable period description and timestamp range
+  const periodDisplayText = useMemo(() => {
+    const formatDate = (d) => {
+      if (!d) return '';
+      return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+    const formatTime = (d) => {
+      if (!d) return '';
+      return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    };
+
+    if (period === 'all') {
+      return {
+        label: 'All Time',
+        shortBadge: 'All Time',
+        rangeText: `Complete History • Lifetime stock as of ${formatDate(new Date())}`,
+        isHistorical: false
+      };
+    }
+    if (period === 'today') {
+      return {
+        label: 'Today',
+        shortBadge: 'Today',
+        rangeText: `${formatDate(new Date())} (00:00 - 23:59)`,
+        isHistorical: false
+      };
+    }
+    if (period === 'yesterday') {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      return {
+        label: 'Yesterday',
+        shortBadge: 'Yesterday',
+        rangeText: `${formatDate(y)} (00:00 - 23:59)`,
+        isHistorical: true
+      };
+    }
+    if (period === 'this_week') {
+      return {
+        label: 'This Week',
+        shortBadge: 'This Week',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Monday to Today)`,
+        isHistorical: false
+      };
+    }
+    if (period === 'last_week') {
+      return {
+        label: 'Last Week',
+        shortBadge: 'Last Week',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Previous Week Mon–Sun)`,
+        isHistorical: true
+      };
+    }
+    if (period === 'this_month') {
+      return {
+        label: 'This Month',
+        shortBadge: 'This Month',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)}`,
+        isHistorical: false
+      };
+    }
+    if (period === 'last_month') {
+      return {
+        label: 'Last Month',
+        shortBadge: 'Last Month',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Previous Month Closing)`,
+        isHistorical: true
+      };
+    }
+    if (period === 'custom') {
+      return {
+        label: 'Custom Range',
+        shortBadge: 'Custom Range',
+        rangeText: `${formatDate(dateRange.start) || 'Start'} to ${formatDate(dateRange.end) || 'End'}`,
+        isHistorical: Boolean(dateRange.end && dateRange.end.getTime() < new Date().getTime())
+      };
+    }
+    return {
+      label: 'All Time',
+      shortBadge: 'All Time',
+      rangeText: `All Transactions`,
+      isHistorical: false
+    };
+  }, [period, dateRange]);
+
   // Load History for expanded row (fallback mode)
   const fetchItemHistory = useCallback(async (matId) => {
     if (materialHistoryCache[matId]) return materialHistoryCache[matId];
@@ -580,20 +671,22 @@ export default function RMINOUTStockPage() {
   };
 
   // Merge Base Stock with Dedicated Data
+  // Merge Base Stock with Dedicated Data
   const unifiedMaterials = useMemo(() => {
     if (dedicatedData?.materials && dedicatedData.materials.length > 0) {
       return dedicatedData.materials;
     }
 
     return baseStock.map(item => {
-      const curStock = Number(item.availableQuantity ?? item.currentStock ?? item.stock ?? 0);
+      const liveStock = Number(item.availableQuantity ?? item.currentStock ?? item.stock ?? 0);
       const alert = Number(item.alertLevel || 0);
       const rate = Number(item.rateWithTax || item.ratePerUnit || item.masterStandardRate || 0);
-      const val = Number(item.valueWithTax || item.value || (curStock * rate) || 0);
 
       const cached = materialHistoryCache[item.id];
       let periodIn = 0;
       let periodOut = 0;
+      let postPeriodIn = 0;
+      let postPeriodOut = 0;
       let inProgressStock = 0;
       let labRejectedQty = 0;
       let hasLabRejection = false;
@@ -604,6 +697,7 @@ export default function RMINOUTStockPage() {
       if (cached?.txList) {
         cached.txList.forEach(tx => {
           const inRange = isDateInPeriod(tx.date);
+          const isAfter = isDateAfterPeriod(tx.date);
           if (tx.isLabRejected) {
             hasLabRejection = true;
             labRejectedQty += Number(tx.quantity || 0);
@@ -613,11 +707,14 @@ export default function RMINOUTStockPage() {
               lastIn = { date: tx.date, ref: tx.referenceNo, qty: tx.quantity, party: tx.partyName, poId: tx.poId, grnId: tx.grnId };
             }
             if (inRange) periodIn += tx.quantity;
+            else if (isAfter) postPeriodIn += tx.quantity;
           } else {
             if (!lastOut || new Date(tx.date) > new Date(lastOut.date)) {
               lastOut = { date: tx.date, ref: tx.referenceNo, qty: tx.quantity, party: tx.partyName, batchId: tx.batchId, isInProgress: tx.isInProgress };
             }
             if (inRange) periodOut += tx.quantity;
+            else if (isAfter) postPeriodOut += tx.quantity;
+
             if (tx.isInProgress) {
               inProgressStock += tx.quantity;
             }
@@ -629,6 +726,13 @@ export default function RMINOUTStockPage() {
         });
       }
 
+      const isHistorical = Boolean(dateRange.end && dateRange.end.getTime() < new Date().getTime());
+      let curStock = liveStock;
+      if (isHistorical && cached?.txList) {
+        curStock = Math.max(0, Math.round((liveStock - postPeriodIn + postPeriodOut) * 1000) / 1000);
+      }
+
+      const val = Number(curStock * rate || (item.valueWithTax || item.value || 0));
       const availableStock = Math.max(0, curStock - inProgressStock);
       const status = curStock <= 0 ? 'OUT_OF_STOCK' : (curStock <= alert ? 'LOW_STOCK' : 'OPTIMAL');
 
@@ -640,6 +744,8 @@ export default function RMINOUTStockPage() {
         categoryId: item.categoryId,
         uom: item.unit || 'Unit',
         currentStock: curStock,
+        liveStock,
+        isHistorical,
         inProgressStock: Math.round(inProgressStock * 100) / 100,
         availableStock: Math.round(availableStock * 100) / 100,
         labRejectedQty: Math.round(labRejectedQty * 100) / 100,
@@ -660,7 +766,7 @@ export default function RMINOUTStockPage() {
         lastOut
       };
     });
-  }, [baseStock, dedicatedData, materialHistoryCache, isDateInPeriod]);
+  }, [baseStock, dedicatedData, materialHistoryCache, isDateInPeriod, isDateAfterPeriod, dateRange]);
 
   // Overall Global Transactions List
   const unifiedAllTransactions = useMemo(() => {
@@ -680,11 +786,45 @@ export default function RMINOUTStockPage() {
     return flat;
   }, [dedicatedData, materialHistoryCache, isDateInPeriod]);
 
-  // Overall Summary Metrics
+  // Category & Search Filtered Materials (used to dynamically recalculate summary when user selects filters)
+  const categoryAndSearchFilteredMaterials = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    return unifiedMaterials.filter(item => {
+      if (term) {
+        const matchesTerm = (
+          (item.code || '').toLowerCase().includes(term) ||
+          (item.name || '').toLowerCase().includes(term) ||
+          (item.category || '').toLowerCase().includes(term) ||
+          (item.poReferenceNo || '').toLowerCase().includes(term) ||
+          (item.lastIn?.ref || '').toLowerCase().includes(term) ||
+          (item.lastOut?.ref || '').toLowerCase().includes(term)
+        );
+        if (!matchesTerm) return false;
+      }
+      if (categoryFilter !== 'ALL' && (item.category || 'Uncategorised') !== categoryFilter) {
+        return false;
+      }
+      if (codeFilter !== 'ALL' && item.code !== codeFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [unifiedMaterials, searchTerm, categoryFilter, codeFilter]);
+
+  // Overall Summary Metrics (Responsive to Time Period, Categories, and Searches)
   const summary = useMemo(() => {
-    if (dedicatedData?.summary) {
-      return dedicatedData.summary;
+    const hasLocalFilter = (categoryFilter !== 'ALL') || (codeFilter !== 'ALL') || (searchTerm.trim() !== '');
+
+    if (!hasLocalFilter && dedicatedData?.summary) {
+      return {
+        ...dedicatedData.summary,
+        periodLabel: dedicatedData.summary.periodLabel || periodDisplayText.label,
+        periodDateRange: dedicatedData.summary.periodDateRange || periodDisplayText.rangeText,
+        isHistorical: dedicatedData.summary.isHistorical ?? periodDisplayText.isHistorical
+      };
     }
+
+    const sourceList = hasLocalFilter ? categoryAndSearchFilteredMaterials : unifiedMaterials;
 
     let totStock = 0;
     let totVal = 0;
@@ -696,7 +836,7 @@ export default function RMINOUTStockPage() {
     let rejectedCount = 0;
     let activeCount = 0;
 
-    unifiedMaterials.forEach(m => {
+    sourceList.forEach(m => {
       const cur = Number(m.currentStock || 0);
       const wip = Number(m.inProgressStock || 0);
       const avail = m.availableStock !== undefined ? Number(m.availableStock) : Math.max(0, cur - wip);
@@ -716,7 +856,7 @@ export default function RMINOUTStockPage() {
     });
 
     return {
-      totalMaterials: unifiedMaterials.length,
+      totalMaterials: sourceList.length,
       totalCurrentStock: Math.round(totStock * 100) / 100,
       totalInProgressStock: Math.round(totWip * 100) / 100,
       totalAvailableStock: Math.round(totAvail * 100) / 100,
@@ -726,9 +866,12 @@ export default function RMINOUTStockPage() {
       totalLabRejectedCount: rejectedCount,
       netMovement: Math.round((totIn - totOut) * 100) / 100,
       totalValuation: Math.round(totVal * 100) / 100,
-      activeMovementCount: activeCount
+      activeMovementCount: activeCount,
+      periodLabel: dedicatedData?.summary?.periodLabel || periodDisplayText.label,
+      periodDateRange: dedicatedData?.summary?.periodDateRange || periodDisplayText.rangeText,
+      isHistorical: dedicatedData?.summary?.isHistorical ?? periodDisplayText.isHistorical
     };
-  }, [dedicatedData, unifiedMaterials]);
+  }, [dedicatedData, categoryFilter, codeFilter, searchTerm, categoryAndSearchFilteredMaterials, unifiedMaterials, periodDisplayText]);
 
   // Distinct Categories for Searchable Dropdown
   const categoryOptions = useMemo(() => {
@@ -1591,20 +1734,21 @@ export default function RMINOUTStockPage() {
             </span>
           </div>
 
-          {/* Fast Period Pills */}
-          <div className="flex flex-wrap items-center gap-1">
+          {/* Fast Period Pills - All Time, Today, Yesterday, This Week, Last Week upfront */}
+          <div className="flex flex-wrap items-center gap-1.5">
             {[
+              { id: 'all', label: 'All Time' },
               { id: 'today', label: 'Today' },
               { id: 'yesterday', label: 'Yesterday' },
               { id: 'this_week', label: 'This Week' },
               { id: 'last_week', label: 'Last Week' },
               { id: 'this_month', label: 'This Month' },
               { id: 'last_month', label: 'Last Month' },
-              { id: 'all', label: 'All Time' },
               { id: 'custom', label: 'Custom Date Range' }
             ].map(p => (
               <button
                 key={p.id}
+                type="button"
                 onClick={() => {
                   setPeriod(p.id);
                   if (p.id !== 'custom') {
@@ -1612,15 +1756,46 @@ export default function RMINOUTStockPage() {
                     setAppliedCustomEnd('');
                   }
                 }}
-                className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                   period === p.id
-                    ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-emerald-600 text-white font-semibold shadow-xs ring-2 ring-emerald-500/30'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
-                {p.label}
+                <span>{p.label}</span>
+                {period === p.id && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* ── ACTIVE PERIOD TIME & DATE DISPLAY BANNER ── */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 font-semibold text-xs">
+              <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Active Timeframe: {summary.periodLabel || periodDisplayText.label}</span>
+            </span>
+            <span className="text-slate-700 dark:text-slate-300 font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-medium">
+              {summary.periodDateRange || periodDisplayText.rangeText}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <span>Stock Calculation:</span>
+            <span className={`px-2 py-0.5 rounded-full font-medium ${
+              (summary.isHistorical ?? periodDisplayText.isHistorical)
+                ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                : 'bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+            }`}>
+              {(summary.isHistorical ?? periodDisplayText.isHistorical) ? 'Historical Day Closing Balance' : 'Live Real-Time Stock Balance'}
+            </span>
+            {isDedicatedFetching && (
+              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Updating...</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -1698,16 +1873,26 @@ export default function RMINOUTStockPage() {
         >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px]">
-              <span className="font-medium">Total Current Stock</span>
-              <Package className="w-3.5 h-3.5 text-blue-500" />
+              <span className="font-semibold text-slate-700 dark:text-slate-300 truncate">
+                {period === 'all' ? 'Total Current Stock' :
+                 period === 'today' ? 'Total Stock (Today)' :
+                 period === 'yesterday' ? 'Total Stock (Yesterday)' :
+                 period === 'this_week' ? 'Total Stock (This Week)' :
+                 period === 'last_week' ? 'Total Stock (Last Week)' :
+                 period === 'this_month' ? 'Total Stock (This Month)' :
+                 period === 'last_month' ? 'Total Stock (Last Month)' : 'Total Stock (Period)'}
+              </span>
+              <Package className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             </div>
             <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-mono">
               {Number(summary.totalCurrentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[10px] text-slate-500 flex items-center gap-1 truncate">
-              <span>Valuation:</span>
-              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                ₹{Number(summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            <div className="text-[10px] text-slate-500 flex items-center justify-between gap-1 truncate">
+              <span className="truncate">
+                Valuation: <strong className="font-semibold text-slate-700 dark:text-slate-300">₹{Number(summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong>
+              </span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 font-medium shrink-0">
+                {periodDisplayText.shortBadge}
               </span>
             </div>
           </CardContent>
@@ -1725,18 +1910,20 @@ export default function RMINOUTStockPage() {
         >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-amber-800 dark:text-amber-400 text-[11px]">
-              <span className="font-bold flex items-center gap-1">
+              <span className="font-bold flex items-center gap-1 truncate">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                 In-Progress WIP
               </span>
-              <Factory className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <Factory className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
             </div>
             <div className="text-base sm:text-lg font-bold text-amber-700 dark:text-amber-300 font-mono">
               {Number(summary.totalInProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
             <div className="text-[10px] text-amber-700/80 dark:text-amber-400/80 truncate flex items-center justify-between">
               <span>Active floor batches</span>
-              {movementFilter === 'IN_PROGRESS' && <span className="font-bold text-[9px] text-amber-800">Filtered</span>}
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 font-medium shrink-0">
+                {movementFilter === 'IN_PROGRESS' ? 'Filtered' : periodDisplayText.shortBadge}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -1753,15 +1940,17 @@ export default function RMINOUTStockPage() {
         >
           <CardContent className="p-2.5 sm:p-3 space-y-0.5">
             <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[11px]">
-              <span className="font-semibold">Free Available</span>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span className="font-semibold truncate">Free Available</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             </div>
             <div className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-300 font-mono">
               {Number(summary.totalAvailableStock !== undefined ? summary.totalAvailableStock : Math.max(0, (summary.totalCurrentStock || 0) - (summary.totalInProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
             <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 truncate flex items-center justify-between">
               <span>Ready for orders</span>
-              {movementFilter === 'FREE_AVAILABLE' && <span className="font-bold text-[9px]">Filtered</span>}
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 font-medium shrink-0">
+                {movementFilter === 'FREE_AVAILABLE' ? 'Filtered' : periodDisplayText.shortBadge}
+              </span>
             </div>
           </CardContent>
         </Card>
