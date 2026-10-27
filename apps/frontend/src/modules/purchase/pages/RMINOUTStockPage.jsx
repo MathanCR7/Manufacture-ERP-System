@@ -133,7 +133,7 @@ function SearchableFilterDropdown({
 
       {/* Popover Dropdown Menu */}
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full min-w-[260px] max-w-[340px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-2 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute z-50 mt-1 w-full min-w-[220px] sm:min-w-[260px] max-w-[calc(100vw-32px)] sm:max-w-[340px] left-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-2 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
           {/* Internal Search Input */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -229,6 +229,8 @@ export default function RMINOUTStockPage() {
   // Ledger Sub-Mode: 'matrix' (Date-Wise Movement Matrix Grid matching Excel) | 'stream' (Flat Transaction List)
   const [ledgerSubMode, setLedgerSubMode] = useState('matrix');
   const [isCompactDensity, setIsCompactDensity] = useState(true);
+  // Tablet View Mode for Matrix: 'card' (default responsive cards) | 'table' (full touch-scrollable grid)
+  const [tabletViewMode, setTabletViewMode] = useState('card');
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -1768,77 +1770,86 @@ export default function RMINOUTStockPage() {
         </div>
 
         {/* View Switcher, Density & Export Actions (Refresh button removed per request) */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2 w-full lg:w-auto">
           {/* View Mode Switcher */}
-          <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
+          <div className="inline-flex max-w-full overflow-x-auto no-scrollbar p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
             <button
               type="button"
               onClick={() => { setViewMode('ledger'); setLedgerSubMode('matrix'); }}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer whitespace-nowrap ${
                 viewMode === 'ledger' && ledgerSubMode === 'matrix'
                   ? 'bg-emerald-600 text-white shadow-2xs font-bold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <TableProperties className="w-3.5 h-3.5" />
-              <span>Date-Wise Movement Matrix</span>
+              <TableProperties className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                <span className="hidden sm:inline">Date-Wise <span className="hidden md:inline">Movement </span></span>Matrix
+              </span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                 viewMode === 'ledger' && ledgerSubMode === 'matrix' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
               }`}>
-                {matrixDates.length} Dates
+                <span className="hidden sm:inline">{matrixDates.length} Dates</span>
+                <span className="sm:hidden">{matrixDates.length}</span>
               </span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('material')}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer whitespace-nowrap ${
                 viewMode === 'material'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <Package className="w-3.5 h-3.5" />
-              <span>Material Summary</span>
+              <Package className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                <span className="hidden sm:inline">Material </span>Summary
+              </span>
             </button>
             <button
               type="button"
               onClick={() => { setViewMode('ledger'); setLedgerSubMode('stream'); }}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer whitespace-nowrap ${
                 viewMode === 'ledger' && ledgerSubMode === 'stream'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Transaction Stream</span>
+              <Calendar className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                <span className="hidden sm:inline">Transaction </span>Stream
+              </span>
             </button>
           </div>
 
-          {/* Density Toggle */}
-          <button
-            onClick={() => setIsCompactDensity(!isCompactDensity)}
-            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-            title={isCompactDensity ? 'Switch to Comfortable View' : 'Switch to Compact ERP View'}
-          >
-            <TableProperties className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 sm:gap-2 ml-auto lg:ml-0">
+            {/* Density Toggle */}
+            <button
+              onClick={() => setIsCompactDensity(!isCompactDensity)}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              title={isCompactDensity ? 'Switch to Comfortable View' : 'Switch to Compact ERP View'}
+            >
+              <TableProperties className="w-4 h-4" />
+            </button>
 
-          {/* Export Report Trigger */}
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setIsExportModalOpen(true)}
-            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Report</span>
-            <ChevronDown className="w-3 h-3 ml-0.5 opacity-80" />
-          </Button>
+            {/* Export Report Trigger */}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setIsExportModalOpen(true)}
+              className="h-8 px-2.5 sm:px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Report</span>
+              <ChevronDown className="w-3 h-3 ml-0.5 opacity-80" />
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* ── TIME PERIOD FILTER BAR (Single-Line Compact Strip) ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 shadow-2xs space-y-2">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 sm:px-3.5 py-2 shadow-2xs space-y-2">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 shrink-0">
             <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -1848,7 +1859,7 @@ export default function RMINOUTStockPage() {
           </div>
 
           {/* Fast Period Pills - All Time, Today, Yesterday, This Week, Last Week upfront */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
             {[
               { id: 'all', label: 'All Time' },
               { id: 'today', label: 'Today' },
@@ -1869,7 +1880,7 @@ export default function RMINOUTStockPage() {
                     setAppliedCustomEnd('');
                   }
                 }}
-                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                className={`text-[11px] sm:text-xs px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5 ${
                   period === p.id
                     ? 'bg-emerald-600 text-white font-semibold shadow-xs ring-2 ring-emerald-500/30'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -1883,8 +1894,8 @@ export default function RMINOUTStockPage() {
         </div>
 
         {/* ── ACTIVE PERIOD TIME & DATE DISPLAY BANNER ── */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 font-semibold text-xs">
               <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Active Timeframe: {summary.periodLabel || periodDisplayText.label}</span>
@@ -1894,7 +1905,7 @@ export default function RMINOUTStockPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
             <span>Stock Calculation:</span>
             <span className={`px-2 py-0.5 rounded-full font-medium ${
               (summary.isHistorical ?? periodDisplayText.isHistorical)
@@ -1916,9 +1927,9 @@ export default function RMINOUTStockPage() {
         {period === 'custom' && (
           <form
             onSubmit={handleApplyCustomRange}
-            className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-end gap-2 animate-in fade-in duration-150"
+            className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-end gap-2 animate-in fade-in duration-150"
           >
-            <div>
+            <div className="w-full sm:w-auto">
               <label className="text-[10px] font-medium text-slate-500 block mb-0.5">
                 From Date:
               </label>
@@ -1926,11 +1937,11 @@ export default function RMINOUTStockPage() {
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="text-xs px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full sm:w-auto text-xs px-2.5 py-1.5 sm:py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
-            <div>
+            <div className="w-full sm:w-auto">
               <label className="text-[10px] font-medium text-slate-500 block mb-0.5">
                 To Date:
               </label>
@@ -1938,7 +1949,7 @@ export default function RMINOUTStockPage() {
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="text-xs px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
+                className="w-full sm:w-auto text-xs px-2.5 py-1.5 sm:py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
@@ -2218,7 +2229,7 @@ export default function RMINOUTStockPage() {
 
       {/* ── TOOLBAR: SEARCH, SEARCHABLE CATEGORY, SEARCHABLE CODE & STATUS ── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 sm:p-3 shadow-2xs space-y-2">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
           {/* 1. Global Text Search Input */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -2281,7 +2292,7 @@ export default function RMINOUTStockPage() {
           </div>
 
           {/* 5. Sorting Selector Dropdown */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 sm:col-span-2 md:col-span-1 lg:col-span-1">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
@@ -2373,7 +2384,7 @@ export default function RMINOUTStockPage() {
         /* MODE 1: MATERIAL-WISE SUMMARY TABLE WITH COLUMN SORTING */
         <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
           {/* Desktop Table View with Clickable Column Sorting */}
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
@@ -2976,185 +2987,249 @@ export default function RMINOUTStockPage() {
             </Table>
           </div>
 
-          {/* Mobile Responsive Cards View */}
-          <div className="md:hidden divide-y divide-slate-200 dark:divide-slate-800">
+          {/* Mobile & Tablet Responsive Cards View */}
+          <div className="lg:hidden divide-y divide-slate-200 dark:divide-slate-800">
             {isAnyLoading ? (
               Array.from({ length: 4 }).map((_, idx) => (
-                <div key={idx} className="p-3 space-y-2">
+                <div key={idx} className="p-3.5 space-y-2.5">
                   <Skeleton className="h-4 w-2/3 rounded-sm" />
-                  <Skeleton className="h-12 w-full rounded-md" />
+                  <Skeleton className="h-14 w-full rounded-md" />
                 </div>
               ))
             ) : paginatedMaterials.length === 0 ? (
-              <div className="py-6 text-center text-slate-400 text-xs">No raw materials match the current filters.</div>
+              <div className="py-8 text-center text-slate-400 text-xs">No raw materials match the current filters.</div>
             ) : (
               paginatedMaterials.map((mat) => {
                 const isExpanded = expandedMaterialIds.has(mat.id);
                 const isLoadingHistory = expandedLoadingIds.has(mat.id);
+                const isLow = mat.status === 'LOW_STOCK';
+                const isOut = mat.status === 'OUT_OF_STOCK';
                 const hasWip = Number(mat.inProgressStock || 0) > 0;
                 const hasReject = mat.hasLabRejection || mat.labStatus === 'LAB_REJECTED';
+                const cur = Number(mat.currentStock || 0);
+                const wip = Number(mat.inProgressStock || 0);
+                const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
+                const inQty = Number(mat.periodInQty || 0);
+                const outQty = Number(mat.periodOutQty || 0);
+                const net = Number(mat.netMovement || 0);
+                const val = Number(mat.valuation || 0);
 
                 return (
                   <div
                     key={mat.id}
-                    className={`p-3 space-y-2 bg-white dark:bg-slate-900 transition-colors ${
+                    className={`p-3 sm:p-4 space-y-2.5 bg-white dark:bg-slate-900 transition-colors ${
                       hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-1.5">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1 flex-wrap">
+                    {/* Card Header: Code, Badges, Name, Current Stock & Valuation */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             onClick={() => handleOpenHistory(mat.id)}
                             className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                            title="Click to view lifecycle audit"
                           >
                             {mat.code}
                           </button>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            {mat.category}
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium">
+                            {mat.category || 'Uncategorised'}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                            {formatUOM(mat.uom)}
                           </span>
                           {hasWip && (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300">
                               <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                              WIP
+                              WIP Run
                             </span>
                           )}
-                          {hasReject && (
-                            <span className="text-[9px] px-1 py-0.2 rounded-full bg-rose-100 text-rose-900 font-bold border border-rose-300">
-                              ❌ Reject
+                          {hasReject ? (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 font-bold border border-rose-300">
+                              ❌ QC Reject
+                            </span>
+                          ) : (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200">
+                              ✓ QC Pass
                             </span>
                           )}
                         </div>
-                        <h3 className="text-xs font-bold text-slate-900 dark:text-white">
+                        <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate" title={mat.name}>
                           {mat.name}
                         </h3>
+                        {mat.poReferenceNo && (
+                          <button
+                            onClick={() => handleRedirectToPO(mat.latestPoId, mat.poReferenceNo)}
+                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>PO: {mat.poReferenceNo}</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </button>
+                        )}
                       </div>
-                      <div className="text-right font-mono shrink-0">
-                        <div className="text-xs font-bold text-slate-900 dark:text-white">
-                          {Number(mat.currentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })} {mat.uom}
+
+                      <div className="text-right font-mono shrink-0 pl-1">
+                        <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                          {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })} <span className="text-[10px] font-normal text-slate-500">{formatUOM(mat.uom)}</span>
                         </div>
-                        <div className="text-[10px] text-slate-400">
-                          ₹{Number(mat.valuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Val: <strong className="font-semibold text-slate-700 dark:text-slate-300">₹{val.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong>
                         </div>
                       </div>
                     </div>
 
-                    {/* Quick Metrics Grid */}
-                    <div className="grid grid-cols-4 gap-1 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-center text-xs">
-                      <div>
+                    {/* Quick 6-Metrics Grid: In-Hand, WIP Floor, Free Stock, Period IN, Period OUT, Net Flow */}
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 text-center text-xs">
+                      <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
                         <span className="text-[9px] text-slate-500 block">In-Hand</span>
-                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {Number(mat.currentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-[9px] text-amber-600 font-semibold block">WIP Floor</span>
-                        <span className="font-mono font-bold text-amber-600">
-                          {Number(mat.inProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                      <div className="p-1 rounded-lg bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
+                        <span className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold block">WIP Floor</span>
+                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
+                          {wip.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-[9px] text-emerald-600 font-semibold block">Free Stock</span>
-                        <span className="font-mono font-bold text-emerald-600">
-                          {Number(mat.availableStock !== undefined ? mat.availableStock : Math.max(0, (mat.currentStock || 0) - (mat.inProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                      <div className="p-1 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40">
+                        <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-semibold block">Free Stock</span>
+                        <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                          {free.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
-                      <div>
+                      <div className="p-1 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40">
+                        <span className="text-[9px] text-emerald-700 dark:text-emerald-400 font-semibold block">Period IN</span>
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          {inQty > 0 ? `+${inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '0'}
+                        </span>
+                      </div>
+                      <div className="p-1 rounded-lg bg-rose-50/50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-800/40">
+                        <span className="text-[9px] text-rose-700 dark:text-rose-400 font-semibold block">Period OUT</span>
+                        <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                          {outQty > 0 ? `-${outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '0'}
+                        </span>
+                      </div>
+                      <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
                         <span className="text-[9px] text-slate-500 block">Net Flow</span>
                         <span className={`font-mono font-bold ${
-                          Number(mat.netMovement || 0) > 0 ? 'text-emerald-600' : Number(mat.netMovement || 0) < 0 ? 'text-rose-600' : 'text-slate-400'
+                          net > 0 ? 'text-emerald-600' : net < 0 ? 'text-rose-600' : 'text-slate-400'
                         }`}>
-                          {Number(mat.netMovement || 0) > 0 ? '+' : ''}{Number(mat.netMovement || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                          {net > 0 ? `+${net.toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : net < 0 ? net.toLocaleString('en-IN', { maximumFractionDigits: 1 }) : '0'}
                         </span>
                       </div>
                     </div>
 
                     {/* Mobile Actions Bar */}
-                    <div className="flex items-center justify-between gap-1 pt-1">
+                    <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-100 dark:border-slate-800">
                       <button
+                        type="button"
                         onClick={() => toggleExpandRow(mat.id)}
-                        className="text-xs flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium cursor-pointer"
+                        className="text-xs flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold hover:text-emerald-600 transition-colors cursor-pointer py-1"
                       >
                         {isLoadingHistory ? (
-                          <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
                         ) : isExpanded ? (
-                          <ChevronUp className="w-3 h-3 text-emerald-600" />
+                          <ChevronUp className="w-3.5 h-3.5 text-emerald-600" />
                         ) : (
-                          <ChevronDown className="w-3 h-3" />
+                          <ChevronDown className="w-3.5 h-3.5" />
                         )}
-                        <span>{isExpanded ? 'Hide' : 'Movements'} ({mat.transactions?.length || 0})</span>
+                        <span>{isExpanded ? 'Hide Movements' : 'View Movements'} ({mat.transactions?.length || 0})</span>
                       </button>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleOpenHistory(mat.id)}
-                          className="h-6 px-1.5 text-[10px] cursor-pointer"
+                          className="h-7 px-2 text-xs flex items-center gap-1 cursor-pointer border-slate-300 dark:border-slate-700"
                         >
-                          Audit
+                          <Clock className="w-3 h-3 text-emerald-600" />
+                          <span>Audit</span>
                         </Button>
                         <Button
                           size="sm"
-                          variant="ghost"
+                          variant="outline"
                           onClick={() => handleOpenStockQuery(mat.id)}
-                          className="h-6 px-1 text-[10px] cursor-pointer"
+                          className="h-7 px-2 text-xs flex items-center gap-1 cursor-pointer border-slate-300 dark:border-slate-700 text-blue-600 dark:text-blue-400 hover:text-blue-700"
                         >
-                          Query
+                          <Search className="w-3 h-3" />
+                          <span>Query</span>
                         </Button>
                       </div>
                     </div>
 
-                    {/* Inline Expanded Movements for Mobile */}
+                    {/* Inline Expanded Movements for Mobile / Tablet */}
                     {isExpanded && (
-                      <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-1.5 animate-in fade-in duration-100">
+                      <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 animate-in fade-in duration-150">
                         {mat.transactions && mat.transactions.length > 0 ? (
                           mat.transactions.map((tx) => {
                             const isIn = tx.flow === 'IN';
                             const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
-                            const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
+                            const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT') || Number(tx.rejectedQty || 0) > 0);
 
                             return (
                               <div
                                 key={tx.id}
-                                className={`p-1.5 rounded-md text-[11px] space-y-0.5 border ${
+                                className={`p-2 sm:p-2.5 rounded-xl text-xs space-y-1.5 border transition-all ${
                                   isTxReject
-                                    ? 'bg-rose-50/80 border-rose-300 border-l-4 border-l-rose-500'
+                                    ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 border-l-4 border-l-rose-500'
                                     : isInProgress
-                                    ? 'bg-amber-50/80 border-amber-300 border-l-4 border-l-amber-500'
+                                    ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 border-l-4 border-l-amber-500'
                                     : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800'
                                 }`}
                               >
-                                <div className="flex items-center justify-between font-mono text-[10px]">
-                                  <span className="text-slate-500">{formatDate(tx.date)}</span>
+                                <div className="flex items-center justify-between text-[11px] font-mono">
+                                  <span className="text-slate-500">{formatDateTime(tx.date)}</span>
                                   {isTxReject ? (
-                                    <span className="px-1 py-0.2 rounded-sm font-bold bg-rose-100 text-rose-900">
-                                      ❌ REJECT
+                                    <span className="px-1.5 py-0.5 rounded-sm font-bold bg-rose-100 text-rose-900 border border-rose-300 text-[10px]">
+                                      ❌ REJECTED
                                     </span>
                                   ) : isInProgress ? (
-                                    <span className="px-1 py-0.2 rounded-sm font-bold bg-amber-100 text-amber-900">
-                                      🟡 -{tx.quantity} WIP
+                                    <span className="px-1.5 py-0.5 rounded-sm font-bold bg-amber-100 text-amber-900 border border-amber-300 text-[10px]">
+                                      🟡 -{Number(tx.quantity).toLocaleString()} WIP
                                     </span>
                                   ) : (
-                                    <span className={`px-1 py-0.2 rounded-sm font-bold ${
-                                      isIn ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                    <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                                      isIn ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
                                     }`}>
-                                      {isIn ? `+${tx.quantity} IN` : `-${tx.quantity} OUT`}
+                                      {isIn ? `+${Number(tx.quantity).toLocaleString()} IN` : `-${Number(tx.quantity).toLocaleString()} OUT`}
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center justify-between text-[11px]">
+
+                                <div className="flex items-center justify-between text-xs">
                                   <span className="font-semibold text-slate-800 dark:text-slate-200">{tx.typeLabel}</span>
-                                  <span className="font-mono text-slate-500 text-[10px]">{tx.referenceNo}</span>
+                                  <span className="font-mono text-slate-600 dark:text-slate-400">
+                                    {tx.poId ? (
+                                      <button onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)} className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold">
+                                        <span>{tx.referenceNo}</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </button>
+                                    ) : tx.grnId ? (
+                                      <button onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)} className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold">
+                                        <span>{tx.referenceNo}</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </button>
+                                    ) : (
+                                      tx.referenceNo || '—'
+                                    )}
+                                  </span>
                                 </div>
-                                <div className="text-slate-500 truncate text-[10px]">
-                                  {tx.partyName || tx.user}
+
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                                  <span className="truncate max-w-[200px]">{tx.partyName || tx.user}</span>
+                                  {tx.rate ? (
+                                    <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                                      ₹{Number(tx.rate).toFixed(2)} {tx.amount ? `(₹${Number(tx.amount).toLocaleString('en-IN')})` : ''}
+                                    </span>
+                                  ) : null}
                                 </div>
                               </div>
                             );
                           })
                         ) : (
-                          <div className="py-2 text-center text-[10px] text-slate-400">No movements recorded.</div>
+                          <div className="py-2 text-center text-xs text-slate-400">No movements recorded.</div>
                         )}
                       </div>
                     )}
@@ -3200,51 +3275,88 @@ export default function RMINOUTStockPage() {
         <div className="space-y-2.5">
           {/* Sub-Mode Segmented Switcher Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 shadow-2xs">
-            <div className="flex items-center gap-1.5 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => setLedgerSubMode('matrix')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  ledgerSubMode === 'matrix'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <TableProperties className="w-3.5 h-3.5" />
-                <span>Date-Wise Movement Matrix</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  ledgerSubMode === 'matrix' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                }`}>
-                  {matrixDates.length} Dates
-                </span>
-              </button>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="inline-flex max-w-full overflow-x-auto no-scrollbar p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setLedgerSubMode('matrix')}
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                    ledgerSubMode === 'matrix'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <TableProperties className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    <span className="hidden sm:inline">Date-Wise <span className="hidden md:inline">Movement </span></span>Matrix
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    ledgerSubMode === 'matrix' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    <span className="hidden sm:inline">{matrixDates.length} Dates</span>
+                    <span className="sm:hidden">{matrixDates.length}</span>
+                  </span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setLedgerSubMode('stream')}
-                className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  ledgerSubMode === 'stream'
-                    ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Detailed Transaction Stream</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  ledgerSubMode === 'stream' ? 'bg-slate-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                }`}>
-                  {filteredTransactions.length}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setLedgerSubMode('stream')}
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                    ledgerSubMode === 'stream'
+                      ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    <span className="hidden sm:inline">Detailed </span>Transaction Stream
+                  </span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    ledgerSubMode === 'stream' ? 'bg-slate-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    {filteredTransactions.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Tablet View Mode Toggle for Matrix (Cards vs Table Grid) */}
+              {ledgerSubMode === 'matrix' && (
+                <div className="lg:hidden hidden sm:inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setTabletViewMode('card')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                      tabletViewMode === 'card'
+                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Card View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTabletViewMode('table')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                      tabletViewMode === 'table'
+                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Full Grid
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-2 text-xs flex-wrap">
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
-                🟢 IN = Green
-              </span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
-                🔴 OUT = Red
-              </span>
+            <div className="flex items-center gap-1.5 sm:gap-2 text-xs flex-wrap justify-between sm:justify-end w-full sm:w-auto">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
+                  🟢 IN = Green
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
+                  🔴 OUT = Red
+                </span>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -3261,8 +3373,8 @@ export default function RMINOUTStockPage() {
           {ledgerSubMode === 'matrix' ? (
             /* SUB-MODE A: DATE-WISE MOVEMENT MATRIX (EXACT EXCEL FORMAT) */
             <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
-              {/* Desktop & Tablet Table with Sticky Header & Sticky Left Columns */}
-              <div className="hidden md:block overflow-x-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
+              {/* Desktop Table (and Tablet Table if tabletViewMode === 'table') with Sticky Header & Sticky Left Columns */}
+              <div className={`${tabletViewMode === 'table' ? 'block' : 'hidden lg:block'} overflow-x-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800`}>
                 <Table className="border-collapse">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100/95 dark:bg-slate-850/95 backdrop-blur-xs shadow-2xs">
                     <TableRow className="border-b border-slate-200 dark:border-slate-700 text-[11px]">
@@ -3481,22 +3593,25 @@ export default function RMINOUTStockPage() {
                 </Table>
               </div>
 
-              {/* Mobile Card Responsive View for Matrix */}
-              <div className="md:hidden divide-y divide-slate-200 dark:divide-slate-800">
+              {/* Mobile & Tablet Responsive View for Matrix */}
+              <div className={`${tabletViewMode === 'table' ? 'hidden' : 'lg:hidden'} divide-y divide-slate-200 dark:divide-slate-800`}>
                 {isAnyLoading ? (
                   Array.from({ length: 4 }).map((_, idx) => (
-                    <div key={idx} className="p-3 space-y-2">
+                    <div key={idx} className="p-3.5 space-y-2.5">
                       <Skeleton className="h-4 w-1/3 rounded-sm" />
-                      <Skeleton className="h-10 w-full rounded-md" />
+                      <Skeleton className="h-12 w-full rounded-md" />
                     </div>
                   ))
                 ) : paginatedMaterials.length === 0 ? (
-                  <div className="py-6 text-center text-slate-400 text-xs">No materials found.</div>
+                  <div className="py-8 text-center text-slate-400 text-xs">No materials found.</div>
                 ) : (
                   paginatedMaterials.map((mat) => {
                     const cur = Number(mat.currentStock || 0);
                     const wip = Number(mat.inProgressStock || 0);
                     const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
+                    const inQty = Number(mat.periodInQty || 0);
+                    const outQty = Number(mat.periodOutQty || 0);
+                    const val = Number(mat.valuation || 0);
 
                     // Collect dates with movement for this material
                     const activeDates = matrixDates.filter(dStr => {
@@ -3505,76 +3620,119 @@ export default function RMINOUTStockPage() {
                     });
 
                     return (
-                      <div key={mat.id} className="p-3 space-y-2 bg-white dark:bg-slate-900">
-                        <div className="flex items-start justify-between gap-1.5">
-                          <div>
-                            <button
-                              onClick={() => handleOpenHistory(mat.id)}
-                              className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                            >
-                              {mat.code}
-                            </button>
-                            <h3 className="text-xs font-bold text-slate-900 dark:text-white">{mat.name}</h3>
-                            <span className="text-[10px] text-slate-500">{mat.category} • {formatUOM(mat.uom)}</span>
-                          </div>
-                          <div className="text-right font-mono">
-                            <div className="text-xs font-bold text-slate-900 dark:text-white">
-                              {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })} {formatUOM(mat.uom)}
+                      <div key={mat.id} className="p-3 sm:p-4 space-y-2.5 bg-white dark:bg-slate-900 transition-colors">
+                        {/* Header Row */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-0.5 flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => handleOpenHistory(mat.id)}
+                                className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                              >
+                                {mat.code}
+                              </button>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 font-medium">
+                                {mat.category || 'Uncategorised'}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                {formatUOM(mat.uom)}
+                              </span>
                             </div>
-                            <div className="text-[10px] text-emerald-600 font-semibold">
+                            <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate" title={mat.name}>
+                              {mat.name}
+                            </h3>
+                          </div>
+                          <div className="text-right font-mono shrink-0 pl-1">
+                            <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                              {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })} <span className="text-[10px] font-normal text-slate-500">{formatUOM(mat.uom)}</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
                               Free: {free.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                             </div>
                           </div>
                         </div>
 
-                        {/* Date Movements Badges */}
-                        <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-slate-800">
-                          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
-                            Date-Wise Movements ({activeDates.length}):
-                          </span>
+                        {/* Mini Summary Strip */}
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 p-1.5 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-xs">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
+                              IN: +{inQty.toLocaleString('en-IN')}
+                            </span>
+                            <span className="text-[11px] text-rose-700 dark:text-rose-400 font-semibold">
+                              OUT: -{outQty.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            Valuation: <strong className="font-semibold text-slate-700 dark:text-slate-300">₹{val.toLocaleString('en-IN')}</strong>
+                          </div>
+                        </div>
+
+                        {/* Date Movements Grid: 1 col on small phones, 2 on sm, 3 on tablet */}
+                        <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            <span>Date Movements ({activeDates.length}):</span>
+                            <span className="text-slate-400 font-normal lowercase">tap date for full details</span>
+                          </div>
                           {activeDates.length === 0 ? (
-                            <span className="text-[11px] text-slate-400 italic">No movement in period</span>
+                            <div className="py-2 text-[11px] text-slate-400 italic">No movements recorded in this period.</div>
                           ) : (
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                               {activeDates.map(dStr => {
                                 const c = matrixData[mat.id]?.[dStr] || { inQty: 0, outQty: 0, transactions: [] };
                                 const poTx = c.transactions?.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo || t.poReferenceNo);
                                 const poNo = poTx?.poReferenceNo || poTx?.poNumber;
                                 const grnNo = poTx?.grnNumber || (poTx?.type === 'GRN' ? poTx?.referenceNo : null);
                                 const invDate = poTx?.supplierInvoiceDate ? formatDate(poTx.supplierInvoiceDate) : null;
+
                                 return (
                                   <div
                                     key={dStr}
-                                    className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-center font-mono space-y-0.5 cursor-pointer hover:border-emerald-500 transition-colors"
-                                    title={c.transactions?.map(t => `• ${t.flow}: ${t.quantity} (${t.typeLabel}) | PO: ${t.poReferenceNo || t.poNumber || '—'} | GRN: ${t.grnNumber || (t.type === 'GRN' ? t.referenceNo : '—')}`).join('\n')}
+                                    className="p-2 sm:p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 font-mono space-y-1 cursor-pointer hover:border-emerald-500 hover:shadow-xs transition-all active:scale-[0.98]"
                                     onClick={(e) => handleCellClick(e, mat, dStr, c)}
+                                    title="Click to view full movement details"
                                   >
-                                    <div className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{dStr}</div>
-                                    <div className="flex items-center justify-center gap-1.5 mt-0.5 text-xs">
-                                      {c.inQty > 0 && (
-                                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                          +{c.inQty}
-                                        </span>
-                                      )}
-                                      {c.outQty > 0 && (
-                                        <span className="font-bold text-rose-600 dark:text-rose-400">
-                                          -{c.outQty}
-                                        </span>
-                                      )}
+                                    <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200 border-b border-slate-200/60 dark:border-slate-700/60 pb-1">
+                                      <span className="flex items-center gap-1">
+                                        <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                        <span>{dStr}</span>
+                                      </span>
+                                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded-full bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                        {c.transactions.length} tx
+                                      </span>
                                     </div>
+
+                                    <div className="flex items-center justify-between gap-1 text-xs pt-0.5">
+                                      <span className="text-[10px] text-slate-500">Flow:</span>
+                                      <div className="flex items-center gap-1.5">
+                                        {c.inQty > 0 && (
+                                          <span className="px-1.5 py-0.5 rounded font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 text-xs">
+                                            +{c.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                                          </span>
+                                        )}
+                                        {c.outQty > 0 && (
+                                          <span className="px-1.5 py-0.5 rounded font-bold text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 text-xs">
+                                            -{c.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
                                     {invDate && (
-                                      <div className="text-[9px] text-emerald-700 dark:text-emerald-400 font-semibold">
-                                        Inv: {invDate}
+                                      <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center justify-between pt-0.5">
+                                        <span className="text-slate-400">Inv Date:</span>
+                                        <span>{invDate}</span>
                                       </div>
                                     )}
                                     {poNo && poNo !== '—' && (
-                                      <div className="text-[9px] text-slate-600 dark:text-slate-400 truncate">
-                                        PO: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{poNo}</span>
+                                      <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between truncate">
+                                        <span className="text-slate-400">PO:</span>
+                                        <span className="font-semibold text-emerald-600 dark:text-emerald-400 truncate">{poNo}</span>
                                       </div>
                                     )}
                                     {grnNo && grnNo !== '—' && (
-                                      <div className="text-[9px] text-slate-600 dark:text-slate-400 truncate">
-                                        GRN: <span className="font-semibold text-indigo-600 dark:text-indigo-400">{grnNo}</span>
+                                      <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between truncate">
+                                        <span className="text-slate-400">GRN:</span>
+                                        <span className="font-semibold text-indigo-600 dark:text-indigo-400 truncate">{grnNo}</span>
                                       </div>
                                     )}
                                   </div>
@@ -3624,7 +3782,7 @@ export default function RMINOUTStockPage() {
             /* SUB-MODE B: CHRONOLOGICAL DETAILED TRANSACTION STREAM */
             <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
               {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
@@ -3941,82 +4099,157 @@ export default function RMINOUTStockPage() {
                 </Table>
               </div>
 
-              {/* Mobile Ledger Cards View */}
-              <div className="md:hidden divide-y divide-slate-200 dark:divide-slate-800">
+              {/* Mobile & Tablet Ledger Cards View */}
+              <div className="lg:hidden divide-y divide-slate-200 dark:divide-slate-800">
                 {isAnyLoading ? (
                   Array.from({ length: 4 }).map((_, idx) => (
-                    <div key={idx} className="p-3 space-y-1.5">
+                    <div key={idx} className="p-3.5 space-y-2">
                       <Skeleton className="h-4 w-1/3 rounded-sm" />
-                      <Skeleton className="h-10 w-full rounded-md" />
+                      <Skeleton className="h-12 w-full rounded-md" />
                     </div>
                   ))
                 ) : paginatedTransactions.length === 0 ? (
-                  <div className="py-6 text-center text-slate-400 text-xs">No movements recorded.</div>
+                  <div className="py-8 text-center text-slate-400 text-xs">No movements recorded.</div>
                 ) : (
                   paginatedTransactions.map((tx) => {
                     const isIn = tx.flow === 'IN';
                     const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
-                    const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
+                    const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT') || Number(tx.rejectedQty || 0) > 0);
                     const invDate = tx.supplierInvoiceDate ? formatDate(tx.supplierInvoiceDate) : null;
+                    const rate = Number(tx.rate || 0);
+                    const qty = Number(tx.quantity || 0);
+                    const amt = Number(tx.amount || (rate * qty) || 0);
 
                     return (
                       <div
                         key={tx.id}
-                        className={`p-3 space-y-1.5 bg-white dark:bg-slate-900 transition-colors ${
+                        className={`p-3 sm:p-4 space-y-2.5 bg-white dark:bg-slate-900 transition-colors ${
                           isTxReject
-                            ? 'border-l-4 border-l-rose-500 bg-rose-50/40'
+                            ? 'border-l-4 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20'
                             : isInProgress
-                            ? 'border-l-4 border-l-amber-500 bg-amber-50/40'
+                            ? 'border-l-4 border-l-amber-500 bg-amber-50/40 dark:bg-amber-950/20'
                             : ''
                         }`}
                       >
+                        {/* Top Header: Date/Time + Flow Badge */}
                         <div className="flex items-center justify-between text-xs font-mono">
-                          <span className="text-slate-500">{formatDateTime(tx.date)}</span>
+                          <span className="text-slate-500 dark:text-slate-400">{formatDateTime(tx.date)}</span>
                           {isTxReject ? (
-                            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
                               ❌ REJECTED
                             </span>
                           ) : isInProgress ? (
-                            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
-                              🟡 -{tx.quantity} WIP
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                              🟡 IN PROGRESS (WIP)
                             </span>
                           ) : (
-                            <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold ${
-                              isIn ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isIn
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300'
                             }`}>
-                              {isIn ? `+${tx.quantity} IN` : `-${tx.quantity} OUT`}
+                              {isIn ? '🟢 IN' : '🔴 OUT'}
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-start justify-between gap-1.5">
-                          <div>
-                            <div className="text-xs font-bold text-slate-900 dark:text-white">
+                        {/* Material & Type Row */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-0.5 flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => handleOpenHistory(tx.rawMaterialId)}
+                                className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                              >
+                                {tx.rawMaterialCode}
+                              </button>
+                              <span className="text-[10px] text-slate-500">
+                                {tx.category} • {formatUOM(tx.uom)}
+                              </span>
+                            </div>
+                            <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate" title={tx.rawMaterialName}>
                               {tx.rawMaterialName}
-                            </div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              {tx.rawMaterialCode} • {tx.category} • {tx.uom}
-                            </div>
+                            </h3>
                           </div>
-                          <div className="text-right font-mono text-[11px]">
-                            <span className="px-1.5 py-0.5 rounded-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
+                          <div className="text-right shrink-0">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[10px] sm:text-[11px] block">
                               {tx.typeLabel}
                             </span>
                           </div>
                         </div>
 
-                        {invDate && (
-                          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
-                            Supplier Inv Date: {invDate}
+                        {/* Financial & Quantity Metrics Grid (3 cols) */}
+                        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-850 text-center font-mono text-xs">
+                          <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
+                            <span className="text-[9px] text-slate-400 block font-sans">Quantity</span>
+                            <span className={`font-bold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : isInProgress ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {isIn ? `+${qty.toLocaleString('en-IN')}` : `-${qty.toLocaleString('en-IN')}`} {formatUOM(tx.uom)}
+                            </span>
                           </div>
-                        )}
+                          <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
+                            <span className="text-[9px] text-slate-400 block font-sans">Unit Rate</span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {rate > 0 ? `₹${rate.toFixed(2)}` : '—'}
+                            </span>
+                          </div>
+                          <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
+                            <span className="text-[9px] text-slate-400 block font-sans">Amount</span>
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {amt > 0 ? `₹${amt.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—'}
+                            </span>
+                          </div>
+                        </div>
 
-                        <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
-                          <div className="font-mono text-slate-600 dark:text-slate-400">
-                            Ref: {tx.referenceNo} {tx.batchNumber ? `(${tx.batchNumber})` : ''}
+                        {/* Document Ref, Invoice Date & QC Status */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center gap-2 flex-wrap font-mono">
+                            <span className="text-slate-500">Ref:</span>
+                            {tx.poId ? (
+                              <button
+                                onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
+                                className="text-blue-600 hover:underline inline-flex items-center gap-0.5 font-semibold"
+                              >
+                                <span>{tx.referenceNo}</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </button>
+                            ) : tx.grnId ? (
+                              <button
+                                onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)}
+                                className="text-emerald-600 hover:underline inline-flex items-center gap-0.5 font-semibold"
+                              >
+                                <span>{tx.referenceNo}</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </button>
+                            ) : tx.batchId || isInProgress ? (
+                              <button
+                                onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
+                                className={`hover:underline inline-flex items-center gap-0.5 font-semibold ${
+                                  isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
+                                }`}
+                              >
+                                <span>{tx.referenceNo}</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </button>
+                            ) : (
+                              <span className="text-slate-700 dark:text-slate-300 font-semibold">{tx.referenceNo || '—'}</span>
+                            )}
+
+                            {tx.batchNumber && tx.batchNumber !== '—' && (
+                              <span className="text-[10px] text-slate-500">
+                                (Batch: {tx.batchNumber})
+                              </span>
+                            )}
                           </div>
-                          <div className="text-slate-500 text-[10px] truncate max-w-[140px]">
-                            {tx.partyName || tx.user}
+
+                          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                            {invDate && (
+                              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                                Inv: {invDate}
+                              </span>
+                            )}
+                            <span className="truncate max-w-[160px]" title={tx.partyName || tx.user}>
+                              {tx.partyName || tx.user || '—'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -4063,8 +4296,8 @@ export default function RMINOUTStockPage() {
       {/* ── EXPORT OPTIONS MODAL (2 Dedicated Types + Master Multi-Sheet Option) ── */}
       {isExportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden space-y-4 p-5">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col p-4 sm:p-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 shrink-0">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                 <h2 className="text-base font-bold text-slate-900 dark:text-white">
@@ -4079,11 +4312,11 @@ export default function RMINOUTStockPage() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 dark:text-slate-400">
+            <p className="text-xs text-slate-600 dark:text-slate-400 shrink-0 pt-2 pb-1">
               Select your export format. Both options include batch numbers, PO numbers, rates, valuations, lab inspection results, and full audit comments.
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-3 overflow-y-auto pr-1 flex-1 py-1">
               {/* Option 1: Date-Wise Stock In-Out Matrix (Matches User's Excel Format) */}
               <div
                 onClick={handleExportMatrixOnly}
@@ -4177,7 +4410,7 @@ export default function RMINOUTStockPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
               <Button
                 variant="outline"
                 size="sm"
@@ -4223,52 +4456,68 @@ export default function RMINOUTStockPage() {
       )}
       {/* ── PORTAL FLOATING POPUP: GUARANTEED SINGLE POPUP, LIGHT & DARK THEME, SMART COLLISION & Z-INDEX ── */}
       {activeCellTooltip && tooltipPosition && typeof document !== 'undefined' && createPortal(
-        <div
-          className="fixed z-[99999] transition-opacity duration-150 ease-out animate-in fade-in-0 zoom-in-95 pointer-events-auto"
-          style={{
-            top: `${tooltipPosition.top}px`,
-            left: `${tooltipPosition.left}px`,
-            transform: tooltipPosition.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
-          }}
-          onMouseEnter={() => {
-            if (tooltipHideTimerRef.current) {
-              clearTimeout(tooltipHideTimerRef.current);
-            }
-          }}
-          onMouseLeave={handleCellMouseLeave}
-        >
-          <div className="w-[325px] max-w-[calc(100vw-24px)] rounded-2xl bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 shadow-2xl backdrop-blur-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
-            {/* Dynamic Arrow Pointer */}
-            <div
-              className={`w-3.5 h-3.5 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
-                tooltipPosition.placeBelow
-                  ? '-top-2 border-t border-l'
-                  : '-bottom-2 border-b border-r'
-              }`}
-              style={{
-                left: `calc(50% + ${Math.max(-135, Math.min(135, tooltipPosition.arrowOffset))}px - 7px)`
-              }}
-            />
+        <>
+          {/* Backdrop for touch / mobile click-outside */}
+          <div
+            className="fixed inset-0 z-[99998] bg-black/20 lg:hidden backdrop-blur-2xs"
+            onClick={() => setActiveCellTooltip(null)}
+          />
+          <div
+            className="fixed z-[99999] transition-opacity duration-150 ease-out animate-in fade-in-0 zoom-in-95 pointer-events-auto"
+            style={{
+              top: `${tooltipPosition.top}px`,
+              left: `${tooltipPosition.left}px`,
+              transform: tooltipPosition.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
+            }}
+            onMouseEnter={() => {
+              if (tooltipHideTimerRef.current) {
+                clearTimeout(tooltipHideTimerRef.current);
+              }
+            }}
+            onMouseLeave={handleCellMouseLeave}
+          >
+            <div className="w-[325px] max-w-[calc(100vw-24px)] rounded-2xl bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 shadow-2xl backdrop-blur-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
+              {/* Dynamic Arrow Pointer */}
+              <div
+                className={`w-3.5 h-3.5 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
+                  tooltipPosition.placeBelow
+                    ? '-top-2 border-t border-l'
+                    : '-bottom-2 border-b border-r'
+                }`}
+                style={{
+                  left: `calc(50% + ${Math.max(-135, Math.min(135, tooltipPosition.arrowOffset))}px - 7px)`
+                }}
+              />
 
-            {/* Card Header: Date, Material & Movement Count */}
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0">
-                  <Calendar className="w-4 h-4" />
+              {/* Card Header: Date, Material, Movement Count & Mobile Close Button */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="font-bold text-xs text-slate-900 dark:text-white block tracking-tight">
+                      {activeCellTooltip.dateStr}
+                    </span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate block font-medium">
+                      {activeCellTooltip.matCode} • {activeCellTooltip.matName}
+                    </span>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <span className="font-bold text-xs text-slate-900 dark:text-white block tracking-tight">
-                    {activeCellTooltip.dateStr}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-semibold border border-slate-200/60 dark:border-slate-700/60">
+                    {activeCellTooltip.cell.transactions.length} movement{activeCellTooltip.cell.transactions.length > 1 ? 's' : ''}
                   </span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate block font-medium">
-                    {activeCellTooltip.matCode} • {activeCellTooltip.matName}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveCellTooltip(null)}
+                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-semibold shrink-0 border border-slate-200/60 dark:border-slate-700/60">
-                {activeCellTooltip.cell.transactions.length} movement{activeCellTooltip.cell.transactions.length > 1 ? 's' : ''}
-              </span>
-            </div>
 
             {/* Transactions List */}
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
@@ -4359,7 +4608,8 @@ export default function RMINOUTStockPage() {
               })}
             </div>
           </div>
-        </div>,
+        </div>
+      </>,
         document.body
       )}
     </div>
