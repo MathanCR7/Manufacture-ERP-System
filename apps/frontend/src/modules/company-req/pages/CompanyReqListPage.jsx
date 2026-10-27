@@ -66,10 +66,10 @@ function AttachmentModal({ record, onClose }) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transform transition-all cursor-default"
+        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[85vh] flex flex-col overflow-hidden transform transition-all cursor-default"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-4 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-4 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800 shrink-0">
               <Paperclip className="w-4 h-4" />
@@ -91,7 +91,7 @@ function AttachmentModal({ record, onClose }) {
           </button>
         </div>
 
-        <div className="p-4 space-y-2.5 max-h-[60vh] overflow-y-auto">
+        <div className="p-4 space-y-2.5 overflow-y-auto flex-1">
           {record.attachments.map((att, idx) => {
             const isImage = att.type?.startsWith('image/') || att.url?.match(/\.(jpeg|jpg|png|gif|webp)$/i);
             const downloadUrl = att.url || att.data;
@@ -142,7 +142,7 @@ function AttachmentModal({ record, onClose }) {
           })}
         </div>
 
-        <div className="p-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+        <div className="p-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
           <Button
             size="sm"
             variant="outline"
@@ -167,11 +167,11 @@ function CompanyDetailModal({ record, onClose, onEdit }) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transform transition-all cursor-default"
+        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] flex flex-col overflow-hidden transform transition-all cursor-default"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
               <Building2 className="w-5 h-5" />
@@ -197,7 +197,7 @@ function CompanyDetailModal({ record, onClose, onEdit }) {
         </div>
 
         {/* Content */}
-        <div className="p-4 sm:p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-3 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-100 dark:border-slate-800">
               <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Contact Person</span>
@@ -296,7 +296,7 @@ function CompanyDetailModal({ record, onClose, onEdit }) {
         </div>
 
         {/* Footer */}
-        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-400">
             Created: {record.createdAt ? format(new Date(record.createdAt), 'dd MMM yyyy, hh:mm a') : '—'}
           </span>
@@ -343,6 +343,7 @@ export default function CompanyReqListPage() {
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [tabletViewMode, setTabletViewMode] = useState('card'); // 'card' | 'table'
 
   // Fetch list of company requirement forms
   const { data: responseData, isLoading, refetch } = useQuery({
@@ -526,7 +527,7 @@ export default function CompanyReqListPage() {
       </div>
 
       {/* Stat Cards Grid (Matched with /purchase-orders) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
         <StatCard
           icon={Building2}
           label="Total Companies"
@@ -597,15 +598,41 @@ export default function CompanyReqListPage() {
             </div>
 
             {/* Filter and Sort Controls */}
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
               {searchTerm && (
                 <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium hidden lg:inline-flex items-center gap-1">
                   <span>Found {sortedRecords.length} matches</span>
                 </div>
               )}
 
+              {/* Tablet View Mode Switcher (Visible on tablet screens: sm to lg) */}
+              <div className="lg:hidden hidden sm:inline-flex items-center p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTabletViewMode('card')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                    tabletViewMode === 'card'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTabletViewMode('table')}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                    tabletViewMode === 'table'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  Table Grid
+                </button>
+              </div>
+
               {/* Type Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[130px] w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
                 <select
                   value={typeFilter}
                   onChange={(e) => {
@@ -625,7 +652,7 @@ export default function CompanyReqListPage() {
               </div>
 
               {/* Industry Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[130px] w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
                 <select
                   value={industryFilter}
                   onChange={(e) => {
@@ -646,7 +673,7 @@ export default function CompanyReqListPage() {
               </div>
 
               {/* Sort Dropdown (Styled identically to /purchase-orders) */}
-              <div className="relative flex items-center flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto">
+              <div className="relative flex items-center col-span-2 sm:col-span-1 flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </span>
@@ -674,8 +701,8 @@ export default function CompanyReqListPage() {
             </div>
           </div>
 
-          {/* Table displaying all columns matching the spreadsheet screenshot */}
-          <div className="overflow-x-auto min-h-[350px]">
+          {/* Table displaying all columns matching the spreadsheet screenshot (Desktop untouched, switchable on tablet) */}
+          <div className={`${tabletViewMode === 'table' ? 'block' : 'hidden lg:block'} overflow-x-auto min-h-[350px]`}>
             <Table className="min-w-[1100px] lg:min-w-full">
               <TableHeader className="bg-slate-50/90 dark:bg-slate-950/70 border-b border-slate-200 dark:border-slate-800">
                 <TableRow className="hover:bg-transparent">
@@ -942,6 +969,197 @@ export default function CompanyReqListPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Mobile & Tablet Card View (< 1024px) */}
+          <div className={`${tabletViewMode === 'table' ? 'hidden' : 'lg:hidden'} divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900`}>
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="p-3.5 sm:p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-28 rounded-md" />
+                    <Skeleton className="h-4 w-16 rounded-md" />
+                  </div>
+                  <Skeleton className="h-5 w-48 rounded-lg" />
+                  <Skeleton className="h-14 w-full rounded-xl" />
+                </div>
+              ))
+            ) : paginatedRecords.length === 0 ? (
+              <div className="py-12 px-4 text-center">
+                <Building2 className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2 opacity-60" />
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">No company requirement records found.</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigate('/company-directory/req-form')}
+                  className="mt-3 h-8 text-xs font-bold rounded-xl border-indigo-200 text-indigo-700 dark:border-indigo-800 dark:text-indigo-300 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Create First Entry
+                </Button>
+              </div>
+            ) : (
+              paginatedRecords.map((item, index) => {
+                const rowNumber = (currentPage - 1) * itemsPerPage + index + 1;
+                const addOnContacts = Array.isArray(item.additionalContacts) ? item.additionalContacts.filter(Boolean) : [];
+                const attachments = Array.isArray(item.attachments) ? item.attachments : [];
+
+                return (
+                  <div
+                    key={item.id}
+                    className="p-3.5 sm:p-4 space-y-3 hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors"
+                  >
+                    {/* Card Header: #, Company Name, Type Badge & Industry */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                            #{rowNumber}
+                          </span>
+                          <TypeBadge type={item.type} />
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-800 truncate max-w-[200px]">
+                            <Layers className="w-3 h-3 shrink-0 text-indigo-500" />
+                            <span className="truncate">{item.industryType}</span>
+                          </span>
+                        </div>
+                        <h3
+                          onClick={() => setActiveDetailRecord(item)}
+                          className="font-extrabold text-sm text-slate-900 dark:text-white uppercase tracking-tight truncate cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400"
+                        >
+                          {item.companyName}
+                        </h3>
+                      </div>
+
+                      {/* Quick Attachment Button */}
+                      {attachments.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveAttachmentRecord(item)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0 shadow-3xs cursor-pointer"
+                          title="View attachments"
+                        >
+                          <Paperclip className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          <span>{attachments.length === 1 ? 'Att 1' : `Att (${attachments.length})`}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Contact Person & Primary Phone Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800/80 text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-md bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0 border border-slate-200/60 dark:border-slate-700">
+                          <User className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Contact Person</span>
+                          <span className="font-bold text-slate-900 dark:text-slate-100 uppercase truncate block">
+                            {item.contactPerson || '—'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-md bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0 border border-slate-200/60 dark:border-slate-700">
+                          <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-[9px] text-slate-400 block font-bold uppercase tracking-wider">Primary Contact</span>
+                          {item.contactNo ? (
+                            <a
+                              href={`tel:${item.contactNo}`}
+                              className="font-mono font-bold text-indigo-600 dark:text-indigo-400 hover:underline truncate block"
+                            >
+                              {item.contactNo}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Add-on Contact Numbers (if any) */}
+                    {addOnContacts.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Add-on Nos:</span>
+                        {addOnContacts.map((no, nIdx) => (
+                          <a
+                            key={nIdx}
+                            href={`tel:${no}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950/50 text-slate-700 hover:text-indigo-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors"
+                          >
+                            <Phone className="w-2.5 h-2.5 text-slate-400" />
+                            {no}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Address & Website */}
+                    <div className="space-y-1 text-xs">
+                      {item.address && (
+                        <div className="flex items-start gap-1.5 text-slate-600 dark:text-slate-300">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                          <span className="line-clamp-2 text-[11px] leading-relaxed">{item.address}</span>
+                        </div>
+                      )}
+                      {item.website && (
+                        <div className="flex items-center gap-1.5 text-xs font-mono">
+                          <Globe className="w-3 h-3 text-slate-400 shrink-0" />
+                          <a
+                            href={item.website.startsWith('http') ? item.website : `https://${item.website}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 truncate"
+                          >
+                            <span className="truncate">{item.website}</span>
+                            <ExternalLink className="w-2.5 h-2.5 opacity-70 shrink-0" />
+                          </a>
+                        </div>
+                      )}
+                      {item.remarks && (
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic bg-slate-50/70 dark:bg-slate-850/60 p-2 rounded-lg border border-slate-100 dark:border-slate-800/80">
+                          <span className="font-semibold not-italic">Note:</span> {item.remarks}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card Actions Footer */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setActiveDetailRecord(item)}
+                        className="h-7 px-2.5 text-xs font-semibold rounded-lg text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="w-3 h-3 text-indigo-600" />
+                        <span>Details</span>
+                      </Button>
+
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/company-directory/edit/${item.id}`)}
+                          className="h-7 px-2.5 text-xs font-semibold rounded-lg text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/60 hover:bg-amber-50 dark:hover:bg-amber-950/40 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit className="w-3 h-3" />
+                          <span>Edit</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDelete(item)}
+                          className="h-7 px-2.5 text-xs font-semibold rounded-lg text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Delete</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
 
           {/* Integrated Pagination Toolbar */}

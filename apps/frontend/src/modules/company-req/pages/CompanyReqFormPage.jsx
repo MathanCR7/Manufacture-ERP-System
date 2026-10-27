@@ -270,7 +270,7 @@ export default function CompanyReqFormPage() {
             <Building2 className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
                 {isEditMode ? 'Edit Company Requirement Form' : 'Company Requirement Form (Req Form)'}
               </h1>
@@ -284,12 +284,12 @@ export default function CompanyReqFormPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end shrink-0">
           <Button
             type="button"
             variant="outline"
             onClick={() => navigate('/company-directory')}
-            className="h-8.5 px-3 text-xs font-semibold rounded-xl border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center gap-1.5"
+            className="w-full sm:w-auto h-8.5 px-3 text-xs font-semibold rounded-xl border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             Display List
@@ -381,7 +381,7 @@ export default function CompanyReqFormPage() {
                 </label>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                  {COMPANY_TYPES.map((t) => {
+                  {COMPANY_TYPES.map((t, idx) => {
                     const isSelected = formData.type === t.value;
                     return (
                       <button
@@ -389,6 +389,8 @@ export default function CompanyReqFormPage() {
                         type="button"
                         onClick={() => setFormData(prev => ({ ...prev, type: t.value }))}
                         className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                          idx === 4 ? 'col-span-2 sm:col-span-1' : ''
+                        } ${
                           isSelected
                             ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-600 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20 shadow-xs'
                             : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700'
@@ -476,14 +478,14 @@ export default function CompanyReqFormPage() {
               </div>
 
               {/* Add-on Contact Numbers Feature */}
-              <div className="mt-4 p-3.5 bg-slate-50/80 dark:bg-slate-950/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="mt-4 p-3 sm:p-3.5 bg-slate-50/80 dark:bg-slate-950/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <Phone className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                       Contact No + (Add-on Numbers)
                     </span>
-                    <span className="text-[10px] text-slate-400">
+                    <span className="text-[10px] text-slate-400 hidden sm:inline">
                       Add additional phone / mobile numbers
                     </span>
                   </div>
@@ -491,7 +493,7 @@ export default function CompanyReqFormPage() {
                     type="button"
                     onClick={handleAddContact}
                     variant="outline"
-                    className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 inline-flex items-center gap-1 shadow-3xs"
+                    className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 inline-flex items-center justify-center gap-1 shadow-3xs cursor-pointer self-start sm:self-auto"
                   >
                     <Plus className="w-3 h-3" /> Add More Contact No
                   </Button>
@@ -506,7 +508,7 @@ export default function CompanyReqFormPage() {
                         </span>
                         <input
                           type="text"
-                          placeholder={`Alternate Contact No + (${index === 0 ? 'e.g. 889955541' : 'e.g. +91 9876543210'})`}
+                          placeholder={index === 0 ? "Alternate Contact No + (e.g. 9876543210)" : "Additional Contact No (e.g. +91 9876543210)"}
                           value={contact}
                           onChange={(e) => handleContactChange(index, e.target.value)}
                           className="w-full pl-9 pr-3 py-1.5 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-3xs"
