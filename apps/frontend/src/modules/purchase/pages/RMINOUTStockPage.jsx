@@ -1070,7 +1070,7 @@ export default function RMINOUTStockPage() {
       }
 
       const isHistorical = Boolean(dateRange.end && dateRange.end.getTime() < new Date().getTime());
-      let curStock = Math.max(liveStock, Math.round(periodIn * 1000) / 1000);
+      let curStock = liveStock;
       if (isPeriodFiltered) {
         curStock = Math.max(0, Math.round((periodIn - periodOut) * 1000) / 1000);
       } else if (isHistorical && cached?.txList) {

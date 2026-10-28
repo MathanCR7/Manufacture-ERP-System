@@ -4081,7 +4081,9 @@ exports.getRmInOutStock = async (req, res, next) => {
     }
 
     // 2. Process Purchase Orders without GRN (Procured & In-Transit Purchases)
+    // Never include PENDING or DRAFT POs in stock or inward movements
     for (const po of pos) {
+      if (po.status === 'PENDING' || po.status === 'DRAFT') continue;
       const hasGRN = Array.isArray(po.grnReceives) && po.grnReceives.length > 0;
       if (!hasGRN) {
         const itemsList = Array.isArray(po.items) && po.items.length > 0
@@ -4564,8 +4566,8 @@ exports.getRmInOutStock = async (req, res, next) => {
       // When a specific period filter (e.g. Today, This Year, This Week, This Month, or Custom) is active,
       // stock reflects the net receipts / movements in that timeframe: periodIn - periodOut.
       // If there was no activity in this timeframe, period stock is 0.
-      // When reviewing lifetime ('all'), curStock reflects monitored lifetime stock including invoiced PO inward.
-      let curStock = Math.max(liveStock, Math.round(txData.lifetimeIn * 1000) / 1000);
+      // When reviewing lifetime ('all'), curStock reflects physical warehouse stock (liveStock).
+      let curStock = liveStock;
       if (isPeriodFiltered) {
         curStock = Math.max(0, Math.round((periodIn - periodOut) * 1000) / 1000);
       } else if (isHistorical) {
