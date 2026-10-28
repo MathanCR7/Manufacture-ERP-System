@@ -2093,7 +2093,7 @@ export default function RMINOUTStockPage() {
       const cur = Number(m.currentStock || 0);
       const wip = Number(m.inProgressStock || 0);
       const free = m.availableStock !== undefined ? Number(m.availableStock) : Math.max(0, cur - wip);
-      const val = Number(m.valuation || 0);
+      const val = Number(m.valuation !== undefined ? m.valuation : (m.valueWithTax || 0));
 
       const row = {
         'RM Code': m.code || '—',

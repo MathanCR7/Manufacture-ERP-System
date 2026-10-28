@@ -87,6 +87,52 @@ export function cleanUOM(uom) {
 }
 
 /**
+ * Strict Draft & Unconfirmed Transaction Filter
+ * Ensures unstarted/planned/draft production batches and pending/draft POs never export
+ */
+export function filterOutDraftTransactions(txList) {
+  return (txList || []).filter(tx => {
+    const status = String(tx.status || tx.batchStatus || '').toLowerCase();
+    const type = String(tx.type || '').toUpperCase();
+    // Production batches: OUT only if started/running/completed (never planned or draft)
+    if (type.includes('PRODUCTION') || type.includes('USAGE')) {
+      if (['planned', 'draft', 'scheduled', 'pending', 'cancelled'].includes(status)) return false;
+    }
+    // Purchase Orders: IN only if confirmed (never pending or draft)
+    if (type.includes('PO') || type.includes('PURCHASE')) {
+      if (['draft', 'pending', 'deleted'].includes(status)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Build rich Excel Cell Note for Total Valuation
+ * Shows Total Excl. Tax, Tax Amount (GST), Total + Tax (e.g. ₹23,360 for MILK RAW), and contributing PO lots
+ */
+function buildValuationCellNote(mat, cur, val, uomStr) {
+  const valWithoutTax = Number(mat.valueWithoutTax !== undefined ? mat.valueWithoutTax : val);
+  const taxVal = Number(mat.taxValue || 0);
+  const noteTexts = [
+    { font: { bold: true, name: 'Segoe UI', size: 9.5 }, text: `Valuation Breakdown - ${mat.name} (${mat.code})\n` },
+    { text: `Current Stock: ${cur} ${uomStr}\n` },
+    { text: `Total Excl. Tax: ₹${valWithoutTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` },
+    { text: `Tax Amount (GST): ₹${taxVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` },
+    { font: { bold: true }, text: `Total + Tax: ₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` }
+  ];
+  if (Array.isArray(mat.contributingPOs) && mat.contributingPOs.length > 0) {
+    noteTexts.push({ font: { bold: true }, text: `Contributing PO Lots (${mat.contributingPOs.length}):\n` });
+    mat.contributingPOs.forEach(p => {
+      const dt = p.poDate ? new Date(p.poDate).toLocaleDateString('en-GB') : '';
+      noteTexts.push({
+        text: `• ${p.poRef}${dt ? ` (${dt})` : ''}: ${p.allocatedQty} ${uomStr} @ ₹${Number(p.unitPrice).toFixed(2)} = ₹${Number(p.totalWithTax || (p.subtotal + (p.tax || 0))).toLocaleString('en-IN')}\n`
+      });
+    });
+  }
+  return { texts: noteTexts };
+}
+
+/**
  * Helper to format date as 15 Oct 2026
  */
 function formatShortDate(d) {
@@ -244,8 +290,9 @@ export async function exportStockInOutMatrixToExcel({
     views: [
       {
         state: 'frozen',
-        xSplit: 2, // Freeze RM Code and Raw Material Name
-        ySplit: 5, // Freeze banners & table header
+        xSplit: 4, // Freeze first 4 columns: RM Code, Category, Raw Material Name, UOM
+        ySplit: 5, // Freeze banners & table header (Row 5)
+        topLeftCell: 'E6',
         showGridLines: true
       }
     ]
@@ -301,6 +348,8 @@ export async function exportStockInOutMatrixToExcel({
   let sumPeriodIn = 0;
   let sumPeriodOut = 0;
   let sumValuation = 0;
+  let sumValuationWithoutTax = 0;
+  let sumTaxValue = 0;
   const dateInSums = new Array(matrixDates.length).fill(0);
   const dateOutSums = new Array(matrixDates.length).fill(0);
 
@@ -313,7 +362,9 @@ export async function exportStockInOutMatrixToExcel({
     const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
     const pIn = Number(mat.periodInQty || 0);
     const pOut = Number(mat.periodOutQty || 0);
-    const val = Number(mat.valuation || 0);
+    const val = Number(mat.valuation !== undefined ? mat.valuation : (mat.valueWithTax || 0));
+    const valWithoutTax = Number(mat.valueWithoutTax !== undefined ? mat.valueWithoutTax : val);
+    const taxVal = Number(mat.taxValue || 0);
     const uomStr = cleanUOM(mat.uom);
 
     sumTotalStock += cur;
@@ -321,6 +372,8 @@ export async function exportStockInOutMatrixToExcel({
     sumPeriodIn += pIn;
     sumPeriodOut += pOut;
     sumValuation += val;
+    sumValuationWithoutTax += valWithoutTax;
+    sumTaxValue += taxVal;
 
     const isEven = mIdx % 2 === 0;
     const defaultBg = isEven ? 'FFFFFFFF' : 'FFF8FAFC';
@@ -415,7 +468,7 @@ export async function exportStockInOutMatrixToExcel({
       cOut.border = BORDERS.thin;
     }
 
-    // 9. Total Valuation (₹)
+    // 9. Total Valuation (₹) (Live PO Lot-Allocated Valuation with Breakdown Note)
     const cVal = row.getCell(9);
     cVal.value = val;
     cVal.numFmt = '₹#,##0.00';
@@ -423,6 +476,7 @@ export async function exportStockInOutMatrixToExcel({
     cVal.alignment = { vertical: 'middle', horizontal: 'right' };
     cVal.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
     cVal.border = BORDERS.thin;
+    cVal.note = buildValuationCellNote(mat, cur, val, uomStr);
 
     // 10+. Dynamic Date Columns (Green IN / Red OUT)
     matrixDates.forEach((dStr, dIdx) => {
@@ -540,12 +594,20 @@ export async function exportStockInOutMatrixToExcel({
   tOut.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.OUT_FILL } };
   tOut.alignment = { vertical: 'middle', horizontal: 'right' };
 
-  // Totals: Total Valuation
+  // Totals: Total Valuation (with Portfolio Tax Breakdown Note)
   const tVal = totRow.getCell(9);
   tVal.value = sumValuation;
   tVal.numFmt = '₹#,##0.00';
   tVal.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: COLORS.NAVY_HEADER } };
   tVal.alignment = { vertical: 'middle', horizontal: 'right' };
+  tVal.note = {
+    texts: [
+      { font: { bold: true, name: 'Segoe UI' }, text: `Total Portfolio Valuation (${materials.length} Raw Materials)\n` },
+      { text: `Total Excl. Tax: ₹${sumValuationWithoutTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n` },
+      { text: `Total Tax Amount: ₹${sumTaxValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n` },
+      { font: { bold: true }, text: `Total Valuation (+Tax): ₹${sumValuation.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n` }
+    ]
+  };
 
   // Totals: Date Column Sums
   matrixDates.forEach((_, dIdx) => {
@@ -582,12 +644,21 @@ export async function exportStockInOutMatrixToExcel({
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // SHEET 2: PO SUPPLIER INVOICE DATE AUDIT SHEET
+  // SHEET 2: PO SUPPLIER INVOICE DATE AUDIT SHEET (Filtered of Draft Orders)
   // ──────────────────────────────────────────────────────────────────────────
-  const inwardTxs = allTransactions.filter(t => t.flow === 'IN');
+  const validAllTransactions = filterOutDraftTransactions(allTransactions);
+  const inwardTxs = validAllTransactions.filter(t => t.flow === 'IN');
   if (inwardTxs.length > 0) {
     const wsInv = workbook.addWorksheet('PO Supplier Invoice Audit', {
-      views: [{ showGridLines: true }]
+      views: [
+        {
+          state: 'frozen',
+          xSplit: 0,
+          ySplit: 4, // Freeze row 4 header row
+          topLeftCell: 'A5',
+          showGridLines: true
+        }
+      ]
     });
 
     // Title Banners
@@ -788,9 +859,20 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
   workbook.created = new Date();
   workbook.modified = new Date();
 
+  // Filter out any unstarted draft production or pending purchase orders
+  const validAllTransactions = filterOutDraftTransactions(allTransactions);
+
   // 1. SHEET 1: Stock In-Out Movement Matrix (Green IN & Red OUT)
   const wsMatrix = workbook.addWorksheet('1. Stock In-Out Matrix', {
-    views: [{ state: 'frozen', xSplit: 2, ySplit: 5, showGridLines: true }]
+    views: [
+      {
+        state: 'frozen',
+        xSplit: 4, // Freeze first 4 columns: RM Code, Category, Raw Material Name, UOM
+        ySplit: 5, // Freeze row 5 header row
+        topLeftCell: 'E6',
+        showGridLines: true
+      }
+    ]
   });
   const totalCols = 9 + Math.max(1, matrixDates.length);
   addMatrixHeaderBanners(wsMatrix, totalCols, period, materials.length, matrixDates.length);
@@ -841,7 +923,6 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
     const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
     const pIn = Number(mat.periodInQty || 0);
     const pOut = Number(mat.periodOutQty || 0);
-    const val = Number(mat.valuation || 0);
     const isEven = mIdx % 2 === 0;
     const defaultBg = isEven ? 'FFFFFFFF' : 'FFF8FAFC';
 
@@ -885,10 +966,15 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
       cOut.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.OUT_FILL } };
     }
 
-    row.getCell(9).value = val;
-    row.getCell(9).numFmt = '₹#,##0.00';
-    row.getCell(9).font = { name: 'Segoe UI', size: 9.5, bold: true };
-    row.getCell(9).alignment = { vertical: 'middle', horizontal: 'right' };
+    const val = Number(mat.valuation !== undefined ? mat.valuation : (mat.valueWithTax || 0));
+    const uomStr = cleanUOM(mat.uom);
+
+    const cVal = row.getCell(9);
+    cVal.value = val;
+    cVal.numFmt = '₹#,##0.00';
+    cVal.font = { name: 'Segoe UI', size: 9.5, bold: true };
+    cVal.alignment = { vertical: 'middle', horizontal: 'right' };
+    cVal.note = buildValuationCellNote(mat, cur, val, uomStr);
 
     matrixDates.forEach((dStr, dIdx) => {
       const colNum = 10 + dIdx;
@@ -929,9 +1015,17 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
     mRowIdx++;
   });
 
-  // 2. SHEET 2: Master Summary Sheet
+  // 2. SHEET 2: Master Summary Sheet (Freeze Panes for Headers & Left Columns)
   const wsSum = workbook.addWorksheet('2. RM Stock Summary', {
-    views: [{ showGridLines: true }]
+    views: [
+      {
+        state: 'frozen',
+        xSplit: 4, // Freeze RM Code, Raw Material Name, Category, UOM
+        ySplit: 3, // Freeze row 3 header row
+        topLeftCell: 'E4',
+        showGridLines: true
+      }
+    ]
   });
   wsSum.mergeCells('A1:O1');
   wsSum.getCell('A1').value = 'RAW MATERIAL MASTER STOCK SUMMARY';
@@ -966,7 +1060,6 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
     const pIn = Number(mat.periodInQty || 0);
     const pOut = Number(mat.periodOutQty || 0);
     const net = pIn - pOut;
-    const val = Number(mat.valuation || 0);
     const isEven = mIdx % 2 === 0;
     const bg = isEven ? 'FFFFFFFF' : 'FFF8FAFC';
 
@@ -1005,8 +1098,16 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
       cNet.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.OUT_FILL } };
     }
 
+    const val = Number(mat.valuation !== undefined ? mat.valuation : (mat.valueWithTax || 0));
+    const uomStr = cleanUOM(mat.uom);
+
     row.getCell(11).value = Number(mat.ratePerUnit || 0);
-    row.getCell(12).value = val;
+    const cVal = row.getCell(12);
+    cVal.value = val;
+    cVal.numFmt = '₹#,##0.00';
+    cVal.font = { name: 'Segoe UI', size: 9.5, bold: true };
+    cVal.alignment = { vertical: 'middle', horizontal: 'right' };
+    cVal.note = buildValuationCellNote(mat, cur, val, uomStr);
     row.getCell(13).value = mat.poReferenceNo || '—';
     row.getCell(14).value = mat.lastIn?.batch || mat.lastOut?.ref || '—';
     row.getCell(15).value = mat.hasLabRejection ? '❌ LAB REJECTED' : 'QC PASSED';
@@ -1022,9 +1123,17 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
   });
   autoFitWorksheet(wsSum, 10, 35);
 
-  // 3. SHEET 3: Chronological Date-Wise Ledger (Flow Green IN / Red OUT)
+  // 3. SHEET 3: Chronological Date-Wise Ledger (Flow Green IN / Red OUT - Freeze Header)
   const wsLedger = workbook.addWorksheet('3. Chronological Ledger', {
-    views: [{ showGridLines: true }]
+    views: [
+      {
+        state: 'frozen',
+        xSplit: 0,
+        ySplit: 3, // Freeze row 3 header row
+        topLeftCell: 'A4',
+        showGridLines: true
+      }
+    ]
   });
   wsLedger.mergeCells('A1:Q1');
   wsLedger.getCell('A1').value = 'CHRONOLOGICAL RAW MATERIAL IN-OUT AUDIT LEDGER';
@@ -1050,7 +1159,7 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
   });
 
   let lRowIdx = 4;
-  allTransactions.forEach((tx, tIdx) => {
+  validAllTransactions.forEach((tx, tIdx) => {
     const row = wsLedger.getRow(lRowIdx);
     row.height = 20;
     const isEven = tIdx % 2 === 0;
@@ -1144,7 +1253,15 @@ export async function exportMasterSummaryToExcel({
   workbook.modified = new Date();
 
   const ws = workbook.addWorksheet('RM Stock Summary', {
-    views: [{ state: 'frozen', xSplit: 2, ySplit: 5, showGridLines: true }]
+    views: [
+      {
+        state: 'frozen',
+        xSplit: 4, // Freeze RM Code, Raw Material Name, Category, UOM
+        ySplit: 5, // Freeze row 5 header row
+        topLeftCell: 'E6',
+        showGridLines: true
+      }
+    ]
   });
 
   const now = new Date();
@@ -1203,7 +1320,7 @@ export async function exportMasterSummaryToExcel({
     const pIn = Number(mat.periodInQty || 0);
     const pOut = Number(mat.periodOutQty || 0);
     const net = pIn - pOut;
-    const val = Number(mat.valuation || 0);
+    const val = Number(mat.valuation !== undefined ? mat.valuation : (mat.valueWithTax || 0));
     const uomStr = cleanUOM(mat.uom);
 
     sumTotalStock += cur;
@@ -1314,12 +1431,13 @@ export async function exportMasterSummaryToExcel({
     cRate.numFmt = '₹#,##0.00';
     cRate.alignment = { vertical: 'middle', horizontal: 'right' };
 
-    // 12. Total Valuation (₹)
+    // 12. Total Valuation (₹) (Live PO Lot-Allocated Valuation with Breakdown Note)
     const cVal = row.getCell(12);
     cVal.value = val;
     cVal.numFmt = '₹#,##0.00';
     cVal.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.TEXT_MAIN } };
     cVal.alignment = { vertical: 'middle', horizontal: 'right' };
+    cVal.note = buildValuationCellNote(mat, cur, val, uomStr);
 
     // 13. Latest PO
     row.getCell(13).value = mat.poReferenceNo || '—';
@@ -1439,8 +1557,19 @@ export async function exportDateWiseLedgerToExcel({
   workbook.created = new Date();
   workbook.modified = new Date();
 
+  // Filter out unstarted draft production and unconfirmed POs
+  const validTransactions = filterOutDraftTransactions(transactions);
+
   const ws = workbook.addWorksheet('Chronological Ledger', {
-    views: [{ state: 'frozen', xSplit: 2, ySplit: 5, showGridLines: true }]
+    views: [
+      {
+        state: 'frozen',
+        xSplit: 0,
+        ySplit: 5, // Freeze row 5 header row
+        topLeftCell: 'A6',
+        showGridLines: true
+      }
+    ]
   });
 
   const now = new Date();
@@ -1488,7 +1617,7 @@ export async function exportDateWiseLedgerToExcel({
   let sumOutQty = 0;
   let sumAmount = 0;
 
-  transactions.forEach((tx, tIdx) => {
+  validTransactions.forEach((tx, tIdx) => {
     const row = ws.getRow(curRowIdx);
     row.height = 22;
 
