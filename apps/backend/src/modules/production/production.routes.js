@@ -884,6 +884,7 @@ router.get('/batches-redesign', authenticateToken, (req, res, next) => productio
 router.get('/batches-redesign/analyze/:batchNo', authenticateToken, (req, res, next) => productionBatchRedesignController.analyzeBatch(req, res, next));
 router.get('/batches-redesign/:id', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchById(req, res, next));
 router.post('/batches-redesign', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.createBatch(req, res, next));
+router.put('/batches-redesign/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateBatch(req, res, next));
 router.patch('/batches-redesign/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateStatus(req, res, next));
 router.post('/batches-redesign/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.completeBatch(req, res, next));
 router.get('/batches-redesign/:id/label', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchLabel(req, res, next));

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   X, Play, Pause, PlayCircle, XCircle, CheckCircle2, 
   Clock, User, Calendar, Factory, Package, Layers, 
   FileText, ShieldCheck, AlertTriangle, ArrowRight, 
   RefreshCw, Database, Sparkles, Scale, Tag, Check, Info,
   Printer, Zap, FlaskConical, Users, HardHat, UserCheck, CheckSquare,
-  Maximize2, Minimize2
+  Maximize2, Minimize2, Pencil
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
@@ -22,6 +23,7 @@ export default function ProductionBatchDetailModal({
   onOpenCompleteModal,
   canViewCosting = true
 }) {
+  const navigate = useNavigate();
   const [batch, setBatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'labour', 'timeline', 'sop', 'formulation', 'pauses'
@@ -284,15 +286,38 @@ export default function ProductionBatchDetailModal({
           {/* Group 1: Floor Operations & Labels */}
           <div className="flex items-center gap-2 shrink-0 flex-nowrap">
             {(batch?.status === 'Planned' || batch?.status === 'Draft') && (
-              <Button
-                size="sm"
-                disabled={actionLoading}
-                onClick={handleStart}
-                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-                Start Production
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={actionLoading}
+                  onClick={() => {
+                    onClose();
+                    let targetPath = `/production/standard/edit/${batch.id}`;
+                    if (batch.productionType === 'ORDER_BASED' || batch.productionType === 'Make to Order') {
+                      targetPath = `/production/order-based/edit/${batch.id}`;
+                    } else if (batch.productionType === 'STOCK_UPDATE' || batch.productionType === 'Stock Adjustment') {
+                      targetPath = `/production/stock-update/edit/${batch.id}`;
+                    }
+                    navigate(targetPath);
+                  }}
+                  className="rounded-xl border-amber-300 dark:border-amber-800 bg-amber-50 hover:bg-amber-100 text-amber-700 dark:text-amber-300 font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                  title="Edit draft batch formulation and parameters"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-amber-600" />
+                  Edit Draft
+                </Button>
+
+                <Button
+                  size="sm"
+                  disabled={actionLoading}
+                  onClick={handleStart}
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  Start Production
+                </Button>
+              </>
             )}
 
             {batch?.status === 'In Progress' && (

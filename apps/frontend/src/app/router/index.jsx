@@ -461,10 +461,16 @@ const AppRouter = () => {
               {/* Batches Redesign */}
               <Route path="/production/standard" element={<StandardProductionListPage />} />
               <Route path="/production/standard/add" element={<StandardProductionFormPage />} />
+              <Route path="/production/standard/edit/:id" element={<StandardProductionFormPage />} />
+              <Route path="/production/standard/:id/edit" element={<StandardProductionFormPage />} />
               <Route path="/production/order-based" element={<OrderBasedProductionListPage />} />
               <Route path="/production/order-based/add" element={<OrderBasedProductionFormPage />} />
+              <Route path="/production/order-based/edit/:id" element={<OrderBasedProductionFormPage />} />
+              <Route path="/production/order-based/:id/edit" element={<OrderBasedProductionFormPage />} />
               <Route path="/production/stock-update" element={<StockUpdateProductionListPage />} />
               <Route path="/production/stock-update/add" element={<StockUpdateProductionFormPage />} />
+              <Route path="/production/stock-update/edit/:id" element={<StockUpdateProductionFormPage />} />
+              <Route path="/production/stock-update/:id/edit" element={<StockUpdateProductionFormPage />} />
 
               {/* Legacy / Direct Batch Redirects */}
               <Route path="/production/batches" element={<Navigate to="/production/standard" replace />} />

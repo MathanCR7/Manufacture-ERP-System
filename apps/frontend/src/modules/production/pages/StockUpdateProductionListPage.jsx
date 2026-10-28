@@ -5,7 +5,7 @@ import {
   Layers, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
   Package, Check, Lock, FlaskConical, X, ArrowUpDown, ArrowUp, ArrowDown,
-  RotateCcw, ChevronDown, Printer, Tag, SlidersHorizontal
+  RotateCcw, ChevronDown, Printer, Tag, SlidersHorizontal, Pencil
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -772,15 +772,28 @@ export default function StockUpdateProductionListPage() {
                             </Button>
 
                             {(b.status === 'Planned' || b.status === 'Draft') && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleStartBatch(b)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
-                                title="Start inventory adjustment process"
-                              >
-                                <Play className="w-3 h-3 fill-current shrink-0" />
-                                Start
-                              </Button>
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => navigate(`/production/stock-update/edit/${b.id}`)}
+                                  className="rounded-xl border-amber-200 dark:border-amber-800/60 bg-amber-50/60 hover:bg-amber-100 text-amber-700 dark:text-amber-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  title="Edit draft stock replenishment batch and formulation"
+                                >
+                                  <Pencil className="w-3 h-3 text-amber-600 shrink-0" />
+                                  Edit
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleStartBatch(b)}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  title="Start inventory adjustment process"
+                                >
+                                  <Play className="w-3 h-3 fill-current shrink-0" />
+                                  Start
+                                </Button>
+                              </>
                             )}
 
                             {b.status === 'In Progress' && (

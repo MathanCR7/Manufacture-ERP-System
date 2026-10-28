@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   Factory, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
@@ -24,6 +24,14 @@ const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 
 export default function StandardProductionFormPage() {
   const navigate = useNavigate();
+  const { id: paramId } = useParams();
+  const [searchParams] = useSearchParams();
+  const editBatchId = paramId || searchParams.get('id') || searchParams.get('editId') || null;
+  const isEditMode = Boolean(editBatchId);
+
+  const [editingBatchNo, setEditingBatchNo] = useState('');
+  const [editingBatchStatus, setEditingBatchStatus] = useState('');
+  const [loadingBatch, setLoadingBatch] = useState(false);
 
   // ── Master Data from Live APIs ──
   const [bases, setBases] = useState([]);
@@ -264,7 +272,7 @@ export default function StandardProductionFormPage() {
   const isHydratedRef = useRef(false);
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
 
-  // ── Initialize Masters & Hydrate Draft (Instant with Cache) ──
+  // ── Initialize Masters & Hydrate Draft or Existing Batch ──
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
@@ -283,45 +291,157 @@ export default function StandardProductionFormPage() {
         setRawMaterialMasters(masters.rawMaterials || []);
         setUomMasters(masters.uoms || []);
 
-        // Hydrate from persistent draft if available
-        const draft = getProductionDraft();
-        if (draft && (draft.selectedProducts?.length > 0 || draft.selectedBaseId || draft.rawMaterials?.length > 0 || draft.note || draft.machineLine)) {
-          if (draft.productionDate) setProductionDate(draft.productionDate);
-          if (draft.shift) setShift(draft.shift);
-          if (draft.machineLine) setMachineLine(draft.machineLine);
-          if (draft.expiryDays) setExpiryDays(Number(draft.expiryDays));
-          if (draft.note) setNote(draft.note);
-          if (draft.selectedBaseId) setSelectedBaseId(draft.selectedBaseId);
-          if (draft.selectedTemplate) setSelectedTemplate(draft.selectedTemplate);
-          if (draft.selectedCategoryId) setSelectedCategoryId(draft.selectedCategoryId);
-          if (draft.selectedSubcategoryId) setSelectedSubcategoryId(draft.selectedSubcategoryId);
-          if (Array.isArray(draft.selectedProducts) && draft.selectedProducts.length > 0) {
-            setSelectedProducts(draft.selectedProducts);
-          }
-          if (Array.isArray(draft.rawMaterials) && draft.rawMaterials.length > 0) {
-            setRawMaterials(draft.rawMaterials);
-          } else if (draft.selectedTemplate) {
-            handleSelectTemplate(draft.selectedTemplate, masters.rawMaterials, masters.uoms);
-          }
-          if (Array.isArray(draft.timelineStages) && draft.timelineStages.length > 0) {
-            setTimelineStages(draft.timelineStages);
-          }
-          if (draft.labourCount !== undefined) setLabourCount(Number(draft.labourCount));
-          if (Array.isArray(draft.assignedStaffIds)) setAssignedStaffIds(draft.assignedStaffIds);
-          if (Array.isArray(draft.labourStaffDetails)) setLabourStaffDetails(draft.labourStaffDetails);
-          if (draft.wastagePct !== undefined) setWastagePct(Number(draft.wastagePct));
-          if (draft.overheadPct !== undefined) setOverheadPct(Number(draft.overheadPct));
-          setHasRestoredDraft(true);
-        } else {
-          // Default initial selection if no draft exists
-          const activeBases = (masters.bases || []).filter(b => b.status === 'ACTIVE' || !b.status);
-          if (activeBases.length > 0) {
-            const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
-            setSelectedBaseId(icb.id);
+        if (isEditMode) {
+          // Hydrate from Database for Edit/Draft update
+          try {
+            setLoadingBatch(true);
+            const res = await api.get(`/production/batches-redesign/${editBatchId}`);
+            const b = res.data;
+            if (b && isMounted) {
+              setEditingBatchNo(b.batchNumber || '');
+              setEditingBatchStatus(b.status || '');
+              if (b.productionDate) setProductionDate(new Date(b.productionDate).toISOString().split('T')[0]);
+              else if (b.startDate) setProductionDate(new Date(b.startDate).toISOString().split('T')[0]);
+              if (b.shift) setShift(b.shift);
+              if (b.machineLine) setMachineLine(b.machineLine);
+              if (b.expiryDays) setExpiryDays(Number(b.expiryDays));
+              if (b.note) setNote(b.note || '');
+              if (b.baseId) setSelectedBaseId(b.baseId);
+              if (b.templateId) {
+                const matchTpl = (masters.templates || []).find(t => t.id === b.templateId) || { id: b.templateId, name: 'Production Template' };
+                setSelectedTemplate(matchTpl);
+              }
+              if (b.wastagePct !== undefined) setWastagePct(Number(b.wastagePct));
+              if (b.overheadPct !== undefined) setOverheadPct(Number(b.overheadPct));
 
-            const matchTpl = (masters.templates || []).find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || masters.templates[0];
-            if (matchTpl) {
-              handleSelectTemplate(matchTpl, masters.rawMaterials, masters.uoms, 2000);
+              // Products
+              const rawProducts = Array.isArray(b.products) && b.products.length > 0
+                ? b.products
+                : (Array.isArray(b.selectedProducts) && b.selectedProducts.length > 0 ? b.selectedProducts : []);
+              
+              let loadedProducts = [];
+              if (rawProducts.length > 0) {
+                loadedProducts = rawProducts.map(p => {
+                  const masterProd = (masters.products || []).find(mp => mp.id === (p.productId || p.id)) || {};
+                  return {
+                    productId: p.productId || p.id || masterProd.id,
+                    name: p.productName || p.name || masterProd.name || 'Finished Product',
+                    code: p.productCode || p.code || masterProd.code || 'SKU',
+                    series: p.series || masterProd.specifications?.series || masterProd.brand || 'REGULAR',
+                    group: p.group || masterProd.specifications?.group || masterProd.category?.name || 'GENERAL',
+                    factor: Number(p.factor || masterProd.specifications?.factor || 1.0),
+                    baseName: p.baseName || masterProd.base?.name || 'Ice Cream Base',
+                    plannedQty: Number(p.plannedQty || p.quantity || 100),
+                    unit: p.unit || masterProd.unit?.abbreviation || masterProd.unit?.name || 'Nos'
+                  };
+                });
+              } else if (b.product || b.productId) {
+                const masterProd = (masters.products || []).find(mp => mp.id === b.productId) || b.product || {};
+                loadedProducts = [{
+                  productId: b.productId || masterProd.id,
+                  name: masterProd.name || 'Finished Product',
+                  code: masterProd.code || 'SKU',
+                  series: masterProd.specifications?.series || masterProd.brand || 'REGULAR',
+                  group: masterProd.specifications?.group || masterProd.category?.name || 'GENERAL',
+                  factor: Number(masterProd.specifications?.factor || 1.0),
+                  baseName: masterProd.base?.name || 'Ice Cream Base',
+                  plannedQty: Number(b.quantity || 100),
+                  unit: masterProd.unit?.abbreviation || masterProd.unit?.name || 'Nos'
+                }];
+              }
+              setSelectedProducts(loadedProducts);
+
+              // Raw Materials and Lot allocations
+              if (Array.isArray(b.rmUsages) && b.rmUsages.length > 0) {
+                const loadedRms = b.rmUsages.map(rm => {
+                  const rmMaster = (masters.rawMaterials || []).find(m => m.id === rm.rmId || m.id === rm.rawMaterialId);
+                  return {
+                    rmId: rm.rmId || rm.rawMaterialId,
+                    rawMaterialId: rm.rmId || rm.rawMaterialId,
+                    rmCode: rm.rmCode || rm.rawMaterialCode || rmMaster?.code || '',
+                    rawMaterialCode: rm.rmCode || rm.rawMaterialCode || rmMaster?.code || '',
+                    rmName: rm.rmName || rm.rawMaterialName || rmMaster?.name || '',
+                    rawMaterialName: rm.rmName || rm.rawMaterialName || rmMaster?.name || '',
+                    requiredQty: Number(rm.requiredQty || rm.requiredQuantity || rm.allocatedQuantity || 0),
+                    baseRequiredQty: Number(rm.baseRequiredQty || rm.requiredQty || 0),
+                    altRequiredQty: Number(rm.altRequiredQty || rm.requiredQty || 0),
+                    uom: rm.uom || rm.selectedUom || 'Kg',
+                    selectedUom: rm.selectedUom || rm.uom || 'Kg',
+                    baseUom: rm.baseUom || rm.uom || 'Kg',
+                    activeEntryMode: rm.activeEntryMode || 'BASE',
+                    unitRate: Number(rm.unitRate || rm.costPerUnit || 0),
+                    totalCost: Number(rm.totalCost || 0),
+                    rateSource: rm.rateSource || 'LATEST_PO',
+                    hasAlternateUom: Boolean(rm.hasAlternateUom),
+                    conversionFactor: Number(rm.conversionFactor || 1),
+                    allocatedBatches: Array.isArray(rm.allocatedBatches) ? rm.allocatedBatches : []
+                  };
+                });
+                setRawMaterials(loadedRms);
+              }
+
+              // Timeline Stages
+              const stages = b.timelineStages || b.timeline_stages;
+              if (Array.isArray(stages) && stages.length > 0) {
+                setTimelineStages(stages);
+              }
+
+              // Labour
+              if (b.labourCount !== undefined) setLabourCount(Number(b.labourCount));
+              if (Array.isArray(b.assignedStaffIds)) setAssignedStaffIds(b.assignedStaffIds);
+              if (Array.isArray(b.labourStaffDetails)) setLabourStaffDetails(b.labourStaffDetails);
+            }
+          } catch (fetchErr) {
+            console.error('Failed to load batch for edit:', fetchErr);
+            Swal.fire({
+              title: 'Error Loading Batch',
+              text: fetchErr.response?.data?.error || 'Could not fetch batch details for editing.',
+              icon: 'error'
+            });
+          } finally {
+            if (isMounted) setLoadingBatch(false);
+          }
+        } else {
+          // Hydrate from persistent draft if available for new batch
+          const draft = getProductionDraft();
+          if (draft && (draft.selectedProducts?.length > 0 || draft.selectedBaseId || draft.rawMaterials?.length > 0 || draft.note || draft.machineLine)) {
+            if (draft.productionDate) setProductionDate(draft.productionDate);
+            if (draft.shift) setShift(draft.shift);
+            if (draft.machineLine) setMachineLine(draft.machineLine);
+            if (draft.expiryDays) setExpiryDays(Number(draft.expiryDays));
+            if (draft.note) setNote(draft.note);
+            if (draft.selectedBaseId) setSelectedBaseId(draft.selectedBaseId);
+            if (draft.selectedTemplate) setSelectedTemplate(draft.selectedTemplate);
+            if (draft.selectedCategoryId) setSelectedCategoryId(draft.selectedCategoryId);
+            if (draft.selectedSubcategoryId) setSelectedSubcategoryId(draft.selectedSubcategoryId);
+            if (Array.isArray(draft.selectedProducts) && draft.selectedProducts.length > 0) {
+              setSelectedProducts(draft.selectedProducts);
+            }
+            if (Array.isArray(draft.rawMaterials) && draft.rawMaterials.length > 0) {
+              setRawMaterials(draft.rawMaterials);
+            } else if (draft.selectedTemplate) {
+              handleSelectTemplate(draft.selectedTemplate, masters.rawMaterials, masters.uoms);
+            }
+            if (Array.isArray(draft.timelineStages) && draft.timelineStages.length > 0) {
+              setTimelineStages(draft.timelineStages);
+            }
+            if (draft.labourCount !== undefined) setLabourCount(Number(draft.labourCount));
+            if (Array.isArray(draft.assignedStaffIds)) setAssignedStaffIds(draft.assignedStaffIds);
+            if (Array.isArray(draft.labourStaffDetails)) setLabourStaffDetails(draft.labourStaffDetails);
+            if (draft.wastagePct !== undefined) setWastagePct(Number(draft.wastagePct));
+            if (draft.overheadPct !== undefined) setOverheadPct(Number(draft.overheadPct));
+            setHasRestoredDraft(true);
+          } else {
+            // Default initial selection if no draft exists
+            const activeBases = (masters.bases || []).filter(b => b.status === 'ACTIVE' || !b.status);
+            if (activeBases.length > 0) {
+              const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
+              setSelectedBaseId(icb.id);
+
+              const matchTpl = (masters.templates || []).find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || masters.templates[0];
+              if (matchTpl) {
+                handleSelectTemplate(matchTpl, masters.rawMaterials, masters.uoms, 2000);
+              }
             }
           }
         }
@@ -337,11 +457,11 @@ export default function StandardProductionFormPage() {
 
     init();
     return () => { isMounted = false; };
-  }, []); // Run ONCE on mount
+  }, [isEditMode, editBatchId]); // Run on mount or editBatchId change
 
-  // Auto-save draft on user edits (debounced)
+  // Auto-save draft on user edits (debounced) - only when creating new batch
   useEffect(() => {
-    if (!isHydratedRef.current) return;
+    if (!isHydratedRef.current || isEditMode) return;
     const currentDraft = {
       productionDate,
       shift,
@@ -363,6 +483,7 @@ export default function StandardProductionFormPage() {
     };
     saveProductionDraft(currentDraft, 'STANDARD');
   }, [
+    isEditMode,
     productionDate, shift, machineLine, expiryDays, note,
     selectedBaseId, selectedTemplate, selectedCategoryId, selectedSubcategoryId,
     selectedProducts, rawMaterials, timelineStages, labourCount,
@@ -371,29 +492,35 @@ export default function StandardProductionFormPage() {
 
   // Synchronous flush before switching mode
   const handleSwitchMode = (targetPath, targetMode) => {
-    flushProductionDraft({
-      productionDate,
-      shift,
-      machineLine,
-      expiryDays,
-      note,
-      selectedBaseId,
-      selectedTemplate,
-      selectedCategoryId,
-      selectedSubcategoryId,
-      selectedProducts,
-      rawMaterials,
-      timelineStages,
-      labourCount,
-      assignedStaffIds,
-      labourStaffDetails,
-      wastagePct,
-      overheadPct
-    }, targetMode);
+    if (!isEditMode) {
+      flushProductionDraft({
+        productionDate,
+        shift,
+        machineLine,
+        expiryDays,
+        note,
+        selectedBaseId,
+        selectedTemplate,
+        selectedCategoryId,
+        selectedSubcategoryId,
+        selectedProducts,
+        rawMaterials,
+        timelineStages,
+        labourCount,
+        assignedStaffIds,
+        labourStaffDetails,
+        wastagePct,
+        overheadPct
+      }, targetMode);
+    }
     navigate(targetPath);
   };
 
   const handleResetDraft = () => {
+    if (isEditMode) {
+      window.location.reload();
+      return;
+    }
     clearProductionDraft();
     setHasRestoredDraft(false);
     setSelectedProducts([]);
@@ -777,18 +904,28 @@ export default function StandardProductionFormPage() {
 
     try {
       setSaving(true);
-      await api.post('/production/batches-redesign', payload);
-      clearProductionDraft(); // Cleared upon starting production or saving batch!
-      Swal.fire({
-        title: status === 'In Progress' ? 'Production Started!' : 'Standard Batch Draft Saved!',
-        text: `Standard Production batch successfully recorded.`,
-        icon: 'success',
-        timer: 2000
-      });
+      if (isEditMode) {
+        await api.put(`/production/batches-redesign/${editBatchId}`, payload);
+        Swal.fire({
+          title: status === 'In Progress' ? 'Production Started!' : 'Draft Batch Updated!',
+          text: `Standard Production batch ${editingBatchNo ? `#${editingBatchNo}` : ''} updated successfully.`,
+          icon: 'success',
+          timer: 2000
+        });
+      } else {
+        await api.post('/production/batches-redesign', payload);
+        clearProductionDraft(); // Cleared upon starting production or saving batch!
+        Swal.fire({
+          title: status === 'In Progress' ? 'Production Started!' : 'Standard Batch Draft Saved!',
+          text: `Standard Production batch successfully recorded.`,
+          icon: 'success',
+          timer: 2000
+        });
+      }
       navigate('/production/standard');
     } catch (err) {
-      console.error('Failed to create standard batch:', err);
-      const msg = err.response?.data?.error || 'Failed to create standard production batch.';
+      console.error('Failed to save standard batch:', err);
+      const msg = err.response?.data?.error || 'Failed to save standard production batch.';
       Swal.fire({ title: 'Error', text: msg, icon: 'error' });
     } finally {
       setSaving(false);
@@ -814,14 +951,20 @@ export default function StandardProductionFormPage() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                Standard Production Batch
+                {isEditMode ? 'Edit Standard Production Batch' : 'Standard Production Batch'}
               </h1>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/80 text-[#4F46E5] dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
-                SAP MODEL COCKPIT
-              </span>
+              {isEditMode ? (
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                  EDITING DRAFT {editingBatchNo ? `• #${editingBatchNo}` : ''}
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/80 text-[#4F46E5] dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                  SAP MODEL COCKPIT
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Manufacture goods to recipe specifications with live lot tracking
+              {isEditMode ? 'Modify formulation, quantities, lots, stages and update batch' : 'Manufacture goods to recipe specifications with live lot tracking'}
             </p>
           </div>
         </div>
@@ -840,29 +983,37 @@ export default function StandardProductionFormPage() {
           <Button
             type="button"
             variant="outline"
-            disabled={saving}
+            disabled={saving || loadingBatch}
             onClick={() => handleSave('Draft')}
             className="h-[44px] px-4 text-xs font-bold border-[#E3E6EC] dark:border-slate-800 rounded-[10px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 cursor-pointer"
           >
             <Save className="w-4 h-4 mr-1.5" />
-            <span>Save Draft</span>
+            <span>{isEditMode ? 'Update Draft' : 'Save Draft'}</span>
           </Button>
 
           <Button
             type="button"
-            disabled={saving || !isReadyToStart}
+            disabled={saving || loadingBatch || !isReadyToStart}
             onClick={() => handleSave('In Progress')}
             className={`h-[44px] px-5 text-xs font-bold rounded-[10px] shadow-xs flex items-center gap-1.5 transition-all ${
-              isReadyToStart
+              isReadyToStart && !loadingBatch
                 ? 'bg-[#4F46E5] hover:bg-[#4338CA] text-white cursor-pointer ring-2 ring-indigo-500/20'
                 : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed opacity-60'
             }`}
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Start Production</span>
+            <span>{isEditMode ? 'Update & Start Production' : 'Start Production'}</span>
           </Button>
         </div>
       </header>
+
+      {/* Loading banner when fetching batch */}
+      {loadingBatch && (
+        <div className="w-full bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800/50 px-4 py-2 flex items-center justify-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+          <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />
+          <span>Fetching batch details from database for editing...</span>
+        </div>
+      )}
 
       {/* ── WORKFLOW STEP TRACKER (Numbered 1 to 6) ── */}
       <div className="w-full bg-white dark:bg-slate-900 border-b border-[#E3E6EC] dark:border-slate-800 px-4 sm:px-6 py-2.5">

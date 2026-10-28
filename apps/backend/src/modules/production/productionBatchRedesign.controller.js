@@ -120,6 +120,260 @@ async function generateBatchReference(tx, inputDate = new Date()) {
   return candidate;
 }
 
+// Reusable helper to match and insert Raw Material Usages & Granular Lot Allocations
+async function insertBatchRMUsagesAndAllocations(tx, batchId, rawMaterials, safeUserId) {
+  for (const rm of rawMaterials) {
+    // Overheads (Gas, EB, Rent, etc.) are tracked in overhead_amt, not as warehouse inventory items
+    if (rm.isOverhead) continue;
+
+    let finalRmId = null;
+    let rmRecord = null;
+    const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+    // 1. Direct ID match (check rm.rmId and rm.rawMaterialId)
+    const candidateId = isUuid(rm.rmId) ? rm.rmId : (isUuid(rm.rawMaterialId) ? rm.rawMaterialId : null);
+    if (candidateId) {
+      const existing = await tx.rawMaterial.findUnique({
+        where: { id: candidateId },
+        include: { category: true }
+      });
+      if (existing) {
+        finalRmId = existing.id;
+        rmRecord = existing;
+      }
+    }
+
+    // 2. Lookup by Code (rm.rmCode, rm.rawMaterialCode, rm.code, or string rm.rmId)
+    if (!finalRmId) {
+      const candidateCode = rm.rmCode || rm.rawMaterialCode || rm.code || (!isUuid(rm.rmId) ? rm.rmId : null);
+      if (candidateCode && typeof candidateCode === 'string' && candidateCode.trim()) {
+        const byCode = await tx.rawMaterial.findFirst({
+          where: {
+            code: { equals: candidateCode.trim(), mode: 'insensitive' }
+          },
+          include: { category: true }
+        });
+        if (byCode) {
+          finalRmId = byCode.id;
+          rmRecord = byCode;
+        }
+      }
+    }
+
+    // 3. Lookup by Allocated Warehouse Lot (InventoryBatch)
+    if (!finalRmId && Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
+      for (const alloc of rm.allocatedBatches) {
+        const lotNum = alloc.lotNumber || alloc.batchNumber || (!isUuid(alloc.batchId) ? alloc.batchId : null);
+        const lotId = isUuid(alloc.batchId) ? alloc.batchId : null;
+        
+        const invLot = await tx.inventoryBatch.findFirst({
+          where: {
+            OR: [
+              ...(lotId ? [{ id: lotId }] : []),
+              ...(lotNum ? [{ batchNumber: lotNum }] : [])
+            ]
+          }
+        });
+
+        if (invLot?.rawMaterialId) {
+          const byLotRM = await tx.rawMaterial.findUnique({
+            where: { id: invLot.rawMaterialId },
+            include: { category: true }
+          });
+          if (byLotRM) {
+            finalRmId = byLotRM.id;
+            rmRecord = byLotRM;
+            break;
+          }
+        }
+      }
+    }
+
+    // 4. Lookup by Name (exact or partial, ignoring generic 'Raw Material')
+    if (!finalRmId) {
+      const candidateName = rm.rmName || rm.rawMaterialName || rm.name;
+      if (candidateName && typeof candidateName === 'string') {
+        const cleanName = candidateName.trim();
+        if (cleanName && cleanName.toLowerCase() !== 'raw material') {
+          const byName = await tx.rawMaterial.findFirst({
+            where: {
+              OR: [
+                { name: { equals: cleanName, mode: 'insensitive' } },
+                { name: { contains: cleanName, mode: 'insensitive' } }
+              ]
+            },
+            include: { category: true }
+          });
+          if (byName) {
+            finalRmId = byName.id;
+            rmRecord = byName;
+          }
+        }
+      }
+    }
+
+    // If still not matched, throw clear error
+    if (!finalRmId) {
+      throw new Error(`Raw material "${rm.rmName || rm.rmCode || rm.rmId || 'Unknown'}" could not be matched with any warehouse inventory raw material. Please select an existing raw material.`);
+    }
+
+    const firstAlloc = rm.allocatedBatches?.[0];
+    const combinedBatchSummary = rm.allocatedBatches?.length > 1
+      ? rm.allocatedBatches.map(b => `${b.lotNumber} (${b.allocatedQty} ${rm.selectedUom})`).join(' + ')
+      : firstAlloc?.lotNumber || null;
+
+    const selectedUom = rm.selectedUom || rmRecord?.unitId || 'Kg';
+    const convFactor = getConversionFactor(
+      rmRecord?.unitId,
+      rm.selectedUom || rmRecord?.alternateUom || rmRecord?.consumptionUnit,
+      rm.conversionFactor || rmRecord?.conversionFactor,
+      rmRecord
+    );
+
+    const usage = await tx.productionBatchRMUsage.create({
+      data: {
+        batchId,
+        rmId: finalRmId,
+        requiredQty: Number(rm.requiredQty || rm.inputQty || 0),
+        availableQtyAtTime: Number(rm.availableQtyAtTime || rm.requiredQty || 0),
+        actualUsedQty: Number(rm.actualUsedQty || rm.requiredQty || 0),
+        unitCost: Number(rm.unitRate || 0),
+        totalCost: Number(rm.totalCost || 0),
+        selectedUom: selectedUom,
+        inputQty: Number(rm.inputQty || rm.requiredQty || 0),
+        conversionFactorUsed: convFactor,
+        allocatedBatchId: firstAlloc?.batchId || null,
+        internalBatchNo: combinedBatchSummary
+      }
+    });
+
+    // Insert granular batch allocations with proportional PO division
+    if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
+      for (const alloc of rm.allocatedBatches) {
+        let targetBatchId = alloc.batchId;
+
+        const batchNum = alloc.lotNumber || `BATCH-MANUAL-${Date.now().toString().slice(-6)}`;
+        let existingLot = null;
+
+        if (targetBatchId && isUuid(targetBatchId)) {
+          existingLot = await tx.inventoryBatch.findUnique({ where: { id: targetBatchId } });
+        }
+        if (!existingLot && batchNum) {
+          existingLot = await tx.inventoryBatch.findFirst({
+            where: {
+              rawMaterialId: finalRmId,
+              batchNumber: batchNum
+            }
+          });
+        }
+
+        if (existingLot) {
+          targetBatchId = existingLot.id;
+        } else {
+          const isManualOrOpening = !targetBatchId || targetBatchId.startsWith('manual-') || targetBatchId.startsWith('wh-') || alloc.isManualOverride;
+          if (isManualOrOpening) {
+            const defaultUom = await tx.uOM.findFirst({ where: { isActive: true } });
+            let resolvedUomId = rmRecord?.unitId;
+            if (!resolvedUomId || !isUuid(resolvedUomId)) {
+              const matchUom = await tx.uOM.findFirst({
+                where: {
+                  OR: [
+                    { abbreviation: { equals: alloc.uom || rm.selectedUom || 'Kg', mode: 'insensitive' } },
+                    { name: { equals: alloc.uom || rm.selectedUom || 'Kg', mode: 'insensitive' } }
+                  ]
+                }
+              });
+              resolvedUomId = matchUom?.id || defaultUom?.id;
+            }
+
+            const initialStock = Number(alloc.availableQty || alloc.allocatedQty || 100);
+            const mDate = alloc.mfgDate ? new Date(alloc.mfgDate) : new Date();
+            const eDate = alloc.expiryDate ? new Date(alloc.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+            let uniqueBatchNum = batchNum;
+            let counter = 1;
+            while (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
+              uniqueBatchNum = `${batchNum}-${counter++}`;
+            }
+
+            try {
+              const newLot = await tx.inventoryBatch.create({
+                data: {
+                  batchNumber: uniqueBatchNum,
+                  rawMaterialId: finalRmId,
+                  rawMaterialName: rmRecord?.name || rm.rmName || 'Raw Material',
+                  rmCategory: rmRecord?.category?.name || null,
+                  receivedQty: initialStock,
+                  sampleQty: 0,
+                  netQty: initialStock,
+                  wastedQty: 0,
+                  uomId: resolvedUomId,
+                  storageLocation: alloc.storageLocation || 'Primary Warehouse',
+                  mfgDate: mDate,
+                  expiryDate: eDate,
+                  weight: alloc.weight || '25 kg / 50',
+                  mfgBatchNo: alloc.mfgBatchNo || alloc.supplierBatchNo || 'BATCH-01',
+                  status: 'AVAILABLE',
+                  addedBy: safeUserId
+                }
+              });
+              targetBatchId = newLot.id;
+
+              await tx.rawMaterial.update({
+                where: { id: finalRmId },
+                data: {
+                  currentStock: { increment: initialStock }
+                }
+              });
+            } catch (lotErr) {
+              console.warn('InventoryBatch auto-create warning (non-fatal):', lotErr.message);
+              targetBatchId = targetBatchId || alloc.lotNumber || `MANUAL-${Date.now()}`;
+            }
+          }
+        }
+
+        const poOrigQty = Number(alloc.poOriginalQty || alloc.allocatedQty || 1);
+        const poTotAmt = Number(alloc.poTotalAmount || (Number(alloc.allocatedQty || 0) * Number(alloc.unitRate || rm.unitRate || 0)));
+        const propFactor = poOrigQty > 0 ? (Number(alloc.allocatedQty || 0) / poOrigQty) : 1;
+        const propAmount = Number((poTotAmt * propFactor).toFixed(2));
+
+        const isOverride = Boolean(
+          alloc.isManualOverride || 
+          alloc.source === 'MANUAL_OVERRIDE' || 
+          (alloc.batchId && String(alloc.batchId).startsWith('manual-')) ||
+          (alloc.grnNumber && String(alloc.grnNumber).toLowerCase().includes('override'))
+        );
+        const effectiveGrn = alloc.grnNumber || alloc.grnRef || (isOverride ? 'GRN-MANUAL-OVERRIDE' : null);
+        const effectivePo = alloc.poNumber || alloc.poReferenceNo || (isOverride ? 'PO-MANUAL-OVERRIDE' : null);
+        const effectiveSuppBatch = alloc.supplierBatchNo || alloc.mfgBatchNo || null;
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "production_batch_allocations" (
+            batch_id, usage_id, inventory_batch_id, lot_number,
+            allocated_qty, po_original_qty, po_total_amount,
+            allocated_amount, unit_rate, uom,
+            is_manual_override, grn_number, po_number, supplier_batch_no
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          batchId,
+          usage.id,
+          targetBatchId ? String(targetBatchId) : null,
+          alloc.lotNumber || alloc.internalBatchNo || 'WAREHOUSE-LOT',
+          Number(alloc.allocatedQty || 0),
+          poOrigQty,
+          poTotAmt,
+          propAmount,
+          Number(alloc.unitRate || rm.unitRate || 0),
+          alloc.uom || rm.selectedUom || 'Kg',
+          isOverride,
+          effectiveGrn,
+          effectivePo,
+          effectiveSuppBatch
+        );
+      }
+    }
+  }
+}
+
 class ProductionBatchRedesignController {
   // GET /api/production/batches
   async getBatches(req, res, next) {
@@ -345,6 +599,43 @@ class ProductionBatchRedesignController {
         allocations = [];
       }
 
+      // Fetch multi-product items if present
+      let batchProducts = [];
+      try {
+        const itemRows = await prisma.$queryRawUnsafe(`
+          SELECT pbi.*, fp.name, fp.code, fp.unit_id, u.abbreviation as unit_abbr
+          FROM "production_batch_items" pbi
+          LEFT JOIN "finished_products" fp ON pbi.product_id = fp.id
+          LEFT JOIN "uoms" u ON fp.unit_id = u.id
+          WHERE pbi.batch_id = $1
+        `, id);
+        if (Array.isArray(itemRows) && itemRows.length > 0) {
+          batchProducts = itemRows.map(r => ({
+            productId: r.product_id,
+            id: r.product_id,
+            name: r.name,
+            code: r.code,
+            plannedQty: Number(r.planned_qty || 1),
+            factor: Number(r.factor || 1.0),
+            unit: r.unit_abbr || 'pcs'
+          }));
+        }
+      } catch (itemErr) {
+        batchProducts = [];
+      }
+
+      if (batchProducts.length === 0 && batch.product) {
+        batchProducts = [{
+          productId: batch.product.id,
+          id: batch.product.id,
+          name: batch.product.name,
+          code: batch.product.code,
+          plannedQty: Number(batch.quantity || 1),
+          factor: 1.0,
+          unit: batch.product.unit?.abbreviation || 'pcs'
+        }];
+      }
+
       // Compute per-piece ratios and dual UOMs
       const batchQty = Number(batch.quantity || 1);
       const actualYield = batch.actualOutput ? Number(batch.actualOutput) : null;
@@ -374,6 +665,21 @@ class ProductionBatchRedesignController {
         }
 
         const allocs = (allocations || []).filter(a => a.usage_id === u.id);
+        const allocatedBatches = allocs.map(a => ({
+          batchId: a.inventory_batch_id || a.lot_number,
+          lotNumber: a.lot_number,
+          allocatedQty: Number(a.allocated_qty || 0),
+          poOriginalQty: Number(a.po_original_qty || 0),
+          poTotalAmount: Number(a.po_total_amount || 0),
+          allocatedAmount: Number(a.allocated_amount || 0),
+          unitRate: Number(a.unit_rate || 0),
+          uom: a.uom,
+          isManualOverride: Boolean(a.is_manual_override),
+          grnNumber: a.grn_number,
+          poNumber: a.po_number,
+          supplierBatchNo: a.supplier_batch_no
+        }));
+
         const effectiveSelectedUom = u.selectedUom || (hasAlt ? altUom : baseUom);
 
         // Dual quantities (Base & Alternate)
@@ -388,20 +694,35 @@ class ProductionBatchRedesignController {
 
         return {
           ...u,
+          rmId: u.rmId || u.rawMaterialId || u.rawMaterial?.id,
+          rawMaterialId: u.rmId || u.rawMaterialId || u.rawMaterial?.id,
+          rmCode: u.rawMaterial?.code || '',
+          rawMaterialCode: u.rawMaterial?.code || '',
+          rmName: u.rawMaterial?.name || '',
+          rawMaterialName: u.rawMaterial?.name || '',
+          category: (u.rawMaterial?.category && typeof u.rawMaterial.category === 'object') ? u.rawMaterial.category.name : (u.rawMaterial?.category || ''),
+          description: u.rawMaterial?.description || '',
           baseUom,
           hasAlternateUom: hasAlt,
           alternateUom: altUom,
           conversionFactor: factor,
           selectedUom: effectiveSelectedUom,
           requiredQty: reqQty,
+          baseRequiredQty: reqQty,
           altRequiredQty,
+          activeEntryMode: (effectiveSelectedUom && altUom && effectiveSelectedUom.toLowerCase() === altUom.toLowerCase()) ? 'ALT' : 'BASE',
+          unitRate: Number(u.unitCost || 0),
+          baseRate: Number(u.unitCost || 0),
+          altRate: (hasAlt && factor > 0) ? Number((Number(u.unitCost || 0) / factor).toFixed(4)) : Number(u.unitCost || 0),
+          totalCost: Number(u.totalCost || 0),
           actualUsedQty: actQty,
           altActualUsedQty,
           perPieceQty: basePerPiece,
           altPerPieceQty: altPerPiece,
-          actualPerPieceQty: actualBasePerPiece,
+          actualBasePerPiece,
           actualAltPerPieceQty: actualAltPerPiece,
-          allocations: allocs
+          allocations: allocs,
+          allocatedBatches: allocatedBatches
         };
       });
 
@@ -415,6 +736,7 @@ class ProductionBatchRedesignController {
         batchAnalysis,
         productionType: batch.productionType,
         startDate: batch.startDate,
+        productionDate: batch.startDate ? new Date(batch.startDate).toISOString().split('T')[0] : null,
         completeDate: batch.completeDate,
         status: batch.status,
         quantity: Number(batch.quantity),
@@ -425,13 +747,23 @@ class ProductionBatchRedesignController {
         wastageAmt: Number(extra.wastage_amt || 0),
         overheadAmt: Number(extra.overhead_amt || 0),
         costPerUnit: Number(extra.cost_per_unit || (batchQty > 0 ? (Number(extra.grand_total || batch.totalCost || 0) / batchQty) : 0)),
+        productId: batch.productId,
         product: batch.product,
+        products: batchProducts,
+        selectedProducts: batchProducts,
+        orderId: batch.orderId,
         order: batch.order,
         creator: batch.creator,
+        baseId: extra.base_id || null,
         baseName: extra.base_name || 'Ice Cream Base',
+        templateId: extra.template_id || null,
         templateName: extra.template_name || 'Standard Formula',
         shift: extra.shift || 'General',
         machineLine: extra.machine_line || 'Main Line',
+        adjustmentReason: extra.adjustment_reason || null,
+        adjustmentReference: extra.adjustment_reference || null,
+        expiryDays: batch.expiryDays || extra.shelf_life_days || 365,
+        note: batch.note || '',
         startedBy: extra.started_by || (batch.status === 'In Progress' || batch.status === 'Completed' ? (batch.creator?.name || 'Production Staff') : null),
         startedAt: extra.started_at || (batch.status === 'In Progress' || batch.status === 'Completed' ? batch.startDate : null),
         pauseHistory: Array.isArray(extra.pause_history) ? extra.pause_history : (typeof extra.pause_history === 'string' ? JSON.parse(extra.pause_history || '[]') : []),
@@ -459,6 +791,7 @@ class ProductionBatchRedesignController {
         ebTotalCost: extra.eb_total_cost !== null && extra.eb_total_cost !== undefined ? Number(extra.eb_total_cost) : 0,
         labourTotalCost: extra.labour_total_cost !== null && extra.labour_total_cost !== undefined ? Number(extra.labour_total_cost) : 0,
         labourCount: extra.labour_count !== null && extra.labour_count !== undefined ? Number(extra.labour_count) : 0,
+        assignedStaffIds: Array.isArray(extra.labour_staff_ids) ? extra.labour_staff_ids : (typeof extra.labour_staff_ids === 'string' ? JSON.parse(extra.labour_staff_ids || '[]') : []),
         labourStaffIds: Array.isArray(extra.labour_staff_ids) ? extra.labour_staff_ids : (typeof extra.labour_staff_ids === 'string' ? JSON.parse(extra.labour_staff_ids || '[]') : []),
         labourStaffDetails: Array.isArray(extra.labour_staff_details) ? extra.labour_staff_details : (typeof extra.labour_staff_details === 'string' ? JSON.parse(extra.labour_staff_details || '[]') : []),
         completedBy: extra.completed_by || null,
@@ -738,262 +1071,8 @@ class ProductionBatchRedesignController {
           );
         }
 
-        // 4. Insert Raw Material Usage Lines & Lot Allocations
-        for (const rm of data.rawMaterials) {
-          // Overheads (Gas, EB, Rent, etc.) are tracked in overhead_amt, not as warehouse inventory items
-          if (rm.isOverhead) continue;
-
-          // Resolve rm to a valid RawMaterial record
-          let finalRmId = null;
-          let rmRecord = null;
-          const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
-
-          // 1. Direct ID match (check rm.rmId and rm.rawMaterialId)
-          const candidateId = isUuid(rm.rmId) ? rm.rmId : (isUuid(rm.rawMaterialId) ? rm.rawMaterialId : null);
-          if (candidateId) {
-            const existing = await tx.rawMaterial.findUnique({
-              where: { id: candidateId },
-              include: { category: true }
-            });
-            if (existing) {
-              finalRmId = existing.id;
-              rmRecord = existing;
-            }
-          }
-
-          // 2. Lookup by Code (rm.rmCode, rm.rawMaterialCode, rm.code, or string rm.rmId)
-          if (!finalRmId) {
-            const candidateCode = rm.rmCode || rm.rawMaterialCode || rm.code || (!isUuid(rm.rmId) ? rm.rmId : null);
-            if (candidateCode && typeof candidateCode === 'string' && candidateCode.trim()) {
-              const byCode = await tx.rawMaterial.findFirst({
-                where: {
-                  code: { equals: candidateCode.trim(), mode: 'insensitive' }
-                },
-                include: { category: true }
-              });
-              if (byCode) {
-                finalRmId = byCode.id;
-                rmRecord = byCode;
-              }
-            }
-          }
-
-          // 3. Lookup by Allocated Warehouse Lot (InventoryBatch)
-          if (!finalRmId && Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
-            for (const alloc of rm.allocatedBatches) {
-              const lotNum = alloc.lotNumber || alloc.batchNumber || (!isUuid(alloc.batchId) ? alloc.batchId : null);
-              const lotId = isUuid(alloc.batchId) ? alloc.batchId : null;
-              
-              const invLot = await tx.inventoryBatch.findFirst({
-                where: {
-                  OR: [
-                    ...(lotId ? [{ id: lotId }] : []),
-                    ...(lotNum ? [{ batchNumber: lotNum }] : [])
-                  ]
-                }
-              });
-
-              if (invLot?.rawMaterialId) {
-                const byLotRM = await tx.rawMaterial.findUnique({
-                  where: { id: invLot.rawMaterialId },
-                  include: { category: true }
-                });
-                if (byLotRM) {
-                  finalRmId = byLotRM.id;
-                  rmRecord = byLotRM;
-                  break;
-                }
-              }
-            }
-          }
-
-          // 4. Lookup by Name (exact or partial, ignoring generic 'Raw Material')
-          if (!finalRmId) {
-            const candidateName = rm.rmName || rm.rawMaterialName || rm.name;
-            if (candidateName && typeof candidateName === 'string') {
-              const cleanName = candidateName.trim();
-              if (cleanName && cleanName.toLowerCase() !== 'raw material') {
-                const byName = await tx.rawMaterial.findFirst({
-                  where: {
-                    OR: [
-                      { name: { equals: cleanName, mode: 'insensitive' } },
-                      { name: { contains: cleanName, mode: 'insensitive' } }
-                    ]
-                  },
-                  include: { category: true }
-                });
-                if (byName) {
-                  finalRmId = byName.id;
-                  rmRecord = byName;
-                }
-              }
-            }
-          }
-
-          // If still not matched, DO NOT AUTO-CREATE A FAKE RAW MATERIAL IN MASTER INVENTORY!
-          if (!finalRmId) {
-            throw new Error(`Raw material "${rm.rmName || rm.rmCode || rm.rmId || 'Unknown'}" could not be matched with any warehouse inventory raw material. Please select an existing raw material.`);
-          }
-
-          const firstAlloc = rm.allocatedBatches?.[0];
-          const combinedBatchSummary = rm.allocatedBatches?.length > 1
-            ? rm.allocatedBatches.map(b => `${b.lotNumber} (${b.allocatedQty} ${rm.selectedUom})`).join(' + ')
-            : firstAlloc?.lotNumber || null;
-
-          const selectedUom = rm.selectedUom || rmRecord?.unitId || 'Kg';
-          const convFactor = getConversionFactor(
-            rmRecord?.unitId,
-            rm.selectedUom || rmRecord?.alternateUom || rmRecord?.consumptionUnit,
-            rm.conversionFactor || rmRecord?.conversionFactor,
-            rmRecord
-          );
-
-          const usage = await tx.productionBatchRMUsage.create({
-            data: {
-              batchId: batch.id,
-              rmId: finalRmId,
-              requiredQty: Number(rm.requiredQty || rm.inputQty || 0),
-              availableQtyAtTime: Number(rm.availableQtyAtTime || rm.requiredQty || 0),
-              actualUsedQty: Number(rm.actualUsedQty || rm.requiredQty || 0),
-              unitCost: Number(rm.unitRate || 0),
-              totalCost: Number(rm.totalCost || 0),
-              selectedUom: selectedUom,
-              inputQty: Number(rm.inputQty || rm.requiredQty || 0),
-              conversionFactorUsed: convFactor,
-              allocatedBatchId: firstAlloc?.batchId || null,
-              internalBatchNo: combinedBatchSummary
-            }
-          });
-
-          // Insert granular batch allocations with proportional PO division
-          if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
-            for (const alloc of rm.allocatedBatches) {
-              let targetBatchId = alloc.batchId;
-
-              // Check if lot exists in InventoryBatch or needs auto-creation
-              const batchNum = alloc.lotNumber || `BATCH-MANUAL-${Date.now().toString().slice(-6)}`;
-              let existingLot = null;
-
-              if (targetBatchId && isUuid(targetBatchId)) {
-                existingLot = await tx.inventoryBatch.findUnique({ where: { id: targetBatchId } });
-              }
-              if (!existingLot && batchNum) {
-                existingLot = await tx.inventoryBatch.findFirst({
-                  where: {
-                    rawMaterialId: finalRmId,
-                    batchNumber: batchNum
-                  }
-                });
-              }
-
-              if (existingLot) {
-                targetBatchId = existingLot.id;
-              } else {
-                // Determine if we need to auto-persist lot so warehouse inventory tracking has it
-                const isManualOrOpening = !targetBatchId || targetBatchId.startsWith('manual-') || targetBatchId.startsWith('wh-') || alloc.isManualOverride;
-                if (isManualOrOpening) {
-                  const defaultUom = await tx.uOM.findFirst({ where: { isActive: true } });
-                  let resolvedUomId = rmRecord?.unitId;
-                  if (!resolvedUomId || !isUuid(resolvedUomId)) {
-                    const matchUom = await tx.uOM.findFirst({
-                      where: {
-                        OR: [
-                          { abbreviation: { equals: alloc.uom || rm.selectedUom || 'Kg', mode: 'insensitive' } },
-                          { name: { equals: alloc.uom || rm.selectedUom || 'Kg', mode: 'insensitive' } }
-                        ]
-                      }
-                    });
-                    resolvedUomId = matchUom?.id || defaultUom?.id;
-                  }
-
-                  const initialStock = Number(alloc.availableQty || alloc.allocatedQty || 100);
-                  const mDate = alloc.mfgDate ? new Date(alloc.mfgDate) : new Date();
-                  const eDate = alloc.expiryDate ? new Date(alloc.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-
-                  let uniqueBatchNum = batchNum;
-                  let counter = 1;
-                  while (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
-                    uniqueBatchNum = `${batchNum}-${counter++}`;
-                  }
-
-                  try {
-                    const newLot = await tx.inventoryBatch.create({
-                      data: {
-                        batchNumber: uniqueBatchNum,
-                        rawMaterialId: finalRmId,
-                        rawMaterialName: rmRecord?.name || rm.rmName || 'Raw Material',
-                        rmCategory: rmRecord?.category?.name || null,
-                        receivedQty: initialStock,
-                        sampleQty: 0,
-                        netQty: initialStock,
-                        wastedQty: 0,
-                        uomId: resolvedUomId,
-                        storageLocation: alloc.storageLocation || 'Primary Warehouse',
-                        mfgDate: mDate,
-                        expiryDate: eDate,
-                        weight: alloc.weight || '25 kg / 50',
-                        mfgBatchNo: alloc.mfgBatchNo || alloc.supplierBatchNo || 'BATCH-01',
-                        status: 'AVAILABLE',
-                        addedBy: safeUserId
-                      }
-                    });
-                    targetBatchId = newLot.id;
-
-                    // Update raw material current stock so RM Stock page updates
-                    await tx.rawMaterial.update({
-                      where: { id: finalRmId },
-                      data: {
-                        currentStock: { increment: initialStock }
-                      }
-                    });
-                  } catch (lotErr) {
-                    console.warn('InventoryBatch auto-create warning (non-fatal):', lotErr.message);
-                    targetBatchId = targetBatchId || alloc.lotNumber || `MANUAL-${Date.now()}`;
-                  }
-                }
-              }
-
-              const poOrigQty = Number(alloc.poOriginalQty || alloc.allocatedQty || 1);
-              const poTotAmt = Number(alloc.poTotalAmount || (Number(alloc.allocatedQty || 0) * Number(alloc.unitRate || rm.unitRate || 0)));
-              // Proportional math: (allocated / original) * total
-              const propFactor = poOrigQty > 0 ? (Number(alloc.allocatedQty || 0) / poOrigQty) : 1;
-              const propAmount = Number((poTotAmt * propFactor).toFixed(2));
-
-              const isOverride = Boolean(
-                alloc.isManualOverride || 
-                alloc.source === 'MANUAL_OVERRIDE' || 
-                (alloc.batchId && String(alloc.batchId).startsWith('manual-')) ||
-                (alloc.grnNumber && String(alloc.grnNumber).toLowerCase().includes('override'))
-              );
-              const effectiveGrn = alloc.grnNumber || alloc.grnRef || (isOverride ? 'GRN-MANUAL-OVERRIDE' : null);
-              const effectivePo = alloc.poNumber || alloc.poReferenceNo || (isOverride ? 'PO-MANUAL-OVERRIDE' : null);
-              const effectiveSuppBatch = alloc.supplierBatchNo || alloc.mfgBatchNo || null;
-
-              await tx.$executeRawUnsafe(
-                `INSERT INTO "production_batch_allocations" (
-                  batch_id, usage_id, inventory_batch_id, lot_number,
-                  allocated_qty, po_original_qty, po_total_amount,
-                  allocated_amount, unit_rate, uom,
-                  is_manual_override, grn_number, po_number, supplier_batch_no
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-                batch.id,
-                usage.id,
-                targetBatchId ? String(targetBatchId) : null,
-                alloc.lotNumber || alloc.internalBatchNo || 'WAREHOUSE-LOT',
-                Number(alloc.allocatedQty || 0),
-                poOrigQty,
-                poTotAmt,
-                propAmount,
-                Number(alloc.unitRate || rm.unitRate || 0),
-                alloc.uom || rm.selectedUom || 'Kg',
-                isOverride,
-                effectiveGrn,
-                effectivePo,
-                effectiveSuppBatch
-              );
-            }
-          }
-        }
+        // 4. Insert Raw Material Usage Lines & Lot Allocations using reusable helper
+        await insertBatchRMUsagesAndAllocations(tx, batch.id, data.rawMaterials, safeUserId);
 
         // 5. If STOCK_UPDATE and status is Approved/Completed, apply immediate inventory adjustments
         if (data.productionType === 'STOCK_UPDATE' && (data.status === 'Approved' || data.status === 'Completed')) {
@@ -1034,6 +1113,348 @@ class ProductionBatchRedesignController {
       }
       return res.status(500).json({
         error: err.message || 'Failed to create production batch',
+        details: err.message
+      });
+    }
+  }
+
+  // PUT /api/production/batches-redesign/:id
+  async updateBatch(req, res, next) {
+    try {
+      const { id } = req.params;
+      const raw = { ...req.body };
+      if ((!raw.selectedProducts || raw.selectedProducts.length === 0) && Array.isArray(raw.products)) {
+        raw.selectedProducts = raw.products;
+      }
+      if (!raw.quantity && raw.totalPlannedQty !== undefined) {
+        raw.quantity = raw.totalPlannedQty;
+      }
+      if (!raw.startDate && raw.productionDate) {
+        raw.startDate = raw.productionDate;
+      }
+      if (!raw.baseId && raw.base_id) {
+        raw.baseId = raw.base_id;
+      }
+      if (!raw.templateId && raw.template_id) {
+        raw.templateId = raw.template_id;
+      }
+      if (!raw.orderId && raw.order_id) {
+        raw.orderId = raw.order_id;
+      }
+      if (!raw.categoryId && raw.category_id) {
+        raw.categoryId = raw.category_id;
+      }
+      if (!raw.subCategoryId && raw.sub_category_id) {
+        raw.subCategoryId = raw.sub_category_id;
+      }
+
+      const isUuidStr = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim());
+      if (raw.baseId && !isUuidStr(raw.baseId)) raw.baseId = null;
+      if (raw.templateId && !isUuidStr(raw.templateId)) raw.templateId = null;
+      if (raw.orderId && !isUuidStr(raw.orderId)) raw.orderId = null;
+
+      const schema = z.object({
+        productionType: z.enum(['STANDARD', 'ORDER_BASED', 'STOCK_UPDATE']).default('STANDARD'),
+        baseId: z.string().optional().nullable(),
+        templateId: z.string().optional().nullable(),
+        categoryId: z.string().optional().nullable(),
+        subCategoryId: z.string().optional().nullable(),
+        productId: z.string().optional().nullable(),
+        selectedProducts: z.array(z.object({
+          productId: z.string().optional().nullable(),
+          id: z.string().optional().nullable(),
+          name: z.string().optional().nullable(),
+          code: z.string().optional().nullable(),
+          plannedQty: z.coerce.number().min(0).default(0),
+          factor: z.coerce.number().default(1.0),
+          unit: z.string().optional().nullable()
+        })).optional().default([]),
+        orderId: z.string().uuid().optional().nullable(),
+        quantity: z.coerce.number().default(0),
+        startDate: z.string().default(() => new Date().toISOString()),
+        shift: z.string().optional().default('Morning'),
+        machineLine: z.string().optional().default('Line 1'),
+        adjustmentReason: z.string().optional().nullable(),
+        adjustmentReference: z.string().optional().nullable(),
+        expiryDays: z.coerce.number().default(365),
+        note: z.string().optional().nullable(),
+        status: z.string().default('Draft'),
+        
+        // Costing totals
+        subTotal: z.coerce.number().optional().default(0),
+        wastageAmt: z.coerce.number().optional().default(0),
+        overheadAmt: z.coerce.number().optional().default(0),
+        grandTotal: z.coerce.number().optional().default(0),
+        costPerUnit: z.coerce.number().optional().default(0),
+
+        // Labour and Floor Staff
+        labourCount: z.coerce.number().optional().default(0),
+        labourTotalCost: z.coerce.number().optional().default(0),
+        assignedStaffIds: z.array(z.string()).optional().default([]),
+        labourStaffIds: z.array(z.string()).optional().default([]),
+        labourStaffDetails: z.array(z.any()).optional().default([]),
+        timelineStages: z.array(z.any()).optional().default([]),
+
+        // Raw material lines with batch allocations
+        rawMaterials: z.array(z.object({
+          rmId: z.string().optional().nullable(),
+          rawMaterialId: z.string().optional().nullable(),
+          rmCode: z.string().optional().nullable(),
+          rawMaterialCode: z.string().optional().nullable(),
+          rmName: z.string().optional().nullable(),
+          rawMaterialName: z.string().optional().nullable(),
+          requiredQty: z.coerce.number().min(0).default(0),
+          baseRequiredQty: z.coerce.number().optional().nullable(),
+          altRequiredQty: z.coerce.number().optional().nullable(),
+          selectedUom: z.string().optional().nullable().default('Kg'),
+          baseUom: z.string().optional().nullable(),
+          alternateUom: z.string().optional().nullable(),
+          unitRate: z.coerce.number().min(0).default(0),
+          baseRate: z.coerce.number().optional().nullable(),
+          altRate: z.coerce.number().optional().nullable(),
+          totalCost: z.coerce.number().default(0),
+          rateSource: z.string().optional().default('PO_LATEST'),
+          isOverhead: z.boolean().optional().default(false),
+          hasAlternateUom: z.boolean().optional().default(false),
+          activeEntryMode: z.string().optional().default('BASE'),
+          allocatedBatches: z.array(z.object({
+            batchId: z.string().optional().nullable(),
+            lotNumber: z.string().optional().nullable(),
+            supplierBatchNo: z.string().optional().nullable(),
+            mfgBatchNo: z.string().optional().nullable(),
+            batchQty: z.coerce.number().optional().nullable(),
+            weight: z.string().optional().nullable(),
+            mfgDate: z.any().optional().nullable(),
+            expiryDate: z.any().optional().nullable(),
+            grnNumber: z.string().optional().nullable(),
+            poNumber: z.string().optional().nullable(),
+            supplierName: z.string().optional().nullable(),
+            allocatedQty: z.coerce.number().min(0).default(0),
+            availableQty: z.coerce.number().optional().nullable(),
+            poOriginalQty: z.coerce.number().optional().nullable(),
+            poTotalAmount: z.coerce.number().optional().nullable(),
+            allocatedAmount: z.coerce.number().optional().default(0),
+            unitRate: z.coerce.number().optional().default(0),
+            uom: z.string().optional().nullable(),
+            isManualOverride: z.boolean().optional().default(false)
+          })).optional().default([])
+        })).optional().default([])
+      });
+
+      const data = schema.parse(raw);
+
+      // Verify batch exists
+      const existingBatch = await prisma.productionBatchNew.findUnique({
+        where: { id },
+        include: { product: true }
+      });
+      if (!existingBatch) {
+        return res.status(404).json({ error: 'Production batch not found' });
+      }
+
+      // Check if batch is editable (allow if Draft or Planned)
+      const currentStatus = existingBatch.status;
+      if (currentStatus === 'Completed' || currentStatus === 'Cancelled') {
+        return res.status(400).json({
+          error: `Cannot edit batch with status '${currentStatus}'. Only batches in Draft or Planned status can be edited.`
+        });
+      }
+
+      // Validation for Order-Based
+      if (data.productionType === 'ORDER_BASED' && !data.orderId) {
+        return res.status(400).json({ error: 'Order Based Production requires a valid Sales Order link (orderId).' });
+      }
+
+      // Validation for Stock-Update
+      if (data.productionType === 'STOCK_UPDATE' && !data.adjustmentReason) {
+        return res.status(400).json({ error: 'Stock Update Production requires an adjustment reason.' });
+      }
+
+      await ensureProductionBatchesRedesignSchema();
+
+      const defaultUser = await prisma.user.findFirst();
+      const safeUserId = req.user?.id || defaultUser?.id;
+
+      const updatedBatch = await prisma.$transaction(async (tx) => {
+        const effectiveProductId = data.productId || data.selectedProducts?.[0]?.productId || data.selectedProducts?.[0]?.id || existingBatch.productId;
+        let finalBatchProductId = effectiveProductId;
+        if (finalBatchProductId) {
+          const prodExists = await tx.finishedProduct.findUnique({ where: { id: finalBatchProductId } });
+          if (!prodExists) {
+            finalBatchProductId = existingBatch.productId;
+          }
+        }
+        if (!finalBatchProductId) {
+          const fallbackProd = await tx.finishedProduct.findFirst();
+          finalBatchProductId = fallbackProd?.id;
+        }
+
+        const shelfLife = parseInt(data.expiryDays, 10) || existingBatch.expiryDays || 365;
+        const mfd = new Date(data.startDate);
+        const expDate = new Date(mfd.getTime() + shelfLife * 24 * 60 * 60 * 1000);
+
+        let targetStatus = data.status;
+        if (targetStatus === 'Draft' || targetStatus === 'PLANNED') {
+          targetStatus = 'Draft';
+        }
+
+        // 1. Update main ProductionBatchNew record
+        const batch = await tx.productionBatchNew.update({
+          where: { id },
+          data: {
+            productId: finalBatchProductId,
+            productionType: data.productionType,
+            status: targetStatus,
+            startDate: new Date(data.startDate),
+            expiryDays: shelfLife,
+            expiryDate: expDate,
+            quantity: Number(data.quantity || 1),
+            remainingQty: Number(data.quantity || 1),
+            totalCost: Number(data.grandTotal || 0),
+            note: data.note || null,
+            orderId: data.orderId || null
+          }
+        });
+
+        // 2. Extract assigned labour information
+        const staffIds = Array.isArray(data.assignedStaffIds) && data.assignedStaffIds.length > 0
+          ? data.assignedStaffIds
+          : (Array.isArray(data.labourStaffIds) ? data.labourStaffIds : []);
+        const staffDetails = Array.isArray(data.labourStaffDetails) ? data.labourStaffDetails : [];
+        const labourCount = Number(data.labourCount || staffIds.length || 0);
+        const labourTotalCost = Number(data.labourTotalCost || 0);
+
+        const startedAtVal = targetStatus === 'In Progress' ? new Date() : null;
+        const startedByVal = targetStatus === 'In Progress' ? (req.user?.name || req.user?.email || 'Floor Supervisor') : null;
+        const stagesJson = JSON.stringify(data.timelineStages || []);
+
+        const safeUuid = (val) => (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim())) ? val.trim() : null;
+
+        await tx.$executeRawUnsafe(
+          `UPDATE "production_batches" SET
+            base_id = CASE WHEN $1::text IS NULL OR $1::text = '' THEN NULL ELSE $1::uuid END,
+            template_id = CASE WHEN $2::text IS NULL OR $2::text = '' THEN NULL ELSE $2::uuid END,
+            category_id = $3,
+            sub_category_id = $4,
+            shift = $5,
+            machine_line = $6,
+            adjustment_reason = $7,
+            adjustment_reference = $8,
+            sub_total = $9,
+            wastage_amt = $10,
+            overhead_amt = $11,
+            grand_total = $12,
+            cost_per_unit = $13,
+            approval_status = $14,
+            timeline_stages = $15::jsonb,
+            started_at = CASE WHEN $14 = 'In Progress' AND started_at IS NULL THEN NOW() ELSE started_at END,
+            started_by = CASE WHEN $14 = 'In Progress' AND started_by IS NULL THEN $16 ELSE started_by END,
+            mfd = $17,
+            shelf_life_days = $18,
+            labour_count = $19,
+            labour_staff_ids = $20::jsonb,
+            labour_staff_details = $21::jsonb,
+            labour_total_cost = $22
+          WHERE id = $23`,
+          safeUuid(data.baseId),
+          safeUuid(data.templateId),
+          data.categoryId || null,
+          data.subCategoryId || null,
+          data.shift || null,
+          data.machineLine || null,
+          data.adjustmentReason || null,
+          data.adjustmentReference || null,
+          Number(data.subTotal || 0),
+          Number(data.wastageAmt || 0),
+          Number(data.overheadAmt || 0),
+          Number(data.grandTotal || 0),
+          Number(data.costPerUnit || 0),
+          targetStatus,
+          stagesJson,
+          startedByVal,
+          mfd,
+          shelfLife,
+          labourCount,
+          JSON.stringify(staffIds),
+          JSON.stringify(staffDetails),
+          labourTotalCost,
+          id
+        );
+
+        // 3. Re-create production_batch_items
+        await tx.$executeRawUnsafe(`DELETE FROM "production_batch_items" WHERE batch_id = $1`, id);
+        const productsToInsert = Array.isArray(data.selectedProducts) && data.selectedProducts.length > 0
+          ? data.selectedProducts.map(p => ({
+              productId: p.productId || p.id || finalBatchProductId,
+              plannedQty: Number(p.plannedQty || data.quantity || 1),
+              factor: Number(p.factor || 1.0)
+            }))
+          : [{ productId: finalBatchProductId, plannedQty: Number(data.quantity || 1), factor: 1.0 }];
+
+        for (const p of productsToInsert) {
+          if (!p.productId) continue;
+          const pExists = await tx.finishedProduct.findUnique({ where: { id: p.productId } });
+          if (!pExists) continue;
+          await tx.$executeRawUnsafe(
+            `INSERT INTO "production_batch_items" (
+              batch_id, product_id, planned_qty, factor, cost_per_unit
+            ) VALUES ($1, $2, $3, $4, $5)`,
+            id,
+            p.productId,
+            Number(p.plannedQty || 1),
+            Number(p.factor || 1.0),
+            Number(data.costPerUnit || 0)
+          );
+        }
+
+        // 4. Re-create production_batch_allocations & rm usages
+        await tx.$executeRawUnsafe(`DELETE FROM "production_batch_allocations" WHERE batch_id = $1`, id);
+        await tx.productionBatchRMUsage.deleteMany({ where: { batchId: id } });
+
+        await insertBatchRMUsagesAndAllocations(tx, id, data.rawMaterials, safeUserId);
+
+        // 5. If STOCK_UPDATE and status is Approved/Completed, apply immediate inventory adjustments
+        if (data.productionType === 'STOCK_UPDATE' && (data.status === 'Approved' || data.status === 'Completed')) {
+          await tx.finishedProduct.update({
+            where: { id: finalBatchProductId },
+            data: {
+              currentStock: { increment: Number(data.quantity || 1) }
+            }
+          });
+
+          for (const rm of data.rawMaterials) {
+            for (const alloc of (rm.allocatedBatches || [])) {
+              if (alloc.batchId && !alloc.batchId.startsWith('wh-')) {
+                try {
+                  await tx.inventoryBatch.updateMany({
+                    where: { id: alloc.batchId, netQty: { gte: Number(alloc.allocatedQty || 0) } },
+                    data: {
+                      netQty: { decrement: Number(alloc.allocatedQty || 0) }
+                    }
+                  });
+                } catch (e) {
+                  console.warn('InventoryBatch stock update decrement error:', e.message);
+                }
+              }
+            }
+          }
+        }
+
+        return batch;
+      });
+
+      res.json({
+        message: 'Production batch updated successfully',
+        batch: updatedBatch
+      });
+    } catch (err) {
+      console.error('UPDATE BATCH ERROR:', err);
+      if (err instanceof z.ZodError) {
+        const msg = err.issues?.[0]?.message || err.errors?.[0]?.message || 'Validation error';
+        return res.status(400).json({ error: msg, details: err.issues || err.errors });
+      }
+      return res.status(500).json({
+        error: err.message || 'Failed to update production batch',
         details: err.message
       });
     }
