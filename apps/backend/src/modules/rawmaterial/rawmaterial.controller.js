@@ -3689,6 +3689,11 @@ exports.getRmInOutStock = async (req, res, next) => {
       rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
       periodLabel = 'Today';
       periodDateRange = `${fmtDate(rangeStart)} (00:00 - 23:59)`;
+    } else if (period === 'this_year') {
+      rangeStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      rangeEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      periodLabel = 'This Year';
+      periodDateRange = `${fmtDate(rangeStart)} to ${fmtDate(rangeEnd)}`;
     } else if (period === 'yesterday') {
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
@@ -3924,7 +3929,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       return null;
     };
 
-    // Calculate Latest PO Rates for Stock Valuation
+    // Calculate Latest PO Rates for Stock Valuation (derived strictly from real-time PO)
     const rmRateMap = new Map();
     for (const po of pos) {
       if (Array.isArray(po.items) && po.items.length > 0) {
@@ -3934,12 +3939,25 @@ exports.getRmInOutStock = async (req, res, next) => {
             const unitPrice = Number(item.unitPrice || 0);
             const gstApplicable = item.gstApplicable !== false;
             const gstPct = gstApplicable ? Number(item.gstPercentage || 0) : 0;
-            const rate = gstApplicable ? unitPrice * (1 + gstPct / 100) : unitPrice;
-            if (rate > 0) {
+            const poLineQty = Number(item.quantity || 0);
+            const poLineSubtotal = poLineQty > 0 ? (poLineQty * unitPrice) : (Number(item.total) || unitPrice);
+            const lineTax = gstApplicable ? (poLineSubtotal * (gstPct / 100)) : 0;
+            const poLineTotalWithTax = poLineSubtotal + lineTax;
+
+            const rateWithoutTax = poLineQty > 0 ? (poLineSubtotal / poLineQty) : unitPrice;
+            const rateWithTax = poLineQty > 0 ? (poLineTotalWithTax / poLineQty) : (unitPrice * (1 + gstPct / 100));
+
+            if (rateWithoutTax > 0 || rateWithTax > 0) {
               rmRateMap.set(matched.id, {
-                rate: Math.round(rate * 100) / 100,
+                rateWithoutTax: Math.round(rateWithoutTax * 100) / 100,
+                rateWithTax: Math.round(rateWithTax * 100) / 100,
+                baseRate: Math.round(rateWithoutTax * 100) / 100,
+                rate: Math.round(rateWithTax * 100) / 100,
+                gstPercentage: gstPct,
+                gstApplicable,
                 poRef: po.referenceNo,
-                poId: po.id
+                poId: po.id,
+                poDate: po.createdAt
               });
             }
           }
@@ -3947,14 +3965,25 @@ exports.getRmInOutStock = async (req, res, next) => {
       } else {
         const matched = findRm(po.rmId) || findRm(po.name);
         if (matched && !rmRateMap.has(matched.id)) {
-          const qty = Number(po.quantity || 0);
-          const total = Number(po.grandTotal || po.amount || 0);
-          const rate = qty > 0 ? total / qty : 0;
-          if (rate > 0) {
+          const qty = Number(po.quantity || 1);
+          const poSubtotal = Number(po.subtotal) || Number(po.amount || 0);
+          const poGrandTotal = Number(po.grandTotal) || Number(po.amount || 0);
+          const rateWithoutTax = qty > 0 ? poSubtotal / qty : poSubtotal;
+          const rateWithTax = qty > 0 ? poGrandTotal / qty : poGrandTotal;
+          const gstApplicable = poGrandTotal > poSubtotal;
+          const gstPct = rateWithoutTax > 0 ? Math.round(((rateWithTax - rateWithoutTax) / rateWithoutTax) * 100) : 0;
+
+          if (rateWithoutTax > 0 || rateWithTax > 0) {
             rmRateMap.set(matched.id, {
-              rate: Math.round(rate * 100) / 100,
+              rateWithoutTax: Math.round(rateWithoutTax * 100) / 100,
+              rateWithTax: Math.round(rateWithTax * 100) / 100,
+              baseRate: Math.round(rateWithoutTax * 100) / 100,
+              rate: Math.round(rateWithTax * 100) / 100,
+              gstPercentage: gstPct,
+              gstApplicable,
               poRef: po.referenceNo,
-              poId: po.id
+              poId: po.id,
+              poDate: po.createdAt
             });
           }
         }
@@ -4487,6 +4516,8 @@ exports.getRmInOutStock = async (req, res, next) => {
 
     // Construct final material records with period-specific stock balances
     let totalStockValuation = 0;
+    let totalValuationWithoutTax = 0;
+    let totalTaxAmount = 0;
     let totalCurrentStock = 0;
     let totalInProgressStock = 0;
     let totalAvailableStock = 0;
@@ -4523,7 +4554,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       const hasMovementInPeriod = (periodIn > 0 || periodOut > 0);
 
       // Period Stock Balance:
-      // When a specific period filter (e.g. Today, Yesterday, This Week, This Month, or Custom) is active,
+      // When a specific period filter (e.g. Today, This Year, This Week, This Month, or Custom) is active,
       // stock reflects the net receipts / movements in that timeframe: periodIn - periodOut.
       // If there was no activity in this timeframe, period stock is 0.
       // When reviewing lifetime ('all'), curStock is liveStock.
@@ -4535,9 +4566,20 @@ exports.getRmInOutStock = async (req, res, next) => {
       }
 
       const alert = Number(rm.alertLevel || 0);
-      const poRateInfo = rmRateMap.get(rm.id) || { rate: 0, poRef: null, poId: null };
-      const rate = poRateInfo.rate || Number(rm.ratePerUnit || 0);
-      const valuation = Math.round((curStock * rate) * 100) / 100;
+      const poRateInfo = rmRateMap.get(rm.id);
+      const hasPo = Boolean(poRateInfo && (poRateInfo.rateWithTax > 0 || poRateInfo.rateWithoutTax > 0));
+
+      // Strictly derived from real-time PO orders (No fallback to master standard rate)
+      const rateWithoutTax = hasPo ? poRateInfo.rateWithoutTax : 0;
+      const rateWithTax = hasPo ? poRateInfo.rateWithTax : 0;
+      const gstPercentage = hasPo ? poRateInfo.gstPercentage : 0;
+      const gstApplicable = hasPo ? poRateInfo.gstApplicable : false;
+
+      // Real-time stock valuation strictly from PO order
+      const valueWithoutTax = hasPo ? Math.round((curStock * rateWithoutTax) * 100) / 100 : 0;
+      const valueWithTax = hasPo ? Math.round((curStock * rateWithTax) * 100) / 100 : 0;
+      const taxValue = Math.round((valueWithTax - valueWithoutTax) * 100) / 100;
+      const valuation = valueWithTax; // Default valuation is with tax
 
       const inProgressStock = isPeriodFiltered ? 0 : Math.round((txData.inProgressStock || 0) * 1000) / 1000;
       const availableStock = Math.max(0, Math.round((curStock - inProgressStock) * 1000) / 1000);
@@ -4550,7 +4592,9 @@ exports.getRmInOutStock = async (req, res, next) => {
         totalCurrentStock += curStock;
         totalInProgressStock += inProgressStock;
         totalAvailableStock += availableStock;
-        totalStockValuation += valuation;
+        totalStockValuation += valueWithTax;
+        totalValuationWithoutTax += valueWithoutTax;
+        totalTaxAmount += taxValue;
       }
       totalPeriodIn += txData.periodIn;
       totalPeriodOut += txData.periodOut;
@@ -4579,12 +4623,22 @@ exports.getRmInOutStock = async (req, res, next) => {
         hasLabRejection,
         labStatus,
         alertLevel: alert,
-        ratePerUnit: rate,
-        valuation,
+        ratePerUnit: rateWithTax,
+        baseRate: rateWithoutTax,
+        rateWithoutTax,
+        rateWithTax,
+        gstPercentage,
+        gstApplicable,
+        valuation: valueWithTax,
+        valueWithoutTax,
+        valueWithTax,
+        taxValue,
         status,
-        hasPo: !!poRateInfo.poRef,
-        poReferenceNo: poRateInfo.poRef,
-        latestPoId: poRateInfo.poId,
+        hasPo,
+        poReferenceNo: hasPo ? poRateInfo.poRef : null,
+        latestPoId: hasPo ? poRateInfo.poId : null,
+        poDate: hasPo ? poRateInfo.poDate : null,
+        masterStandardRate: Number(rm.ratePerUnit || 0),
         periodInQty: periodIn,
         periodOutQty: periodOut,
         netMovement: Math.round((periodIn - periodOut) * 1000) / 1000,
@@ -4621,6 +4675,9 @@ exports.getRmInOutStock = async (req, res, next) => {
         totalLabRejectedCount,
         netMovement: Math.round((totalPeriodIn - totalPeriodOut) * 100) / 100,
         totalValuation: Math.round(totalStockValuation * 100) / 100,
+        totalValuationWithTax: Math.round(totalStockValuation * 100) / 100,
+        totalValuationWithoutTax: Math.round(totalValuationWithoutTax * 100) / 100,
+        totalTaxAmount: Math.round(totalTaxAmount * 100) / 100,
         activeMovementCount,
         periodLabel,
         periodDateRange,

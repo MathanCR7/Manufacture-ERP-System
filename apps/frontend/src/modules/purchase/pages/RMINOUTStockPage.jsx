@@ -237,7 +237,7 @@ function TimePeriodDropdown({
   const periodOptions = [
     { id: 'all', label: 'All Time' },
     { id: 'today', label: 'Today' },
-    { id: 'yesterday', label: 'Yesterday' },
+    { id: 'this_year', label: 'This Year' },
     { id: 'this_week', label: 'This Week' },
     { id: 'last_week', label: 'Last Week' },
     { id: 'this_month', label: 'This Month' },
@@ -641,6 +641,9 @@ export default function RMINOUTStockPage() {
     if (period === 'today') {
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (period === 'this_year') {
+      start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
     } else if (period === 'yesterday') {
       const y = new Date(now);
       y.setDate(y.getDate() - 1);
@@ -722,6 +725,14 @@ export default function RMINOUTStockPage() {
         label: 'Today',
         shortBadge: 'Today',
         rangeText: `${formatDate(new Date())} (00:00 - 23:59)`,
+        isHistorical: false
+      };
+    }
+    if (period === 'this_year') {
+      return {
+        label: 'This Year',
+        shortBadge: 'This Year',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Jan 01 - Dec 31, ${new Date().getFullYear()})`,
         isHistorical: false
       };
     }
@@ -1008,7 +1019,10 @@ export default function RMINOUTStockPage() {
     const mapped = baseStock.map(item => {
       const liveStock = Number(item.availableQuantity ?? item.currentStock ?? item.stock ?? 0);
       const alert = Number(item.alertLevel || 0);
-      const rate = Number(item.rateWithTax || item.ratePerUnit || item.masterStandardRate || 0);
+      const hasPo = Boolean(item.hasPo || item.poReferenceNo || (Number(item.rateWithTax || 0) > 0));
+      const rateWithoutTax = hasPo ? Number(item.rateWithoutTax || item.baseRate || 0) : 0;
+      const rateWithTax = hasPo ? Number(item.rateWithTax || item.ratePerUnit || 0) : 0;
+      const gstPercentage = hasPo ? Number(item.gstPercentage || 0) : 0;
 
       const cached = materialHistoryCache[item.id];
       let periodIn = 0;
@@ -1063,7 +1077,10 @@ export default function RMINOUTStockPage() {
       }
 
       const inProgress = isPeriodFiltered ? 0 : inProgressStock;
-      const val = Number(curStock * rate || (item.valueWithTax || item.value || 0));
+      const valueWithoutTax = hasPo ? Math.round((curStock * rateWithoutTax) * 100) / 100 : 0;
+      const valueWithTax = hasPo ? Math.round((curStock * rateWithTax) * 100) / 100 : 0;
+      const taxValue = Math.round((valueWithTax - valueWithoutTax) * 100) / 100;
+      const val = valueWithTax;
       const availableStock = Math.max(0, curStock - inProgress);
       const status = curStock <= 0 ? 'OUT_OF_STOCK' : (curStock <= alert ? 'LOW_STOCK' : 'OPTIMAL');
 
@@ -1083,10 +1100,17 @@ export default function RMINOUTStockPage() {
         hasLabRejection,
         labStatus: hasLabRejection ? 'LAB_REJECTED' : 'QC_PASSED',
         alertLevel: alert,
-        ratePerUnit: Math.round(rate * 100) / 100,
+        ratePerUnit: Math.round(rateWithTax * 100) / 100,
+        baseRate: Math.round(rateWithoutTax * 100) / 100,
+        rateWithoutTax: Math.round(rateWithoutTax * 100) / 100,
+        rateWithTax: Math.round(rateWithTax * 100) / 100,
+        gstPercentage,
         valuation: Math.round(val * 100) / 100,
+        valueWithoutTax,
+        valueWithTax,
+        taxValue,
         status,
-        hasPo: Boolean(item.hasPo || item.poReferenceNo),
+        hasPo,
         poReferenceNo: item.poReferenceNo || null,
         latestPoId: item.latestPoId || null,
         periodInQty: Math.round(periodIn * 100) / 100,
@@ -1152,11 +1176,15 @@ export default function RMINOUTStockPage() {
     const hasLocalFilter = (categoryFilter !== 'ALL') || (codeFilter !== 'ALL') || (searchTerm.trim() !== '');
 
     if (!hasLocalFilter && dedicatedData?.summary) {
+      const s = dedicatedData.summary;
       return {
-        ...dedicatedData.summary,
-        periodLabel: dedicatedData.summary.periodLabel || periodDisplayText.label,
-        periodDateRange: dedicatedData.summary.periodDateRange || periodDisplayText.rangeText,
-        isHistorical: dedicatedData.summary.isHistorical ?? periodDisplayText.isHistorical
+        ...s,
+        totalValuationWithTax: Number(s.totalValuationWithTax || s.totalValuation || 0),
+        totalValuationWithoutTax: Number(s.totalValuationWithoutTax || 0),
+        totalTaxAmount: Number(s.totalTaxAmount || 0),
+        periodLabel: s.periodLabel || periodDisplayText.label,
+        periodDateRange: s.periodDateRange || periodDisplayText.rangeText,
+        isHistorical: s.isHistorical ?? periodDisplayText.isHistorical
       };
     }
 
@@ -1164,6 +1192,9 @@ export default function RMINOUTStockPage() {
 
     let totStock = 0;
     let totVal = 0;
+    let totValWithTax = 0;
+    let totValWithoutTax = 0;
+    let totTax = 0;
     let totIn = 0;
     let totOut = 0;
     let totWip = 0;
@@ -1178,7 +1209,15 @@ export default function RMINOUTStockPage() {
       const avail = m.availableStock !== undefined ? Number(m.availableStock) : Math.max(0, cur - wip);
 
       totStock += cur;
-      totVal += Number(m.valuation || 0);
+      const vWithTax = Number(m.valueWithTax || m.valuation || 0);
+      const vWithoutTax = Number(m.valueWithoutTax || 0);
+      const tVal = Number(m.taxValue || (vWithTax - vWithoutTax));
+
+      totVal += vWithTax;
+      totValWithTax += vWithTax;
+      totValWithoutTax += vWithoutTax;
+      totTax += tVal;
+
       totIn += Number(m.periodInQty || 0);
       totOut += Number(m.periodOutQty || 0);
       totWip += wip;
@@ -1201,7 +1240,10 @@ export default function RMINOUTStockPage() {
       totalLabRejectedQty: Math.round(totRejected * 100) / 100,
       totalLabRejectedCount: rejectedCount,
       netMovement: Math.round((totIn - totOut) * 100) / 100,
-      totalValuation: Math.round(totVal * 100) / 100,
+      totalValuation: Math.round((totValWithTax || totVal) * 100) / 100,
+      totalValuationWithTax: Math.round((totValWithTax || totVal) * 100) / 100,
+      totalValuationWithoutTax: Math.round(totValWithoutTax * 100) / 100,
+      totalTaxAmount: Math.round(totTax * 100) / 100,
       activeMovementCount: activeCount,
       periodLabel: dedicatedData?.summary?.periodLabel || periodDisplayText.label,
       periodDateRange: dedicatedData?.summary?.periodDateRange || periodDisplayText.rangeText,
@@ -2091,8 +2133,8 @@ export default function RMINOUTStockPage() {
       </div>
 
       {/* ── KPI EXECUTIVE STAT CARDS (Ultra-Compact SAP Tool Style Strip) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-1 sm:gap-1.5">
-        {/* Card 1: Total Current Stock (Click to show All / Reset) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-1 sm:gap-1.5">
+        {/* Card 1: TOT STK (Click to show All / Reset) */}
         <div
           onClick={() => setMovementFilter('ALL')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2104,13 +2146,13 @@ export default function RMINOUTStockPage() {
         >
           <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[10px]">
             <span className="font-semibold text-slate-600 dark:text-slate-300 truncate uppercase tracking-wider">
-              {period === 'all' ? 'Total Current Stock' :
-               period === 'today' ? 'Stock (Today)' :
-               period === 'yesterday' ? 'Stock (Yesterday)' :
-               period === 'this_week' ? 'Stock (This Week)' :
-               period === 'last_week' ? 'Stock (Last Week)' :
-               period === 'this_month' ? 'Stock (This Month)' :
-               period === 'last_month' ? 'Stock (Last Month)' : 'Stock (Period)'}
+              {period === 'all' ? 'TOT STK' :
+               period === 'today' ? 'TOT STK (Today)' :
+               period === 'this_year' ? 'TOT STK (This Year)' :
+               period === 'this_week' ? 'TOT STK (This Week)' :
+               period === 'last_week' ? 'TOT STK (Last Week)' :
+               period === 'this_month' ? 'TOT STK (This Month)' :
+               period === 'last_month' ? 'TOT STK (Last Month)' : 'TOT STK (Period)'}
             </span>
             <Package className="w-3 h-3 text-blue-500 shrink-0" />
           </div>
@@ -2118,8 +2160,8 @@ export default function RMINOUTStockPage() {
             {Number(summary.totalCurrentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] text-slate-500 flex items-center justify-between gap-1 leading-none truncate">
-            <span className="truncate" title={`Valuation: ₹${Number(summary.totalValuation || 0).toLocaleString('en-IN')}`}>
-              Val: <strong className="font-semibold text-slate-700 dark:text-slate-300">₹{Number(summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong>
+            <span className="truncate" title={`PO Valuation: ₹${Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN')}`}>
+              Val: <strong className="font-semibold text-slate-700 dark:text-slate-300">₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong>
             </span>
             <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 font-medium shrink-0 leading-none">
               {periodDisplayText.shortBadge}
@@ -2155,7 +2197,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 3: Free Available Stock (Click to filter available) */}
+        {/* Card 3: AVL STK (Free Available) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'FREE_AVAILABLE' ? 'ALL' : 'FREE_AVAILABLE')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2166,7 +2208,7 @@ export default function RMINOUTStockPage() {
           title="Click to filter materials with free available stock"
         >
           <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[10px]">
-            <span className="font-semibold truncate uppercase tracking-wider">Free Available</span>
+            <span className="font-semibold truncate uppercase tracking-wider">AVL STK</span>
             <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
           </div>
           <div className="text-[13px] sm:text-sm font-bold text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
@@ -2180,7 +2222,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 4: Period Inward (IN) (Click to filter Inward receipts) */}
+        {/* Card 4: IN STK (Period Inward) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'IN_ONLY' ? 'ALL' : 'IN_ONLY')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2191,7 +2233,7 @@ export default function RMINOUTStockPage() {
           title="Click to filter materials with Inward receipts in this period"
         >
           <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[10px]">
-            <span className="font-semibold uppercase tracking-wider">Period Inward (IN)</span>
+            <span className="font-semibold uppercase tracking-wider">IN STK</span>
             <ArrowDownLeft className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
           </div>
           <div className="text-[13px] sm:text-sm font-bold text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
@@ -2203,7 +2245,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 5: Period Outward (OUT) (Click to filter Outward consumption) */}
+        {/* Card 5: OUT STK (Period Outward) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'OUT_ONLY' ? 'ALL' : 'OUT_ONLY')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2214,7 +2256,7 @@ export default function RMINOUTStockPage() {
           title="Click to filter materials consumed/dispatched outward"
         >
           <div className="flex items-center justify-between text-rose-700 dark:text-rose-400 text-[10px]">
-            <span className="font-semibold uppercase tracking-wider">Period Outward (OUT)</span>
+            <span className="font-semibold uppercase tracking-wider">OUT STK</span>
             <ArrowUpRight className="w-3 h-3 text-rose-600 dark:text-rose-400 shrink-0" />
           </div>
           <div className="text-[13px] sm:text-sm font-bold text-rose-700 dark:text-rose-300 font-mono leading-tight tracking-tight my-0.5">
@@ -2226,7 +2268,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 6: Net Movement (Click to filter movement) */}
+        {/* Card 6: Net Movement */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'WITH_MOVEMENT' ? 'ALL' : 'WITH_MOVEMENT')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2255,6 +2297,46 @@ export default function RMINOUTStockPage() {
           <div className="text-[9px] text-slate-500 truncate flex items-center justify-between gap-1 leading-none">
             <span className="truncate">{summary.activeMovementCount || 0} / {summary.totalMaterials || 0} active</span>
             {movementFilter === 'WITH_MOVEMENT' && <span className="font-bold text-[8px] sm:text-[8.5px] text-purple-600 bg-purple-100 dark:bg-purple-900/50 px-1 py-0.5 rounded leading-none shrink-0">Filtered</span>}
+          </div>
+        </div>
+
+        {/* Card 7: Tax - Tax Amount */}
+        <div
+          className="border border-indigo-200/80 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-indigo-300"
+          title="Total PO-derived GST tax amount for current stock"
+        >
+          <div className="flex items-center justify-between text-indigo-700 dark:text-indigo-400 text-[10px]">
+            <span className="font-semibold truncate uppercase tracking-wider">Tax - Tax Amount</span>
+            <IndianRupee className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          </div>
+          <div className="text-[13px] sm:text-sm font-bold text-indigo-700 dark:text-indigo-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalTaxAmount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[9px] text-indigo-600/80 dark:text-indigo-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO GST Amount</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 font-medium shrink-0 leading-none">
+              {periodDisplayText.shortBadge}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 8: Total - Total PO + Tax */}
+        <div
+          className="border border-emerald-300/90 dark:border-emerald-800/80 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-emerald-400 shadow-2xs"
+          title="Total stock valuation derived strictly from Purchase Orders including GST"
+        >
+          <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-[10px]">
+            <span className="font-bold truncate uppercase tracking-wider">Total - Total PO + Tax</span>
+            <IndianRupee className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          </div>
+          <div className="text-[13px] sm:text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO Gross Valuation</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
+              PO Realtime
+            </span>
           </div>
         </div>
       </div>
@@ -2558,41 +2640,41 @@ export default function RMINOUTStockPage() {
                     </button>
                   </TableHead>
 
-                  {/* 4. Current Stock & WIP Header */}
+                  {/* 4. TOT STK & WIP Header */}
                   <TableHead className="text-right min-w-[140px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('stock')}
                       className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
-                      title="Sort by Current Stock"
+                      title="Sort by TOT STK"
                     >
-                      <span>Current Stock & WIP</span>
+                      <span>TOT STK & WIP</span>
                       {renderSortIndicator('stock')}
                     </button>
                   </TableHead>
 
-                  {/* 5. Period IN Header */}
+                  {/* 5. IN STK Header */}
                   <TableHead className="text-right min-w-[115px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('in')}
                       className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 transition-colors cursor-pointer select-none ml-auto"
-                      title="Sort by Period Inward"
+                      title="Sort by IN STK"
                     >
-                      <span>Period IN</span>
+                      <span>IN STK</span>
                       {renderSortIndicator('in')}
                     </button>
                   </TableHead>
 
-                  {/* 6. Period OUT Header */}
+                  {/* 6. OUT STK Header */}
                   <TableHead className="text-right min-w-[115px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('out')}
                       className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-800 transition-colors cursor-pointer select-none ml-auto"
-                      title="Sort by Period Outward"
+                      title="Sort by OUT STK"
                     >
-                      <span>Period OUT</span>
+                      <span>OUT STK</span>
                       {renderSortIndicator('out')}
                     </button>
                   </TableHead>
@@ -3563,54 +3645,54 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 5. TotalStock */}
+                      {/* 5. TOT STK */}
                       <TableHead className="text-right min-w-[95px] font-bold text-slate-900 dark:text-white px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('stock')}
                           className="group inline-flex items-center gap-1 font-bold text-slate-900 dark:text-white hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
-                          title="Sort by TotalStock"
+                          title="Sort by TOT STK"
                         >
-                          <span>TotalStock</span>
+                          <span>TOT STK</span>
                           {renderSortIndicator('stock')}
                         </button>
                       </TableHead>
 
-                      {/* 6. Available Stock */}
+                      {/* 6. AVL STK */}
                       <TableHead className="text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('free')}
                           className="group inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
-                          title="Sort by Available Stock"
+                          title="Sort by AVL STK"
                         >
-                          <span>Available Stock</span>
+                          <span>AVL STK</span>
                           {renderSortIndicator('free')}
                         </button>
                       </TableHead>
 
-                      {/* 7. Period Inward IN */}
+                      {/* 7. IN STK */}
                       <TableHead className="text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('in')}
                           className="group inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 transition-colors cursor-pointer select-none ml-auto"
-                          title="Sort by Period Inward"
+                          title="Sort by IN STK"
                         >
-                          <span>Period Inward IN ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
+                          <span>IN STK ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
                           {renderSortIndicator('in')}
                         </button>
                       </TableHead>
 
-                      {/* 8. Period Outward OUT */}
+                      {/* 8. OUT STK */}
                       <TableHead className="text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('out')}
                           className="group inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 transition-colors cursor-pointer select-none ml-auto"
-                          title="Sort by Period Outward"
+                          title="Sort by OUT STK"
                         >
-                          <span>Period Outward OUT ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
+                          <span>OUT STK ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
                           {renderSortIndicator('out')}
                         </button>
                       </TableHead>

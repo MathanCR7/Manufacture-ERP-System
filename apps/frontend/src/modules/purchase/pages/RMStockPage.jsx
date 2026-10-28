@@ -495,7 +495,7 @@ export default function RMStockPage() {
         <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 border border-emerald-200/80 dark:border-emerald-800/60 shadow-3xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-400">
-              Total Value (With Tax)
+              Total - Total PO + Tax
             </span>
             <span className="p-1 rounded-md bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300">
               <IndianRupee className="w-3 h-3" />
@@ -533,7 +533,7 @@ export default function RMStockPage() {
         <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-500/10 via-indigo-500/5 to-transparent dark:from-indigo-500/20 dark:via-slate-900 dark:to-slate-900 border border-indigo-200/80 dark:border-indigo-800/60 shadow-3xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-400">
-              Total Stock GST / Tax
+              Tax - Tax Amount
             </span>
             <span className="p-1 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300">
               <IndianRupee className="w-3 h-3" />

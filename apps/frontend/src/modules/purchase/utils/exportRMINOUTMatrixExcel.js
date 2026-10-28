@@ -264,10 +264,10 @@ export async function exportStockInOutMatrixToExcel({
     { title: 'Category', width: 22, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Raw Material Name', width: 30, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'UOM', width: 9, align: 'center', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'TotalStock', width: 14, align: 'right', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'Available Stock', width: 16, align: 'right', hdrColor: COLORS.ACCENT_GREEN_HDR },
-    { title: `Period Inward IN (${period})`, width: 22, align: 'right', hdrColor: COLORS.IN_HDR },
-    { title: `Period Outward OUT (${period})`, width: 22, align: 'right', hdrColor: COLORS.OUT_HDR },
+    { title: 'TOT STK', width: 14, align: 'right', hdrColor: COLORS.TABLE_HEADER },
+    { title: 'AVL STK', width: 16, align: 'right', hdrColor: COLORS.ACCENT_GREEN_HDR },
+    { title: `IN STK (${period})`, width: 22, align: 'right', hdrColor: COLORS.IN_HDR },
+    { title: `OUT STK (${period})`, width: 22, align: 'right', hdrColor: COLORS.OUT_HDR },
     { title: 'Total Valuation (₹)', width: 18, align: 'right', hdrColor: COLORS.TABLE_HEADER }
   ];
 
@@ -803,10 +803,10 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
     { title: 'Category', width: 22, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Raw Material Name', width: 30, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'UOM', width: 9, align: 'center', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'TotalStock', width: 14, align: 'right', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'Available Stock', width: 16, align: 'right', hdrColor: COLORS.ACCENT_GREEN_HDR },
-    { title: `Period Inward IN (${period})`, width: 22, align: 'right', hdrColor: COLORS.IN_HDR },
-    { title: `Period Outward OUT (${period})`, width: 22, align: 'right', hdrColor: COLORS.OUT_HDR },
+    { title: 'TOT STK', width: 14, align: 'right', hdrColor: COLORS.TABLE_HEADER },
+    { title: 'AVL STK', width: 16, align: 'right', hdrColor: COLORS.ACCENT_GREEN_HDR },
+    { title: `IN STK (${period})`, width: 22, align: 'right', hdrColor: COLORS.IN_HDR },
+    { title: `OUT STK (${period})`, width: 22, align: 'right', hdrColor: COLORS.OUT_HDR },
     { title: 'Total Valuation (₹)', width: 18, align: 'right', hdrColor: COLORS.TABLE_HEADER }
   ];
 
