@@ -2203,8 +2203,8 @@ const AppShell = () => {
         <main className={`flex-1 min-w-0 ${
           location.pathname.startsWith('/calendar') || location.pathname.startsWith('/sales/order') || location.pathname.startsWith('/sales/sap-order')
             ? 'p-0 m-0 overflow-y-auto flex flex-col bg-[var(--sap-bg-window,#ece9d8)]' 
-            : location.pathname.startsWith('/production/')
-            ? 'p-0 m-0 overflow-y-auto flex flex-col bg-[#F4F5F8] dark:bg-slate-950'
+            : location.pathname.startsWith('/production/') || location.pathname.startsWith('/rm/stock')
+            ? 'p-0 m-0 overflow-y-auto flex flex-col bg-slate-50 dark:bg-slate-950'
             : 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8'
         }`}>
           <Outlet />

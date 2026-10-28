@@ -102,7 +102,7 @@ function SearchableFilterDropdown({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border transition-all flex items-center justify-between gap-1.5 text-left cursor-pointer ${
+        className={`w-full text-xs px-2 py-1 rounded-md border transition-all flex items-center justify-between gap-1 text-left cursor-pointer ${
           isFiltered
             ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 font-semibold shadow-2xs'
             : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-slate-400'
@@ -204,6 +204,210 @@ function SearchableFilterDropdown({
   );
 }
 
+// ── SEARCHABLE & SELECTABLE TIME PERIOD DROPDOWN COMPONENT ──
+function TimePeriodDropdown({
+  period,
+  setPeriod,
+  customStartDate,
+  setCustomStartDate,
+  customEndDate,
+  setCustomEndDate,
+  appliedCustomStart,
+  appliedCustomEnd,
+  handleApplyCustomRange,
+  handleClearCustomRange,
+  summary,
+  periodDisplayText,
+  isFetching,
+  className = ''
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const periodOptions = [
+    { id: 'all', label: 'All Time' },
+    { id: 'today', label: 'Today' },
+    { id: 'yesterday', label: 'Yesterday' },
+    { id: 'this_week', label: 'This Week' },
+    { id: 'last_week', label: 'Last Week' },
+    { id: 'this_month', label: 'This Month' },
+    { id: 'last_month', label: 'Last Month' },
+    { id: 'custom', label: 'Custom Date Range' }
+  ];
+
+  const activeOption = periodOptions.find(p => p.id === period) || periodOptions[0];
+
+  return (
+    <div ref={dropdownRef} className={`relative ${className}`}>
+      {/* Trigger Button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full text-xs px-2 py-1 rounded-md border transition-all flex items-center justify-between gap-1 text-left cursor-pointer ${
+          period !== 'all'
+            ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 font-semibold shadow-2xs'
+            : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-slate-400'
+        }`}
+        title={`Time Period: ${activeOption.label}`}
+      >
+        <div className="flex items-center gap-1.5 truncate">
+          <Calendar className={`w-3.5 h-3.5 shrink-0 ${period !== 'all' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`} />
+          <span className="truncate">
+            {period === 'custom' && (appliedCustomStart || appliedCustomEnd)
+              ? `Custom: ${appliedCustomStart || '...'} → ${appliedCustomEnd || '...'}`
+              : activeOption.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {period !== 'all' && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setPeriod('all');
+                handleClearCustomRange?.();
+              }}
+              className="p-0.5 rounded-full hover:bg-emerald-200 dark:hover:bg-emerald-800 text-emerald-700 dark:text-emerald-300 transition-colors"
+              title="Reset to All Time"
+            >
+              <X className="w-3 h-3" />
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180 text-emerald-600' : ''}`} />
+        </div>
+      </button>
+
+      {/* Popover Dropdown Menu */}
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full min-w-[280px] sm:min-w-[320px] max-w-[calc(100vw-32px)] left-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-100">
+          <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-1.5">
+            <span className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Select Time Period:</span>
+            </span>
+            {isFetching && (
+              <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Syncing...</span>
+              </span>
+            )}
+          </div>
+
+          {/* Quick Preset Buttons */}
+          <div className="grid grid-cols-2 gap-1">
+            {periodOptions.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setPeriod(p.id);
+                  if (p.id !== 'custom') {
+                    handleClearCustomRange?.();
+                    setIsOpen(false);
+                  }
+                }}
+                className={`text-xs px-2.5 py-1.5 rounded-lg text-left font-medium transition-all cursor-pointer flex items-center justify-between ${
+                  period === p.id
+                    ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                    : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <span>{p.label}</span>
+                {period === p.id && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom Date Form (Shown when custom is selected) */}
+          {period === 'custom' && (
+            <form
+              onSubmit={(e) => {
+                handleApplyCustomRange(e);
+                setIsOpen(false);
+              }}
+              className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5"
+            >
+              <div className="grid grid-cols-2 gap-1.5">
+                <div>
+                  <label className="text-[10px] font-medium text-slate-500 block mb-0.5">From Date:</label>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    className="w-full text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-slate-500 block mb-0.5">To Date:</label>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    className="w-full text-xs px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-1.5 pt-0.5">
+                {(appliedCustomStart || appliedCustomEnd) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      handleClearCustomRange?.();
+                      setPeriod('all');
+                      setIsOpen(false);
+                    }}
+                    className="text-xs h-7 px-2"
+                  >
+                    Clear
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 px-3"
+                >
+                  Apply Range
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* Timeframe & Calculation Indicator Info Footer */}
+          <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[10px] space-y-1 text-slate-500 dark:text-slate-400">
+            <div className="flex items-center justify-between">
+              <span>Timeframe:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                {summary?.periodDateRange || periodDisplayText?.rangeText}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Calculation:</span>
+              <span className={`px-1.5 py-0.2 rounded-full font-medium text-[9.5px] ${
+                (summary?.isHistorical ?? periodDisplayText?.isHistorical)
+                  ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300'
+                  : 'bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300'
+              }`}>
+                {(summary?.isHistorical ?? periodDisplayText?.isHistorical) ? 'Historical Day Closing Balance' : 'Live Real-Time Stock Balance'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RMINOUTStockPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -292,9 +496,12 @@ export default function RMINOUTStockPage() {
   }, []);
 
   const handleCellMouseLeave = useCallback(() => {
+    if (tooltipHideTimerRef.current) {
+      clearTimeout(tooltipHideTimerRef.current);
+    }
     tooltipHideTimerRef.current = setTimeout(() => {
       setActiveCellTooltip(null);
-    }, 120);
+    }, 320);
   }, []);
 
   const handleCellClick = useCallback((e, mat, dateStr, cell) => {
@@ -326,9 +533,13 @@ export default function RMINOUTStockPage() {
     });
   }, []);
 
-  // Close tooltip on scroll, resize, or outside click so it never floats disconnectedly
+  // Close tooltip on outer scroll, resize, or outside click (ignoring scroll inside the tooltip itself!)
   useEffect(() => {
-    const handleClose = () => {
+    const handleClose = (e) => {
+      // If scroll happens inside the popup, do not close!
+      if (e?.target && e.target.closest && e.target.closest('.stock-popup-container')) {
+        return;
+      }
       setActiveCellTooltip(null);
     };
     window.addEventListener('scroll', handleClose, true);
@@ -344,8 +555,8 @@ export default function RMINOUTStockPage() {
     if (!activeCellTooltip?.rect) return null;
     const { top: rTop, bottom: rBottom, left: rLeft, width: rWidth } = activeCellTooltip.rect;
 
-    const tooltipWidth = 320;
-    const estimatedHeight = 240;
+    const tooltipWidth = 360;
+    const estimatedHeight = 280;
     const padding = 12;
 
     const spaceAbove = rTop;
@@ -1064,6 +1275,14 @@ export default function RMINOUTStockPage() {
     setAppliedCustomEnd(customEndDate);
   };
 
+  // Handle Custom Date Range Clear
+  const handleClearCustomRange = () => {
+    setCustomStartDate('');
+    setCustomEndDate('');
+    setAppliedCustomStart('');
+    setAppliedCustomEnd('');
+  };
+
   // Universal Column Sorting Handler (Toggles ASC / DESC or changes field)
   const handleColumnSort = (field) => {
     setSortBy(prev => {
@@ -1158,6 +1377,10 @@ export default function RMINOUTStockPage() {
       // Category
       if (sortBy === 'category_asc') return (a.category || '').localeCompare(b.category || '', undefined, { sensitivity: 'base' });
       if (sortBy === 'category_desc') return (b.category || '').localeCompare(a.category || '', undefined, { sensitivity: 'base' });
+
+      // UOM
+      if (sortBy === 'uom_asc') return (a.uom || '').localeCompare(b.uom || '', undefined, { sensitivity: 'base' });
+      if (sortBy === 'uom_desc') return (b.uom || '').localeCompare(a.uom || '', undefined, { sensitivity: 'base' });
 
       // In-Hand Stock
       if (sortBy === 'stock_desc') return Number(b.currentStock || 0) - Number(a.currentStock || 0);
@@ -1254,6 +1477,10 @@ export default function RMINOUTStockPage() {
       if (sortBy === 'code_desc') return (b.rawMaterialCode || '').localeCompare(a.rawMaterialCode || '', undefined, { numeric: true });
       if (sortBy === 'name_asc') return (a.rawMaterialName || '').localeCompare(b.rawMaterialName || '');
       if (sortBy === 'name_desc') return (b.rawMaterialName || '').localeCompare(a.rawMaterialName || '');
+      if (sortBy === 'category_asc') return (a.category || '').localeCompare(b.category || '');
+      if (sortBy === 'category_desc') return (b.category || '').localeCompare(a.category || '');
+      if (sortBy === 'uom_asc') return (a.uom || '').localeCompare(b.uom || '');
+      if (sortBy === 'uom_desc') return (b.uom || '').localeCompare(a.uom || '');
       if (sortBy === 'ref_asc') return (a.referenceNo || '').localeCompare(b.referenceNo || '');
       if (sortBy === 'ref_desc') return (b.referenceNo || '').localeCompare(a.referenceNo || '');
       if (sortBy === 'batch_asc') return (a.batchNumber || '').localeCompare(b.batchNumber || '');
@@ -1707,18 +1934,18 @@ export default function RMINOUTStockPage() {
   }, [summary]);
 
   return (
-    <div className="w-full min-h-screen bg-slate-50/70 dark:bg-slate-950 px-2 sm:px-4 py-2 sm:py-3 space-y-2.5 transition-colors">
+    <div className="w-full min-h-screen bg-slate-50/70 dark:bg-slate-950 p-1 sm:p-1.5 space-y-1 transition-colors">
       {/* ── TOP HEADER & ACTIONS (High-Density Bar with Auto-Refresh & No Refresh Button) ── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-2xs">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 sm:px-2.5 py-1.5 shadow-2xs">
         <div className="space-y-0.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-              <Boxes className="w-5 h-5" />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="p-1 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+              <Boxes className="w-4 h-4" />
             </span>
-            <h1 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+            <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
               RM-IN-OUT Stock
             </h1>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 font-semibold uppercase tracking-wider">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 font-semibold uppercase tracking-wider">
               Stock In & Out Ledger
             </span>
 
@@ -1727,9 +1954,9 @@ export default function RMINOUTStockPage() {
               <button
                 type="button"
                 onClick={() => setMovementFilter(movementFilter === 'IN_PROGRESS' ? 'ALL' : 'IN_PROGRESS')}
-                className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
                   movementFilter === 'IN_PROGRESS'
-                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-1.5 ring-amber-300'
                     : 'bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800'
                 }`}
                 title="Click to filter by Floor WIP Run"
@@ -1744,9 +1971,9 @@ export default function RMINOUTStockPage() {
               <button
                 type="button"
                 onClick={() => setMovementFilter(movementFilter === 'LAB_REJECTED' ? 'ALL' : 'LAB_REJECTED')}
-                className={`inline-flex items-center gap-1 text-[11px] px-2.5 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
                   movementFilter === 'LAB_REJECTED'
-                    ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-2 ring-rose-300'
+                    ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-1.5 ring-rose-300'
                     : 'bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-800'
                 }`}
                 title="Click to filter by Lab Rejections"
@@ -1758,35 +1985,35 @@ export default function RMINOUTStockPage() {
 
             {/* Live Auto-Refresh Indicator Pulse */}
             {isAnyFetching && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium animate-pulse ml-1">
-                <Loader2 className="w-3 h-3 animate-spin" />
+              <span className="inline-flex items-center gap-1 text-[9.5px] text-emerald-600 dark:text-emerald-400 font-medium animate-pulse ml-1">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
                 <span>Auto-refreshing...</span>
               </span>
             )}
           </div>
-          <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
             Raw material date-wise inward, outward, production consumption, adjustments & live stock audit
           </p>
         </div>
 
         {/* View Switcher, Density & Export Actions (Refresh button removed per request) */}
-        <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2 w-full lg:w-auto">
+        <div className="flex flex-wrap items-center justify-between lg:justify-end gap-1.5 w-full lg:w-auto">
           {/* View Mode Switcher */}
-          <div className="inline-flex max-w-full overflow-x-auto no-scrollbar p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
+          <div className="inline-flex max-w-full overflow-x-auto no-scrollbar p-0.5 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
             <button
               type="button"
               onClick={() => { setViewMode('ledger'); setLedgerSubMode('matrix'); }}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer whitespace-nowrap ${
+              className={`px-2 sm:px-2.5 py-1 rounded text-xs flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'ledger' && ledgerSubMode === 'matrix'
                   ? 'bg-emerald-600 text-white shadow-2xs font-bold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <TableProperties className="w-3.5 h-3.5 shrink-0" />
+              <TableProperties className="w-3 h-3 shrink-0" />
               <span>
                 <span className="hidden sm:inline">Date-Wise <span className="hidden md:inline">Movement </span></span>Matrix
               </span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+              <span className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-mono ${
                 viewMode === 'ledger' && ledgerSubMode === 'matrix' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
               }`}>
                 <span className="hidden sm:inline">{matrixDates.length} Dates</span>
@@ -1796,13 +2023,13 @@ export default function RMINOUTStockPage() {
             <button
               type="button"
               onClick={() => setViewMode('material')}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer whitespace-nowrap ${
+              className={`px-2 sm:px-2.5 py-1 rounded text-xs flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'material'
                   ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <Package className="w-3.5 h-3.5 shrink-0" />
+              <Package className="w-3 h-3 shrink-0" />
               <span>
                 <span className="hidden sm:inline">Material </span>Summary
               </span>
@@ -1810,181 +2037,37 @@ export default function RMINOUTStockPage() {
             <button
               type="button"
               onClick={() => { setViewMode('ledger'); setLedgerSubMode('stream'); }}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all text-xs cursor-pointer whitespace-nowrap ${
+              className={`px-2 sm:px-2.5 py-1 rounded text-xs flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'ledger' && ledgerSubMode === 'stream'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <Calendar className="w-3.5 h-3.5 shrink-0" />
+              <Calendar className="w-3 h-3 shrink-0" />
               <span>
                 <span className="hidden sm:inline">Transaction </span>Stream
               </span>
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 ml-auto lg:ml-0">
-            {/* Density Toggle */}
-            <button
-              onClick={() => setIsCompactDensity(!isCompactDensity)}
-              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-              title={isCompactDensity ? 'Switch to Comfortable View' : 'Switch to Compact ERP View'}
-            >
-              <TableProperties className="w-4 h-4" />
-            </button>
-
+          <div className="flex items-center gap-1 sm:gap-1.5 ml-auto lg:ml-0">
             {/* Export Report Trigger */}
             <Button
               variant="default"
               size="sm"
               onClick={() => setIsExportModalOpen(true)}
-              className="h-8 px-2.5 sm:px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1.5 cursor-pointer"
+              className="h-7 px-2.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1 cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3 h-3" />
               <span>Export Report</span>
-              <ChevronDown className="w-3 h-3 ml-0.5 opacity-80" />
+              <ChevronDown className="w-2.5 h-2.5 ml-0.5 opacity-80" />
             </Button>
           </div>
         </div>
       </div>
 
-      {/* ── TIME PERIOD FILTER BAR (Single-Line Compact Strip) ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 sm:px-3.5 py-2 shadow-2xs space-y-2">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Time Period:
-            </span>
-          </div>
-
-          {/* Fast Period Pills - All Time, Today, Yesterday, This Week, Last Week upfront */}
-          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-            {[
-              { id: 'all', label: 'All Time' },
-              { id: 'today', label: 'Today' },
-              { id: 'yesterday', label: 'Yesterday' },
-              { id: 'this_week', label: 'This Week' },
-              { id: 'last_week', label: 'Last Week' },
-              { id: 'this_month', label: 'This Month' },
-              { id: 'last_month', label: 'Last Month' },
-              { id: 'custom', label: 'Custom Date Range' }
-            ].map(p => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => {
-                  setPeriod(p.id);
-                  if (p.id !== 'custom') {
-                    setAppliedCustomStart('');
-                    setAppliedCustomEnd('');
-                  }
-                }}
-                className={`text-[11px] sm:text-xs px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5 ${
-                  period === p.id
-                    ? 'bg-emerald-600 text-white font-semibold shadow-xs ring-2 ring-emerald-500/30'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
-              >
-                <span>{p.label}</span>
-                {period === p.id && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── ACTIVE PERIOD TIME & DATE DISPLAY BANNER ── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 font-semibold text-xs">
-              <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Active Timeframe: {summary.periodLabel || periodDisplayText.label}</span>
-            </span>
-            <span className="text-slate-700 dark:text-slate-300 font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 font-medium">
-              {summary.periodDateRange || periodDisplayText.rangeText}
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
-            <span>Stock Calculation:</span>
-            <span className={`px-2 py-0.5 rounded-full font-medium ${
-              (summary.isHistorical ?? periodDisplayText.isHistorical)
-                ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                : 'bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
-            }`}>
-              {(summary.isHistorical ?? periodDisplayText.isHistorical) ? 'Historical Day Closing Balance' : 'Live Real-Time Stock Balance'}
-            </span>
-            {isDedicatedFetching && (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                <span>Updating...</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Custom Date Form (Appears when 'custom' is active) */}
-        {period === 'custom' && (
-          <form
-            onSubmit={handleApplyCustomRange}
-            className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-end gap-2 animate-in fade-in duration-150"
-          >
-            <div className="w-full sm:w-auto">
-              <label className="text-[10px] font-medium text-slate-500 block mb-0.5">
-                From Date:
-              </label>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="w-full sm:w-auto text-xs px-2.5 py-1.5 sm:py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div className="w-full sm:w-auto">
-              <label className="text-[10px] font-medium text-slate-500 block mb-0.5">
-                To Date:
-              </label>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                className="w-full sm:w-auto text-xs px-2.5 py-1.5 sm:py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="submit"
-                size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3 cursor-pointer"
-              >
-                Apply Range
-              </Button>
-              {(appliedCustomStart || appliedCustomEnd) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCustomStartDate('');
-                    setCustomEndDate('');
-                    setAppliedCustomStart('');
-                    setAppliedCustomEnd('');
-                    setPeriod('this_month');
-                  }}
-                  className="text-xs h-8 px-2.5 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer"
-                >
-                  Clear
-                </Button>
-              )}
-            </div>
-          </form>
-        )}
-      </div>
-
       {/* ── KPI EXECUTIVE STAT CARDS (Ultra-Compact SAP Tool Style Strip) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-1 sm:gap-1.5">
         {/* Card 1: Total Current Stock (Click to show All / Reset) */}
         <div
           onClick={() => setMovementFilter('ALL')}
@@ -2153,24 +2236,24 @@ export default function RMINOUTStockPage() {
       </div>
 
       {/* ── INTERACTIVE VISUAL STOCK FLOW BAR (Compact SAP Flow Indicator) ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 sm:px-3 py-1.5 shadow-2xs space-y-1">
-        <div className="flex items-center justify-between text-[10px] sm:text-[10.5px] font-semibold text-slate-700 dark:text-slate-300">
-          <div className="flex items-center gap-1.5">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 shadow-2xs space-y-0.5">
+        <div className="flex items-center justify-between text-[9.5px] sm:text-[10px] font-semibold text-slate-700 dark:text-slate-300">
+          <div className="flex items-center gap-1">
             <BarChart3 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
             <span>Interactive Movement Breakdown (Click to filter):</span>
           </div>
           {movementFilter !== 'ALL' && (
             <button
               onClick={() => setMovementFilter('ALL')}
-              className="text-[9.5px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
+              className="text-[9px] text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
             >
               <span>Reset filter ({movementFilter})</span>
-              <X className="w-3 h-3" />
+              <X className="w-2.5 h-2.5" />
             </button>
           )}
         </div>
 
-        <div className="w-full h-2 sm:h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex cursor-pointer shadow-inner">
+        <div className="w-full h-1.5 sm:h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex cursor-pointer shadow-inner">
           {/* Segment 1: Inward (Green) */}
           <div
             onClick={() => setMovementFilter('IN_ONLY')}
@@ -2194,18 +2277,18 @@ export default function RMINOUTStockPage() {
           />
         </div>
 
-        <div className="flex items-center justify-between text-[10px] text-slate-500 flex-wrap gap-2 pt-0.5">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between text-[9.5px] text-slate-500 flex-wrap gap-2 pt-0.5">
+          <div className="flex items-center gap-2.5">
             <span onClick={() => setMovementFilter('IN_ONLY')} className="flex items-center gap-1 cursor-pointer hover:text-emerald-600">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               <span>Inward ({summary.totalPeriodIn})</span>
             </span>
             <span onClick={() => setMovementFilter('OUT_ONLY')} className="flex items-center gap-1 cursor-pointer hover:text-rose-600">
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
               <span>Outward ({summary.totalPeriodOut})</span>
             </span>
             <span onClick={() => setMovementFilter('IN_PROGRESS')} className="flex items-center gap-1 cursor-pointer hover:text-amber-600">
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
               <span>Floor WIP ({summary.totalInProgressStock})</span>
             </span>
           </div>
@@ -2215,9 +2298,9 @@ export default function RMINOUTStockPage() {
         </div>
       </div>
 
-      {/* ── TOOLBAR: SEARCH, SEARCHABLE CATEGORY, SEARCHABLE CODE & STATUS ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 sm:p-3 shadow-2xs space-y-2">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+      {/* ── TOOLBAR: SEARCH, TIME PERIOD, SEARCHABLE CATEGORY, SEARCHABLE CODE, MOVEMENT & SORT ── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 sm:px-2.5 py-1.5 shadow-2xs space-y-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-1.5">
           {/* 1. Global Text Search Input */}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -2226,19 +2309,36 @@ export default function RMINOUTStockPage() {
               placeholder="Search keyword, PO, batch..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-xs pl-8 pr-7 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-1 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs pl-8 pr-7 py-1 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-1 focus:ring-emerald-500 outline-hidden"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3 h-3" />
               </button>
             )}
           </div>
 
-          {/* 2. Searchable Category Dropdown with internal Search Bar */}
+          {/* 2. Integrated Time Period Dropdown */}
+          <TimePeriodDropdown
+            period={period}
+            setPeriod={setPeriod}
+            customStartDate={customStartDate}
+            setCustomStartDate={setCustomStartDate}
+            customEndDate={customEndDate}
+            setCustomEndDate={setCustomEndDate}
+            appliedCustomStart={appliedCustomStart}
+            appliedCustomEnd={appliedCustomEnd}
+            handleApplyCustomRange={handleApplyCustomRange}
+            handleClearCustomRange={handleClearCustomRange}
+            summary={summary}
+            periodDisplayText={periodDisplayText}
+            isFetching={isDedicatedFetching}
+          />
+
+          {/* 3. Searchable Category Dropdown with internal Search Bar */}
           <SearchableFilterDropdown
             label="Category"
             placeholder="All Categories"
@@ -2248,7 +2348,7 @@ export default function RMINOUTStockPage() {
             icon={Layers}
           />
 
-          {/* 3. Searchable RM Code Dropdown with internal Search Bar */}
+          {/* 4. Searchable RM Code Dropdown with internal Search Bar */}
           <SearchableFilterDropdown
             label="RM Code"
             placeholder="All RM Codes"
@@ -2258,12 +2358,12 @@ export default function RMINOUTStockPage() {
             icon={Package}
           />
 
-          {/* 4. Movement / Stock Filter */}
+          {/* 5. Movement / Stock Filter */}
           <div>
             <select
               value={movementFilter}
               onChange={(e) => setMovementFilter(e.target.value)}
-              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
+              className="w-full text-xs px-2 py-1 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
             >
               <option value="ALL">All Movement Status</option>
               <option value="IN_PROGRESS">🟡 In-Progress WIP (Floor Runs)</option>
@@ -2279,18 +2379,21 @@ export default function RMINOUTStockPage() {
             </select>
           </div>
 
-          {/* 5. Sorting Selector Dropdown */}
-          <div className="flex items-center gap-1.5 sm:col-span-2 md:col-span-1 lg:col-span-1">
+          {/* 6. Sorting Selector Dropdown & Reset */}
+          <div className="flex items-center gap-1">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
+              className="w-full text-xs px-2 py-1 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
             >
               <option value="code_asc">Code (RM-00001 First)</option>
               <option value="code_desc">Code (Descending)</option>
               <option value="name_asc">Name (A → Z)</option>
               <option value="name_desc">Name (Z → A)</option>
               <option value="category_asc">Category (A → Z)</option>
+              <option value="category_desc">Category (Z → A)</option>
+              <option value="uom_asc">UOM (A → Z)</option>
+              <option value="uom_desc">UOM (Z → A)</option>
               <option value="stock_desc">In-Hand Stock (High → Low)</option>
               <option value="stock_asc">In-Hand Stock (Low → High)</option>
               <option value="wip_desc">In-Progress WIP (High → Low)</option>
@@ -2303,7 +2406,7 @@ export default function RMINOUTStockPage() {
               <option value="qc_desc">QC Rejections First</option>
             </select>
 
-            {(searchTerm || categoryFilter !== 'ALL' || codeFilter !== 'ALL' || movementFilter !== 'ALL') && (
+            {(searchTerm || categoryFilter !== 'ALL' || codeFilter !== 'ALL' || movementFilter !== 'ALL' || period !== 'all' || sortBy !== 'code_asc') && (
               <Button
                 variant="outline"
                 size="sm"
@@ -2313,11 +2416,13 @@ export default function RMINOUTStockPage() {
                   setCodeFilter('ALL');
                   setMovementFilter('ALL');
                   setSortBy('code_asc');
+                  setPeriod('all');
+                  handleClearCustomRange?.();
                 }}
-                className="h-8 px-2 text-xs border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer"
-                title="Reset all filters"
+                className="h-7 px-2 text-xs border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 cursor-pointer"
+                title="Reset all filters to default"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3 h-3" />
               </Button>
             )}
           </div>
@@ -2330,9 +2435,19 @@ export default function RMINOUTStockPage() {
             <span className="font-semibold text-slate-900 dark:text-white">
               {viewMode === 'material' ? filteredMaterials.length : filteredTransactions.length} records
             </span>
-            <span>• Period:</span>
+            <span>• Active Timeframe:</span>
             <span className="font-semibold text-emerald-600 dark:text-emerald-400 capitalize">
-              {period.replace('_', ' ')}
+              {summary?.periodLabel || periodDisplayText.label}
+            </span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+              ({summary?.periodDateRange || periodDisplayText.rangeText})
+            </span>
+            <span className={`px-2 py-0.2 rounded-full font-semibold text-[9.5px] border ${
+              (summary?.isHistorical ?? periodDisplayText.isHistorical)
+                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300/70 dark:border-amber-800/60'
+                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300/70 dark:border-emerald-800/60'
+            }`}>
+              Stock: {(summary?.isHistorical ?? periodDisplayText.isHistorical) ? 'Historical Day Closing Balance' : 'Live Real-Time Stock Balance'}
             </span>
             {categoryFilter !== 'ALL' && (
               <span className="px-2 py-0.2 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-bold text-[10px]">
@@ -3260,15 +3375,15 @@ export default function RMINOUTStockPage() {
         </Card>
       ) : (
         /* MODE 2: DATE-WISE LEDGER & MOVEMENT MATRIX (WITH MATRIX & STREAM SUB-MODES) */
-        <div className="space-y-2.5">
+        <div className="space-y-1">
           {/* Sub-Mode Segmented Switcher Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 shadow-2xs">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <div className="inline-flex max-w-full overflow-x-auto no-scrollbar p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 shadow-2xs">
+            <div className="flex items-center gap-1 flex-wrap">
+              <div className="inline-flex max-w-full overflow-x-auto no-scrollbar p-0.5 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
                 <button
                   type="button"
                   onClick={() => setLedgerSubMode('matrix')}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-2 sm:px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap ${
                     ledgerSubMode === 'matrix'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -3278,7 +3393,7 @@ export default function RMINOUTStockPage() {
                   <span>
                     <span className="hidden sm:inline">Date-Wise <span className="hidden md:inline">Movement </span></span>Matrix
                   </span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  <span className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-mono ${
                     ledgerSubMode === 'matrix' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                   }`}>
                     <span className="hidden sm:inline">{matrixDates.length} Dates</span>
@@ -3289,7 +3404,7 @@ export default function RMINOUTStockPage() {
                 <button
                   type="button"
                   onClick={() => setLedgerSubMode('stream')}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap ${
+                  className={`px-2 sm:px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap ${
                     ledgerSubMode === 'stream'
                       ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -3299,7 +3414,7 @@ export default function RMINOUTStockPage() {
                   <span>
                     <span className="hidden sm:inline">Detailed </span>Transaction Stream
                   </span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  <span className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-mono ${
                     ledgerSubMode === 'stream' ? 'bg-slate-800 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                   }`}>
                     {filteredTransactions.length}
@@ -3309,11 +3424,11 @@ export default function RMINOUTStockPage() {
 
               {/* Tablet View Mode Toggle for Matrix (Cards vs Table Grid) */}
               {ledgerSubMode === 'matrix' && (
-                <div className="lg:hidden hidden sm:inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
+                <div className="lg:hidden hidden sm:inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 text-xs font-medium shrink-0">
                   <button
                     type="button"
                     onClick={() => setTabletViewMode('card')}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                    className={`px-2 py-0.5 rounded text-xs font-semibold cursor-pointer transition-all ${
                       tabletViewMode === 'card'
                         ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -3324,7 +3439,7 @@ export default function RMINOUTStockPage() {
                   <button
                     type="button"
                     onClick={() => setTabletViewMode('table')}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-all ${
+                    className={`px-2 py-0.5 rounded text-xs font-semibold cursor-pointer transition-all ${
                       tabletViewMode === 'table'
                         ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-bold'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -3336,12 +3451,12 @@ export default function RMINOUTStockPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 text-xs flex-wrap justify-between sm:justify-end w-full sm:w-auto">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
+            <div className="flex items-center gap-1.5 text-xs flex-wrap justify-between sm:justify-end w-full sm:w-auto">
+              <div className="flex items-center gap-1">
+                <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
                   🟢 IN = Green
                 </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
+                <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
                   🔴 OUT = Red
                 </span>
               </div>
@@ -3349,7 +3464,7 @@ export default function RMINOUTStockPage() {
                 variant="outline"
                 size="sm"
                 onClick={handleExportMatrixOnly}
-                className="h-7 px-2.5 text-xs text-emerald-700 dark:text-emerald-300 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex items-center gap-1 cursor-pointer font-semibold shadow-2xs"
+                className="h-6 px-2 text-[11px] text-emerald-700 dark:text-emerald-300 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex items-center gap-1 cursor-pointer font-semibold shadow-2xs"
                 title="Quick download of the Date-Wise Movement Matrix as Excel"
               >
                 <Download className="w-3 h-3 text-emerald-600" />
@@ -3366,34 +3481,121 @@ export default function RMINOUTStockPage() {
                 <Table className="border-collapse">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100/95 dark:bg-slate-850/95 backdrop-blur-xs shadow-2xs">
                     <TableRow className="border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                      {/* Sticky RM Code */}
-                      <TableHead className="sticky left-0 z-40 bg-slate-100 dark:bg-slate-850 min-w-[105px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs">
-                        RM Code
+                      {/* 1. Frozen RM Code */}
+                      <TableHead className="sticky left-0 z-40 bg-slate-100 dark:bg-slate-850 w-[95px] min-w-[95px] max-w-[95px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('code')}
+                          className="group flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          title="Sort by RM Code (Click to toggle Asc/Desc)"
+                        >
+                          <span className="truncate">RM Code</span>
+                          {renderSortIndicator('code')}
+                        </button>
                       </TableHead>
-                      {/* Sticky Raw Material Name */}
-                      <TableHead className="sticky left-[105px] z-40 bg-slate-100 dark:bg-slate-850 min-w-[180px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs">
-                        Raw Material Name
+
+                      {/* 2. Frozen Category Name */}
+                      <TableHead className="sticky left-[95px] z-40 bg-slate-100 dark:bg-slate-850 w-[130px] min-w-[130px] max-w-[130px] font-semibold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('category')}
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          title="Sort by Category Name (Click to toggle Asc/Desc)"
+                        >
+                          <span className="truncate">Category</span>
+                          {renderSortIndicator('category')}
+                        </button>
                       </TableHead>
-                      <TableHead className="min-w-[140px] font-semibold text-slate-700 dark:text-slate-300">
-                        Category
+
+                      {/* 3. Frozen Raw Material Name */}
+                      <TableHead className="sticky left-[225px] z-40 bg-slate-100 dark:bg-slate-850 w-[170px] min-w-[170px] max-w-[170px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('name')}
+                          className="group flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          title="Sort by Raw Material Name (Click to toggle Asc/Desc)"
+                        >
+                          <span className="truncate">Raw Material Name</span>
+                          {renderSortIndicator('name')}
+                        </button>
                       </TableHead>
-                      <TableHead className="min-w-[70px] font-semibold text-slate-700 dark:text-slate-300">
-                        UOM
+
+                      {/* 4. Frozen UOM */}
+                      <TableHead className="sticky left-[395px] z-40 bg-slate-100 dark:bg-slate-850 w-[65px] min-w-[65px] max-w-[65px] font-semibold text-slate-700 dark:text-slate-300 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('uom')}
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          title="Sort by UOM (Click to toggle Asc/Desc)"
+                        >
+                          <span>UOM</span>
+                          {renderSortIndicator('uom')}
+                        </button>
                       </TableHead>
-                      <TableHead className="text-right min-w-[95px] font-bold text-slate-900 dark:text-white">
-                        TotalStock
+
+                      {/* 5. TotalStock */}
+                      <TableHead className="text-right min-w-[95px] font-bold text-slate-900 dark:text-white px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('stock')}
+                          className="group inline-flex items-center gap-1 font-bold text-slate-900 dark:text-white hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          title="Sort by TotalStock"
+                        >
+                          <span>TotalStock</span>
+                          {renderSortIndicator('stock')}
+                        </button>
                       </TableHead>
-                      <TableHead className="text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400">
-                        Available Stock
+
+                      {/* 6. Available Stock */}
+                      <TableHead className="text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('free')}
+                          className="group inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          title="Sort by Available Stock"
+                        >
+                          <span>Available Stock</span>
+                          {renderSortIndicator('free')}
+                        </button>
                       </TableHead>
-                      <TableHead className="text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400">
-                        Period Inward IN ({period})
+
+                      {/* 7. Period Inward IN */}
+                      <TableHead className="text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('in')}
+                          className="group inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 transition-colors cursor-pointer select-none ml-auto"
+                          title="Sort by Period Inward"
+                        >
+                          <span>Period Inward IN ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
+                          {renderSortIndicator('in')}
+                        </button>
                       </TableHead>
-                      <TableHead className="text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400">
-                        Period Outward OUT ({period})
+
+                      {/* 8. Period Outward OUT */}
+                      <TableHead className="text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('out')}
+                          className="group inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 transition-colors cursor-pointer select-none ml-auto"
+                          title="Sort by Period Outward"
+                        >
+                          <span>Period Outward OUT ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
+                          {renderSortIndicator('out')}
+                        </button>
                       </TableHead>
-                      <TableHead className="text-right min-w-[115px] font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700">
-                        Total Valuation (₹)
+
+                      {/* 9. Total Valuation */}
+                      <TableHead className="text-right min-w-[115px] font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleColumnSort('valuation')}
+                          className="group inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          title="Sort by Total Valuation"
+                        >
+                          <span>Total Valuation (₹)</span>
+                          {renderSortIndicator('valuation')}
+                        </button>
                       </TableHead>
 
                       {/* Dynamic Chronological Date Headers (DD-MM-YYYY) */}
@@ -3441,27 +3643,29 @@ export default function RMINOUTStockPage() {
                             key={mat.id}
                             className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-b border-slate-200/80 dark:border-slate-800 text-xs transition-colors group"
                           >
-                            {/* Sticky RM Code */}
-                            <TableCell className="sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-2 shadow-xs">
+                            {/* 1. Frozen RM Code */}
+                            <TableCell className="sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-2 px-2 shadow-xs w-[95px] min-w-[95px] max-w-[95px] truncate">
                               <button
                                 onClick={() => handleOpenHistory(mat.id)}
-                                className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                                title="Click to view material audit timeline"
+                                className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer truncate"
+                                title={`Click to view audit timeline for ${mat.code}`}
                               >
                                 {mat.code}
                               </button>
                             </TableCell>
 
-                            {/* Sticky Raw Material Name */}
-                            <TableCell className="sticky left-[105px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-2 shadow-xs truncate max-w-[200px]" title={mat.name}>
+                            {/* 2. Frozen Category Name */}
+                            <TableCell className="sticky left-[95px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-2 px-2 shadow-xs w-[130px] min-w-[130px] max-w-[130px] truncate" title={mat.category}>
+                              {mat.category || '—'}
+                            </TableCell>
+
+                            {/* 3. Frozen Raw Material Name */}
+                            <TableCell className="sticky left-[225px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-2 px-2 shadow-xs w-[170px] min-w-[170px] max-w-[170px] truncate" title={mat.name}>
                               {mat.name}
                             </TableCell>
 
-                            <TableCell className="text-slate-600 dark:text-slate-300 py-2 truncate max-w-[140px]" title={mat.category}>
-                              {mat.category}
-                            </TableCell>
-
-                            <TableCell className="font-mono text-slate-500 py-2">
+                            {/* 4. Frozen UOM */}
+                            <TableCell className="sticky left-[395px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-2 px-2 w-[65px] min-w-[65px] max-w-[65px] truncate">
                               {formatUOM(mat.uom)}
                             </TableCell>
 
@@ -3508,31 +3712,12 @@ export default function RMINOUTStockPage() {
                                 const poTx = cell.transactions.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo || t.poReferenceNo);
                                 const invDateFormatted = poTx?.supplierInvoiceDate ? formatDate(poTx.supplierInvoiceDate) : null;
 
-                                // Format comprehensive native title for mouse hover
-                                const tooltipTitle = cell.transactions.length > 0
-                                  ? `${dateStr} Movement Details:\n` + cell.transactions.map((t, idx) => {
-                                      const parts = [];
-                                      const flowText = t.flow === 'IN' ? `IN (+${t.quantity} ${formatUOM(mat.uom)})` : `OUT (-${t.quantity} ${formatUOM(mat.uom)})`;
-                                      parts.push(`[${idx + 1}] ${flowText} - ${t.typeLabel || t.type}`);
-                                      const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
-                                      const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
-                                      if (poNo && poNo !== '—') parts.push(`    PO Number: ${poNo}`);
-                                      if (grnNo && grnNo !== '—') parts.push(`    GRN Number: ${grnNo}`);
-                                      if (t.supplierInvoiceNo) parts.push(`    Invoice No: ${t.supplierInvoiceNo}`);
-                                      if (t.supplierInvoiceDate) parts.push(`    Invoice Date: ${formatDate(t.supplierInvoiceDate)}`);
-                                      if (t.partyName) parts.push(`    Party: ${t.partyName}`);
-                                      if (t.batchNumber && t.batchNumber !== '—') parts.push(`    Batch: ${t.batchNumber}`);
-                                      return parts.join('\n');
-                                    }).join('\n\n')
-                                  : 'No movement';
-
                                 return (
                                   <TableCell
                                     key={dateStr}
                                     className={`text-center font-mono py-1.5 px-1.5 border-r border-slate-100 dark:border-slate-800/80 align-middle select-none transition-colors duration-100 ${
                                       cell.transactions.length > 0 ? 'cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/70' : ''
                                     }`}
-                                    title={tooltipTitle}
                                     onMouseEnter={(e) => handleCellMouseEnter(e, mat, dateStr, cell)}
                                     onMouseLeave={handleCellMouseLeave}
                                     onClick={(e) => handleCellClick(e, mat, dateStr, cell)}
@@ -3557,7 +3742,7 @@ export default function RMINOUTStockPage() {
                                           +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
                                         {invDateFormatted && (
-                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold" title={`Supplier Invoice Date: ${invDateFormatted}`}>
+                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold">
                                             Inv: {invDateFormatted}
                                           </span>
                                         )}
@@ -3677,7 +3862,6 @@ export default function RMINOUTStockPage() {
                                     key={dStr}
                                     className="p-2 sm:p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 font-mono space-y-1 cursor-pointer hover:border-emerald-500 hover:shadow-xs transition-all active:scale-[0.98]"
                                     onClick={(e) => handleCellClick(e, mat, dStr, c)}
-                                    title="Click to view full movement details"
                                   >
                                     <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200 border-b border-slate-200/60 dark:border-slate-700/60 pb-1">
                                       <span className="flex items-center gap-1">
@@ -4442,16 +4626,16 @@ export default function RMINOUTStockPage() {
           }}
         />
       )}
-      {/* ── PORTAL FLOATING POPUP: GUARANTEED SINGLE POPUP, LIGHT & DARK THEME, SMART COLLISION & Z-INDEX ── */}
+      {/* ── PORTAL FLOATING POPUP: ATTRACTIVE, SMOOTH & SCROLLABLE STOCK DETAILS SCREEN ── */}
       {activeCellTooltip && tooltipPosition && typeof document !== 'undefined' && createPortal(
         <>
           {/* Backdrop for touch / mobile click-outside */}
           <div
-            className="fixed inset-0 z-[99998] bg-black/20 lg:hidden backdrop-blur-2xs"
+            className="fixed inset-0 z-[99998] bg-transparent lg:hidden"
             onClick={() => setActiveCellTooltip(null)}
           />
           <div
-            className="fixed z-[99999] transition-opacity duration-150 ease-out animate-in fade-in-0 zoom-in-95 pointer-events-auto"
+            className="stock-popup-container fixed z-[99999] transition-all duration-200 ease-out animate-in fade-in-0 zoom-in-95 pointer-events-auto"
             style={{
               top: `${tooltipPosition.top}px`,
               left: `${tooltipPosition.left}px`,
@@ -4460,11 +4644,12 @@ export default function RMINOUTStockPage() {
             onMouseEnter={() => {
               if (tooltipHideTimerRef.current) {
                 clearTimeout(tooltipHideTimerRef.current);
+                tooltipHideTimerRef.current = null;
               }
             }}
             onMouseLeave={handleCellMouseLeave}
           >
-            <div className="w-[325px] max-w-[calc(100vw-24px)] rounded-2xl bg-white/95 dark:bg-slate-900/95 text-slate-800 dark:text-slate-100 shadow-2xl backdrop-blur-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
+            <div className="w-[350px] sm:w-[380px] max-w-[calc(100vw-24px)] rounded-2xl bg-white/98 dark:bg-slate-900/98 text-slate-800 dark:text-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.25)] backdrop-blur-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
               {/* Dynamic Arrow Pointer */}
               <div
                 className={`w-3.5 h-3.5 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
@@ -4473,29 +4658,32 @@ export default function RMINOUTStockPage() {
                     : '-bottom-2 border-b border-r'
                 }`}
                 style={{
-                  left: `calc(50% + ${Math.max(-135, Math.min(135, tooltipPosition.arrowOffset))}px - 7px)`
+                  left: `calc(50% + ${Math.max(-145, Math.min(145, tooltipPosition.arrowOffset))}px - 7px)`
                 }}
               />
 
-              {/* Card Header: Date, Material, Movement Count & Mobile Close Button */}
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5">
+              {/* Card Header: Material Info, Movement Date, & Quick Close */}
+              <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5 gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0 shadow-2xs border border-emerald-200/60 dark:border-emerald-800/50">
                     <Calendar className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <span className="font-bold text-xs text-slate-900 dark:text-white block tracking-tight">
-                      {activeCellTooltip.dateStr}
-                    </span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate block font-medium">
-                      {activeCellTooltip.matCode} • {activeCellTooltip.matName}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-xs text-slate-900 dark:text-white tracking-tight">
+                        {activeCellTooltip.dateStr}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        {activeCellTooltip.matCode}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold truncate block mt-0.5" title={activeCellTooltip.matName}>
+                      {activeCellTooltip.matName}
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-semibold border border-slate-200/60 dark:border-slate-700/60">
-                    {activeCellTooltip.cell.transactions.length} movement{activeCellTooltip.cell.transactions.length > 1 ? 's' : ''}
-                  </span>
+
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => setActiveCellTooltip(null)}
@@ -4507,97 +4695,149 @@ export default function RMINOUTStockPage() {
                 </div>
               </div>
 
-            {/* Transactions List */}
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
-              {activeCellTooltip.cell.transactions.map((t, idx) => {
-                const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
-                const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
-                const invDate = t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : null;
-                const isIN = t.flow === 'IN';
+              {/* Totals Summary Banner for this Cell */}
+              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 rounded-lg px-2.5 py-1.5 border border-slate-200/80 dark:border-slate-700/60 mb-2.5 text-xs">
+                <div className="flex items-center gap-2">
+                  {activeCellTooltip.cell.inQty > 0 && (
+                    <span className="inline-flex items-center gap-1 font-bold font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-300/80 dark:border-emerald-800/70 text-[11px]">
+                      <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
+                      +{Number(activeCellTooltip.cell.inQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })} IN
+                    </span>
+                  )}
+                  {activeCellTooltip.cell.outQty > 0 && (
+                    <span className="inline-flex items-center gap-1 font-bold font-mono text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 px-2 py-0.5 rounded-md border border-rose-300/80 dark:border-rose-800/70 text-[11px]">
+                      <ArrowUpRight className="w-3 h-3 text-rose-600" />
+                      -{Number(activeCellTooltip.cell.outQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })} OUT
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  {activeCellTooltip.cell.transactions.length} record{activeCellTooltip.cell.transactions.length > 1 ? 's' : ''}
+                </span>
+              </div>
 
-                return (
-                  <div
-                    key={idx}
-                    className="space-y-1.5 bg-slate-50/90 dark:bg-slate-800/70 rounded-xl p-2.5 border border-slate-200/70 dark:border-slate-700/60 transition-colors shadow-xs"
-                  >
-                    {/* Header row: Flow Quantity & Type Badge */}
-                    <div className="flex items-center justify-between gap-1">
-                      <span className={`font-bold font-mono text-xs flex items-center gap-1 ${
-                        isIN ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
-                      }`}>
-                        {isIN ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(activeCellTooltip.uom)}
-                      </span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                        {t.typeLabel || t.type}
-                      </span>
+              {/* Scrollable Transactions List with Custom Scrollbar */}
+              <div className="stock-popup-scrollable space-y-2 max-h-[290px] overflow-y-auto pr-1.5 scroll-smooth overscroll-contain [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-slate-100 dark:[&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-emerald-500">
+                {activeCellTooltip.cell.transactions.map((t, idx) => {
+                  const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
+                  const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
+                  const invDate = t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : null;
+                  const isIN = t.flow === 'IN';
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`space-y-1.5 rounded-xl p-2.5 border transition-all shadow-xs ${
+                        isIN
+                          ? 'border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-slate-200/80 dark:border-slate-750'
+                          : 'border-l-4 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20 border-slate-200/80 dark:border-slate-750'
+                      }`}
+                    >
+                      {/* Flow Quantity & Type Badge */}
+                      <div className="flex items-center justify-between gap-1">
+                        <span className={`font-bold font-mono text-xs flex items-center gap-1 ${
+                          isIN ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                        }`}>
+                          {isIN ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(activeCellTooltip.uom)}
+                        </span>
+                        <span className={`text-[9.5px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border ${
+                          isIN
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                        }`}>
+                          {t.typeLabel || t.type}
+                        </span>
+                      </div>
+
+                      {/* PO Number Highlight */}
+                      {poNo && poNo !== '—' && (
+                        <div className="text-[11px] flex items-center justify-between bg-white dark:bg-slate-900/90 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                          <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
+                            <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            PO Number:
+                          </span>
+                          <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">{poNo}</span>
+                        </div>
+                      )}
+
+                      {/* GRN Number Highlight */}
+                      {grnNo && grnNo !== '—' && (
+                        <div className="text-[11px] flex items-center justify-between bg-white dark:bg-slate-900/90 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                          <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
+                            <Package className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                            GRN Number:
+                          </span>
+                          <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">{grnNo}</span>
+                        </div>
+                      )}
+
+                      {/* Invoice Number & Date */}
+                      {(t.supplierInvoiceNo || invDate) && (
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px] pt-0.5">
+                          {t.supplierInvoiceNo && (
+                            <div className="bg-white dark:bg-slate-900/90 px-2 py-1 rounded-md border border-slate-200/80 dark:border-slate-700/60">
+                              <span className="text-slate-400 dark:text-slate-500 block text-[9px] font-medium">Invoice No</span>
+                              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate block">
+                                {t.supplierInvoiceNo}
+                              </span>
+                            </div>
+                          )}
+                          {invDate && (
+                            <div className="bg-amber-50/70 dark:bg-amber-950/40 px-2 py-1 rounded-md border border-amber-200/80 dark:border-amber-800/50">
+                              <span className="text-amber-700 dark:text-amber-400 block text-[9px] font-medium">Invoice Date</span>
+                              <span className="font-semibold text-amber-800 dark:text-amber-300 truncate block">
+                                {invDate}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Batch / Lot */}
+                      {t.batchNumber && t.batchNumber !== '—' && (
+                        <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between px-0.5">
+                          <span className="text-slate-400">Batch / Lot:</span>
+                          <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{t.batchNumber}</span>
+                        </div>
+                      )}
+
+                      {/* Party / Supplier */}
+                      {t.partyName && (
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate px-0.5 flex items-center gap-1.5 pt-0.5" title={t.partyName}>
+                          <Truck className="w-3 h-3 shrink-0 opacity-70" />
+                          <span className="truncate">{t.partyName}</span>
+                        </div>
+                      )}
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* PO Number Highlight Card (Styled for Light & Dark Theme) */}
-                    {poNo && poNo !== '—' && (
-                      <div className="text-[11px] flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded-lg border border-emerald-200/80 dark:border-emerald-800/50">
-                        <span className="text-emerald-700 dark:text-emerald-400 font-medium flex items-center gap-1">
-                          <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                          PO Number:
-                        </span>
-                        <span className="font-mono font-bold text-emerald-800 dark:text-emerald-300">{poNo}</span>
-                      </div>
-                    )}
+              {/* Scroll Indicator if more than 2 transactions */}
+              {activeCellTooltip.cell.transactions.length > 2 && (
+                <div className="text-[9.5px] text-center text-slate-400 dark:text-slate-500 pt-1.5 font-medium select-none flex items-center justify-center gap-1">
+                  <span>↓ Scroll down to view all records</span>
+                </div>
+              )}
 
-                    {/* GRN Number Highlight Card (Styled for Light & Dark Theme) */}
-                    {grnNo && grnNo !== '—' && (
-                      <div className="text-[11px] flex items-center justify-between bg-indigo-50 dark:bg-indigo-950/50 px-2 py-1 rounded-lg border border-indigo-200/80 dark:border-indigo-800/50">
-                        <span className="text-indigo-700 dark:text-indigo-400 font-medium flex items-center gap-1">
-                          <Package className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                          GRN Number:
-                        </span>
-                        <span className="font-mono font-bold text-indigo-800 dark:text-indigo-300">{grnNo}</span>
-                      </div>
-                    )}
-
-                    {/* Invoice Number & Date */}
-                    {(t.supplierInvoiceNo || invDate) && (
-                      <div className="grid grid-cols-2 gap-1.5 text-[10px] pt-0.5">
-                        {t.supplierInvoiceNo && (
-                          <div className="bg-white dark:bg-slate-900/90 px-2 py-1 rounded-md border border-slate-200/80 dark:border-slate-700/60">
-                            <span className="text-slate-400 dark:text-slate-500 block text-[9px] font-medium">Invoice No</span>
-                            <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate block">
-                              {t.supplierInvoiceNo}
-                            </span>
-                          </div>
-                        )}
-                        {invDate && (
-                          <div className="bg-amber-50/70 dark:bg-amber-950/40 px-2 py-1 rounded-md border border-amber-200/80 dark:border-amber-800/50">
-                            <span className="text-amber-600 dark:text-amber-400 block text-[9px] font-medium">Invoice Date</span>
-                            <span className="font-semibold text-amber-800 dark:text-amber-300 truncate block">
-                              {invDate}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Batch / Lot */}
-                    {t.batchNumber && t.batchNumber !== '—' && (
-                      <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between px-0.5">
-                        <span className="text-slate-400">Batch/Lot:</span>
-                        <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{t.batchNumber}</span>
-                      </div>
-                    )}
-
-                    {/* Party / Supplier */}
-                    {t.partyName && (
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate px-0.5 flex items-center gap-1.5 pt-0.5" title={t.partyName}>
-                        <Truck className="w-3 h-3 shrink-0 opacity-70" />
-                        <span className="truncate">{t.partyName}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {/* Card Footer: View Lifecycle Audit Button */}
+              <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const matId = activeCellTooltip.matId;
+                    setActiveCellTooltip(null);
+                    handleOpenHistory(matId);
+                  }}
+                  className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>View Material Audit Timeline</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </>,
+        </>,
         document.body
       )}
     </div>
