@@ -3340,28 +3340,43 @@ exports.getMaterialHistory = async (req, res, next) => {
       orderBy: { code: 'asc' }
     });
 
-    // Calculate Weighted Average Cost & Costing Metrics
-    let totalPurchasedValuedQty = 0;
-    let totalPurchasedValuedCost = 0;
-    formattedPurchases.forEach(p => {
+    // Calculate Live FIFO PO Lot-Based Closing Stock Value
+    let remainingValStock = currentStock;
+    let closingStockValue = 0;
+    const historyContributingPOs = [];
+
+    for (const p of formattedPurchases) {
+      if (remainingValStock <= 0) break;
       const q = Number(p.orderedQty || 0);
       const r = Number(p.unitPriceWithGst || p.unitPrice || 0);
       if (q > 0 && r > 0) {
-        totalPurchasedValuedQty += q;
-        totalPurchasedValuedCost += (q * r);
+        const allocQty = Math.min(remainingValStock, q);
+        const fraction = allocQty / q;
+        const lineTotal = (Number(p.itemTotal || (q * r))) * fraction;
+        closingStockValue += lineTotal;
+        historyContributingPOs.push({
+          poRef: p.referenceNo,
+          poDate: p.orderDate || p.createdAt,
+          supplierName: p.supplierName,
+          allocatedQty: allocQty,
+          orderedQty: q,
+          unitPrice: p.unitPrice,
+          unitPriceWithGst: p.unitPriceWithGst,
+          total: Math.round(lineTotal * 100) / 100
+        });
+        remainingValStock -= allocQty;
       }
-    });
+    }
 
-    const avgCostPrice = totalPurchasedValuedQty > 0
-      ? Math.round((totalPurchasedValuedCost / totalPurchasedValuedQty) * 100) / 100
-      : Number(rm.ratePerUnit || 0);
+    if (remainingValStock > 0 && formattedPurchases.length > 0) {
+      const lastP = formattedPurchases[formattedPurchases.length - 1];
+      const r = Number(lastP.unitPriceWithGst || lastP.unitPrice || 0);
+      closingStockValue += (remainingValStock * r);
+    } else if (remainingValStock > 0 && formattedPurchases.length === 0) {
+      closingStockValue = currentStock * (Number(rm.ratePerUnit || 0));
+    }
 
-    const latestPurchaseRate = latestPurchase
-      ? Number(latestPurchase.unitPriceWithGst || latestPurchase.unitPrice || 0)
-      : Number(rm.ratePerUnit || 0);
-
-    const valuationRate = latestPurchaseRate > 0 ? latestPurchaseRate : avgCostPrice;
-    const closingStockValue = Math.round((currentStock * (valuationRate || 0)) * 100) / 100;
+    closingStockValue = Math.round(closingStockValue * 100) / 100;
 
     const lastPurchaseInfo = formattedPurchases[0] ? {
       date: formattedPurchases[0].invoiceDate || formattedPurchases[0].orderDate,
@@ -3929,25 +3944,31 @@ exports.getRmInOutStock = async (req, res, next) => {
       return null;
     };
 
-    // Calculate Latest PO Rates for Stock Valuation (derived strictly from real-time PO)
+    // Calculate Real-Time PO Line Lots for Stock Valuation & Hover Tooltips
     const rmRateMap = new Map();
+    const rmPoLinesMap = new Map();
+
     for (const po of pos) {
+      const poStatus = String(po.status || '').toUpperCase();
+      if (poStatus === 'DELETED' || poStatus === 'PENDING' || poStatus === 'DRAFT') continue;
+
       if (Array.isArray(po.items) && po.items.length > 0) {
         for (const item of po.items) {
           const matched = findRm(item.id) || findRm(item.rmId) || findRm(item.name);
-          if (matched && !rmRateMap.has(matched.id)) {
+          if (matched) {
             const unitPrice = Number(item.unitPrice || 0);
-            const gstApplicable = item.gstApplicable !== false;
-            const gstPct = gstApplicable ? Number(item.gstPercentage || 0) : 0;
+            const gstApplicable = item.gstApplicable !== false && Number(item.gstPercentage || item.gstPercent || 0) > 0;
+            const gstPct = gstApplicable ? Number(item.gstPercentage || item.gstPercent || 0) : 0;
             const poLineQty = Number(item.quantity || 0);
-            const poLineSubtotal = poLineQty > 0 ? (poLineQty * unitPrice) : (Number(item.total) || unitPrice);
-            const lineTax = gstApplicable ? (poLineSubtotal * (gstPct / 100)) : 0;
+            const poLineSubtotal = Number(item.subtotal || 0) || (poLineQty > 0 ? (poLineQty * unitPrice) : (Number(item.total) || unitPrice));
+            const lineTax = gstApplicable ? Math.round((poLineSubtotal * (gstPct / 100)) * 100) / 100 : 0;
             const poLineTotalWithTax = poLineSubtotal + lineTax;
 
             const rateWithoutTax = poLineQty > 0 ? (poLineSubtotal / poLineQty) : unitPrice;
             const rateWithTax = poLineQty > 0 ? (poLineTotalWithTax / poLineQty) : (unitPrice * (1 + gstPct / 100));
 
-            if (rateWithoutTax > 0 || rateWithTax > 0) {
+            // Record latest PO rate if not yet recorded (pos is ordered desc by createdAt)
+            if (!rmRateMap.has(matched.id) && (rateWithoutTax > 0 || rateWithTax > 0)) {
               rmRateMap.set(matched.id, {
                 rateWithoutTax: Math.round(rateWithoutTax * 100) / 100,
                 rateWithTax: Math.round(rateWithTax * 100) / 100,
@@ -3957,14 +3978,36 @@ exports.getRmInOutStock = async (req, res, next) => {
                 gstApplicable,
                 poRef: po.referenceNo,
                 poId: po.id,
-                poDate: po.createdAt
+                poDate: po.createdAt,
+                supplierName: po.supplier?.name || ''
+              });
+            }
+
+            // Append PO line lot
+            if (poLineQty > 0 && (rateWithoutTax > 0 || rateWithTax > 0)) {
+              if (!rmPoLinesMap.has(matched.id)) {
+                rmPoLinesMap.set(matched.id, []);
+              }
+              rmPoLinesMap.get(matched.id).push({
+                poRef: po.referenceNo,
+                poId: po.id,
+                poDate: po.createdAt,
+                supplierName: po.supplier?.name || '',
+                qty: poLineQty,
+                unitPrice: Math.round(rateWithoutTax * 100) / 100,
+                unitPriceWithGst: Math.round(rateWithTax * 100) / 100,
+                gstPercentage: gstPct,
+                gstApplicable,
+                subtotal: Math.round(poLineSubtotal * 100) / 100,
+                tax: lineTax,
+                totalWithTax: Math.round(poLineTotalWithTax * 100) / 100
               });
             }
           }
         }
       } else {
         const matched = findRm(po.rmId) || findRm(po.name);
-        if (matched && !rmRateMap.has(matched.id)) {
+        if (matched) {
           const qty = Number(po.quantity || 1);
           const poSubtotal = Number(po.subtotal) || Number(po.amount || 0);
           const poGrandTotal = Number(po.grandTotal) || Number(po.amount || 0);
@@ -3972,8 +4015,9 @@ exports.getRmInOutStock = async (req, res, next) => {
           const rateWithTax = qty > 0 ? poGrandTotal / qty : poGrandTotal;
           const gstApplicable = poGrandTotal > poSubtotal;
           const gstPct = rateWithoutTax > 0 ? Math.round(((rateWithTax - rateWithoutTax) / rateWithoutTax) * 100) : 0;
+          const lineTax = Math.round((poGrandTotal - poSubtotal) * 100) / 100;
 
-          if (rateWithoutTax > 0 || rateWithTax > 0) {
+          if (!rmRateMap.has(matched.id) && (rateWithoutTax > 0 || rateWithTax > 0)) {
             rmRateMap.set(matched.id, {
               rateWithoutTax: Math.round(rateWithoutTax * 100) / 100,
               rateWithTax: Math.round(rateWithTax * 100) / 100,
@@ -3983,7 +4027,28 @@ exports.getRmInOutStock = async (req, res, next) => {
               gstApplicable,
               poRef: po.referenceNo,
               poId: po.id,
-              poDate: po.createdAt
+              poDate: po.createdAt,
+              supplierName: po.supplier?.name || ''
+            });
+          }
+
+          if (qty > 0 && (rateWithoutTax > 0 || rateWithTax > 0)) {
+            if (!rmPoLinesMap.has(matched.id)) {
+              rmPoLinesMap.set(matched.id, []);
+            }
+            rmPoLinesMap.get(matched.id).push({
+              poRef: po.referenceNo,
+              poId: po.id,
+              poDate: po.createdAt,
+              supplierName: po.supplier?.name || '',
+              qty,
+              unitPrice: Math.round(rateWithoutTax * 100) / 100,
+              unitPriceWithGst: Math.round(rateWithTax * 100) / 100,
+              gstPercentage: gstPct,
+              gstApplicable,
+              subtotal: Math.round(poSubtotal * 100) / 100,
+              tax: lineTax,
+              totalWithTax: Math.round(poGrandTotal * 100) / 100
             });
           }
         }
@@ -4581,19 +4646,79 @@ exports.getRmInOutStock = async (req, res, next) => {
 
       const alert = Number(rm.alertLevel || 0);
       const poRateInfo = rmRateMap.get(rm.id);
-      const hasPo = Boolean(poRateInfo && (poRateInfo.rateWithTax > 0 || poRateInfo.rateWithoutTax > 0));
+      const poLines = rmPoLinesMap.get(rm.id) || [];
+      const hasPo = Boolean((poRateInfo && (poRateInfo.rateWithTax > 0 || poRateInfo.rateWithoutTax > 0)) || poLines.length > 0);
 
-      // Strictly derived from real-time PO orders (No fallback to master standard rate)
-      const rateWithoutTax = hasPo ? poRateInfo.rateWithoutTax : 0;
-      const rateWithTax = hasPo ? poRateInfo.rateWithTax : 0;
-      const gstPercentage = hasPo ? poRateInfo.gstPercentage : 0;
-      const gstApplicable = hasPo ? poRateInfo.gstApplicable : false;
+      // Real-time stock valuation strictly from live PO order lots (FIFO across contributing POs)
+      let remainingStock = curStock;
+      let valueWithoutTax = 0;
+      let taxValue = 0;
+      let valueWithTax = 0;
+      const contributingPOs = [];
 
-      // Real-time stock valuation strictly from PO order
-      const valueWithoutTax = hasPo ? Math.round((curStock * rateWithoutTax) * 100) / 100 : 0;
-      const valueWithTax = hasPo ? Math.round((curStock * rateWithTax) * 100) / 100 : 0;
-      const taxValue = Math.round((valueWithTax - valueWithoutTax) * 100) / 100;
+      for (const line of poLines) {
+        if (remainingStock <= 0) break;
+        const allocQty = Math.min(remainingStock, line.qty);
+        const fraction = line.qty > 0 ? (allocQty / line.qty) : 1;
+        const sub = line.subtotal * fraction;
+        const tax = line.tax * fraction;
+        const tot = line.totalWithTax * fraction;
+        valueWithoutTax += sub;
+        taxValue += tax;
+        valueWithTax += tot;
+        contributingPOs.push({
+          poRef: line.poRef,
+          poId: line.poId,
+          poDate: line.poDate,
+          supplierName: line.supplierName,
+          allocatedQty: Math.round(allocQty * 1000) / 1000,
+          lineQty: line.qty,
+          unitPrice: line.unitPrice,
+          unitPriceWithGst: line.unitPriceWithGst,
+          gstPercentage: line.gstPercentage,
+          gstApplicable: line.gstApplicable,
+          subtotal: Math.round(sub * 100) / 100,
+          tax: Math.round(tax * 100) / 100,
+          totalWithTax: Math.round(tot * 100) / 100
+        });
+        remainingStock -= allocQty;
+      }
+
+      // If stock exceeds PO history (e.g. initial inventory or opening stock), value remainder using earliest known PO or master rate
+      if (remainingStock > 0 && poLines.length > 0) {
+        const fallbackLine = poLines[poLines.length - 1];
+        const sub = remainingStock * fallbackLine.unitPrice;
+        const tax = fallbackLine.gstApplicable ? (sub * (fallbackLine.gstPercentage / 100)) : 0;
+        valueWithoutTax += sub;
+        taxValue += tax;
+        valueWithTax += (sub + tax);
+        contributingPOs.push({
+          poRef: fallbackLine.poRef + ' (Est)',
+          poId: fallbackLine.poId,
+          poDate: fallbackLine.poDate,
+          supplierName: fallbackLine.supplierName,
+          allocatedQty: Math.round(remainingStock * 1000) / 1000,
+          lineQty: fallbackLine.qty,
+          unitPrice: fallbackLine.unitPrice,
+          unitPriceWithGst: fallbackLine.unitPriceWithGst,
+          gstPercentage: fallbackLine.gstPercentage,
+          gstApplicable: fallbackLine.gstApplicable,
+          subtotal: Math.round(sub * 100) / 100,
+          tax: Math.round(tax * 100) / 100,
+          totalWithTax: Math.round((sub + tax) * 100) / 100
+        });
+      }
+
+      valueWithoutTax = Math.round(valueWithoutTax * 100) / 100;
+      taxValue = Math.round(taxValue * 100) / 100;
+      valueWithTax = Math.round(valueWithTax * 100) / 100;
       const valuation = valueWithTax; // Default valuation is with tax
+
+      // Effective unit rate
+      const rateWithoutTax = curStock > 0 && valueWithoutTax > 0 ? (valueWithoutTax / curStock) : (poRateInfo?.rateWithoutTax || 0);
+      const rateWithTax = curStock > 0 && valueWithTax > 0 ? (valueWithTax / curStock) : (poRateInfo?.rateWithTax || 0);
+      const gstPercentage = poRateInfo?.gstPercentage || 0;
+      const gstApplicable = poRateInfo?.gstApplicable || false;
 
       const inProgressStock = isPeriodFiltered ? 0 : Math.round((txData.inProgressStock || 0) * 1000) / 1000;
       const availableStock = Math.max(0, Math.round((curStock - inProgressStock) * 1000) / 1000);
@@ -4637,21 +4762,22 @@ exports.getRmInOutStock = async (req, res, next) => {
         hasLabRejection,
         labStatus,
         alertLevel: alert,
-        ratePerUnit: rateWithTax,
-        baseRate: rateWithoutTax,
-        rateWithoutTax,
-        rateWithTax,
+        ratePerUnit: Math.round(rateWithTax * 100) / 100,
+        baseRate: Math.round(rateWithoutTax * 100) / 100,
+        rateWithoutTax: Math.round(rateWithoutTax * 100) / 100,
+        rateWithTax: Math.round(rateWithTax * 100) / 100,
         gstPercentage,
         gstApplicable,
         valuation: valueWithTax,
         valueWithoutTax,
         valueWithTax,
         taxValue,
+        contributingPOs,
         status,
         hasPo,
-        poReferenceNo: hasPo ? poRateInfo.poRef : null,
-        latestPoId: hasPo ? poRateInfo.poId : null,
-        poDate: hasPo ? poRateInfo.poDate : null,
+        poReferenceNo: hasPo ? poRateInfo?.poRef : null,
+        latestPoId: hasPo ? poRateInfo?.poId : null,
+        poDate: hasPo ? poRateInfo?.poDate : null,
         masterStandardRate: Number(rm.ratePerUnit || 0),
         periodInQty: periodIn,
         periodOutQty: periodOut,

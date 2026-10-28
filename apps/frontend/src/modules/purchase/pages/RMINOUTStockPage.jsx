@@ -533,14 +533,97 @@ export default function RMINOUTStockPage() {
     });
   }, []);
 
-  // Close tooltip on outer scroll, resize, or outside click (ignoring scroll inside the tooltip itself!)
+  // Active Valuation Hover Tooltip state & positioning
+  const [activeValuationTooltip, setActiveValuationTooltip] = useState(null);
+  const valuationTooltipHideTimerRef = useRef(null);
+
+  const handleValuationMouseEnter = useCallback((e, mat) => {
+    if (!mat) {
+      setActiveValuationTooltip(null);
+      return;
+    }
+    if (valuationTooltipHideTimerRef.current) {
+      clearTimeout(valuationTooltipHideTimerRef.current);
+      valuationTooltipHideTimerRef.current = null;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveValuationTooltip({
+      matId: mat.id,
+      matName: mat.name,
+      matCode: mat.code,
+      uom: mat.uom,
+      currentStock: Number(mat.currentStock || 0),
+      valueWithoutTax: Number(mat.valueWithoutTax || 0),
+      taxValue: Number(mat.taxValue || 0),
+      valueWithTax: Number(mat.valueWithTax || mat.valuation || 0),
+      ratePerUnit: Number(mat.ratePerUnit || 0),
+      baseRate: Number(mat.baseRate || 0),
+      gstPercentage: Number(mat.gstPercentage || 0),
+      contributingPOs: mat.contributingPOs || [],
+      rect: {
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        height: rect.height
+      }
+    });
+  }, []);
+
+  const handleValuationMouseLeave = useCallback(() => {
+    if (valuationTooltipHideTimerRef.current) {
+      clearTimeout(valuationTooltipHideTimerRef.current);
+    }
+    valuationTooltipHideTimerRef.current = setTimeout(() => {
+      setActiveValuationTooltip(null);
+    }, 320);
+  }, []);
+
+  const handleValuationClick = useCallback((e, mat) => {
+    if (!mat) {
+      setActiveValuationTooltip(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActiveValuationTooltip(prev => {
+      if (prev && prev.matId === mat.id) {
+        return null;
+      }
+      return {
+        matId: mat.id,
+        matName: mat.name,
+        matCode: mat.code,
+        uom: mat.uom,
+        currentStock: Number(mat.currentStock || 0),
+        valueWithoutTax: Number(mat.valueWithoutTax || 0),
+        taxValue: Number(mat.taxValue || 0),
+        valueWithTax: Number(mat.valueWithTax || mat.valuation || 0),
+        ratePerUnit: Number(mat.ratePerUnit || 0),
+        baseRate: Number(mat.baseRate || 0),
+        gstPercentage: Number(mat.gstPercentage || 0),
+        contributingPOs: mat.contributingPOs || [],
+        rect: {
+          top: rect.top,
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height
+        }
+      };
+    });
+  }, []);
+
+  // Close tooltips on outer scroll, resize, or outside click (ignoring scroll inside the popups!)
   useEffect(() => {
     const handleClose = (e) => {
-      // If scroll happens inside the popup, do not close!
-      if (e?.target && e.target.closest && e.target.closest('.stock-popup-container')) {
+      // If scroll happens inside any popup container, do not close!
+      if (e?.target && e.target.closest && (e.target.closest('.stock-popup-container') || e.target.closest('.valuation-popup-container'))) {
         return;
       }
       setActiveCellTooltip(null);
+      setActiveValuationTooltip(null);
     };
     window.addEventListener('scroll', handleClose, true);
     window.addEventListener('resize', handleClose);
@@ -581,6 +664,35 @@ export default function RMINOUTStockPage() {
       arrowOffset
     };
   }, [activeCellTooltip]);
+
+  // Compute smart positioning for valuation breakdown tooltip
+  const valuationTooltipPosition = useMemo(() => {
+    if (!activeValuationTooltip?.rect) return null;
+    const { top: rTop, bottom: rBottom, left: rLeft, width: rWidth } = activeValuationTooltip.rect;
+
+    const tooltipWidth = 360;
+    const estimatedHeight = 320;
+    const padding = 12;
+
+    const spaceAbove = rTop;
+    const spaceBelow = window.innerHeight - rBottom;
+
+    const placeBelow = spaceAbove < estimatedHeight && spaceBelow >= spaceAbove;
+    const top = placeBelow ? rBottom + 8 : rTop - 8;
+    const targetCenterX = rLeft + rWidth / 2;
+
+    const minCenter = tooltipWidth / 2 + padding;
+    const maxCenter = window.innerWidth - tooltipWidth / 2 - padding;
+    const clampedCenter = Math.max(minCenter, Math.min(targetCenterX, maxCenter));
+    const arrowOffset = targetCenterX - clampedCenter;
+
+    return {
+      top,
+      left: clampedCenter,
+      placeBelow,
+      arrowOffset
+    };
+  }, [activeValuationTooltip]);
 
   // 1. Primary Query: Fetch Base RM Stock (Auto-refresh enabled on mount and focus)
   const {
@@ -3099,10 +3211,21 @@ export default function RMINOUTStockPage() {
                             </span>
                           </TableCell>
 
-                          {/* 8. Valuation */}
-                          <TableCell className={`text-right ${pyClass} font-mono`}>
-                            <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
-                              ₹{Number(mat.valuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          {/* 8. Valuation (Hover to view live PO Breakdown) */}
+                          <TableCell
+                            className={`text-right ${pyClass} font-mono cursor-pointer hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 transition-colors select-none group/val`}
+                            onMouseEnter={(e) => handleValuationMouseEnter(e, mat)}
+                            onMouseOver={(e) => handleValuationMouseEnter(e, mat)}
+                            onMouseLeave={handleValuationMouseLeave}
+                            onClick={(e) => handleValuationClick(e, mat)}
+                          >
+                            <div
+                              className="font-semibold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-end gap-1"
+                              onMouseEnter={(e) => handleValuationMouseEnter(e, mat)}
+                              onMouseOver={(e) => handleValuationMouseEnter(e, mat)}
+                            >
+                              <span>₹{Number(mat.valuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                              <span className="text-[9px] text-slate-400 group-hover/val:text-emerald-600 transition-colors">ℹ️</span>
                             </div>
                             <div className="text-[10px] text-slate-400">
                               @ ₹{Number(mat.ratePerUnit || 0).toFixed(2)}
@@ -3991,8 +4114,21 @@ export default function RMINOUTStockPage() {
                               ) : '0'}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 py-2">
-                              ₹{val.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                            <TableCell
+                              className="text-right font-mono font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 py-2 cursor-pointer hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 transition-colors select-none group/val"
+                              onMouseEnter={(e) => handleValuationMouseEnter(e, mat)}
+                              onMouseOver={(e) => handleValuationMouseEnter(e, mat)}
+                              onMouseLeave={handleValuationMouseLeave}
+                              onClick={(e) => handleValuationClick(e, mat)}
+                            >
+                              <div
+                                className="inline-flex items-center justify-end gap-1"
+                                onMouseEnter={(e) => handleValuationMouseEnter(e, mat)}
+                                onMouseOver={(e) => handleValuationMouseEnter(e, mat)}
+                              >
+                                <span>₹{val.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                                <span className="text-[9px] text-slate-400 group-hover/val:text-emerald-600 transition-colors">ℹ️</span>
+                              </div>
                             </TableCell>
 
                             {/* Dynamic Date Columns matching Image 1 */}
@@ -5128,6 +5264,167 @@ export default function RMINOUTStockPage() {
                   onClick={() => {
                     const matId = activeCellTooltip.matId;
                     setActiveCellTooltip(null);
+                    handleOpenHistory(matId);
+                  }}
+                  className="w-full py-1 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-all shadow-2xs cursor-pointer"
+                >
+                  <Eye className="w-3 h-3" />
+                  <span>View Material Audit Timeline</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* ── PORTAL FLOATING POPUP: REAL-TIME PO LOT VALUATION BREAKDOWN & HOVER TOOLTIP ── */}
+      {activeValuationTooltip && valuationTooltipPosition && typeof document !== 'undefined' && createPortal(
+        <>
+          {/* Backdrop for touch / mobile click-outside */}
+          <div
+            className="fixed inset-0 z-[99998] bg-transparent lg:hidden"
+            onClick={() => setActiveValuationTooltip(null)}
+          />
+          <div
+            className="valuation-popup-container fixed z-[99999] transition-all duration-200 ease-out animate-in fade-in-0 zoom-in-95 pointer-events-auto"
+            style={{
+              top: `${valuationTooltipPosition.top}px`,
+              left: `${valuationTooltipPosition.left}px`,
+              transform: valuationTooltipPosition.placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)'
+            }}
+            onMouseEnter={() => {
+              if (valuationTooltipHideTimerRef.current) {
+                clearTimeout(valuationTooltipHideTimerRef.current);
+                valuationTooltipHideTimerRef.current = null;
+              }
+            }}
+            onMouseLeave={handleValuationMouseLeave}
+          >
+            <div className="w-[330px] sm:w-[360px] max-w-[calc(100vw-16px)] rounded-xl bg-white/98 dark:bg-slate-900/98 text-slate-800 dark:text-slate-100 shadow-[0_14px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl border border-slate-200/90 dark:border-slate-700/80 p-3 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
+              {/* Dynamic Arrow Pointer */}
+              <div
+                className={`w-3 h-3 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
+                  valuationTooltipPosition.placeBelow
+                    ? '-top-1.5 border-t border-l'
+                    : '-bottom-1.5 border-b border-r'
+                }`}
+                style={{
+                  left: `calc(50% + ${Math.max(-150, Math.min(150, valuationTooltipPosition.arrowOffset))}px - 6px)`
+                }}
+              />
+
+              {/* Card Header: Material Info, Real-Time Stock & Quick Close */}
+              <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2 gap-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0 border border-emerald-200/60 dark:border-emerald-800/50">
+                    <IndianRupee className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                        {activeValuationTooltip.matCode}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded font-sans font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60">
+                        Live PO Lots
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-900 dark:text-white font-bold truncate block mt-0.5" title={activeValuationTooltip.matName}>
+                      {activeValuationTooltip.matName}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="font-mono text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                    {activeValuationTooltip.currentStock.toLocaleString('en-IN', { maximumFractionDigits: 1 })} {formatUOM(activeValuationTooltip.uom)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveValuationTooltip(null)}
+                    className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* 3-Column Valuation Breakdown Banner */}
+              <div className="grid grid-cols-3 gap-1.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg p-2 border border-slate-200/80 dark:border-slate-700/60 mb-2">
+                <div className="space-y-0.5 text-left">
+                  <div className="text-[9px] font-medium text-slate-500 uppercase tracking-tight">Total Excl. Tax</div>
+                  <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200">
+                    ₹{Number(activeValuationTooltip.valueWithoutTax || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+                <div className="space-y-0.5 text-center border-x border-slate-200 dark:border-slate-700 px-1">
+                  <div className="text-[9px] font-medium text-purple-600 dark:text-purple-400 uppercase tracking-tight">Tax (GST)</div>
+                  <div className="font-mono font-bold text-xs text-purple-700 dark:text-purple-300">
+                    ₹{Number(activeValuationTooltip.taxValue || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+                <div className="space-y-0.5 text-right">
+                  <div className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-tight">Total + Tax</div>
+                  <div className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
+                    ₹{Number(activeValuationTooltip.valueWithTax || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Contributing PO Lots Breakdown */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold px-0.5">
+                  <span>Contributing PO Orders ({activeValuationTooltip.contributingPOs?.length || 0})</span>
+                  <span>FIFO Allocation</span>
+                </div>
+
+                <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-0.5 custom-scrollbar">
+                  {(!activeValuationTooltip.contributingPOs || activeValuationTooltip.contributingPOs.length === 0) ? (
+                    <div className="text-center py-3 text-[11px] text-slate-400">
+                      Standard valuation based on latest purchase order rate.
+                    </div>
+                  ) : (
+                    activeValuationTooltip.contributingPOs.map((po, idx) => (
+                      <div
+                        key={idx}
+                        className="p-1.5 rounded-md bg-white dark:bg-slate-800/90 border border-slate-150 dark:border-slate-700/70 text-[10.5px] space-y-1"
+                      >
+                        <div className="flex items-center justify-between font-mono">
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                            {po.poRef}
+                          </span>
+                          <span className="text-slate-400 text-[9.5px]">
+                            {po.poDate ? new Date(po.poDate).toLocaleDateString('en-GB') : ''}
+                          </span>
+                        </div>
+                        {po.supplierName && (
+                          <div className="text-[9.5px] text-slate-500 truncate" title={po.supplierName}>
+                            {po.supplierName}
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-0.5 border-t border-slate-100 dark:border-slate-700/50 font-mono text-[10px]">
+                          <span className="text-slate-600 dark:text-slate-300">
+                            {Number(po.allocatedQty).toLocaleString('en-IN')} {formatUOM(activeValuationTooltip.uom)} @ ₹{Number(po.unitPrice).toFixed(2)}
+                          </span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            ₹{Number(po.totalWithTax || (po.subtotal + (po.tax || 0))).toLocaleString('en-IN')}
+                            {po.tax > 0 && <span className="text-[8.5px] font-normal text-purple-600 dark:text-purple-400 ml-1">(incl ₹{po.tax} tax)</span>}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Card Footer: View Lifecycle Audit Button */}
+              <div className="pt-2 mt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const matId = activeValuationTooltip.matId;
+                    setActiveValuationTooltip(null);
                     handleOpenHistory(matId);
                   }}
                   className="w-full py-1 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-all shadow-2xs cursor-pointer"
