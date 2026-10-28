@@ -2886,16 +2886,16 @@ export default function RMINOUTStockPage() {
           {/* Desktop Table View with Sticky Top Header & Clickable Column Sorting */}
           <div className="hidden lg:block overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
             <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
-              <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800 shadow-xs">
-                <TableRow className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 w-8 text-center border-b border-slate-200 dark:border-slate-700"></TableHead>
+              <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
+                <TableRow className="bg-slate-100 dark:bg-black hover:bg-slate-100 dark:hover:bg-black border-b border-slate-200 dark:border-neutral-800 text-[11px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black w-8 text-center border-b border-slate-200 dark:border-neutral-800"></TableHead>
 
                   {/* 1. Code Column Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[100px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[100px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('code')}
-                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                       title="Sort by RM Code"
                     >
                       <span>Code</span>
@@ -2904,11 +2904,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 2. Raw Material Name Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-850 min-w-[190px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[190px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('name')}
-                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                       title="Sort by Raw Material Name"
                     >
                       <span>Raw Material Name</span>
@@ -2917,11 +2917,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 3. Category & UOM Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-850 min-w-[120px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[120px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('category')}
-                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                      className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                       title="Sort by Category"
                     >
                       <span>Category & UOM</span>
@@ -2930,11 +2930,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 4. TOT STK & WIP Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[140px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[140px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('stock')}
-                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                       title="Sort by TOT STK"
                     >
                       <span>TOT STK & WIP</span>
@@ -2943,11 +2943,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 5. IN STK Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[115px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('in')}
-                      className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 transition-colors cursor-pointer select-none ml-auto"
+                      className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer select-none ml-auto"
                       title="Sort by IN STK"
                     >
                       <span>IN STK</span>
@@ -2956,11 +2956,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 6. OUT STK Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[115px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('out')}
-                      className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-800 transition-colors cursor-pointer select-none ml-auto"
+                      className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-300 transition-colors cursor-pointer select-none ml-auto"
                       title="Sort by OUT STK"
                     >
                       <span>OUT STK</span>
@@ -2969,11 +2969,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 7. Net Flow Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[105px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[105px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('net')}
-                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                       title="Sort by Net Movement"
                     >
                       <span>Net Flow</span>
@@ -2982,11 +2982,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 8. Valuation Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[115px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('valuation')}
-                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                       title="Sort by Valuation"
                     >
                       <span>Valuation</span>
@@ -2995,11 +2995,11 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 9. QC Status Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[100px] border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center min-w-[100px] border-b border-slate-200 dark:border-neutral-800">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('qc')}
-                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none mx-auto"
+                      className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none mx-auto"
                       title="Sort by QC Status / Rejections"
                     >
                       <span>QC Status</span>
@@ -3008,7 +3008,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 10. Actions Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[130px] font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center min-w-[130px] font-semibold text-slate-700 dark:text-white border-b border-slate-200 dark:border-neutral-800">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -3326,20 +3326,20 @@ export default function RMINOUTStockPage() {
                                   <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800">
                                     <Table>
                                       <TableHeader>
-                                        <TableRow className="bg-slate-100/60 dark:bg-slate-800/40 text-[10px]">
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[110px]">
+                                        <TableRow className="bg-slate-100/60 dark:bg-black text-[10px] border-b border-slate-200 dark:border-neutral-800">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[110px]">
                                             Date & Time
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[100px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[100px]">
                                             Flow & Status
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[130px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[130px]">
                                             Transaction Type
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[110px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[110px]">
                                             Document Ref
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[90px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[90px]">
                                             Batch / Lot
                                           </TableHead>
                                           <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[80px]">
@@ -3348,19 +3348,19 @@ export default function RMINOUTStockPage() {
                                           <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[80px]">
                                             Out (Qty)
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 text-right min-w-[85px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white text-right min-w-[85px]">
                                             Rate (₹)
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 text-right min-w-[85px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white text-right min-w-[85px]">
                                             Amount (₹)
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 text-center min-w-[90px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white text-center min-w-[90px]">
                                             QC Decision
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[140px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[140px]">
                                             Party / Destination
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[85px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-white min-w-[85px]">
                                             Handled By
                                           </TableHead>
                                         </TableRow>
@@ -3891,14 +3891,14 @@ export default function RMINOUTStockPage() {
               {/* Desktop Table (and Tablet Table if tabletViewMode === 'table') with Sticky Header & Sticky Left Columns */}
               <div className={`${tabletViewMode === 'table' ? 'block' : 'hidden lg:block'} overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800`}>
                 <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
-                  <TableHeader className="sticky top-0 z-30 bg-slate-100/95 dark:bg-slate-850/95 backdrop-blur-xs shadow-2xs">
-                    <TableRow className="border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
+                    <TableRow className="border-b border-slate-200 dark:border-neutral-800 text-[11px] bg-slate-100 dark:bg-black">
                       {/* 1. Frozen RM Code (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-0 z-50 bg-slate-100 dark:bg-slate-850 w-[95px] min-w-[95px] max-w-[95px] font-bold text-slate-800 dark:text-slate-200 border-r border-b border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                      <TableHead className="sticky top-0 left-0 z-50 bg-slate-100 dark:bg-black w-[95px] min-w-[95px] max-w-[95px] font-bold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('code')}
-                          className="group flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-bold text-slate-800 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                           title="Sort by RM Code (Click to toggle Asc/Desc)"
                         >
                           <span className="truncate">RM Code</span>
@@ -3907,11 +3907,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 2. Frozen Category Name (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-[95px] z-50 bg-slate-100 dark:bg-slate-850 w-[130px] min-w-[130px] max-w-[130px] font-semibold text-slate-700 dark:text-slate-300 border-r border-b border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                      <TableHead className="sticky top-0 left-[95px] z-50 bg-slate-100 dark:bg-black w-[130px] min-w-[130px] max-w-[130px] font-semibold text-slate-700 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('category')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                           title="Sort by Category Name (Click to toggle Asc/Desc)"
                         >
                           <span className="truncate">Category</span>
@@ -3920,11 +3920,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 3. Frozen Raw Material Name (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-[225px] z-50 bg-slate-100 dark:bg-slate-850 w-[170px] min-w-[170px] max-w-[170px] font-bold text-slate-800 dark:text-slate-200 border-r border-b border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                      <TableHead className="sticky top-0 left-[225px] z-50 bg-slate-100 dark:bg-black w-[170px] min-w-[170px] max-w-[170px] font-bold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('name')}
-                          className="group flex items-center gap-1 font-bold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-bold text-slate-800 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                           title="Sort by Raw Material Name (Click to toggle Asc/Desc)"
                         >
                           <span className="truncate">Raw Material Name</span>
@@ -3933,11 +3933,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 4. Frozen UOM (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-[395px] z-50 bg-slate-100 dark:bg-slate-850 w-[65px] min-w-[65px] max-w-[65px] font-semibold text-slate-700 dark:text-slate-300 border-r-2 border-b border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] px-2 py-2">
+                      <TableHead className="sticky top-0 left-[395px] z-50 bg-slate-100 dark:bg-black w-[65px] min-w-[65px] max-w-[65px] font-semibold text-slate-700 dark:text-white border-r-2 border-b border-slate-300 dark:border-neutral-800 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.3)] px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('uom')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                           title="Sort by UOM (Click to toggle Asc/Desc)"
                         >
                           <span>UOM</span>
@@ -3946,11 +3946,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 5. TOT STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[95px] font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-700 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[95px] font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('stock')}
-                          className="group inline-flex items-center gap-1 font-bold text-slate-900 dark:text-white hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-bold text-slate-900 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                           title="Sort by TOT STK"
                         >
                           <span>TOT STK</span>
@@ -3959,11 +3959,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 6. AVL STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 border-b border-slate-200 dark:border-slate-700 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('free')}
-                          className="group inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer select-none ml-auto"
                           title="Sort by AVL STK"
                         >
                           <span>AVL STK</span>
@@ -3972,11 +3972,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 7. IN STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 border-b border-slate-200 dark:border-slate-700 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('in')}
-                          className="group inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer select-none ml-auto"
                           title="Sort by IN STK"
                         >
                           <span>IN STK ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
@@ -3985,11 +3985,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 8. OUT STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 border-b border-slate-200 dark:border-slate-700 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('out')}
-                          className="group inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 hover:text-rose-300 transition-colors cursor-pointer select-none ml-auto"
                           title="Sort by OUT STK"
                         >
                           <span>OUT STK ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
@@ -3998,11 +3998,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 9. Total Valuation (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[115px] font-semibold text-slate-800 dark:text-slate-200 border-r border-b border-slate-200 dark:border-slate-700 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[115px] font-semibold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('valuation')}
-                          className="group inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                           title="Sort by Total Valuation"
                         >
                           <span>Total Valuation (₹)</span>
@@ -4012,17 +4012,17 @@ export default function RMINOUTStockPage() {
 
                       {/* Dynamic Chronological Supplier Invoice Date Headers (DD-MM-YYYY) (Pinned Top) */}
                       {matrixDates.length === 0 ? (
-                        <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 min-w-[180px] text-center text-slate-400 border-b border-slate-200 dark:border-slate-700 shadow-xs">
+                        <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black min-w-[180px] text-center text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-neutral-800 shadow-xs">
                           No Movement Dates Found
                         </TableHead>
                       ) : (
                         matrixDates.map((dateStr) => (
                           <TableHead
                             key={dateStr}
-                            className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 min-w-[105px] max-w-[130px] text-center font-bold font-mono text-slate-800 dark:text-slate-200 border-r border-b border-slate-200/80 dark:border-slate-750 px-2 py-2 shadow-xs"
+                            className="sticky top-0 z-30 bg-slate-100 dark:bg-black min-w-[105px] max-w-[130px] text-center font-bold font-mono text-slate-800 dark:text-white border-r border-b border-slate-200/80 dark:border-neutral-800 px-2 py-2 shadow-xs"
                             title={`Supplier Invoice Date: ${dateStr}`}
                           >
-                            <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200">{dateStr}</div>
+                            <div className="text-[11.5px] font-bold font-mono text-slate-800 dark:text-white tracking-wide">{dateStr}</div>
                           </TableHead>
                         ))
                       )}
@@ -4390,14 +4390,14 @@ export default function RMINOUTStockPage() {
               {/* Desktop Table View */}
               <div className="hidden lg:block overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
                 <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
-                  <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800 shadow-xs">
-                    <TableRow className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
+                    <TableRow className="bg-slate-100 dark:bg-black hover:bg-slate-100 dark:hover:bg-black border-b border-slate-200 dark:border-neutral-800 text-[11px]">
                       {/* Date & Time Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[110px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[110px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('date')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>Date & Time</span>
                           {renderSortIndicator('date')}
@@ -4405,11 +4405,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Flow & Status Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[100px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center min-w-[100px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('flow')}
-                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none mx-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none mx-auto"
                         >
                           <span>Flow & Status</span>
                           {renderSortIndicator('flow')}
@@ -4417,11 +4417,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Transaction Type Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[140px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[140px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('type')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>Transaction Type</span>
                           {renderSortIndicator('type')}
@@ -4429,11 +4429,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* RM Code Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[90px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[90px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('code')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>RM Code</span>
                           {renderSortIndicator('code')}
@@ -4441,11 +4441,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Raw Material Name Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[170px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[170px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('name')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>Raw Material Name</span>
                           {renderSortIndicator('name')}
@@ -4453,11 +4453,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Document Ref Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[115px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('ref')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>Document Ref</span>
                           {renderSortIndicator('ref')}
@@ -4465,16 +4465,16 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Supplier Invoice Date Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[125px] font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[125px] font-semibold text-slate-700 dark:text-white border-b border-slate-200 dark:border-neutral-800">
                         Supplier Inv Date
                       </TableHead>
 
                       {/* Batch / Lot Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[90px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[90px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('batch')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>Batch / Lot</span>
                           {renderSortIndicator('batch')}
@@ -4482,11 +4482,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Inward (IN) Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[85px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('in')}
-                          className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer select-none ml-auto"
                         >
                           <span>Inward (IN)</span>
                           {renderSortIndicator('in')}
@@ -4494,11 +4494,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Outward (OUT) Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[85px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('out')}
-                          className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-800 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-rose-700 dark:text-rose-400 hover:text-rose-300 transition-colors cursor-pointer select-none ml-auto"
                         >
                           <span>Outward (OUT)</span>
                           {renderSortIndicator('out')}
@@ -4506,11 +4506,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Rate Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[85px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('rate')}
-                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                         >
                           <span>Rate (₹)</span>
                           {renderSortIndicator('rate')}
@@ -4518,11 +4518,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Amount Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[85px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('amount')}
-                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
                         >
                           <span>Amount (₹)</span>
                           {renderSortIndicator('amount')}
@@ -4530,11 +4530,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* QC Status Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[95px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center min-w-[95px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('qc')}
-                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none mx-auto"
+                          className="group inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none mx-auto"
                         >
                           <span>QC Status</span>
                           {renderSortIndicator('qc')}
@@ -4542,11 +4542,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Party / Notes Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[150px] border-b border-slate-200 dark:border-slate-700">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[150px] border-b border-slate-200 dark:border-neutral-800">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('party')}
-                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-600 transition-colors cursor-pointer select-none"
+                          className="group flex items-center gap-1 font-semibold text-slate-700 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none"
                         >
                           <span>Party / Notes</span>
                           {renderSortIndicator('party')}
@@ -4785,7 +4785,7 @@ export default function RMINOUTStockPage() {
                         </div>
 
                         {/* Financial & Quantity Metrics Grid (3 cols) */}
-                        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-850 text-center font-mono text-xs">
+                        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-900 text-center font-mono text-xs">
                           <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
                             <span className="text-[9px] text-slate-400 block font-sans">Quantity</span>
                             <span className={`font-bold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : isInProgress ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
@@ -4995,7 +4995,7 @@ export default function RMINOUTStockPage() {
               {/* Option 4: All-in-One Master Workbook */}
               <div
                 onClick={handleExportCompleteWorkbook}
-                className="group p-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-850 hover:bg-slate-100/50 transition-all cursor-pointer flex items-start gap-3"
+                className="group p-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900 hover:bg-slate-100/50 transition-all cursor-pointer flex items-start gap-3"
               >
                 <div className="p-2 rounded-lg bg-purple-600 text-white shrink-0 group-hover:scale-105 transition-transform shadow-xs">
                   <Sparkles className="w-4 h-4" />
@@ -5166,8 +5166,8 @@ export default function RMINOUTStockPage() {
                       key={idx}
                       className={`space-y-1 rounded-lg p-2 border transition-all shadow-2xs ${
                         isIN
-                          ? 'border-l-3 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-slate-200/80 dark:border-slate-750'
-                          : 'border-l-3 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20 border-slate-200/80 dark:border-slate-750'
+                          ? 'border-l-3 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-slate-200/80 dark:border-slate-800'
+                          : 'border-l-3 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20 border-slate-200/80 dark:border-slate-800'
                       }`}
                     >
                       {/* Flow Quantity & Type Badge */}
