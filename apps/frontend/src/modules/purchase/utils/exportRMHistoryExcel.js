@@ -627,6 +627,7 @@ export async function exportRMHistoryToExcel(historyData) {
     { header: 'No.', width: 8 },
     { header: 'PO Reference No', width: 18 },
     { header: 'Order Date', width: 15 },
+    { header: 'Supplier Invoice Date', width: 20 },
     { header: 'Expected Delivery', width: 16 },
     { header: 'Supplier Name', width: 26 },
     { header: 'Supplier Contact', width: 18 },
@@ -696,63 +697,70 @@ export async function exportRMHistoryToExcel(historyData) {
       row.getCell(3).value = formatDateOnly(po.orderDate);
       row.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
 
-      row.getCell(4).value = formatDateOnly(po.expectedDelivery);
+      const invDate = po.supplierInvoiceDate || po.invoiceDate;
+      row.getCell(4).value = invDate ? formatDateOnly(invDate) : '—';
       row.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
+      if (invDate) {
+        row.getCell(4).font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF15803D' } };
+      }
 
-      row.getCell(5).value = po.supplierName;
-      row.getCell(5).font = { name: 'Segoe UI', size: 9.5, bold: true };
-      row.getCell(5).alignment = { vertical: 'middle', indent: 1 };
+      row.getCell(5).value = formatDateOnly(po.expectedDelivery);
+      row.getCell(5).alignment = { vertical: 'middle', horizontal: 'center' };
 
-      row.getCell(6).value = po.supplierContact || '—';
+      row.getCell(6).value = po.supplierName;
+      row.getCell(6).font = { name: 'Segoe UI', size: 9.5, bold: true };
       row.getCell(6).alignment = { vertical: 'middle', indent: 1 };
 
-      row.getCell(7).value = orderedQty;
-      row.getCell(7).numFmt = '#,##0.00';
-      row.getCell(7).font = { name: 'Segoe UI', size: 9.5, bold: true };
-      row.getCell(7).alignment = { vertical: 'middle', horizontal: 'right' };
+      row.getCell(7).value = po.supplierContact || '—';
+      row.getCell(7).alignment = { vertical: 'middle', indent: 1 };
 
-      row.getCell(8).value = po.uom || material.unit;
-      row.getCell(8).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(8).value = orderedQty;
+      row.getCell(8).numFmt = '#,##0.00';
+      row.getCell(8).font = { name: 'Segoe UI', size: 9.5, bold: true };
+      row.getCell(8).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(9).value = Number(po.unitPrice || 0);
-      row.getCell(9).numFmt = '₹#,##0.00';
-      row.getCell(9).alignment = { vertical: 'middle', horizontal: 'right' };
+      row.getCell(9).value = po.uom || material.unit;
+      row.getCell(9).alignment = { vertical: 'middle', horizontal: 'center' };
 
-      row.getCell(10).value = `${po.gstPercentage || 0}%`;
-      row.getCell(10).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(10).value = Number(po.unitPrice || 0);
+      row.getCell(10).numFmt = '₹#,##0.00';
+      row.getCell(10).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(11).value = Number(po.unitPriceWithGst || po.unitPrice || 0);
-      row.getCell(11).numFmt = '₹#,##0.00';
-      row.getCell(11).alignment = { vertical: 'middle', horizontal: 'right' };
+      row.getCell(11).value = `${po.gstPercentage || 0}%`;
+      row.getCell(11).alignment = { vertical: 'middle', horizontal: 'center' };
 
-      row.getCell(12).value = itemTotal;
+      row.getCell(12).value = Number(po.unitPriceWithGst || po.unitPrice || 0);
       row.getCell(12).numFmt = '₹#,##0.00';
-      row.getCell(12).font = { name: 'Segoe UI', size: 9.5, bold: true };
       row.getCell(12).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(13).value = grandTotal;
+      row.getCell(13).value = itemTotal;
       row.getCell(13).numFmt = '₹#,##0.00';
+      row.getCell(13).font = { name: 'Segoe UI', size: 9.5, bold: true };
       row.getCell(13).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(14).value = po.status;
-      row.getCell(14).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(14).value = grandTotal;
+      row.getCell(14).numFmt = '₹#,##0.00';
+      row.getCell(14).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(15).value = po.paymentStatus;
+      row.getCell(15).value = po.status;
       row.getCell(15).alignment = { vertical: 'middle', horizontal: 'center' };
 
-      row.getCell(16).value = paidAmount;
-      row.getCell(16).numFmt = '₹#,##0.00';
-      row.getCell(16).alignment = { vertical: 'middle', horizontal: 'right' };
+      row.getCell(16).value = po.paymentStatus;
+      row.getCell(16).alignment = { vertical: 'middle', horizontal: 'center' };
 
-      row.getCell(17).value = balanceDue;
+      row.getCell(17).value = paidAmount;
       row.getCell(17).numFmt = '₹#,##0.00';
       row.getCell(17).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(18).value = po.createdBy || 'Staff';
-      row.getCell(18).alignment = { vertical: 'middle', indent: 1 };
+      row.getCell(18).value = balanceDue;
+      row.getCell(18).numFmt = '₹#,##0.00';
+      row.getCell(18).alignment = { vertical: 'middle', horizontal: 'right' };
 
-      row.getCell(19).value = po.grnCount || 0;
-      row.getCell(19).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(19).value = po.createdBy || 'Staff';
+      row.getCell(19).alignment = { vertical: 'middle', indent: 1 };
+
+      row.getCell(20).value = po.grnCount || 0;
+      row.getCell(20).alignment = { vertical: 'middle', horizontal: 'center' };
 
       row.eachCell({ includeEmpty: true }, (c) => {
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };

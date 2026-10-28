@@ -999,11 +999,13 @@ export default function RMINOUTStockPage() {
   // Merge Base Stock with Dedicated Data
   // Merge Base Stock with Dedicated Data
   const unifiedMaterials = useMemo(() => {
-    if (dedicatedData?.materials && dedicatedData.materials.length > 0) {
+    if (dedicatedData && Array.isArray(dedicatedData.materials)) {
       return dedicatedData.materials;
     }
 
-    return baseStock.map(item => {
+    const isPeriodFiltered = period && period !== 'all';
+
+    const mapped = baseStock.map(item => {
       const liveStock = Number(item.availableQuantity ?? item.currentStock ?? item.stock ?? 0);
       const alert = Number(item.alertLevel || 0);
       const rate = Number(item.rateWithTax || item.ratePerUnit || item.masterStandardRate || 0);
@@ -1054,12 +1056,15 @@ export default function RMINOUTStockPage() {
 
       const isHistorical = Boolean(dateRange.end && dateRange.end.getTime() < new Date().getTime());
       let curStock = liveStock;
-      if (isHistorical && cached?.txList) {
+      if (isPeriodFiltered) {
+        curStock = Math.max(0, Math.round((periodIn - periodOut) * 1000) / 1000);
+      } else if (isHistorical && cached?.txList) {
         curStock = Math.max(0, Math.round((liveStock - postPeriodIn + postPeriodOut) * 1000) / 1000);
       }
 
+      const inProgress = isPeriodFiltered ? 0 : inProgressStock;
       const val = Number(curStock * rate || (item.valueWithTax || item.value || 0));
-      const availableStock = Math.max(0, curStock - inProgressStock);
+      const availableStock = Math.max(0, curStock - inProgress);
       const status = curStock <= 0 ? 'OUT_OF_STOCK' : (curStock <= alert ? 'LOW_STOCK' : 'OPTIMAL');
 
       return {
@@ -1072,7 +1077,7 @@ export default function RMINOUTStockPage() {
         currentStock: curStock,
         liveStock,
         isHistorical,
-        inProgressStock: Math.round(inProgressStock * 100) / 100,
+        inProgressStock: Math.round(inProgress * 100) / 100,
         availableStock: Math.round(availableStock * 100) / 100,
         labRejectedQty: Math.round(labRejectedQty * 100) / 100,
         hasLabRejection,
@@ -1092,11 +1097,16 @@ export default function RMINOUTStockPage() {
         lastOut
       };
     });
-  }, [baseStock, dedicatedData, materialHistoryCache, isDateInPeriod, isDateAfterPeriod, dateRange]);
+
+    if (isPeriodFiltered) {
+      return mapped.filter(m => Number(m.periodInQty || 0) > 0 || Number(m.periodOutQty || 0) > 0);
+    }
+    return mapped;
+  }, [baseStock, dedicatedData, materialHistoryCache, isDateInPeriod, isDateAfterPeriod, dateRange, period]);
 
   // Overall Global Transactions List
   const unifiedAllTransactions = useMemo(() => {
-    if (dedicatedData?.allTransactions && dedicatedData.allTransactions.length > 0) {
+    if (dedicatedData && Array.isArray(dedicatedData.allTransactions)) {
       return dedicatedData.allTransactions;
     }
 
@@ -1339,6 +1349,11 @@ export default function RMINOUTStockPage() {
       }
 
       // 4. Movement & Status Filters (Interactive from KPI Cards & Charts)
+      if (period !== 'all' && movementFilter === 'ALL') {
+        const hasMovement = Number(item.periodInQty || 0) > 0 || Number(item.periodOutQty || 0) > 0;
+        if (!hasMovement) return false;
+      }
+
       if (movementFilter === 'IN_PROGRESS') {
         if (Number(item.inProgressStock || 0) <= 0) return false;
       } else if (movementFilter === 'FREE_AVAILABLE') {
@@ -2442,7 +2457,7 @@ export default function RMINOUTStockPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <span>Showing:</span>
             <span className="font-semibold text-slate-900 dark:text-white">
-              {viewMode === 'material' ? filteredMaterials.length : filteredTransactions.length} records
+              {viewMode === 'transaction' ? filteredTransactions.length : filteredMaterials.length} records
             </span>
             <span>• Active Timeframe:</span>
             <span className="font-semibold text-emerald-600 dark:text-emerald-400 capitalize">
@@ -2452,11 +2467,13 @@ export default function RMINOUTStockPage() {
               ({summary?.periodDateRange || periodDisplayText.rangeText})
             </span>
             <span className={`px-2 py-0.2 rounded-full font-semibold text-[9.5px] border ${
-              (summary?.isHistorical ?? periodDisplayText.isHistorical)
-                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300/70 dark:border-amber-800/60'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300/70 dark:border-emerald-800/60'
+              (period === 'all')
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300/70 dark:border-emerald-800/60'
+                : (summary?.isHistorical ?? periodDisplayText.isHistorical)
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-300/70 dark:border-amber-800/60'
+                  : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300/70 dark:border-blue-800/60'
             }`}>
-              Stock: {(summary?.isHistorical ?? periodDisplayText.isHistorical) ? 'Historical Day Closing Balance' : 'Live Real-Time Stock Balance'}
+              Stock: {period === 'all' ? 'Live Real-Time Stock Balance' : 'Period Net Movement Balance'}
             </span>
             {categoryFilter !== 'ALL' && (
               <span className="px-2 py-0.2 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-bold text-[10px]">
@@ -2638,9 +2655,13 @@ export default function RMINOUTStockPage() {
                   <TableRow>
                     <TableCell colSpan={11} className="py-10 text-center text-slate-400">
                       <div className="flex flex-col items-center justify-center space-y-1.5">
-                        <Package className="w-7 h-7 text-slate-300 dark:text-slate-600" />
-                        <p className="text-xs font-medium">No raw materials match the current filters.</p>
-                        <p className="text-[11px] text-slate-500">Try adjusting your search keyword, category, or time period.</p>
+                        <Package className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                        <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                          {period !== 'all' ? `No raw material movements recorded for ${summary?.periodLabel || periodDisplayText.label}.` : 'No raw materials match the current filters.'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {period !== 'all' ? 'Select "All Time" to view total live stock balances, or choose another time period.' : 'Try adjusting your search keyword or category filter.'}
+                        </p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -3638,7 +3659,15 @@ export default function RMINOUTStockPage() {
                     ) : paginatedMaterials.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={9 + Math.max(1, matrixDates.length)} className="py-12 text-center text-slate-400">
-                          No raw materials match the current filters.
+                          <div className="flex flex-col items-center justify-center space-y-2">
+                            <Package className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                              {period !== 'all' ? `No raw material movements recorded for ${summary?.periodLabel || periodDisplayText.label}.` : 'No raw materials match the current filters.'}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {period !== 'all' ? 'Select "All Time" to view total live stock balances, or choose another time period.' : 'Try adjusting your search keyword or category filter.'}
+                            </p>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (

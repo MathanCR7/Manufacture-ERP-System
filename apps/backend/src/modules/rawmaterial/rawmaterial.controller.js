@@ -2589,12 +2589,18 @@ exports.getMaterialHistory = async (req, res, next) => {
       const b2 = Array.isArray(po.grnReceives) ? po.grnReceives.flatMap(g => Array.isArray(g.inventoryBatches) ? g.inventoryBatches.map(b => b.batchNumber) : []) : [];
       const allPoBatches = Array.from(new Set([...b1, ...b2])).filter(Boolean);
 
+      // Check GRN for supplier invoice details if PO does not have them directly
+      const grnWithInv = Array.isArray(po.grnReceives) ? po.grnReceives.find(g => g.invoiceDate || g.invoiceNumber) : null;
+      const supplierInvoiceDate = po.supplierInvoiceDate || grnWithInv?.invoiceDate || null;
+      const supplierInvoiceNo = po.supplierInvoiceNo || grnWithInv?.invoiceNumber || null;
+
       return {
         id: po.id,
         referenceNo: po.referenceNo || 'N/A',
         orderDate: po.createdAt,
-        invoiceDate: po.supplierInvoiceDate || po.createdAt,
-        supplierInvoiceNo: po.supplierInvoiceNo || null,
+        supplierInvoiceDate,
+        supplierInvoiceNo,
+        invoiceDate: supplierInvoiceDate,
         expectedDelivery: po.expectedDelivery,
         supplierId: po.supplierId,
         supplierName: po.supplier ? po.supplier.name : 'Unknown Supplier',
@@ -3121,11 +3127,12 @@ exports.getMaterialHistory = async (req, res, next) => {
     });
 
     formattedPurchases.forEach(p => {
+      const invDateStr = p.supplierInvoiceDate ? new Date(p.supplierInvoiceDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
       timelineEvents.push({
         id: `po-${p.id}`,
         type: 'PURCHASE_ORDER',
         title: `PO Created: ${p.referenceNo}`,
-        subtitle: `Supplier: ${p.supplierName} • Qty: ${p.orderedQty} ${p.uom}`,
+        subtitle: `Supplier: ${p.supplierName} • Qty: ${p.orderedQty} ${p.uom}${invDateStr ? ` • Supplier Inv Date: ${invDateStr}` : ''}`,
         timestamp: p.orderDate,
         status: p.status,
         badgeColor: 'blue',
@@ -3136,7 +3143,9 @@ exports.getMaterialHistory = async (req, res, next) => {
           orderedQty: p.orderedQty,
           rate: p.unitPrice,
           total: p.itemTotal,
-          paymentStatus: p.paymentStatus
+          paymentStatus: p.paymentStatus,
+          supplierInvoiceDate: p.supplierInvoiceDate,
+          supplierInvoiceNo: p.supplierInvoiceNo
         }
       });
     });
@@ -4487,6 +4496,7 @@ exports.getRmInOutStock = async (req, res, next) => {
     let totalLabRejectedCount = 0;
     let activeMovementCount = 0;
 
+    const isPeriodFiltered = Boolean(period && period !== 'all');
     const isHistorical = Boolean(rangeEnd && rangeEnd.getTime() < now.getTime());
 
     const materials = rms.map(rm => {
@@ -4508,13 +4518,19 @@ exports.getRmInOutStock = async (req, res, next) => {
       txData.transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
       const liveStock = Number(rm.currentStock || 0);
+      const periodIn = Math.round(txData.periodIn * 1000) / 1000;
+      const periodOut = Math.round(txData.periodOut * 1000) / 1000;
+      const hasMovementInPeriod = (periodIn > 0 || periodOut > 0);
 
       // Period Stock Balance:
-      // When reviewing historical periods (e.g. Yesterday, Last Week, Last Month, or past Custom Range),
-      // we reconcile backward from liveStock by subtracting post-period receipts and adding back post-period issues:
-      // periodStock = liveStock - postPeriodIn + postPeriodOut
+      // When a specific period filter (e.g. Today, Yesterday, This Week, This Month, or Custom) is active,
+      // stock reflects the net receipts / movements in that timeframe: periodIn - periodOut.
+      // If there was no activity in this timeframe, period stock is 0.
+      // When reviewing lifetime ('all'), curStock is liveStock.
       let curStock = liveStock;
-      if (isHistorical) {
+      if (isPeriodFiltered) {
+        curStock = Math.max(0, Math.round((periodIn - periodOut) * 1000) / 1000);
+      } else if (isHistorical) {
         curStock = Math.max(0, Math.round((liveStock - txData.postPeriodIn + txData.postPeriodOut) * 1000) / 1000);
       }
 
@@ -4523,22 +4539,24 @@ exports.getRmInOutStock = async (req, res, next) => {
       const rate = poRateInfo.rate || Number(rm.ratePerUnit || 0);
       const valuation = Math.round((curStock * rate) * 100) / 100;
 
-      const inProgressStock = Math.round((txData.inProgressStock || 0) * 1000) / 1000;
+      const inProgressStock = isPeriodFiltered ? 0 : Math.round((txData.inProgressStock || 0) * 1000) / 1000;
       const availableStock = Math.max(0, Math.round((curStock - inProgressStock) * 1000) / 1000);
       const labRejectedQty = Math.round((txData.labRejectedQty || 0) * 1000) / 1000;
       const hasLabRejection = (txData.labRejectedCount || 0) > 0;
       const labStatus = hasLabRejection ? 'LAB_REJECTED' : 'QC_PASSED';
 
-      totalCurrentStock += curStock;
-      totalInProgressStock += inProgressStock;
-      totalAvailableStock += availableStock;
-      totalStockValuation += valuation;
+      // Only accumulate totals for materials active in the selected timeframe when filtered
+      if (!isPeriodFiltered || hasMovementInPeriod) {
+        totalCurrentStock += curStock;
+        totalInProgressStock += inProgressStock;
+        totalAvailableStock += availableStock;
+        totalStockValuation += valuation;
+      }
       totalPeriodIn += txData.periodIn;
       totalPeriodOut += txData.periodOut;
       totalLabRejectedQty += labRejectedQty;
       totalLabRejectedCount += (txData.labRejectedCount || 0);
 
-      const hasMovementInPeriod = (txData.periodIn > 0 || txData.periodOut > 0);
       if (hasMovementInPeriod) {
         activeMovementCount++;
       }
@@ -4567,9 +4585,9 @@ exports.getRmInOutStock = async (req, res, next) => {
         hasPo: !!poRateInfo.poRef,
         poReferenceNo: poRateInfo.poRef,
         latestPoId: poRateInfo.poId,
-        periodInQty: Math.round(txData.periodIn * 1000) / 1000,
-        periodOutQty: Math.round(txData.periodOut * 1000) / 1000,
-        netMovement: Math.round((txData.periodIn - txData.periodOut) * 1000) / 1000,
+        periodInQty: periodIn,
+        periodOutQty: periodOut,
+        netMovement: Math.round((periodIn - periodOut) * 1000) / 1000,
         lifetimeIn: Math.round(txData.lifetimeIn * 1000) / 1000,
         lifetimeOut: Math.round(txData.lifetimeOut * 1000) / 1000,
         transactionCount: txData.transactions.length,
@@ -4579,16 +4597,21 @@ exports.getRmInOutStock = async (req, res, next) => {
       };
     });
 
+    const returnedMaterials = isPeriodFiltered
+      ? materials.filter(m => (m.periodInQty > 0 || m.periodOutQty > 0))
+      : materials;
+
     res.json({
       success: true,
       period,
       periodLabel,
       periodDateRange,
       isHistorical,
+      isPeriodFiltered,
       startDate: rangeStart,
       endDate: rangeEnd,
       summary: {
-        totalMaterials: rms.length,
+        totalMaterials: returnedMaterials.length,
         totalCurrentStock: Math.round(totalCurrentStock * 100) / 100,
         totalInProgressStock: Math.round(totalInProgressStock * 100) / 100,
         totalAvailableStock: Math.round(totalAvailableStock * 100) / 100,
@@ -4601,9 +4624,10 @@ exports.getRmInOutStock = async (req, res, next) => {
         activeMovementCount,
         periodLabel,
         periodDateRange,
-        isHistorical
+        isHistorical,
+        isPeriodFiltered
       },
-      materials,
+      materials: returnedMaterials,
       allTransactions
     });
   } catch (error) {

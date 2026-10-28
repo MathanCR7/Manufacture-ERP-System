@@ -1005,13 +1005,41 @@ export default function CreatePOPage({ onBack }) {
       }
     }
 
-    if (formData.supplierInvoiceDate && new Date(formData.supplierInvoiceDate) > endOfToday) {
-      setErrorMsg('Supplier Invoice Date cannot be in the future (tomorrow or later).');
+    if (!formData.selectedSupplier) {
+      setErrorMsg('Please select a Supplier.');
       return;
     }
 
-    if (!formData.selectedSupplier) {
-      setErrorMsg('Please select a Supplier.');
+    if (!formData.supplierInvoiceNo || !formData.supplierInvoiceNo.trim()) {
+      setErrorMsg('Supplier Invoice No is mandatory.');
+      Swal.fire({
+        icon: 'warning',
+        title: 'Supplier Invoice No Required',
+        text: 'Please enter the Supplier Invoice No before proceeding.',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
+
+    if (!formData.supplierInvoiceDate) {
+      setErrorMsg('Supplier Invoice Date is mandatory.');
+      Swal.fire({
+        icon: 'warning',
+        title: 'Supplier Invoice Date Required',
+        text: 'Please select the Supplier Invoice Date before proceeding.',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
+
+    if (new Date(formData.supplierInvoiceDate) > endOfToday) {
+      setErrorMsg('Supplier Invoice Date cannot be in the future (tomorrow or later).');
+      Swal.fire({
+        icon: 'error',
+        title: 'Invalid Invoice Date',
+        text: 'Supplier Invoice Date cannot be in the future (tomorrow or later).',
+        confirmButtonColor: '#4f46e5'
+      });
       return;
     }
 
@@ -1547,7 +1575,7 @@ export default function CreatePOPage({ onBack }) {
               </span>
             )}
             <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline">
-              Optional / Can be updated anytime
+              <span className="text-rose-500 font-bold">*</span> Invoice No & Date Mandatory
             </span>
           </div>
         </div>
@@ -1558,35 +1586,55 @@ export default function CreatePOPage({ onBack }) {
           <div className="space-y-1">
             <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
               <FileText className="w-3 h-3 text-slate-400" />
-              Supplier Invoice No
+              Supplier Invoice No <span className="text-rose-500 font-bold">*</span>
             </Label>
             <Input
               type="text"
               value={formData.supplierInvoiceNo}
               onChange={(e) => setFormData({ ...formData, supplierInvoiceNo: e.target.value })}
               placeholder="e.g. INV-2026-0042"
-              className="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-medium"
+              className={`h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border font-medium ${
+                hasAttemptedSubmit && !formData.supplierInvoiceNo?.trim()
+                  ? 'border-rose-500 ring-2 ring-rose-500/20 focus:border-rose-500'
+                  : 'border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600'
+              }`}
             />
+            {hasAttemptedSubmit && !formData.supplierInvoiceNo?.trim() && (
+              <p className="text-[10px] text-rose-500 font-medium flex items-center gap-0.5 mt-0.5">
+                <AlertCircle className="w-3 h-3 shrink-0" />
+                Supplier Invoice No is mandatory
+              </p>
+            )}
           </div>
 
           {/* Supplier Invoice Date */}
           <div className="space-y-1">
             <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
               <Calendar className="w-3 h-3 text-slate-400" />
-              Supplier Invoice Date
+              Supplier Invoice Date <span className="text-rose-500 font-bold">*</span>
             </Label>
             <DatePicker
               value={formData.supplierInvoiceDate}
               onChange={(date) => setFormData({ ...formData, supplierInvoiceDate: date })}
               modalTitle="Supplier Invoice Date"
               placeholder="Select Invoice Date..."
-              triggerClassName="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 text-slate-800 dark:text-slate-200"
+              triggerClassName={`h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border text-slate-800 dark:text-slate-200 ${
+                hasAttemptedSubmit && !formData.supplierInvoiceDate
+                  ? 'border-rose-500 ring-2 ring-rose-500/20 focus:border-rose-500'
+                  : 'border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600'
+              }`}
               disabled={(date) => {
                 const endOfToday = new Date();
                 endOfToday.setHours(23, 59, 59, 999);
                 return date > endOfToday;
               }}
             />
+            {hasAttemptedSubmit && !formData.supplierInvoiceDate && (
+              <p className="text-[10px] text-rose-500 font-medium flex items-center gap-0.5 mt-0.5">
+                <AlertCircle className="w-3 h-3 shrink-0" />
+                Supplier Invoice Date is mandatory
+              </p>
+            )}
           </div>
 
           {/* Transport Mode */}
