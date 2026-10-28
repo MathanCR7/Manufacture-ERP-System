@@ -447,9 +447,9 @@ export default function RMINOUTStockPage() {
   // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  // Pagination State - Default 15 items per page as requested
+  // Pagination State - Default 10 items per page as requested
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(15);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Expanded Material Rows for inline ledger view
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
@@ -865,7 +865,8 @@ export default function RMINOUTStockPage() {
       (hData.productionUsages || []).forEach(u => {
         if (u.isCancelled) return;
         const bStatus = String(u.batchStatus || '').toLowerCase();
-        const isInProgress = bStatus.includes('progress') || bStatus.includes('running') || bStatus.includes('paused') || bStatus.includes('draft');
+        if (bStatus === 'draft' || Boolean(u.isDraft)) return; // Do not display in OUT if production is draft
+        const isInProgress = bStatus.includes('progress') || bStatus.includes('running') || bStatus.includes('paused');
         const qty = Number(u.actualUsedQty || u.requiredQty || 0);
         const batchRef = u.batchNumber || 'Prod Batch';
         const rmBatchTaken = u.batchNoTakenFrom || 'RM Lot';
@@ -1146,20 +1147,111 @@ export default function RMINOUTStockPage() {
     return flat;
   }, [dedicatedData, materialHistoryCache, isDateInPeriod]);
 
+  // Advanced Search Matcher:
+  // 1. Direct raw substring match
+  // 2. Normalized space & punctuation insensitivity (e.g. "milkraw" matches "MILK RAW" and "milk-raw")
+  // 3. Multi-word search in any order (e.g. "raw milk" matches "MILK RAW")
+  // 4. Minor typo / spelling tolerance (Levenshtein distance <= 1 for 4+ char words)
+  const normalizeSearchStr = (str) => {
+    if (!str) return '';
+    return String(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+  };
+
+  const levenshteinDistance = (a, b) => {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    return matrix[b.length][a.length];
+  };
+
+  const matchesAdvancedSearch = useCallback((targetStrings, searchRaw) => {
+    if (!searchRaw || !searchRaw.trim()) return true;
+    const rawTerm = searchRaw.toLowerCase().trim();
+    const normalizedSearch = normalizeSearchStr(rawTerm);
+    if (!normalizedSearch) return true;
+
+    const rawJoined = (targetStrings || []).filter(Boolean).map(s => String(s).toLowerCase()).join(' ');
+    const normalizedJoined = normalizeSearchStr(rawJoined);
+
+    // 1. Direct raw substring match
+    if (rawJoined.includes(rawTerm)) return true;
+
+    // 2. Space & punctuation-insensitive normalized match (e.g. "milkraw" in "milk raw")
+    if (normalizedJoined.includes(normalizedSearch)) return true;
+
+    // 3. Multi-word search (all words must match)
+    const searchTokens = rawTerm.split(/\s+/).filter(Boolean);
+    if (searchTokens.length > 1) {
+      const allTokensMatch = searchTokens.every(tok => {
+        const normTok = normalizeSearchStr(tok);
+        return rawJoined.includes(tok) || (normTok && normalizedJoined.includes(normTok));
+      });
+      if (allTokensMatch) return true;
+    }
+
+    // 4. Minor typo / spelling tolerance
+    const targetWords = rawJoined.split(/[\s\-_/,\.]+/).filter(w => w.length >= 3);
+    const wordsMatchWithFuzzy = searchTokens.every(sTok => {
+      const sNorm = normalizeSearchStr(sTok);
+      if (!sNorm) return true;
+      if (normalizedJoined.includes(sNorm)) return true;
+
+      const maxDist = sNorm.length >= 6 ? 2 : (sNorm.length >= 4 ? 1 : 0);
+      if (maxDist === 0) return false;
+
+      return targetWords.some(tWord => {
+        const tNorm = normalizeSearchStr(tWord);
+        if (Math.abs(tNorm.length - sNorm.length) > maxDist) return false;
+        return levenshteinDistance(sNorm, tNorm) <= maxDist;
+      });
+    });
+
+    return wordsMatchWithFuzzy;
+  }, []);
+
+  const getMaterialSearchableTargets = (item) => [
+    item.code,
+    item.name,
+    item.category,
+    item.poReferenceNo,
+    item.lastIn?.ref,
+    item.lastIn?.party,
+    item.lastOut?.ref,
+    item.lastOut?.party,
+    item.uom,
+    ...(item.transactions || []).flatMap(t => [
+      t.referenceNo,
+      t.poReferenceNo,
+      t.batchNumber,
+      t.partyName,
+      t.user,
+      t.notes,
+      t.compositeComment
+    ])
+  ];
+
   // Category & Search Filtered Materials (used to dynamically recalculate summary when user selects filters)
   const categoryAndSearchFilteredMaterials = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
     return unifiedMaterials.filter(item => {
-      if (term) {
-        const matchesTerm = (
-          (item.code || '').toLowerCase().includes(term) ||
-          (item.name || '').toLowerCase().includes(term) ||
-          (item.category || '').toLowerCase().includes(term) ||
-          (item.poReferenceNo || '').toLowerCase().includes(term) ||
-          (item.lastIn?.ref || '').toLowerCase().includes(term) ||
-          (item.lastOut?.ref || '').toLowerCase().includes(term)
-        );
-        if (!matchesTerm) return false;
+      if (searchTerm.trim()) {
+        const targets = getMaterialSearchableTargets(item);
+        if (!matchesAdvancedSearch(targets, searchTerm)) return false;
       }
       if (categoryFilter !== 'ALL' && (item.category || 'Uncategorised') !== categoryFilter) {
         return false;
@@ -1169,11 +1261,11 @@ export default function RMINOUTStockPage() {
       }
       return true;
     });
-  }, [unifiedMaterials, searchTerm, categoryFilter, codeFilter]);
+  }, [unifiedMaterials, searchTerm, categoryFilter, codeFilter, matchesAdvancedSearch]);
 
   // Overall Summary Metrics (Responsive to Time Period, Categories, and Searches)
   const summary = useMemo(() => {
-    const hasLocalFilter = (categoryFilter !== 'ALL') || (codeFilter !== 'ALL') || (searchTerm.trim() !== '');
+    const hasLocalFilter = (categoryFilter !== 'ALL') || (codeFilter !== 'ALL') || (searchTerm.trim() !== '') || (movementFilter !== 'ALL');
 
     if (!hasLocalFilter && dedicatedData?.summary) {
       const s = dedicatedData.summary;
@@ -1360,24 +1452,10 @@ export default function RMINOUTStockPage() {
   // Filtered & Sorted Materials
   const filteredMaterials = useMemo(() => {
     let result = unifiedMaterials.filter(item => {
-      // 1. Text Search across multiple dimensions
-      const term = searchTerm.toLowerCase().trim();
-      if (term) {
-        const matchesTerm = (
-          (item.code || '').toLowerCase().includes(term) ||
-          (item.name || '').toLowerCase().includes(term) ||
-          (item.category || '').toLowerCase().includes(term) ||
-          (item.poReferenceNo || '').toLowerCase().includes(term) ||
-          (item.lastIn?.ref || '').toLowerCase().includes(term) ||
-          (item.lastOut?.ref || '').toLowerCase().includes(term) ||
-          (item.transactions || []).some(t =>
-            (t.referenceNo || '').toLowerCase().includes(term) ||
-            (t.batchNumber || '').toLowerCase().includes(term) ||
-            (t.partyName || '').toLowerCase().includes(term) ||
-            (t.compositeComment || '').toLowerCase().includes(term)
-          )
-        );
-        if (!matchesTerm) return false;
+      // 1. Advanced Text Search across multiple dimensions
+      if (searchTerm.trim()) {
+        const targets = getMaterialSearchableTargets(item);
+        if (!matchesAdvancedSearch(targets, searchTerm)) return false;
       }
 
       // 2. Category Dropdown Filter
@@ -1479,27 +1557,27 @@ export default function RMINOUTStockPage() {
     });
 
     return result;
-  }, [unifiedMaterials, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy]);
+  }, [unifiedMaterials, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy, matchesAdvancedSearch]);
 
   // Filtered Date-Wise Ledger Transactions
   const filteredTransactions = useMemo(() => {
     let result = unifiedAllTransactions.filter(tx => {
-      // 1. Keyword search
-      const term = searchTerm.toLowerCase().trim();
-      if (term) {
-        const matchesTerm = (
-          (tx.rawMaterialCode || '').toLowerCase().includes(term) ||
-          (tx.rawMaterialName || '').toLowerCase().includes(term) ||
-          (tx.category || '').toLowerCase().includes(term) ||
-          (tx.referenceNo || '').toLowerCase().includes(term) ||
-          (tx.poReferenceNo || '').toLowerCase().includes(term) ||
-          (tx.batchNumber || '').toLowerCase().includes(term) ||
-          (tx.partyName || '').toLowerCase().includes(term) ||
-          (tx.user || '').toLowerCase().includes(term) ||
-          (tx.notes || '').toLowerCase().includes(term) ||
-          (tx.compositeComment || '').toLowerCase().includes(term)
-        );
-        if (!matchesTerm) return false;
+      // 1. Advanced Keyword search
+      if (searchTerm.trim()) {
+        const targets = [
+          tx.rawMaterialCode,
+          tx.rawMaterialName,
+          tx.category,
+          tx.referenceNo,
+          tx.poReferenceNo,
+          tx.batchNumber,
+          tx.partyName,
+          tx.user,
+          tx.notes,
+          tx.compositeComment,
+          tx.uom
+        ];
+        if (!matchesAdvancedSearch(targets, searchTerm)) return false;
       }
 
       // 2. Category Dropdown
@@ -1558,7 +1636,7 @@ export default function RMINOUTStockPage() {
     });
 
     return result;
-  }, [unifiedAllTransactions, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy]);
+  }, [unifiedAllTransactions, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy, matchesAdvancedSearch]);
 
   // Pagination for Materials
   const totalMaterialPages = Math.ceil(filteredMaterials.length / itemsPerPage) || 1;
@@ -1624,57 +1702,136 @@ export default function RMINOUTStockPage() {
     return 0;
   };
 
-  // Distinct movement dates in DD-MM-YYYY format across all transactions, chronologically sorted.
-  // Prioritizes Supplier Invoice Date (supplierInvoiceDate or invoiceDate) for IN inward receipts
-  // so the matrix headers represent Supplier Invoice Dates and group transactions invoice date-wise.
-  const matrixDates = useMemo(() => {
-    const dateMap = new Map();
-    unifiedAllTransactions.forEach(tx => {
-      const effectiveDate = (tx.flow === 'IN' && (tx.supplierInvoiceDate || tx.invoiceDate))
-        ? (tx.supplierInvoiceDate || tx.invoiceDate)
-        : tx.date;
-      if (effectiveDate) {
-        const dStr = formatDDMMYYYY(effectiveDate);
-        if (dStr && !dateMap.has(dStr)) {
-          dateMap.set(dStr, parseDDMMYYYY(dStr));
-        }
+  // Dynamic Movement Matrix Data and Movement Dates:
+  // Strictly derived from `filteredMaterials`.
+  // Rule: Only dates with actual IN or OUT movements (> 0) for the currently filtered/searched materials are displayed.
+  // When a user searches or changes any single RM code or filters materials, ONLY dates where that raw material
+  // has available IN or OUT data are displayed. If there is no movement on that date, it is NOT displayed.
+  const { matrixDates, matrixData } = useMemo(() => {
+    if (!filteredMaterials || filteredMaterials.length === 0) {
+      return { matrixDates: [], matrixData: {} };
+    }
+
+    // Quick lookup maps for filtered materials by ID and Code
+    const filteredMatMap = new Map();
+    const filteredCodeMap = new Map();
+    filteredMaterials.forEach(m => {
+      filteredMatMap.set(m.id, m);
+      if (m.code) {
+        filteredCodeMap.set(String(m.code).trim().toUpperCase(), m);
       }
     });
 
-    return Array.from(dateMap.keys()).sort((a, b) => dateMap.get(a) - dateMap.get(b));
-  }, [unifiedAllTransactions]);
+    // Collect all valid transactions with quantity > 0 for filtered materials
+    const relevantTxs = [];
+    const seenTxKeys = new Set();
 
-  // Movement Matrix Map: rawMaterialId -> dateStr -> { inQty, outQty, transactions: [] }
-  // Grouped invoice date-wise for inward receipts
-  const matrixData = useMemo(() => {
-    const map = {};
+    const processTx = (tx, fallbackMatId) => {
+      if (!tx) return;
+      const qty = Number(tx.quantity || 0);
+      if (qty <= 0) return; // No zero-movement records
 
+      let targetMat = null;
+      if (tx.rawMaterialId && filteredMatMap.has(tx.rawMaterialId)) {
+        targetMat = filteredMatMap.get(tx.rawMaterialId);
+      } else if (tx.rawMaterialCode && filteredCodeMap.has(String(tx.rawMaterialCode).trim().toUpperCase())) {
+        targetMat = filteredCodeMap.get(String(tx.rawMaterialCode).trim().toUpperCase());
+      } else if (fallbackMatId && filteredMatMap.has(fallbackMatId)) {
+        targetMat = filteredMatMap.get(fallbackMatId);
+      }
+
+      if (!targetMat) return; // Transaction does not belong to any currently filtered material
+
+      const effectiveDate = (tx.flow === 'IN' && (tx.supplierInvoiceDate || tx.invoiceDate))
+        ? (tx.supplierInvoiceDate || tx.invoiceDate)
+        : tx.date;
+      if (!effectiveDate) return;
+
+      const dStr = formatDDMMYYYY(effectiveDate);
+      if (!dStr) return;
+
+      // Unique transaction identifier to avoid duplicates between allTransactions and material.transactions
+      const txKey = `${tx.id || ''}_${targetMat.id}_${tx.flow || ''}_${dStr}_${qty}_${tx.referenceNo || ''}_${tx.batchNumber || ''}`;
+      if (seenTxKeys.has(txKey)) return;
+      seenTxKeys.add(txKey);
+
+      relevantTxs.push({
+        ...tx,
+        resolvedMatId: targetMat.id,
+        effectiveDateStr: dStr
+      });
+    };
+
+    // First process unifiedAllTransactions
+    (unifiedAllTransactions || []).forEach(tx => processTx(tx));
+
+    // Also verify materials' own transactions list in case of historical cache differences
     filteredMaterials.forEach(m => {
-      map[m.id] = {};
-      matrixDates.forEach(dStr => {
-        map[m.id][dStr] = { inQty: 0, outQty: 0, transactions: [] };
+      if (Array.isArray(m.transactions)) {
+        m.transactions.forEach(tx => processTx(tx, m.id));
+      }
+    });
+
+    // Aggregate into a temporary map: materialId -> dateStr -> { inQty, outQty, transactions }
+    const tempMap = {};
+    filteredMaterials.forEach(m => {
+      tempMap[m.id] = {};
+    });
+
+    const activeDateMap = new Map();
+
+    relevantTxs.forEach(tx => {
+      const matId = tx.resolvedMatId;
+      const dStr = tx.effectiveDateStr;
+
+      if (!tempMap[matId]) {
+        tempMap[matId] = {};
+      }
+      if (!tempMap[matId][dStr]) {
+        tempMap[matId][dStr] = { inQty: 0, outQty: 0, transactions: [] };
+      }
+
+      const qty = Number(tx.quantity || 0);
+      if (tx.flow === 'IN') {
+        tempMap[matId][dStr].inQty += qty;
+      } else {
+        tempMap[matId][dStr].outQty += qty;
+      }
+      tempMap[matId][dStr].transactions.push(tx);
+
+      // Register this date as active
+      if (!activeDateMap.has(dStr)) {
+        activeDateMap.set(dStr, parseDDMMYYYY(dStr));
+      }
+    });
+
+    // Chronologically sort all dates that have verified movements (> 0) among filtered materials
+    const sortedDates = Array.from(activeDateMap.keys()).sort(
+      (a, b) => activeDateMap.get(a) - activeDateMap.get(b)
+    );
+
+    // Final filter: ensure every date in sortedDates has inQty > 0 || outQty > 0 for at least one filtered material
+    const finalDates = sortedDates.filter(dStr => {
+      return filteredMaterials.some(m => {
+        const cell = tempMap[m.id]?.[dStr];
+        return cell && (Number(cell.inQty || 0) > 0 || Number(cell.outQty || 0) > 0);
       });
     });
 
-    unifiedAllTransactions.forEach(tx => {
-      const rmId = tx.rawMaterialId;
-      const effectiveDate = (tx.flow === 'IN' && (tx.supplierInvoiceDate || tx.invoiceDate))
-        ? (tx.supplierInvoiceDate || tx.invoiceDate)
-        : tx.date;
-      const dStr = formatDDMMYYYY(effectiveDate);
-      if (map[rmId] && map[rmId][dStr]) {
-        const qty = Number(tx.quantity || 0);
-        if (tx.flow === 'IN') {
-          map[rmId][dStr].inQty += qty;
-        } else {
-          map[rmId][dStr].outQty += qty;
-        }
-        map[rmId][dStr].transactions.push(tx);
-      }
+    // Initialize full grid so all filtered materials have defined entries for all finalDates
+    const finalData = {};
+    filteredMaterials.forEach(m => {
+      finalData[m.id] = {};
+      finalDates.forEach(dStr => {
+        finalData[m.id][dStr] = tempMap[m.id]?.[dStr] || { inQty: 0, outQty: 0, transactions: [] };
+      });
     });
 
-    return map;
-  }, [filteredMaterials, unifiedAllTransactions, matrixDates]);
+    return {
+      matrixDates: finalDates,
+      matrixData: finalData
+    };
+  }, [filteredMaterials, unifiedAllTransactions]);
 
   const formatDateTime = (dateStr) => {
     if (!dateStr) return '—';
@@ -2594,15 +2751,15 @@ export default function RMINOUTStockPage() {
       {viewMode === 'material' ? (
         /* MODE 1: MATERIAL-WISE SUMMARY TABLE WITH COLUMN SORTING */
         <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
-          {/* Desktop Table View with Clickable Column Sorting */}
-          <div className="hidden lg:block overflow-x-auto">
+          {/* Desktop Table View with Sticky Top Header & Clickable Column Sorting */}
+          <div className="hidden lg:block overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
             <Table>
-              <TableHeader>
-                <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                  <TableHead className="w-8 text-center"></TableHead>
+              <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800 shadow-xs">
+                <TableRow className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 w-8 text-center"></TableHead>
 
                   {/* 1. Code Column Header */}
-                  <TableHead className="min-w-[100px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[100px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('code')}
@@ -2615,7 +2772,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 2. Raw Material Name Header */}
-                  <TableHead className="min-w-[190px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-850 min-w-[190px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('name')}
@@ -2628,7 +2785,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 3. Category & UOM Header */}
-                  <TableHead className="min-w-[120px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-850 min-w-[120px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('category')}
@@ -2641,7 +2798,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 4. TOT STK & WIP Header */}
-                  <TableHead className="text-right min-w-[140px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[140px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('stock')}
@@ -2654,7 +2811,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 5. IN STK Header */}
-                  <TableHead className="text-right min-w-[115px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[115px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('in')}
@@ -2667,7 +2824,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 6. OUT STK Header */}
-                  <TableHead className="text-right min-w-[115px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[115px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('out')}
@@ -2680,7 +2837,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 7. Net Flow Header */}
-                  <TableHead className="text-right min-w-[105px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[105px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('net')}
@@ -2693,7 +2850,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 8. Valuation Header */}
-                  <TableHead className="text-right min-w-[115px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[115px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('valuation')}
@@ -2706,7 +2863,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 9. QC Status Header */}
-                  <TableHead className="text-center min-w-[100px]">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[100px]">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('qc')}
@@ -2719,7 +2876,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 10. Actions Header */}
-                  <TableHead className="text-center min-w-[130px] font-semibold text-slate-700 dark:text-slate-200">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[130px] font-semibold text-slate-700 dark:text-slate-200">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -3593,8 +3750,8 @@ export default function RMINOUTStockPage() {
                 <Table className="border-collapse">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100/95 dark:bg-slate-850/95 backdrop-blur-xs shadow-2xs">
                     <TableRow className="border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                      {/* 1. Frozen RM Code */}
-                      <TableHead className="sticky left-0 z-40 bg-slate-100 dark:bg-slate-850 w-[95px] min-w-[95px] max-w-[95px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                      {/* 1. Frozen RM Code (Pinned Top & Left) */}
+                      <TableHead className="sticky top-0 left-0 z-50 bg-slate-100 dark:bg-slate-850 w-[95px] min-w-[95px] max-w-[95px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('code')}
@@ -3606,8 +3763,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 2. Frozen Category Name */}
-                      <TableHead className="sticky left-[95px] z-40 bg-slate-100 dark:bg-slate-850 w-[130px] min-w-[130px] max-w-[130px] font-semibold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                      {/* 2. Frozen Category Name (Pinned Top & Left) */}
+                      <TableHead className="sticky top-0 left-[95px] z-50 bg-slate-100 dark:bg-slate-850 w-[130px] min-w-[130px] max-w-[130px] font-semibold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('category')}
@@ -3619,8 +3776,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 3. Frozen Raw Material Name */}
-                      <TableHead className="sticky left-[225px] z-40 bg-slate-100 dark:bg-slate-850 w-[170px] min-w-[170px] max-w-[170px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
+                      {/* 3. Frozen Raw Material Name (Pinned Top & Left) */}
+                      <TableHead className="sticky top-0 left-[225px] z-50 bg-slate-100 dark:bg-slate-850 w-[170px] min-w-[170px] max-w-[170px] font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 shadow-xs px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('name')}
@@ -3632,8 +3789,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 4. Frozen UOM */}
-                      <TableHead className="sticky left-[395px] z-40 bg-slate-100 dark:bg-slate-850 w-[65px] min-w-[65px] max-w-[65px] font-semibold text-slate-700 dark:text-slate-300 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] px-2 py-2">
+                      {/* 4. Frozen UOM (Pinned Top & Left) */}
+                      <TableHead className="sticky top-0 left-[395px] z-50 bg-slate-100 dark:bg-slate-850 w-[65px] min-w-[65px] max-w-[65px] font-semibold text-slate-700 dark:text-slate-300 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] px-2 py-2">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('uom')}
@@ -3645,8 +3802,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 5. TOT STK */}
-                      <TableHead className="text-right min-w-[95px] font-bold text-slate-900 dark:text-white px-2 py-2">
+                      {/* 5. TOT STK (Pinned Top) */}
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[95px] font-bold text-slate-900 dark:text-white px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('stock')}
@@ -3658,8 +3815,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 6. AVL STK */}
-                      <TableHead className="text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 px-2 py-2">
+                      {/* 6. AVL STK (Pinned Top) */}
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('free')}
@@ -3671,8 +3828,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 7. IN STK */}
-                      <TableHead className="text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-2">
+                      {/* 7. IN STK (Pinned Top) */}
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('in')}
@@ -3684,8 +3841,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 8. OUT STK */}
-                      <TableHead className="text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 px-2 py-2">
+                      {/* 8. OUT STK (Pinned Top) */}
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('out')}
@@ -3697,8 +3854,8 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* 9. Total Valuation */}
-                      <TableHead className="text-right min-w-[115px] font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 px-2 py-2">
+                      {/* 9. Total Valuation (Pinned Top) */}
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 text-right min-w-[115px] font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 px-2 py-2 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('valuation')}
@@ -3710,16 +3867,16 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* Dynamic Chronological Supplier Invoice Date Headers (DD-MM-YYYY) */}
+                      {/* Dynamic Chronological Supplier Invoice Date Headers (DD-MM-YYYY) (Pinned Top) */}
                       {matrixDates.length === 0 ? (
-                        <TableHead className="min-w-[180px] text-center text-slate-400">
+                        <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 min-w-[180px] text-center text-slate-400 shadow-xs">
                           No Movement Dates Found
                         </TableHead>
                       ) : (
                         matrixDates.map((dateStr) => (
                           <TableHead
                             key={dateStr}
-                            className="min-w-[105px] max-w-[130px] text-center font-bold font-mono text-slate-800 dark:text-slate-200 border-r border-slate-200/80 dark:border-slate-750 px-2 py-2"
+                            className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-850 min-w-[105px] max-w-[130px] text-center font-bold font-mono text-slate-800 dark:text-slate-200 border-r border-slate-200/80 dark:border-slate-750 px-2 py-2 shadow-xs"
                             title={`Supplier Invoice Date: ${dateStr}`}
                           >
                             <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200">{dateStr}</div>
@@ -4075,12 +4232,12 @@ export default function RMINOUTStockPage() {
             /* SUB-MODE B: CHRONOLOGICAL DETAILED TRANSACTION STREAM */
             <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
               {/* Desktop Table View */}
-              <div className="hidden lg:block overflow-x-auto">
+              <div className="hidden lg:block overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
                 <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-slate-800 shadow-xs">
+                    <TableRow className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[11px]">
                       {/* Date & Time Header */}
-                      <TableHead className="min-w-[110px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[110px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('date')}
@@ -4092,7 +4249,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Flow & Status Header */}
-                      <TableHead className="text-center min-w-[100px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[100px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('flow')}
@@ -4104,7 +4261,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Transaction Type Header */}
-                      <TableHead className="min-w-[140px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[140px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('type')}
@@ -4116,7 +4273,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* RM Code Header */}
-                      <TableHead className="min-w-[90px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[90px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('code')}
@@ -4128,7 +4285,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Raw Material Name Header */}
-                      <TableHead className="min-w-[170px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[170px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('name')}
@@ -4140,7 +4297,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Document Ref Header */}
-                      <TableHead className="min-w-[115px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[115px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('ref')}
@@ -4152,12 +4309,12 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Supplier Invoice Date Header */}
-                      <TableHead className="min-w-[125px] font-semibold text-slate-700 dark:text-slate-200">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[125px] font-semibold text-slate-700 dark:text-slate-200">
                         Supplier Inv Date
                       </TableHead>
 
                       {/* Batch / Lot Header */}
-                      <TableHead className="min-w-[90px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[90px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('batch')}
@@ -4169,7 +4326,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Inward (IN) Header */}
-                      <TableHead className="text-right min-w-[85px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('in')}
@@ -4181,7 +4338,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Outward (OUT) Header */}
-                      <TableHead className="text-right min-w-[85px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('out')}
@@ -4193,7 +4350,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Rate Header */}
-                      <TableHead className="text-right min-w-[85px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('rate')}
@@ -4205,7 +4362,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Amount Header */}
-                      <TableHead className="text-right min-w-[85px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-right min-w-[85px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('amount')}
@@ -4217,7 +4374,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* QC Status Header */}
-                      <TableHead className="text-center min-w-[95px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-center min-w-[95px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('qc')}
@@ -4229,7 +4386,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* Party / Notes Header */}
-                      <TableHead className="min-w-[150px]">
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-slate-800 min-w-[150px]">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('party')}
@@ -4770,48 +4927,48 @@ export default function RMINOUTStockPage() {
             }}
             onMouseLeave={handleCellMouseLeave}
           >
-            <div className="w-[350px] sm:w-[380px] max-w-[calc(100vw-24px)] rounded-2xl bg-white/98 dark:bg-slate-900/98 text-slate-800 dark:text-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.25)] backdrop-blur-2xl border border-slate-200/90 dark:border-slate-700/80 p-3.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
+            <div className="w-[290px] sm:w-[315px] max-w-[calc(100vw-16px)] rounded-xl bg-white/98 dark:bg-slate-900/98 text-slate-800 dark:text-slate-100 shadow-[0_12px_36px_rgba(0,0,0,0.22)] backdrop-blur-xl border border-slate-200/90 dark:border-slate-700/80 p-2.5 text-left font-sans select-none relative ring-1 ring-black/5 dark:ring-white/10">
               {/* Dynamic Arrow Pointer */}
               <div
-                className={`w-3.5 h-3.5 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
+                className={`w-3 h-3 bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-700/80 rotate-45 absolute ${
                   tooltipPosition.placeBelow
-                    ? '-top-2 border-t border-l'
-                    : '-bottom-2 border-b border-r'
+                    ? '-top-1.5 border-t border-l'
+                    : '-bottom-1.5 border-b border-r'
                 }`}
                 style={{
-                  left: `calc(50% + ${Math.max(-145, Math.min(145, tooltipPosition.arrowOffset))}px - 7px)`
+                  left: `calc(50% + ${Math.max(-130, Math.min(130, tooltipPosition.arrowOffset))}px - 6px)`
                 }}
               />
 
               {/* Card Header: Material Info, Movement Date, & Quick Close */}
-              <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-2.5 gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0 shadow-2xs border border-emerald-200/60 dark:border-emerald-800/50">
-                    <Calendar className="w-4 h-4" />
+              <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-1.5 gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="p-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 shrink-0 border border-emerald-200/60 dark:border-emerald-800/50">
+                    <Calendar className="w-3.5 h-3.5" />
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-xs text-slate-900 dark:text-white tracking-tight">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="font-bold text-[11px] text-slate-900 dark:text-white tracking-tight">
                         {activeCellTooltip.dateStr}
                       </span>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded font-sans font-medium bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60">
-                        Supplier Inv Date
+                      <span className="text-[8.5px] px-1 py-0.2 rounded font-sans font-medium bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60">
+                        Supplier Inv
                       </span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                      <span className="text-[9px] px-1 py-0.2 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {activeCellTooltip.matCode}
                       </span>
                     </div>
-                    <span className="text-[11px] text-slate-600 dark:text-slate-300 font-semibold truncate block mt-0.5" title={activeCellTooltip.matName}>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 font-semibold truncate block mt-0.5" title={activeCellTooltip.matName}>
                       {activeCellTooltip.matName}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center shrink-0">
                   <button
                     type="button"
                     onClick={() => setActiveCellTooltip(null)}
-                    className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    className="p-0.5 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                     title="Close"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -4820,28 +4977,28 @@ export default function RMINOUTStockPage() {
               </div>
 
               {/* Totals Summary Banner for this Cell */}
-              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 rounded-lg px-2.5 py-1.5 border border-slate-200/80 dark:border-slate-700/60 mb-2.5 text-xs">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 rounded-md px-2 py-1 border border-slate-200/80 dark:border-slate-700/60 mb-1.5 text-[10px]">
+                <div className="flex items-center gap-1.5">
                   {activeCellTooltip.cell.inQty > 0 && (
-                    <span className="inline-flex items-center gap-1 font-bold font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-300/80 dark:border-emerald-800/70 text-[11px]">
-                      <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
+                    <span className="inline-flex items-center gap-0.5 font-bold font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-300/80 dark:border-emerald-800/70 text-[10px]">
+                      <ArrowDownLeft className="w-2.5 h-2.5 text-emerald-600" />
                       +{Number(activeCellTooltip.cell.inQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })} IN
                     </span>
                   )}
                   {activeCellTooltip.cell.outQty > 0 && (
-                    <span className="inline-flex items-center gap-1 font-bold font-mono text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 px-2 py-0.5 rounded-md border border-rose-300/80 dark:border-rose-800/70 text-[11px]">
-                      <ArrowUpRight className="w-3 h-3 text-rose-600" />
+                    <span className="inline-flex items-center gap-0.5 font-bold font-mono text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 px-1.5 py-0.2 rounded border border-rose-300/80 dark:border-rose-800/70 text-[10px]">
+                      <ArrowUpRight className="w-2.5 h-2.5 text-rose-600" />
                       -{Number(activeCellTooltip.cell.outQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })} OUT
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] text-slate-500 font-mono">
+                <span className="text-[9.5px] text-slate-500 font-mono">
                   {activeCellTooltip.cell.transactions.length} record{activeCellTooltip.cell.transactions.length > 1 ? 's' : ''}
                 </span>
               </div>
 
-              {/* Scrollable Transactions List with Custom Scrollbar */}
-              <div className="stock-popup-scrollable space-y-2 max-h-[290px] overflow-y-auto pr-1.5 scroll-smooth overscroll-contain [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-slate-100 dark:[&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-emerald-500">
+              {/* Scrollable Transactions List with Compact Sizing */}
+              <div className="stock-popup-scrollable space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scroll-smooth overscroll-contain [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-slate-100 dark:[&::-webkit-scrollbar-track]:bg-slate-800 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-emerald-500">
                 {activeCellTooltip.cell.transactions.map((t, idx) => {
                   const poNo = t.poReferenceNo || t.poNumber || (t.type === 'PO_PROCUREMENT' ? t.referenceNo : null);
                   const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
@@ -4851,20 +5008,20 @@ export default function RMINOUTStockPage() {
                   return (
                     <div
                       key={idx}
-                      className={`space-y-1.5 rounded-xl p-2.5 border transition-all shadow-xs ${
+                      className={`space-y-1 rounded-lg p-2 border transition-all shadow-2xs ${
                         isIN
-                          ? 'border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-slate-200/80 dark:border-slate-750'
-                          : 'border-l-4 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20 border-slate-200/80 dark:border-slate-750'
+                          ? 'border-l-3 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-slate-200/80 dark:border-slate-750'
+                          : 'border-l-3 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20 border-slate-200/80 dark:border-slate-750'
                       }`}
                     >
                       {/* Flow Quantity & Type Badge */}
                       <div className="flex items-center justify-between gap-1">
-                        <span className={`font-bold font-mono text-xs flex items-center gap-1 ${
+                        <span className={`font-bold font-mono text-[11px] flex items-center gap-1 ${
                           isIN ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
                         }`}>
                           {isIN ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(activeCellTooltip.uom)}
                         </span>
-                        <span className={`text-[9.5px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border ${
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider border ${
                           isIN
                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
                             : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border-rose-300 dark:border-rose-800'
@@ -4875,40 +5032,40 @@ export default function RMINOUTStockPage() {
 
                       {/* PO Number Highlight */}
                       {poNo && poNo !== '—' && (
-                        <div className="text-[11px] flex items-center justify-between bg-white dark:bg-slate-900/90 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                        <div className="text-[10px] flex items-center justify-between bg-white dark:bg-slate-900/90 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700/80">
                           <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
-                            <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <FileText className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                             PO Number:
                           </span>
-                          <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">{poNo}</span>
+                          <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300 truncate max-w-[150px]">{poNo}</span>
                         </div>
                       )}
 
                       {/* GRN Number Highlight */}
                       {grnNo && grnNo !== '—' && (
-                        <div className="text-[11px] flex items-center justify-between bg-white dark:bg-slate-900/90 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                        <div className="text-[10px] flex items-center justify-between bg-white dark:bg-slate-900/90 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700/80">
                           <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
-                            <Package className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                            <Package className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
                             GRN Number:
                           </span>
-                          <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">{grnNo}</span>
+                          <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 truncate max-w-[150px]">{grnNo}</span>
                         </div>
                       )}
 
                       {/* Invoice Number & Date */}
                       {(t.supplierInvoiceNo || invDate) && (
-                        <div className="grid grid-cols-2 gap-1.5 text-[10px] pt-0.5">
+                        <div className="grid grid-cols-2 gap-1 text-[9.5px]">
                           {t.supplierInvoiceNo && (
-                            <div className="bg-white dark:bg-slate-900/90 px-2 py-1 rounded-md border border-slate-200/80 dark:border-slate-700/60">
-                              <span className="text-slate-400 dark:text-slate-500 block text-[9px] font-medium">Invoice No</span>
+                            <div className="bg-white dark:bg-slate-900/90 px-1.5 py-0.5 rounded border border-slate-200/80 dark:border-slate-700/60">
+                              <span className="text-slate-400 dark:text-slate-500 block text-[8.5px] font-medium">Inv No</span>
                               <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 truncate block">
                                 {t.supplierInvoiceNo}
                               </span>
                             </div>
                           )}
                           {invDate && (
-                            <div className="bg-amber-50/70 dark:bg-amber-950/40 px-2 py-1 rounded-md border border-amber-200/80 dark:border-amber-800/50">
-                              <span className="text-amber-700 dark:text-amber-400 block text-[9px] font-medium">Invoice Date</span>
+                            <div className="bg-amber-50/70 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200/80 dark:border-amber-800/50">
+                              <span className="text-amber-700 dark:text-amber-400 block text-[8.5px] font-medium">Inv Date</span>
                               <span className="font-semibold text-amber-800 dark:text-amber-300 truncate block">
                                 {invDate}
                               </span>
@@ -4919,16 +5076,16 @@ export default function RMINOUTStockPage() {
 
                       {/* Batch / Lot */}
                       {t.batchNumber && t.batchNumber !== '—' && (
-                        <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between px-0.5">
+                        <div className="text-[9.5px] text-slate-600 dark:text-slate-300 flex items-center justify-between px-0.5">
                           <span className="text-slate-400">Batch / Lot:</span>
-                          <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">{t.batchNumber}</span>
+                          <span className="font-mono font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[150px]">{t.batchNumber}</span>
                         </div>
                       )}
 
                       {/* Party / Supplier */}
                       {t.partyName && (
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate px-0.5 flex items-center gap-1.5 pt-0.5" title={t.partyName}>
-                          <Truck className="w-3 h-3 shrink-0 opacity-70" />
+                        <div className="text-[9.5px] text-slate-500 dark:text-slate-400 truncate px-0.5 flex items-center gap-1" title={t.partyName}>
+                          <Truck className="w-2.5 h-2.5 shrink-0 opacity-70" />
                           <span className="truncate">{t.partyName}</span>
                         </div>
                       )}
@@ -4939,13 +5096,13 @@ export default function RMINOUTStockPage() {
 
               {/* Scroll Indicator if more than 2 transactions */}
               {activeCellTooltip.cell.transactions.length > 2 && (
-                <div className="text-[9.5px] text-center text-slate-400 dark:text-slate-500 pt-1.5 font-medium select-none flex items-center justify-center gap-1">
-                  <span>↓ Scroll down to view all records</span>
+                <div className="text-[9px] text-center text-slate-400 dark:text-slate-500 pt-1 font-medium select-none flex items-center justify-center gap-1">
+                  <span>↓ Scroll to view all records</span>
                 </div>
               )}
 
               {/* Card Footer: View Lifecycle Audit Button */}
-              <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-1.5 mt-1.5 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => {
@@ -4953,9 +5110,9 @@ export default function RMINOUTStockPage() {
                     setActiveCellTooltip(null);
                     handleOpenHistory(matId);
                   }}
-                  className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  className="w-full py-1 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-all shadow-2xs cursor-pointer"
                 >
-                  <Eye className="w-3.5 h-3.5" />
+                  <Eye className="w-3 h-3" />
                   <span>View Material Audit Timeline</span>
                 </button>
               </div>

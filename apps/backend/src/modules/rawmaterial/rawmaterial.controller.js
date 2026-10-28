@@ -3067,7 +3067,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     );
     const inProgressUsages = formattedUsages.filter(u =>
       !u.isCancelled &&
-      ['in progress', 'planned', 'draft'].includes(String(u.batchStatus || '').toLowerCase())
+      ['in progress', 'planned', 'running'].includes(String(u.batchStatus || '').toLowerCase())
     );
     const cancelledUsages = formattedUsages.filter(u => u.isCancelled);
 
@@ -4171,12 +4171,19 @@ exports.getRmInOutStock = async (req, res, next) => {
       const productName = u.batch?.product?.name || 'Manufactured Item';
       const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
 
-      // Check if batch is currently or was in progress during selected period (WIP)
       const rawBatchStatus = u.batch?.status || u.batch?.approvalStatus || 'Completed';
-      const isInProgress = String(rawBatchStatus).toLowerCase().includes('progress') ||
-                           String(rawBatchStatus).toLowerCase().includes('running') ||
-                           String(rawBatchStatus).toLowerCase().includes('paused') ||
-                           String(rawBatchStatus).toLowerCase().includes('draft');
+      const statusLower = String(rawBatchStatus).toLowerCase();
+      const isDraft = statusLower === 'draft' || 
+                      String(u.batch?.status || '').toLowerCase() === 'draft' ||
+                      Boolean(u.batch?.isDraft);
+
+      // Rule: If production is draft, do not display in OUT. Only display once the production is run.
+      if (isDraft) continue;
+
+      const isInProgress = statusLower.includes('progress') ||
+                           statusLower.includes('running') ||
+                           statusLower.includes('paused') ||
+                           statusLower.includes('active');
 
       if (isInProgress) {
         const batchStart = u.batch?.startDate || u.batch?.createdAt || date;
