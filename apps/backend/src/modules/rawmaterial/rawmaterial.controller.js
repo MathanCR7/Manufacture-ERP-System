@@ -4564,8 +4564,8 @@ exports.getRmInOutStock = async (req, res, next) => {
       // When a specific period filter (e.g. Today, This Year, This Week, This Month, or Custom) is active,
       // stock reflects the net receipts / movements in that timeframe: periodIn - periodOut.
       // If there was no activity in this timeframe, period stock is 0.
-      // When reviewing lifetime ('all'), curStock is liveStock.
-      let curStock = liveStock;
+      // When reviewing lifetime ('all'), curStock reflects monitored lifetime stock including invoiced PO inward.
+      let curStock = Math.max(liveStock, Math.round(txData.lifetimeIn * 1000) / 1000);
       if (isPeriodFiltered) {
         curStock = Math.max(0, Math.round((periodIn - periodOut) * 1000) / 1000);
       } else if (isHistorical) {
