@@ -2290,8 +2290,68 @@ export default function RMINOUTStockPage() {
       </div>
 
       {/* ── KPI EXECUTIVE STAT CARDS (Ultra-Compact SAP Tool Style Strip) ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-1 sm:gap-1.5">
-        {/* Card 1: TOT STK (Click to show All / Reset) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-1 sm:gap-1.5">
+        {/* Card 1: TOTAL - TOTAL PO + TAX */}
+        <div
+          className="border border-emerald-300/90 dark:border-emerald-800/80 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-emerald-400 shadow-2xs"
+          title="Total stock valuation derived strictly from Purchase Orders including GST"
+        >
+          <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-[10px]">
+            <span className="font-bold truncate uppercase tracking-wider">Total - Total PO + Tax</span>
+            <IndianRupee className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          </div>
+          <div className="text-[13px] sm:text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO Gross Valuation</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
+              PO Realtime
+            </span>
+          </div>
+        </div>
+
+        {/* Card 2: TAX - TAX AMOUNT */}
+        <div
+          className="border border-indigo-200/80 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-indigo-300"
+          title="Total PO-derived GST tax amount for current stock"
+        >
+          <div className="flex items-center justify-between text-indigo-700 dark:text-indigo-400 text-[10px]">
+            <span className="font-semibold truncate uppercase tracking-wider">Tax - Tax Amount</span>
+            <IndianRupee className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          </div>
+          <div className="text-[13px] sm:text-sm font-bold text-indigo-700 dark:text-indigo-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalTaxAmount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[9px] text-indigo-600/80 dark:text-indigo-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO GST Amount</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 font-medium shrink-0 leading-none">
+              {periodDisplayText.shortBadge}
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: TOTAL - TOTAL PO (WITHOUT TAX) */}
+        <div
+          className="border border-cyan-200/80 dark:border-cyan-900/40 bg-cyan-50/30 dark:bg-cyan-950/20 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-cyan-300"
+          title="Total stock valuation derived strictly from Purchase Orders excluding GST tax"
+        >
+          <div className="flex items-center justify-between text-cyan-700 dark:text-cyan-400 text-[10px]">
+            <span className="font-semibold truncate uppercase tracking-wider">Total - PO (Without Tax)</span>
+            <IndianRupee className="w-3 h-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
+          </div>
+          <div className="text-[13px] sm:text-sm font-bold text-cyan-800 dark:text-cyan-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalValuationWithoutTax || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </div>
+          <div className="text-[9px] text-cyan-600/80 dark:text-cyan-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO Net Subtotal</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/50 text-cyan-800 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/50 font-medium shrink-0 leading-none">
+              Excl. GST
+            </span>
+          </div>
+        </div>
+
+        {/* Card 4: TOT STK (Click to show All / Reset) */}
         <div
           onClick={() => setMovementFilter('ALL')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2326,7 +2386,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 2: In-Progress WIP (Click to filter WIP) */}
+        {/* Card 5: In-Progress WIP (Click to filter WIP) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'IN_PROGRESS' ? 'ALL' : 'IN_PROGRESS')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2354,7 +2414,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 3: AVL STK (Free Available) */}
+        {/* Card 6: AVL STK (Free Available) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'FREE_AVAILABLE' ? 'ALL' : 'FREE_AVAILABLE')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2379,7 +2439,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 4: IN STK (Period Inward) */}
+        {/* Card 7: IN STK (Period Inward) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'IN_ONLY' ? 'ALL' : 'IN_ONLY')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2402,7 +2462,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 5: OUT STK (Period Outward) */}
+        {/* Card 8: OUT STK (Period Outward) */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'OUT_ONLY' ? 'ALL' : 'OUT_ONLY')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2425,7 +2485,7 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 6: Net Movement */}
+        {/* Card 9: NET MOVEMENT */}
         <div
           onClick={() => setMovementFilter(movementFilter === 'WITH_MOVEMENT' ? 'ALL' : 'WITH_MOVEMENT')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
@@ -2454,46 +2514,6 @@ export default function RMINOUTStockPage() {
           <div className="text-[9px] text-slate-500 truncate flex items-center justify-between gap-1 leading-none">
             <span className="truncate">{summary.activeMovementCount || 0} / {summary.totalMaterials || 0} active</span>
             {movementFilter === 'WITH_MOVEMENT' && <span className="font-bold text-[8px] sm:text-[8.5px] text-purple-600 bg-purple-100 dark:bg-purple-900/50 px-1 py-0.5 rounded leading-none shrink-0">Filtered</span>}
-          </div>
-        </div>
-
-        {/* Card 7: Tax - Tax Amount */}
-        <div
-          className="border border-indigo-200/80 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-indigo-300"
-          title="Total PO-derived GST tax amount for current stock"
-        >
-          <div className="flex items-center justify-between text-indigo-700 dark:text-indigo-400 text-[10px]">
-            <span className="font-semibold truncate uppercase tracking-wider">Tax - Tax Amount</span>
-            <IndianRupee className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
-          </div>
-          <div className="text-[13px] sm:text-sm font-bold text-indigo-700 dark:text-indigo-300 font-mono leading-tight tracking-tight my-0.5">
-            ₹{Number(summary.totalTaxAmount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-          </div>
-          <div className="text-[9px] text-indigo-600/80 dark:text-indigo-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO GST Amount</span>
-            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 font-medium shrink-0 leading-none">
-              {periodDisplayText.shortBadge}
-            </span>
-          </div>
-        </div>
-
-        {/* Card 8: Total - Total PO + Tax */}
-        <div
-          className="border border-emerald-300/90 dark:border-emerald-800/80 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-emerald-400 shadow-2xs"
-          title="Total stock valuation derived strictly from Purchase Orders including GST"
-        >
-          <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-[10px]">
-            <span className="font-bold truncate uppercase tracking-wider">Total - Total PO + Tax</span>
-            <IndianRupee className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          </div>
-          <div className="text-[13px] sm:text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
-            ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-          </div>
-          <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO Gross Valuation</span>
-            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
-              PO Realtime
-            </span>
           </div>
         </div>
       </div>

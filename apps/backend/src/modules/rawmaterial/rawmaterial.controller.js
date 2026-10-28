@@ -4175,12 +4175,17 @@ exports.getRmInOutStock = async (req, res, next) => {
 
       const rawBatchStatus = u.batch?.status || u.batch?.approvalStatus || 'Completed';
       const statusLower = String(rawBatchStatus).toLowerCase();
-      const isDraft = statusLower === 'draft' || 
-                      String(u.batch?.status || '').toLowerCase() === 'draft' ||
-                      Boolean(u.batch?.isDraft);
+      const approvalLower = String(u.batch?.approvalStatus || '').toLowerCase();
+      const isNotStarted = statusLower === 'draft' ||
+                           statusLower === 'planned' ||
+                           statusLower === 'scheduled' ||
+                           statusLower === 'pending' ||
+                           approvalLower === 'draft' ||
+                           Boolean(u.batch?.isDraft);
 
-      // Rule: If production is draft, do not display in OUT. Only display once the production is run.
-      if (isDraft) continue;
+      // Rule: If production batch is draft / planned / not started, do not display in OUT and do not reduce stock.
+      // OUT is ONLY displayed once the production has actually started/run or from /waste/raw-material/add.
+      if (isNotStarted) continue;
 
       const isInProgress = statusLower.includes('progress') ||
                            statusLower.includes('running') ||
