@@ -261,8 +261,8 @@ export async function exportStockInOutMatrixToExcel({
 
   const staticHeaders = [
     { title: 'RM Code', width: 14, align: 'center', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'Raw Material Name', width: 30, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Category', width: 22, align: 'left', hdrColor: COLORS.TABLE_HEADER },
+    { title: 'Raw Material Name', width: 30, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'UOM', width: 9, align: 'center', hdrColor: COLORS.TABLE_HEADER },
     { title: 'TotalStock', width: 14, align: 'right', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Available Stock', width: 16, align: 'right', hdrColor: COLORS.ACCENT_GREEN_HDR },
@@ -333,21 +333,21 @@ export async function exportStockInOutMatrixToExcel({
     cCode.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
     cCode.border = BORDERS.thin;
 
-    // 2. Raw Material Name
-    const cName = row.getCell(2);
-    cName.value = mat.name || '—';
-    cName.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.TEXT_MAIN } };
-    cName.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-    cName.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
-    cName.border = BORDERS.thin;
-
-    // 3. Category
-    const cCat = row.getCell(3);
+    // 2. Category
+    const cCat = row.getCell(2);
     cCat.value = mat.category || '—';
     cCat.font = { name: 'Segoe UI', size: 9, color: { argb: 'FF334155' } };
     cCat.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
     cCat.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
     cCat.border = BORDERS.thin;
+
+    // 3. Raw Material Name
+    const cName = row.getCell(3);
+    cName.value = mat.name || '—';
+    cName.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.TEXT_MAIN } };
+    cName.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    cName.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
+    cName.border = BORDERS.thin;
 
     // 4. UOM
     const cUom = row.getCell(4);
@@ -800,8 +800,8 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
   hRow.height = 28;
   const staticHdrs = [
     { title: 'RM Code', width: 14, align: 'center', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'Raw Material Name', width: 30, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Category', width: 22, align: 'left', hdrColor: COLORS.TABLE_HEADER },
+    { title: 'Raw Material Name', width: 30, align: 'left', hdrColor: COLORS.TABLE_HEADER },
     { title: 'UOM', width: 9, align: 'center', hdrColor: COLORS.TABLE_HEADER },
     { title: 'TotalStock', width: 14, align: 'right', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Available Stock', width: 16, align: 'right', hdrColor: COLORS.ACCENT_GREEN_HDR },
@@ -849,9 +849,9 @@ export async function exportCompleteEnterpriseWorkbookToExcel({
     row.getCell(1).font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF0284C7' } };
     row.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    row.getCell(2).value = mat.name || '—';
-    row.getCell(2).font = { name: 'Segoe UI', size: 9.5, bold: true };
-    row.getCell(3).value = mat.category || '—';
+    row.getCell(2).value = mat.category || '—';
+    row.getCell(3).value = mat.name || '—';
+    row.getCell(3).font = { name: 'Segoe UI', size: 9.5, bold: true };
     row.getCell(4).value = cleanUOM(mat.uom);
     row.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
 

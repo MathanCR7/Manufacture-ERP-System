@@ -1567,12 +1567,17 @@ export default function RMINOUTStockPage() {
     return 0;
   };
 
-  // Distinct movement dates in DD-MM-YYYY format across all transactions, chronologically sorted
+  // Distinct movement dates in DD-MM-YYYY format across all transactions, chronologically sorted.
+  // Prioritizes Supplier Invoice Date (supplierInvoiceDate or invoiceDate) for IN inward receipts
+  // so the matrix headers represent Supplier Invoice Dates and group transactions invoice date-wise.
   const matrixDates = useMemo(() => {
     const dateMap = new Map();
     unifiedAllTransactions.forEach(tx => {
-      if (tx.date) {
-        const dStr = formatDDMMYYYY(tx.date);
+      const effectiveDate = (tx.flow === 'IN' && (tx.supplierInvoiceDate || tx.invoiceDate))
+        ? (tx.supplierInvoiceDate || tx.invoiceDate)
+        : tx.date;
+      if (effectiveDate) {
+        const dStr = formatDDMMYYYY(effectiveDate);
         if (dStr && !dateMap.has(dStr)) {
           dateMap.set(dStr, parseDDMMYYYY(dStr));
         }
@@ -1583,6 +1588,7 @@ export default function RMINOUTStockPage() {
   }, [unifiedAllTransactions]);
 
   // Movement Matrix Map: rawMaterialId -> dateStr -> { inQty, outQty, transactions: [] }
+  // Grouped invoice date-wise for inward receipts
   const matrixData = useMemo(() => {
     const map = {};
 
@@ -1595,7 +1601,10 @@ export default function RMINOUTStockPage() {
 
     unifiedAllTransactions.forEach(tx => {
       const rmId = tx.rawMaterialId;
-      const dStr = formatDDMMYYYY(tx.date);
+      const effectiveDate = (tx.flow === 'IN' && (tx.supplierInvoiceDate || tx.invoiceDate))
+        ? (tx.supplierInvoiceDate || tx.invoiceDate)
+        : tx.date;
+      const dStr = formatDDMMYYYY(effectiveDate);
       if (map[rmId] && map[rmId][dStr]) {
         const qty = Number(tx.quantity || 0);
         if (tx.flow === 'IN') {
@@ -3598,7 +3607,7 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* Dynamic Chronological Date Headers (DD-MM-YYYY) */}
+                      {/* Dynamic Chronological Supplier Invoice Date Headers (DD-MM-YYYY) */}
                       {matrixDates.length === 0 ? (
                         <TableHead className="min-w-[180px] text-center text-slate-400">
                           No Movement Dates Found
@@ -3608,8 +3617,9 @@ export default function RMINOUTStockPage() {
                           <TableHead
                             key={dateStr}
                             className="min-w-[105px] max-w-[130px] text-center font-bold font-mono text-slate-800 dark:text-slate-200 border-r border-slate-200/80 dark:border-slate-750 px-2 py-2"
+                            title={`Supplier Invoice Date: ${dateStr}`}
                           >
-                            <div className="text-[11px] font-bold">{dateStr}</div>
+                            <div className="text-[11px] font-bold text-slate-800 dark:text-slate-200">{dateStr}</div>
                           </TableHead>
                         ))
                       )}
@@ -3708,9 +3718,9 @@ export default function RMINOUTStockPage() {
                                 const hasIn = cell.inQty > 0;
                                 const hasOut = cell.outQty > 0;
 
-                                // PO Supplier Invoice Date check
-                                const poTx = cell.transactions.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo || t.poReferenceNo);
-                                const invDateFormatted = poTx?.supplierInvoiceDate ? formatDate(poTx.supplierInvoiceDate) : null;
+                                // PO Supplier Invoice No check
+                                const poTx = cell.transactions.find(t => t.supplierInvoiceNo || t.poReferenceNo);
+                                const invNo = poTx?.supplierInvoiceNo;
 
                                 return (
                                   <TableCell
@@ -3730,9 +3740,9 @@ export default function RMINOUTStockPage() {
                                         <span className="w-full text-center px-1.5 py-0.5 rounded-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 text-[11px] leading-tight border border-rose-200 dark:border-rose-800/60">
                                           -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
-                                        {invDateFormatted && (
-                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold">
-                                            Inv: {invDateFormatted}
+                                        {invNo && (
+                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[85px]" title={`Invoice No: ${invNo}`}>
+                                            #{invNo}
                                           </span>
                                         )}
                                       </div>
@@ -3741,9 +3751,9 @@ export default function RMINOUTStockPage() {
                                         <span className="px-2 py-0.5 rounded-md font-bold text-emerald-600 dark:text-emerald-400 text-xs">
                                           +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
-                                        {invDateFormatted && (
-                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold">
-                                            Inv: {invDateFormatted}
+                                        {invNo && (
+                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[85px]" title={`Invoice No: ${invNo}`}>
+                                            #{invNo}
                                           </span>
                                         )}
                                       </div>
@@ -4672,6 +4682,9 @@ export default function RMINOUTStockPage() {
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-bold text-xs text-slate-900 dark:text-white tracking-tight">
                         {activeCellTooltip.dateStr}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded font-sans font-medium bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60">
+                        Supplier Inv Date
                       </span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {activeCellTooltip.matCode}

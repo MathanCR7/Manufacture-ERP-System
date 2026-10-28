@@ -3960,7 +3960,11 @@ exports.getRmInOutStock = async (req, res, next) => {
       if (!rm) continue;
 
       const target = rmTxMap.get(rm.id);
-      const date = item.grn?.receivedDate || item.createdAt;
+      const supplierInvNo = item.grn?.po?.supplierInvoiceNo || item.grn?.invoiceNumber || null;
+      const supplierInvDate = item.grn?.po?.supplierInvoiceDate || item.grn?.invoiceDate || null;
+      const receivedDate = item.grn?.receivedDate || item.createdAt;
+      // Inward receipts: primary movement date is supplier invoice date when available
+      const date = supplierInvDate || receivedDate;
       const qty = Number(item.actualReceivedQty || item.expectedQty || 0);
       const isPeriod = inRange(date);
       const isAfter = isAfterRange(date);
@@ -3988,8 +3992,6 @@ exports.getRmInOutStock = async (req, res, next) => {
       const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
       const amount = Math.round(qty * rate * 100) / 100;
 
-      const supplierInvNo = item.grn?.po?.supplierInvoiceNo || item.grn?.invoiceNumber || null;
-      const supplierInvDate = item.grn?.po?.supplierInvoiceDate || null;
       const invDateFormatted = supplierInvDate ? new Date(supplierInvDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
 
       const tx = {
@@ -4000,6 +4002,7 @@ exports.getRmInOutStock = async (req, res, next) => {
         category: rm.category?.name || 'Uncategorised',
         uom: rm.unitId,
         date,
+        receivedDate,
         flow: 'IN',
         type: 'GRN',
         typeLabel: isLabRejected ? 'GRN Inward (Lab Rejected)' : 'GRN Inward Receipt',
@@ -4027,7 +4030,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       };
 
       if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId, isLabRejected, labStatus, supplierInvoiceDate: supplierInvDate };
+        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId, isLabRejected, labStatus, supplierInvoiceDate: supplierInvDate, receivedDate };
       }
 
       if (isPeriod) {
@@ -4052,14 +4055,15 @@ exports.getRmInOutStock = async (req, res, next) => {
           if (!rm) continue;
 
           const target = rmTxMap.get(rm.id);
-          const date = po.createdAt;
+          const supplierInvNo = po.supplierInvoiceNo || null;
+          const supplierInvDate = po.supplierInvoiceDate || null;
+          const receivedDate = po.createdAt;
+          const date = supplierInvDate || receivedDate;
           const qty = Number(pItem.quantity || po.quantity || 0);
           const isPeriod = inRange(date);
           const isAfter = isAfterRange(date);
           const poRef = po.referenceNo || 'PO';
           const supplierName = po.supplier?.name || 'Vendor';
-          const supplierInvNo = po.supplierInvoiceNo || null;
-          const supplierInvDate = po.supplierInvoiceDate || null;
           const invDateFormatted = supplierInvDate ? new Date(supplierInvDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
 
           target.lifetimeIn += qty;
@@ -4072,6 +4076,7 @@ exports.getRmInOutStock = async (req, res, next) => {
             category: rm.category?.name || 'Uncategorised',
             uom: rm.unitId,
             date,
+            receivedDate,
             flow: 'IN',
             type: 'PO_PROCUREMENT',
             typeLabel: `PO Inward (${po.status})`,
@@ -4093,7 +4098,7 @@ exports.getRmInOutStock = async (req, res, next) => {
           };
 
           if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-            target.lastIn = { date, ref: poRef, qty, party: supplierName, poId: po.id, supplierInvoiceDate: supplierInvDate };
+            target.lastIn = { date, ref: poRef, qty, party: supplierName, poId: po.id, supplierInvoiceDate: supplierInvDate, receivedDate };
           }
 
           if (isPeriod) {
