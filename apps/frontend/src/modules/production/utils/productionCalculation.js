@@ -125,7 +125,10 @@ export function calculateEvaporation({
     const line = lines[i];
     const available = Number(line.availableQty ?? line.available_qty ?? 0);
     const required = Number(line.requiredQty ?? line.required_qty ?? 0);
-    const taken = Number(line.takenQty ?? line.taken_qty ?? 0);
+    let taken = Number(line.takenQty ?? line.taken_qty ?? 0);
+    if (taken <= 0 && required > 0) {
+      taken = required;
+    }
     const density = Number(line.density || line.density_g_per_ml || 1.0);
     const uom = line.uom || line.selectedUom || line.baseUom || 'kg';
     const evaporates = Boolean(line.evaporates ?? line.evaporates_by_default ?? false);
@@ -264,7 +267,7 @@ export function calculateAllocations({
     if (wasteMode === 'PERCENT' || wasteMode === '%') {
       wasteMl = (mixUsedMl * wasteVal) / 100;
     } else {
-      wasteMl = wasteVal;
+      wasteMl = trays > 0 ? (wasteVal * trays) : 0;
     }
 
     if (capacityMl <= 0) {
@@ -382,7 +385,7 @@ export function computeMaxTrays(param1, param2, param3) {
   if (wasteMode === 'PERCENT' || wasteMode === '%') {
     const wasteFactor = Math.min(0.9, Math.max(0, wasteValue / 100));
     mixPerTray = nominalSet / (1 - wasteFactor);
-  } else if (wasteMode === 'ABSOLUTE' || wasteMode === 'ML') {
+  } else if (wasteMode === 'ABSOLUTE' || wasteMode === 'ML' || wasteMode === 'FIXED_ML_PER_TRAY') {
     mixPerTray = nominalSet + wasteValue;
   }
 

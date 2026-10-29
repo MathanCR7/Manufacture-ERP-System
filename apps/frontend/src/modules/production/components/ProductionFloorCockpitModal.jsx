@@ -436,13 +436,19 @@ export default function ProductionFloorCockpitModal({
 
   // Available mix for moulding allocation
   const availableMixMl = useMemo(() => {
-    if (!isSlideMerged) return 0;
-    return liveEvaporationResult.mixAfterEvapMl;
-  }, [isSlideMerged, liveEvaporationResult.mixAfterEvapMl]);
+    if (liveEvaporationResult.mixAfterEvapMl > 0) {
+      return liveEvaporationResult.mixAfterEvapMl;
+    }
+    if (liveEvaporationResult.totalBeforeEvapMl > 0) {
+      return liveEvaporationResult.totalBeforeEvapMl;
+    }
+    return 0;
+  }, [liveEvaporationResult.mixAfterEvapMl, liveEvaporationResult.totalBeforeEvapMl]);
 
   // Live sequential product mould allocation math
   const liveAllocationsResult = useMemo(() => {
     return calculateAllocations({
+      availableMixMl,
       totalMixMl: availableMixMl,
       allocations
     });
@@ -754,7 +760,16 @@ export default function ProductionFloorCockpitModal({
   const handleUpdateRmRow = (index, field, value) => {
     setRmRows(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
+      const current = copy[index] || {};
+      if (field === 'requiredQty') {
+        const prevReq = Number(current.requiredQty || 0);
+        const prevTaken = Number(current.takenQty || 0);
+        if (prevTaken <= 0 || prevTaken === prevReq) {
+          copy[index] = { ...current, requiredQty: value, takenQty: value };
+          return copy;
+        }
+      }
+      copy[index] = { ...current, [field]: value };
       return copy;
     });
   };
@@ -876,23 +891,30 @@ export default function ProductionFloorCockpitModal({
     if (!alloc) return;
     const prevAllocations = allocations.slice(0, index);
     const prevUsed = prevAllocations.reduce((acc, a) => {
-      const cap = Number(a.capacityMl || 50);
-      const cav = Number(a.cavities || 1);
+      const cap = Number(a.capacityMl || 20);
+      const cav = Number(a.cavities || 50);
       const trays = Number(a.trays || 0);
       const wm = a.wasteMode || 'PERCENT';
-      const wv = Number(a.wasteValue ?? 0);
+      const wv = Number(a.wasteValue ?? 2);
       const rawMl = trays * cav * cap;
-      const wasteMl = wm === 'PERCENT' ? rawMl * (wv / 100) : trays * wv;
+      const wasteMl = (wm === 'PERCENT' || wm === '%') ? rawMl * (wv / 100) : (wv * trays);
       return acc + (rawMl + wasteMl);
     }, 0);
 
-    const remainingForThis = Math.max(0, availableMixMl - prevUsed);
+    const effectiveTotal = availableMixMl > 0 ? availableMixMl : (liveEvaporationResult.mixAfterEvapMl || liveEvaporationResult.totalBeforeEvapMl || 0);
+    const remainingForThis = Math.max(0, effectiveTotal - prevUsed);
+    
+    const cap = Number(alloc.capacityMl || 20);
+    const cav = Number(alloc.cavities || 50);
+    const wm = alloc.wasteMode || 'PERCENT';
+    const wv = Number(alloc.wasteValue ?? 2);
+
     const maxT = computeMaxTrays({
       availableMixMl: remainingForThis,
-      capacityMl: alloc.capacityMl,
-      cavities: alloc.cavities,
-      wasteMode: alloc.wasteMode,
-      wasteValue: alloc.wasteValue
+      capacityMl: cap,
+      cavities: cav,
+      wasteMode: wm,
+      wasteValue: wv
     });
 
     handleUpdateAllocation(index, 'trays', maxT);
@@ -913,22 +935,23 @@ export default function ProductionFloorCockpitModal({
       const currentAlloc = copy[targetAllocIndex] || {};
       const prevAllocations = copy.slice(0, targetAllocIndex);
       const prevUsed = prevAllocations.reduce((acc, a) => {
-        const c = Number(a.capacityMl || 50);
-        const cv = Number(a.cavities || 1);
+        const c = Number(a.capacityMl || 20);
+        const cv = Number(a.cavities || 50);
         const t = Number(a.trays || 0);
         const wm = a.wasteMode || 'PERCENT';
-        const wv = Number(a.wasteValue ?? 0);
+        const wv = Number(a.wasteValue ?? 2);
         const rawMl = t * cv * c;
-        const wMl = wm === 'PERCENT' ? rawMl * (wv / 100) : t * wv;
+        const wMl = (wm === 'PERCENT' || wm === '%') ? rawMl * (wv / 100) : (wv * t);
         return acc + (rawMl + wMl);
       }, 0);
-      const remainingForThis = Math.max(0, availableMixMl - prevUsed);
+      const effectiveTotal = availableMixMl > 0 ? availableMixMl : (liveEvaporationResult.mixAfterEvapMl || liveEvaporationResult.totalBeforeEvapMl || 0);
+      const remainingForThis = Math.max(0, effectiveTotal - prevUsed);
       const autoMaxTrays = computeMaxTrays({
         availableMixMl: remainingForThis,
         capacityMl: cap,
         cavities: cav,
         wasteMode: currentAlloc.wasteMode || 'PERCENT',
-        wasteValue: currentAlloc.wasteValue || 0
+        wasteValue: Number(currentAlloc.wasteValue ?? 2)
       });
 
       copy[targetAllocIndex] = {
@@ -1938,10 +1961,10 @@ export default function ProductionFloorCockpitModal({
                             Total Before Evaporation
                           </div>
                           <div className="text-lg font-mono font-black text-indigo-950 dark:text-indigo-200 mt-1">
-                            {isSlideMerged ? formatIndian(liveEvaporationResult.totalBeforeEvapMl) : 0} ml
+                            {formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml
                           </div>
                           <div className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300">
-                            ≈ {isSlideMerged ? formatIndian(liveEvaporationResult.totalBeforeEvapLitres) : 0} Litres
+                            ≈ {formatIndian(liveEvaporationResult.totalBeforeEvapL ?? round2(liveEvaporationResult.totalBeforeEvapMl / 1000))} Litres
                           </div>
                         </div>
 
@@ -1950,7 +1973,7 @@ export default function ProductionFloorCockpitModal({
                             Evaporated Mass Loss ({evaporationPct}%)
                           </div>
                           <div className="text-lg font-mono font-black text-amber-950 dark:text-amber-200 mt-1">
-                            {isSlideMerged && evaporationApplied ? `-${formatIndian(liveEvaporationResult.evaporatedMl)}` : '0'} ml
+                            {evaporationApplied ? `-${formatIndian(liveEvaporationResult.evaporatedMl)}` : '0'} ml
                           </div>
                           <div className="text-[11px] font-mono text-amber-700 dark:text-amber-300">
                             Base: {formatIndian(liveEvaporationResult.evaporationBaseMl)} ml eligible
@@ -1962,10 +1985,10 @@ export default function ProductionFloorCockpitModal({
                             Mix After Evaporation
                           </div>
                           <div className="text-lg font-mono font-black text-emerald-950 dark:text-emerald-200 mt-1">
-                            {isSlideMerged ? formatIndian(liveEvaporationResult.mixAfterEvapMl) : 0} ml
+                            {formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml
                           </div>
                           <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300">
-                            ≈ {isSlideMerged ? formatIndian(round2(liveEvaporationResult.mixAfterEvapMl / 1000)) : 0} Litres available
+                            ≈ {formatIndian(liveEvaporationResult.mixAfterEvapL ?? round2(liveEvaporationResult.mixAfterEvapMl / 1000))} Litres available
                           </div>
                         </div>
                       </div>
@@ -1986,40 +2009,60 @@ export default function ProductionFloorCockpitModal({
 
                     <div className="flex-1 overflow-y-auto p-3 divide-y divide-slate-100 dark:divide-slate-800">
                       {liveEvaporationResult.lines.map((line, idx) => {
-                        const postMl = Number(line.takenMlAfterEvap ?? line.postEvapMl ?? line.takenMl ?? 0);
-                        let displayMl = postMl;
-                        if (displayMl <= 0 && Number(line.takenQty || 0) > 0) {
-                          try {
-                            displayMl = toMl(Number(line.takenQty || 0), line.uom, Number(line.density || 1.0));
-                          } catch (_) {}
+                        const rawMl = Number(line.takenMl ?? line.requiredMl ?? 0);
+                        const isEvap = Boolean(line.evaporates);
+                        let postMl = Number(line.takenMlAfterEvap ?? line.postEvapMl ?? 0);
+                        if (postMl <= 0 && rawMl > 0) {
+                          postMl = (isEvap && evaporationApplied) ? Math.max(0, rawMl * (1 - (evaporationPct / 100))) : rawMl;
                         }
+                        const displayMl = postMl > 0 ? postMl : rawMl;
+                        
                         const avail = Number(line.availableQty ?? 0);
-                        const taken = Number(line.takenQty ?? 0);
+                        const taken = Number(line.takenQty || 0) > 0 ? Number(line.takenQty) : Number(line.requiredQty || 0);
                         const remStock = Number(line.remainingStock !== undefined ? line.remainingStock : (avail - taken));
 
                         return (
-                          <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-2.5 first:pt-1 last:pb-1 text-xs space-y-1">
+                          <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-2.5 first:pt-1 last:pb-1 text-xs space-y-1.5 border-b last:border-b-0 border-slate-100 dark:border-slate-800">
                             <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
-                              <span className="truncate max-w-[150px]">{line.rawMaterialName}</span>
-                              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold">
-                                {formatIndian(displayMl)} ml
-                              </span>
+                              <span className="truncate max-w-[150px] font-semibold">{line.rawMaterialName}</span>
+                              <div className="text-right">
+                                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-black text-xs">
+                                  {formatIndian(displayMl)} ml
+                                </span>
+                                {isEvap && evaporationApplied && (
+                                  <span className="block text-[9px] text-amber-600 dark:text-amber-400 font-semibold">
+                                    (-{evaporationPct}% evap)
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-[11px] text-slate-500">
-                              <span>Taken / Stock:</span>
-                              <span className="font-mono text-slate-700 dark:text-slate-300">
-                                <strong className="text-indigo-600 dark:text-indigo-400">{taken}</strong> / {formatIndian(avail > 0 ? avail : (remStock + taken))} {line.uom}
-                              </span>
+
+                            <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-lg">
+                              <div>
+                                <span className="text-[9.5px] text-slate-400 block">Warehouse Stock:</span>
+                                <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                                  {formatIndian(avail)} {line.uom}
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-[9.5px] text-slate-400 block">Batch Taken:</span>
+                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                  {formatIndian(taken)} {line.uom}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-[11px] text-slate-500">
-                              <span>Remaining Stock:</span>
-                              <span className={`font-mono font-bold ${remStock < 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
+
+                            <div className="flex items-center justify-between text-[11px] pt-0.5">
+                              <span className="text-slate-500 font-medium">Remaining Warehouse Stock:</span>
+                              <span className={`font-mono font-black ${remStock < 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                 {formatIndian(remStock)} {line.uom}
                               </span>
                             </div>
+
                             {line.lotBatchNo && (
-                              <div className="text-[10px] font-mono text-slate-400 truncate">
-                                PO Lot: <span className="text-indigo-600 dark:text-indigo-400 font-bold">{line.lotBatchNo}</span>
+                              <div className="text-[10px] font-mono text-slate-400 truncate flex items-center justify-between">
+                                <span>PO Lot:</span>
+                                <span className="text-indigo-600 dark:text-indigo-400 font-bold truncate max-w-[130px]">{line.lotBatchNo}</span>
                               </div>
                             )}
                           </div>
@@ -2382,7 +2425,19 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Calculated Mould Yield</div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase">Calculated Mould Yield</div>
+                        {liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setActualYieldPieces(liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0))}
+                            className="text-[9.5px] font-bold text-purple-600 hover:text-purple-700 underline cursor-pointer"
+                            title="Copy mould yield to actual good recorded"
+                          >
+                            Sync to Actual
+                          </button>
+                        )}
+                      </div>
                       <div className="text-lg font-mono font-black text-purple-600 dark:text-purple-400 mt-1">
                         {liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0)} pcs
                       </div>
@@ -2408,7 +2463,14 @@ export default function ProductionFloorCockpitModal({
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
                       <div className="text-[10px] font-bold text-slate-500 uppercase">Yield Efficiency</div>
                       <div className="text-lg font-mono font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                        {round2((actualYieldPieces / (batch?.quantity || 2000)) * 100)}%
+                        {(() => {
+                          const mouldPieces = liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0);
+                          const target = mouldPieces > 0 ? mouldPieces : (batch?.quantity || 2000);
+                          return target > 0 ? `${round2((actualYieldPieces / target) * 100)}%` : '100%';
+                        })()}
+                      </div>
+                      <div className="text-[9.5px] text-slate-400 mt-0.5">
+                        vs Planned: {round2((actualYieldPieces / (batch?.quantity || 2000)) * 100)}%
                       </div>
                     </div>
                   </div>
