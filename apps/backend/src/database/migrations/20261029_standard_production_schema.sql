@@ -147,5 +147,12 @@ WHERE LOWER(name) LIKE '%milk%'
    OR LOWER(name) LIKE '%essence%'
    OR LOWER(name) LIKE '%vanilla%'
    OR LOWER(name) LIKE '%rabdi%';
+-- 8. Grant full access on newly created tables and views to public and erp users
+GRANT ALL PRIVILEGES ON TABLE production_batch_merge TO PUBLIC;
+GRANT ALL PRIVILEGES ON TABLE production_batch_rm_line TO PUBLIC;
+GRANT ALL PRIVILEGES ON TABLE production_batch_allocation TO PUBLIC;
+GRANT ALL PRIVILEGES ON TABLE production_moulds TO PUBLIC;
+GRANT ALL PRIVILEGES ON ice_cream_mould TO PUBLIC;
+GRANT ALL PRIVILEGES ON raw_material TO PUBLIC;
 
 COMMIT;

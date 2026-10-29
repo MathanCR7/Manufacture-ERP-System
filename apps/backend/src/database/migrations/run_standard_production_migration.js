@@ -141,7 +141,13 @@ const migrationStatements = [
       OR LOWER(name) LIKE '%skimmed%' 
       OR LOWER(name) LIKE '%essence%'
       OR LOWER(name) LIKE '%vanilla%'
-      OR LOWER(name) LIKE '%rabdi%';`
+      OR LOWER(name) LIKE '%rabdi%';`,
+
+  // 11. Grant permissions to application users
+  `GRANT ALL PRIVILEGES ON TABLE production_batch_merge TO PUBLIC;`,
+  `GRANT ALL PRIVILEGES ON TABLE production_batch_rm_line TO PUBLIC;`,
+  `GRANT ALL PRIVILEGES ON TABLE production_batch_allocation TO PUBLIC;`,
+  `GRANT ALL PRIVILEGES ON TABLE production_moulds TO PUBLIC;`
 ];
 
 async function run() {

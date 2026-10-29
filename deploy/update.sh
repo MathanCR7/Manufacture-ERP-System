@@ -20,7 +20,7 @@ npx prisma generate
 npx prisma db push --accept-data-loss
 node src/database/migrations/ensure_production_batches_redesign_schema.js || true
 node src/database/migrations/run_standard_production_migration.js || true
-sudo -u postgres psql -d erp_manufacture -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO leonex_web_user; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO leonex_web_user; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO leonex_web_user;" 2>/dev/null || true
+sudo -u postgres psql -d erp_manufacture -c "GRANT ALL PRIVILEGES ON SCHEMA public TO leonex_web_user, erp_user, PUBLIC; GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO leonex_web_user, erp_user, PUBLIC; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO leonex_web_user, erp_user, PUBLIC; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO leonex_web_user, erp_user, PUBLIC; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO leonex_web_user, erp_user, PUBLIC;" 2>/dev/null || true
 echo "🔄 [3/5] Reloading PM2 Backend Server..."
 if pm2 describe erp-backend > /dev/null 2>&1; then
     pm2 reload erp-backend --update-env

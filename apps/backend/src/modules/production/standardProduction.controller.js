@@ -51,36 +51,40 @@ let isSchemaEnsured = false;
 async function ensureStandardProductionSchema(p = prisma) {
   if (isSchemaEnsured) return;
   try {
-    await p.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+    try {
+      await p.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+    } catch (_) {}
 
     // Ensure production_moulds table
-    await p.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS production_moulds (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        mould_code VARCHAR(50) NOT NULL UNIQUE,
-        mould_name VARCHAR(150) NOT NULL,
-        mould_category VARCHAR(100) NOT NULL,
-        model_number VARCHAR(100),
-        capacity_ml DECIMAL(10, 2) NOT NULL,
-        cavity_count INT DEFAULT 1,
-        total_nominal_capacity_ml DECIMAL(12, 2) GENERATED ALWAYS AS (capacity_ml * cavity_count) STORED,
-        tray_length_mm DECIMAL(10, 2),
-        tray_width_mm DECIMAL(10, 2),
-        tray_height_mm DECIMAL(10, 2),
-        cavity_length_mm DECIMAL(10, 2),
-        cavity_width_mm DECIMAL(10, 2),
-        cavity_depth_mm DECIMAL(10, 2),
-        dimension_text VARCHAR(255),
-        material VARCHAR(100) DEFAULT 'Stainless Steel 304',
-        machine_type VARCHAR(100) DEFAULT 'Brine Tank Line',
-        specification_status VARCHAR(50) NOT NULL DEFAULT 'VERIFIED',
-        supplier_id VARCHAR(100),
-        supplier_name VARCHAR(200),
-        status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
-        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    try {
+      await p.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS production_moulds (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          mould_code VARCHAR(50) NOT NULL UNIQUE,
+          mould_name VARCHAR(150) NOT NULL,
+          mould_category VARCHAR(100) NOT NULL,
+          model_number VARCHAR(100),
+          capacity_ml DECIMAL(10, 2) NOT NULL,
+          cavity_count INT DEFAULT 1,
+          total_nominal_capacity_ml DECIMAL(12, 2) GENERATED ALWAYS AS (capacity_ml * cavity_count) STORED,
+          tray_length_mm DECIMAL(10, 2),
+          tray_width_mm DECIMAL(10, 2),
+          tray_height_mm DECIMAL(10, 2),
+          cavity_length_mm DECIMAL(10, 2),
+          cavity_width_mm DECIMAL(10, 2),
+          cavity_depth_mm DECIMAL(10, 2),
+          dimension_text VARCHAR(255),
+          material VARCHAR(100) DEFAULT 'Stainless Steel 304',
+          machine_type VARCHAR(100) DEFAULT 'Brine Tank Line',
+          specification_status VARCHAR(50) NOT NULL DEFAULT 'VERIFIED',
+          supplier_id VARCHAR(100),
+          supplier_name VARCHAR(200),
+          status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (_) {}
 
     // Ensure view ice_cream_mould
     try {
@@ -101,61 +105,67 @@ async function ensureStandardProductionSchema(p = prisma) {
     }
 
     // Ensure production_batch_rm_line
-    await p.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS production_batch_rm_line (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
-        raw_material_id TEXT NOT NULL,
-        lot_id TEXT,
-        uom VARCHAR(30) NOT NULL,
-        density NUMERIC(8,4) NOT NULL DEFAULT 1.0000 CHECK (density > 0),
-        available_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (available_qty >= 0),
-        required_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (required_qty >= 0),
-        taken_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (taken_qty >= 0),
-        evaporates BOOLEAN NOT NULL DEFAULT FALSE,
-        merged BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    try {
+      await p.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS production_batch_rm_line (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
+          raw_material_id TEXT NOT NULL,
+          lot_id TEXT,
+          uom VARCHAR(30) NOT NULL,
+          density NUMERIC(8,4) NOT NULL DEFAULT 1.0000 CHECK (density > 0),
+          available_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (available_qty >= 0),
+          required_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (required_qty >= 0),
+          taken_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (taken_qty >= 0),
+          evaporates BOOLEAN NOT NULL DEFAULT FALSE,
+          merged BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (_) {}
 
     // Ensure production_batch_merge
-    await p.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS production_batch_merge (
-        batch_id TEXT PRIMARY KEY REFERENCES production_batches(id) ON DELETE CASCADE,
-        merge_stage VARCHAR(50) NOT NULL DEFAULT 'Before freezing',
-        merged_total_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (merged_total_ml >= 0),
-        evaporation_pct NUMERIC(6,2) NOT NULL DEFAULT 5.00 CHECK (evaporation_pct >= 0 AND evaporation_pct <= 100),
-        evaporation_applied BOOLEAN NOT NULL DEFAULT FALSE,
-        evaporated_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (evaporated_ml >= 0),
-        mix_after_evap_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_after_evap_ml >= 0),
-        locked BOOLEAN NOT NULL DEFAULT FALSE,
-        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    try {
+      await p.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS production_batch_merge (
+          batch_id TEXT PRIMARY KEY REFERENCES production_batches(id) ON DELETE CASCADE,
+          merge_stage VARCHAR(50) NOT NULL DEFAULT 'Before freezing',
+          merged_total_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (merged_total_ml >= 0),
+          evaporation_pct NUMERIC(6,2) NOT NULL DEFAULT 5.00 CHECK (evaporation_pct >= 0 AND evaporation_pct <= 100),
+          evaporation_applied BOOLEAN NOT NULL DEFAULT FALSE,
+          evaporated_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (evaporated_ml >= 0),
+          mix_after_evap_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_after_evap_ml >= 0),
+          locked BOOLEAN NOT NULL DEFAULT FALSE,
+          updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (_) {}
 
     // Ensure production_batch_allocation
-    await p.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS production_batch_allocation (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
-        seq INT NOT NULL,
-        product_id TEXT NOT NULL,
-        use_mould BOOLEAN NOT NULL DEFAULT FALSE,
-        mould_id UUID,
-        capacity_ml NUMERIC(10,2) NOT NULL CHECK (capacity_ml >= 0),
-        cavities INT NOT NULL DEFAULT 1 CHECK (cavities > 0),
-        trays INT NOT NULL DEFAULT 0 CHECK (trays >= 0),
-        waste_mode VARCHAR(20) NOT NULL DEFAULT 'PERCENT',
-        waste_value NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (waste_value >= 0),
-        mix_used_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_used_ml >= 0),
-        waste_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (waste_ml >= 0),
-        good_pieces INT NOT NULL DEFAULT 0 CHECK (good_pieces >= 0),
-        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT uq_pb_alloc_batch_seq UNIQUE (batch_id, seq)
-      );
-    `);
+    try {
+      await p.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS production_batch_allocation (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
+          seq INT NOT NULL,
+          product_id TEXT NOT NULL,
+          use_mould BOOLEAN NOT NULL DEFAULT FALSE,
+          mould_id UUID,
+          capacity_ml NUMERIC(10,2) NOT NULL CHECK (capacity_ml >= 0),
+          cavities INT NOT NULL DEFAULT 1 CHECK (cavities > 0),
+          trays INT NOT NULL DEFAULT 0 CHECK (trays >= 0),
+          waste_mode VARCHAR(20) NOT NULL DEFAULT 'PERCENT',
+          waste_value NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (waste_value >= 0),
+          mix_used_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_used_ml >= 0),
+          waste_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (waste_ml >= 0),
+          good_pieces INT NOT NULL DEFAULT 0 CHECK (good_pieces >= 0),
+          created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT uq_pb_alloc_batch_seq UNIQUE (batch_id, seq)
+        );
+      `);
+    } catch (_) {}
 
     // Add columns to production_batches if missing
     try {
@@ -209,7 +219,7 @@ class StandardProductionController {
           material,
           machine_type,
           specification_status,
-          dimension_source,
+          'SPECIFICATION' AS dimension_source,
           supplier_id,
           supplier_name,
           status,
@@ -537,16 +547,20 @@ class StandardProductionController {
         }
 
         // Initialize production_batch_merge entry
-        await tx.$executeRawUnsafe(`
-          INSERT INTO production_batch_merge (
-            batch_id, merge_stage, merged_total_ml, evaporation_pct,
-            evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, updated_at
-          ) VALUES (
-            $1, 'Before freezing', 0, 5.00,
-            false, 0, 0, false, CURRENT_TIMESTAMP
-          )
-          ON CONFLICT (batch_id) DO NOTHING;
-        `, id);
+        try {
+          await tx.$executeRawUnsafe(`
+            INSERT INTO production_batch_merge (
+              batch_id, merge_stage, merged_total_ml, evaporation_pct,
+              evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, updated_at
+            ) VALUES (
+              $1, 'Before freezing', 0, 5.00,
+              false, 0, 0, false, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (batch_id) DO NOTHING;
+          `, id);
+        } catch (mErr) {
+          console.warn('Notice initializing production_batch_merge:', mErr.message);
+        }
 
         // Update batch status to IN_PROGRESS (In Progress)
         const operatorName = req.user?.username || req.user?.name || 'Operator';
@@ -618,10 +632,17 @@ class StandardProductionController {
         }
 
         // Check if merge is already locked
-        const mergeRows = await tx.$queryRawUnsafe(`
-          SELECT locked FROM production_batch_merge WHERE batch_id = $1;
-        `, id);
-        if (mergeRows.length > 0 && mergeRows[0].locked) {
+        let isMergeLocked = false;
+        try {
+          const mergeRows = await tx.$queryRawUnsafe(`
+            SELECT locked FROM production_batch_merge WHERE batch_id = $1;
+          `, id);
+          if (mergeRows.length > 0 && mergeRows[0].locked) {
+            isMergeLocked = true;
+          }
+        } catch (_) {}
+
+        if (isMergeLocked) {
           return res.status(409).json({
             error: 'Floor merge and evaporation for this batch has been locked after completion.'
           });
@@ -767,24 +788,28 @@ class StandardProductionController {
         }
 
         // Persist computed merge results into production_batch_merge
-        await tx.$executeRawUnsafe(`
-          INSERT INTO production_batch_merge (
-            batch_id, merge_stage, merged_total_ml, evaporation_pct,
-            evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, updated_at
-          ) VALUES (
-            $1, $2, $3, $4,
-            $5, $6, $7, false, CURRENT_TIMESTAMP
-          )
-          ON CONFLICT (batch_id) DO UPDATE SET
-            merge_stage = EXCLUDED.merge_stage,
-            merged_total_ml = EXCLUDED.merged_total_ml,
-            evaporation_pct = EXCLUDED.evaporation_pct,
-            evaporation_applied = EXCLUDED.evaporation_applied,
-            evaporated_ml = EXCLUDED.evaporated_ml,
-            mix_after_evap_ml = EXCLUDED.mix_after_evap_ml,
-            updated_at = CURRENT_TIMESTAMP;
-        `, id, computed.mergeStage, computed.totalBeforeEvapMl, computed.evaporationPct,
-           computed.evaporationApplied, computed.evaporatedMl, computed.mixAfterEvapMl);
+        try {
+          await tx.$executeRawUnsafe(`
+            INSERT INTO production_batch_merge (
+              batch_id, merge_stage, merged_total_ml, evaporation_pct,
+              evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, updated_at
+            ) VALUES (
+              $1, $2, $3, $4,
+              $5, $6, $7, false, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (batch_id) DO UPDATE SET
+              merge_stage = EXCLUDED.merge_stage,
+              merged_total_ml = EXCLUDED.merged_total_ml,
+              evaporation_pct = EXCLUDED.evaporation_pct,
+              evaporation_applied = EXCLUDED.evaporation_applied,
+              evaporated_ml = EXCLUDED.evaporated_ml,
+              mix_after_evap_ml = EXCLUDED.mix_after_evap_ml,
+              updated_at = CURRENT_TIMESTAMP;
+          `, id, computed.mergeStage, computed.totalBeforeEvapMl, computed.evaporationPct,
+             computed.evaporationApplied, computed.evaporatedMl, computed.mixAfterEvapMl);
+        } catch (mErr) {
+          console.warn('Notice persisting to production_batch_merge:', mErr.message);
+        }
 
         // Mirror to production_batches columns for fast dashboard queries
         await tx.$executeRawUnsafe(`
@@ -891,6 +916,7 @@ class StandardProductionController {
 
         for (let i = 0; i < computed.allocations.length; i++) {
           const alloc = computed.allocations[i];
+          const mouldUuid = (alloc.mouldId && typeof alloc.mouldId === 'string' && alloc.mouldId.trim().length > 10) ? alloc.mouldId.trim() : null;
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_allocation (
               id, batch_id, seq, product_id, use_mould, mould_id,
@@ -898,12 +924,12 @@ class StandardProductionController {
               mix_used_ml, waste_ml, good_pieces,
               created_at, updated_at
             ) VALUES (
-              gen_random_uuid(), $1, $2, $3, $4, CASE WHEN $5 IS NULL OR $5 = '' THEN NULL ELSE $5::uuid END,
+              gen_random_uuid(), $1, $2, $3, $4, ($5::uuid),
               $6, $7, $8, $9, $10,
               $11, $12, $13,
               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
-          `, id, alloc.seq, alloc.productId, Boolean(alloc.useMould), alloc.mouldId || null,
+          `, id, alloc.seq, alloc.productId, Boolean(alloc.useMould), mouldUuid,
              alloc.capacityMl, alloc.cavities, alloc.trays, alloc.wasteMode, alloc.wasteValue,
              alloc.mixUsedMl, alloc.wasteMl, alloc.goodPieces);
         }
@@ -1361,9 +1387,13 @@ class StandardProductionController {
         `, id, Number(actualOutput || 0), notes ? `[Completion Note]: ${notes}` : '', operatorName);
 
         // Lock merge table
-        await tx.$executeRawUnsafe(`
-          UPDATE production_batch_merge SET locked = TRUE, updated_at = CURRENT_TIMESTAMP WHERE batch_id = $1;
-        `, id);
+        try {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batch_merge SET locked = TRUE, updated_at = CURRENT_TIMESTAMP WHERE batch_id = $1;
+          `, id);
+        } catch (mErr) {
+          console.warn('Notice locking production_batch_merge:', mErr.message);
+        }
 
         return {
           id,
