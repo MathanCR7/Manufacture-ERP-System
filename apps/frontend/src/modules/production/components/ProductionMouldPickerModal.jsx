@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/axios';
+import { formatIndian } from '../utils/productionCalculation';
 
 const CATEGORY_TABS = [
   { id: 'ALL', label: 'All Moulds' },

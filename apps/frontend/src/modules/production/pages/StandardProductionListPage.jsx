@@ -58,6 +58,10 @@ export default function StandardProductionListPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [baseFilter, setBaseFilter] = useState('ALL');
   const [shiftFilter, setShiftFilter] = useState('ALL');
+  const [datePreset, setDatePreset] = useState('ALL'); // ALL, TODAY, THIS_WEEK, THIS_MONTH
+
+  // Multi-Row Selection State
+  const [selectedBatchIds, setSelectedBatchIds] = useState([]);
 
   // Sorting State - default date descending (latest first)
   const [sortBy, setSortBy] = useState('date_desc');
@@ -107,6 +111,100 @@ export default function StandardProductionListPage() {
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [batches]);
+
+  // Computed status counts for high-contrast filter pills
+  const statusCounts = useMemo(() => {
+    const counts = {
+      ALL: batches.length,
+      PLANNED: 0,
+      IN_PROGRESS: 0,
+      COMPLETED: 0,
+      QC_QUEUE: 0,
+      PAUSED: 0
+    };
+    batches.forEach(b => {
+      const s = (b.status || '').toLowerCase();
+      if (s === 'planned' || s === 'draft') counts.PLANNED++;
+      else if (s === 'in progress') counts.IN_PROGRESS++;
+      else if (s === 'completed' || s === 'qc_passed') counts.COMPLETED++;
+      else if (s.includes('qc') || s.includes('lab test')) counts.QC_QUEUE++;
+      else if (s === 'paused') counts.PAUSED++;
+    });
+    return counts;
+  }, [batches]);
+
+  // Row Selection Handlers
+  const handleToggleSelectBatch = (id) => {
+    setSelectedBatchIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = (currentPageBatches) => {
+    const pageIds = currentPageBatches.map(b => b.id);
+    const allSelectedOnPage = pageIds.length > 0 && pageIds.every(id => selectedBatchIds.includes(id));
+    if (allSelectedOnPage) {
+      setSelectedBatchIds(prev => prev.filter(id => !pageIds.includes(id)));
+    } else {
+      setSelectedBatchIds(prev => Array.from(new Set([...prev, ...pageIds])));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedBatchIds([]);
+  };
+
+  const handleExportSelectedCSV = () => {
+    const selectedBatches = batches.filter(b => selectedBatchIds.includes(b.id));
+    if (selectedBatches.length === 0) return;
+
+    const headers = ['Batch No', 'Date', 'Shift', 'Base Name', 'Product', 'Planned Qty', 'Status', 'Total Cost'];
+    const rows = selectedBatches.map(b => [
+      `"${b.referenceNo || b.batchNo || ''}"`,
+      `"${new Date(b.startDate || b.createdAt).toLocaleDateString('en-GB')}"`,
+      `"${b.shift || 'Morning'}"`,
+      `"${b.baseName || ''}"`,
+      `"${b.product?.name || ''}"`,
+      b.quantity || 0,
+      `"${b.status || ''}"`,
+      b.totalCost || 0
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `standard_batches_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleBulkStart = async () => {
+    const eligibleBatches = batches.filter(b => selectedBatchIds.includes(b.id) && (b.status === 'Draft' || b.status === 'Planned'));
+    if (eligibleBatches.length === 0) {
+      Swal.fire({ title: 'No Draft Batches', text: 'None of the selected batches are in Draft/Planned status.', icon: 'info' });
+      return;
+    }
+    const confirm = await Swal.fire({
+      title: `Start ${eligibleBatches.length} Batches?`,
+      text: `Are you sure you want to transition these batches to 'In Progress'?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Start',
+      confirmButtonColor: '#4f46e5'
+    });
+    if (confirm.isConfirmed) {
+      for (const b of eligibleBatches) {
+        try {
+          await api.patch(`/production/batches-redesign/${b.id}/status`, { status: 'In Progress' });
+        } catch (_) {}
+      }
+      fetchBatches();
+      setSelectedBatchIds([]);
+      Swal.fire({ title: 'Batches Started!', text: `${eligibleBatches.length} batches started on floor.`, icon: 'success' });
+    }
+  };
 
   // Open Floor Execution Cockpit Modal
   const handleOpenCockpit = (batch) => {
@@ -255,6 +353,20 @@ export default function StandardProductionListPage() {
       // 4. Shift Filter
       if (shiftFilter !== 'ALL') {
         if ((b.shift || '').toLowerCase() !== shiftFilter.toLowerCase()) return false;
+      }
+
+      // 5. Date Preset Filter
+      if (datePreset !== 'ALL' && b.startDate) {
+        const bDate = new Date(b.startDate);
+        const now = new Date();
+        if (datePreset === 'TODAY') {
+          if (bDate.toDateString() !== now.toDateString()) return false;
+        } else if (datePreset === 'THIS_WEEK') {
+          const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          if (bDate < sevenDaysAgo) return false;
+        } else if (datePreset === 'THIS_MONTH') {
+          if (bDate.getMonth() !== now.getMonth() || bDate.getFullYear() !== now.getFullYear()) return false;
+        }
       }
 
       return true;
@@ -518,7 +630,45 @@ export default function StandardProductionListPage() {
       {/* ── MAIN BATCH TABLE CARD MATCHING /rm/stock TOOLBAR & LAYOUT ── */}
       <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden flex flex-col text-xs">
         <CardContent className="p-0">
-          
+
+          {/* Quick Filter Status Pills Navigation Ribbon */}
+          <div className="px-3.5 pt-3 pb-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar">
+            {[
+              { id: 'ALL', label: 'All Batches', count: statusCounts.ALL },
+              { id: 'Planned', label: 'Draft / Planned', count: statusCounts.PLANNED },
+              { id: 'In Progress', label: 'In Progress', count: statusCounts.IN_PROGRESS, pulse: true },
+              { id: 'Completed', label: 'Completed', count: statusCounts.COMPLETED },
+              { id: 'Lab Test In Progress', label: 'In QC Queue', count: statusCounts.QC_QUEUE },
+              { id: 'Paused', label: 'Paused', count: statusCounts.PAUSED }
+            ].map(tab => {
+              const isActive = statusFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => { setStatusFilter(tab.id); setCurrentPage(1); }}
+                  className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all text-xs cursor-pointer shrink-0 border ${
+                    isActive 
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {tab.pulse && (
+                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-amber-300' : 'bg-amber-500'} animate-pulse`} />
+                  )}
+                  <span>{tab.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] ${
+                    isActive 
+                      ? 'bg-white/20 text-white' 
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           {/* Integrated Pro Toolbar: Search + Status + Base + Shift + Reset (Identical to /rm/stock) */}
           <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
             
@@ -624,6 +774,27 @@ export default function StandardProductionListPage() {
                 </span>
               </div>
 
+              {/* Date Preset Filter */}
+              <div className="relative flex-1 sm:flex-none min-w-[115px] flex items-center">
+                <select
+                  value={datePreset}
+                  onChange={(e) => {
+                    setDatePreset(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  aria-label="Filter by Date Range"
+                >
+                  <option value="ALL">All Dates</option>
+                  <option value="TODAY">Today</option>
+                  <option value="THIS_WEEK">This Week</option>
+                  <option value="THIS_MONTH">This Month</option>
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3 h-3" />
+                </span>
+              </div>
+
               {/* Reset Filters Button */}
               <button
                 type="button"
@@ -642,6 +813,17 @@ export default function StandardProductionListPage() {
             <table className="w-full text-left border-collapse text-xs">
               <thead className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                 <tr>
+
+                  {/* Multi-Select All Checkbox */}
+                  <th className="py-2.5 px-3 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={paginatedBatches.length > 0 && paginatedBatches.every(b => selectedBatchIds.includes(b.id))}
+                      onChange={() => handleSelectAll(paginatedBatches)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      title="Select/Deselect all batches on this page"
+                    />
+                  </th>
                   
                   {/* 1. Batch No */}
                   <th className="py-2.5 px-3 w-[160px] whitespace-nowrap">
@@ -824,9 +1006,27 @@ export default function StandardProductionListPage() {
                     const batchAnalysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo, b.startDate || b.createdAt);
                     const displayRefNo = batchAnalysis?.formattedBatchNo || b.referenceNo || b.batchNo;
                     const unitCost = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
+                    const isSelected = selectedBatchIds.includes(b.id);
 
                     return (
-                      <tr key={b.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                      <tr 
+                        key={b.id} 
+                        className={`transition-colors ${
+                          isSelected 
+                            ? 'bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-50 dark:hover:bg-indigo-950/60' 
+                            : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
+                        }`}
+                      >
+
+                        {/* Row Selection Checkbox */}
+                        <td className="py-2.5 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelectBatch(b.id)}
+                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </td>
                         
                         {/* 1. Batch No */}
                         <td className="py-2.5 px-3 font-mono whitespace-nowrap">
@@ -943,6 +1143,16 @@ export default function StandardProductionListPage() {
 
                             {(b.status === 'Planned' || b.status === 'Draft') && (
                               <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenCockpit(b)}
+                                  className="bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  title="Open Floor Cockpit to allocate lots and preview merge math"
+                                >
+                                  <Sliders className="w-3 h-3 shrink-0" />
+                                  Floor Run
+                                </Button>
+
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1075,6 +1285,44 @@ export default function StandardProductionListPage() {
         onOpenCompleteModal={handleOpenCompleteModal}
         canViewCosting={canViewCosting}
       />
+
+      {/* ── FLOATING MULTI-SELECT ACTION BAR ── */}
+      {selectedBatchIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-950/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-3 sm:gap-4 animate-in fade-in slide-in-from-bottom-4 text-xs font-bold">
+          <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+            <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-mono">
+              {selectedBatchIds.length}
+            </span>
+            <span className="hidden sm:inline">Batches Selected</span>
+          </div>
+
+          <Button
+            size="sm"
+            onClick={handleBulkStart}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2.5 rounded-xl font-bold text-xs"
+          >
+            <Play className="w-3 h-3 mr-1 fill-current" />
+            Start Selected
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportSelectedCSV}
+            className="border-slate-700 hover:bg-slate-800 text-white h-7 px-2.5 rounded-xl font-bold text-xs"
+          >
+            <FileSpreadsheet className="w-3 h-3 mr-1" />
+            Export CSV
+          </Button>
+
+          <button
+            onClick={handleClearSelection}
+            className="text-slate-400 hover:text-white transition-colors text-xs ml-1 cursor-pointer"
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* ── GS1 BATCH LABEL & BARCODE MODAL ── */}
       {labelModalOpen && selectedLabelBatch && (

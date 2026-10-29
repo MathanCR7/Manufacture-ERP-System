@@ -4,7 +4,7 @@ import { api } from '@/lib/axios';
 import { 
   ShoppingBag, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
   Layers, Clock, AlertCircle, Sparkles, Database, Check, Package,
-  Sliders, ChevronRight, Boxes, User, RotateCcw
+  Sliders, ChevronRight, Boxes, User, RotateCcw, Plus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

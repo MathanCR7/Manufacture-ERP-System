@@ -549,6 +549,10 @@ class StandardProductionController {
 
         // Persist computed lines into production_batch_rm_line
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_line WHERE batch_id = $1;`, id);
+        try {
+          await tx.$executeRawUnsafe(`DELETE FROM "production_batch_allocations" WHERE batch_id = $1;`, id);
+        } catch (_) {}
+
         for (const line of computed.lines) {
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_rm_line (
@@ -562,6 +566,64 @@ class StandardProductionController {
             );
           `, id, line.rawMaterialId, line.lotId || null, line.uom, line.density,
              line.availableQty, line.requiredQty, line.takenQty, line.evaporates, line.merged);
+
+          // If raw material line has allocated lots, persist to production_batch_allocations
+          if (Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0) {
+            for (const ab of line.allocatedBatches) {
+              const isManual = Boolean(ab.isManualOverride || String(ab.batchId).startsWith('manual-'));
+              const lotNum = ab.lotNumber || ab.internalBatchNo || 'LOT-DIRECT';
+
+              // Ensure manual lot exists in InventoryBatch
+              if (isManual) {
+                try {
+                  const existingLot = await tx.inventoryBatch.findFirst({
+                    where: { batchNumber: lotNum }
+                  });
+                  if (!existingLot) {
+                    await tx.inventoryBatch.create({
+                      data: {
+                        rawMaterialId: line.rawMaterialId,
+                        rawMaterialName: line.rawMaterialName,
+                        batchNumber: lotNum,
+                        mfgBatchNo: ab.supplierBatchNo || 'SUP-LOT-01',
+                        netQty: Number(ab.availableQty || Math.max(Number(ab.allocatedQty || 0) * 2, 500)),
+                        status: 'AVAILABLE',
+                        expiryDate: ab.expiryDate ? new Date(ab.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                        costPerUnit: Number(ab.unitRate || line.unitRate || 0),
+                        storageLocation: 'Central Store / Floor Manual',
+                        isManualOverride: true
+                      }
+                    });
+                  }
+                } catch (_) {}
+              }
+
+              try {
+                await tx.$executeRawUnsafe(
+                  `INSERT INTO "production_batch_allocations" (
+                    batch_id, usage_id, inventory_batch_id, lot_number,
+                    allocated_qty, po_original_qty, po_total_amount,
+                    allocated_amount, unit_rate, uom,
+                    is_manual_override, grn_number, po_number, supplier_batch_no
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                  id,
+                  id,
+                  ab.batchId ? String(ab.batchId) : null,
+                  lotNum,
+                  Number(ab.allocatedQty || 0),
+                  Number(ab.availableQty || ab.allocatedQty || 0),
+                  Number(ab.allocatedAmount || 0),
+                  Number(ab.allocatedAmount || 0),
+                  Number(ab.unitRate || line.unitRate || 0),
+                  ab.uom || line.uom || 'kg',
+                  isManual,
+                  ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
+                  ab.poNumber || 'PO-MANUAL-OVERRIDE',
+                  ab.supplierBatchNo || 'SUP-LOT-01'
+                );
+              } catch (_) {}
+            }
+          }
         }
 
         // Persist computed merge results into production_batch_merge
@@ -763,6 +825,17 @@ class StandardProductionController {
         ORDER BY pbl.created_at;
       `, id);
 
+      // Fetch saved raw material batch allocations
+      let savedBatchAllocations = [];
+      try {
+        savedBatchAllocations = await prisma.$queryRawUnsafe(
+          `SELECT * FROM "production_batch_allocations" WHERE batch_id = $1`,
+          id
+        );
+      } catch (_) {
+        savedBatchAllocations = [];
+      }
+
       // Fetch top available batches for the raw materials in this batch
       const rmIds = rmLines.map(r => r.raw_material_id).filter(Boolean);
       let batchMap = new Map();
@@ -888,20 +961,48 @@ class StandardProductionController {
           baseName: batch.base_name,
           templateName: batch.template_name
         },
-        rmLines: rmLines.map(r => ({
-          ...r,
-          density: Number(r.density),
-          available_qty: Number(r.available_qty),
-          required_qty: Number(r.required_qty),
-          taken_qty: Number(r.taken_qty),
-          unit_id: r.unit_id,
-          has_alternate_uom: Boolean(r.has_alternate_uom),
-          alternate_uom: r.alternate_uom,
-          conversion_factor: Number(r.conversion_factor || 1),
-          consumption_unit: r.consumption_unit,
-          lot_batch_no: r.lot_batch_no || (batchMap.get(r.raw_material_id)?.[0]?.batchNo || null),
-          available_batches: batchMap.get(r.raw_material_id) || []
-        })),
+        rmLines: rmLines.map(r => {
+          const matchedAllocs = (savedBatchAllocations || []).filter(a => 
+            a.usage_id === r.id || 
+            (r.lot_id && a.inventory_batch_id === r.lot_id) ||
+            (r.lot_batch_no && a.lot_number === r.lot_batch_no)
+          );
+          const allocatedBatches = matchedAllocs.map(a => ({
+            batchId: a.inventory_batch_id || a.lot_number,
+            lotNumber: a.lot_number,
+            internalBatchNo: a.lot_number,
+            allocatedQty: Number(a.allocated_qty || 0),
+            poOriginalQty: Number(a.po_original_qty || 0),
+            poTotalAmount: Number(a.po_total_amount || 0),
+            allocatedAmount: Number(a.allocated_amount || 0),
+            unitRate: Number(a.unit_rate || r.rate_per_unit || 0),
+            uom: a.uom || r.uom,
+            isManualOverride: Boolean(a.is_manual_override),
+            grnNumber: a.grn_number || 'GRN-MANUAL-OVERRIDE',
+            poNumber: a.po_number || 'PO-MANUAL-OVERRIDE',
+            supplierBatchNo: a.supplier_batch_no || 'SUP-LOT-01'
+          }));
+
+          const resolvedLotBatchNo = allocatedBatches.length > 0
+            ? allocatedBatches.map(b => b.lotNumber).join(', ')
+            : (r.lot_batch_no || (batchMap.get(r.raw_material_id)?.[0]?.batchNo || null));
+
+          return {
+            ...r,
+            density: Number(r.density),
+            available_qty: Number(r.available_qty),
+            required_qty: Number(r.required_qty),
+            taken_qty: Number(r.taken_qty),
+            unit_id: r.unit_id,
+            has_alternate_uom: Boolean(r.has_alternate_uom),
+            alternate_uom: r.alternate_uom,
+            conversion_factor: Number(r.conversion_factor || 1),
+            consumption_unit: r.consumption_unit,
+            lot_batch_no: resolvedLotBatchNo,
+            allocatedBatches: allocatedBatches,
+            available_batches: batchMap.get(r.raw_material_id) || []
+          };
+        }),
         mergeData: mergeData ? {
           ...mergeData,
           merged_total_ml: Number(mergeData.merged_total_ml),

@@ -1127,6 +1127,7 @@ const getBatchesForRawMaterial = async (rmId) => {
         const suppName = b.po?.supplier?.name || b.grn?.po?.supplier?.name || 'SUP-LOT-DIRECT';
         const avail = Number(b.netQty || 0);
 
+        const defaultRate = Number(b.costPerUnit || rm?.ratePerUnit || 54);
         formatted.push({
           id: b.id,
           internalBatchNo: ourBatchNo,
@@ -1144,6 +1145,9 @@ const getBatchesForRawMaterial = async (rmId) => {
           poNumber: poRef,
           poReferenceNo: poRef,
           supplierName: suppName,
+          unitCost: defaultRate,
+          unitRate: defaultRate,
+          rate: defaultRate,
           isManualOverride: Boolean(b.isManualOverride || (b.batchNumber && b.batchNumber.toLowerCase().includes('override'))),
           source: (b.isManualOverride || (b.batchNumber && b.batchNumber.toLowerCase().includes('override'))) ? 'MANUAL_OVERRIDE' : 'PURCHASE_GRN'
         });
@@ -1183,6 +1187,7 @@ const getBatchesForRawMaterial = async (rmId) => {
         const poRef = gi.grn?.po?.referenceNo || gi.grn?.po?.poNumber || 'PO-GRN';
         const suppName = gi.grn?.po?.supplier?.name || 'SUP-LOT-DIRECT';
         const avail = Number(gi.actualReceivedQty || 0);
+        const grnRate = Number(gi.unitPrice || gi.rate || rm?.ratePerUnit || 54);
 
         formatted.push({
           id: gi.id,
@@ -1201,6 +1206,9 @@ const getBatchesForRawMaterial = async (rmId) => {
           poNumber: poRef,
           poReferenceNo: poRef,
           supplierName: suppName,
+          unitCost: grnRate,
+          unitRate: grnRate,
+          rate: grnRate,
           source: 'PURCHASE_GRN'
         });
       }
@@ -1211,6 +1219,7 @@ const getBatchesForRawMaterial = async (rmId) => {
       const mDate = rm?.createdAt || new Date();
       const expDate = new Date(new Date(mDate).getTime() + 365 * 24 * 60 * 60 * 1000);
       const stock = Math.max(1, Number(rm?.currentStock || 100));
+      const fallbackRate = Number(rm?.ratePerUnit || 54);
       formatted.push({
         id: `wh-${rm?.id || rmId}`,
         internalBatchNo: `BATCH-${rawClean}-001`,
@@ -1228,6 +1237,9 @@ const getBatchesForRawMaterial = async (rmId) => {
         poNumber: 'PO-OPENING',
         poReferenceNo: 'PO-OPENING',
         supplierName: 'SUP-LOT-DIRECT',
+        unitCost: fallbackRate,
+        unitRate: fallbackRate,
+        rate: fallbackRate,
         source: 'WAREHOUSE_LOT'
       });
     }
@@ -1679,6 +1691,13 @@ const getRmBatchMetadata = async (rmId, rmName) => {
 
     const latestPoNumber = latestPo?.referenceNo || latestPo?.poNumber || null;
     const latestSupplier = latestPo?.supplier?.name || null;
+    const latestRate = Number(
+      latestPo?.ratePerUnit ||
+      latestPo?.unitPrice ||
+      (Array.isArray(latestPo?.items) && latestPo.items[0]?.rate) ||
+      rm?.ratePerUnit ||
+      54
+    );
 
     // 2. Next continuing batch number
     let nextSeq = 1;
@@ -1693,6 +1712,52 @@ const getRmBatchMetadata = async (rmId, rmName) => {
       console.warn('getNextBatchForRM warning:', err.message);
     }
 
+    // Inspect InventoryBatch for existing batches matching cleanCode or rawMaterialId
+    try {
+      const invLots = await prisma.inventoryBatch.findMany({
+        where: {
+          OR: [
+            { batchNumber: { contains: cleanCode, mode: 'insensitive' } },
+            { rawMaterialId: effectiveRmId }
+          ]
+        },
+        select: { batchNumber: true, costPerUnit: true }
+      });
+      for (const ib of invLots) {
+        if (!ib.batchNumber) continue;
+        const m = ib.batchNumber.match(/(\d+)$/);
+        if (m && m[1]) {
+          const parsed = parseInt(m[1], 10);
+          if (!isNaN(parsed) && parsed > maxFoundSeq) {
+            maxFoundSeq = parsed;
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Inspect GRNReceiveItem for existing batches
+    try {
+      const grnLots = await prisma.gRNReceiveItem.findMany({
+        where: {
+          OR: [
+            { batchNumber: { contains: cleanCode, mode: 'insensitive' } },
+            { rmId: effectiveRmId }
+          ]
+        },
+        select: { batchNumber: true }
+      });
+      for (const gi of grnLots) {
+        if (!gi.batchNumber) continue;
+        const m = gi.batchNumber.match(/(\d+)$/);
+        if (m && m[1]) {
+          const parsed = parseInt(m[1], 10);
+          if (!isNaN(parsed) && parsed > maxFoundSeq) {
+            maxFoundSeq = parsed;
+          }
+        }
+      }
+    } catch (_) {}
+
     // Inspect production_batch_allocations table as well
     try {
       const allocBatches = await prisma.$queryRawUnsafe(
@@ -1701,7 +1766,7 @@ const getRmBatchMetadata = async (rmId, rmName) => {
       );
       if (Array.isArray(allocBatches)) {
         for (const ab of allocBatches) {
-          const m = (ab.lot_number || '').match(new RegExp(`^BATCH-${cleanCode}-(\\d+)`, 'i'));
+          const m = (ab.lot_number || '').match(/(\d+)$/);
           if (m && m[1]) {
             const parsed = parseInt(m[1], 10);
             if (!isNaN(parsed) && parsed > maxFoundSeq) {
@@ -1722,6 +1787,7 @@ const getRmBatchMetadata = async (rmId, rmName) => {
       cleanCode,
       latestPoNumber: latestPoNumber || 'PO-MANUAL-OVERRIDE',
       latestSupplierName: latestSupplier || 'SUP-LOT-DIRECT',
+      latestRate,
       latestBatchNumber,
       nextBatchNumber,
       defaultGrnNumber: 'GRN-MANUAL-OVERRIDE',
@@ -1736,6 +1802,7 @@ const getRmBatchMetadata = async (rmId, rmName) => {
       cleanCode: clean,
       latestPoNumber: 'PO-MANUAL-OVERRIDE',
       latestSupplierName: 'SUP-LOT-DIRECT',
+      latestRate: 54,
       latestBatchNumber: null,
       nextBatchNumber: `BATCH-${clean}-001`,
       defaultGrnNumber: 'GRN-MANUAL-OVERRIDE',
@@ -1752,6 +1819,110 @@ router.get('/rm-batch-meta/:rmId', authenticateToken, async (req, res, next) => 
     const meta = await getRmBatchMetadata(rmId, rmName);
     res.json(meta);
   } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/production/rm-batch-manual - Register continuing / manual batch directly into InventoryBatch & update stock
+router.post('/rm-batch-manual', authenticateToken, async (req, res, next) => {
+  try {
+    const {
+      rawMaterialId,
+      batchNumber,
+      supplierBatchNo,
+      poNumber,
+      grnNumber,
+      availableQty = 100,
+      unitRate = 0,
+      expiryDate,
+      mfgDate,
+      storageLocation = 'Central Store / Floor Manual'
+    } = req.body;
+
+    if (!rawMaterialId || !batchNumber) {
+      return res.status(400).json({ error: 'rawMaterialId and batchNumber are required' });
+    }
+
+    const rm = await prisma.rawMaterial.findFirst({
+      where: {
+        OR: [
+          { id: rawMaterialId },
+          { code: rawMaterialId }
+        ]
+      }
+    });
+
+    const targetRmId = rm?.id || rawMaterialId;
+    const cleanBatchNo = String(batchNumber).trim().toUpperCase();
+
+    let existing = await prisma.inventoryBatch.findFirst({
+      where: { batchNumber: cleanBatchNo }
+    });
+
+    let createdBatch = null;
+    const expDate = expiryDate ? new Date(expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    const mDate = mfgDate ? new Date(mfgDate) : new Date();
+
+    if (existing) {
+      createdBatch = await prisma.inventoryBatch.update({
+        where: { id: existing.id },
+        data: {
+          netQty: { increment: Number(availableQty || 0) },
+          costPerUnit: unitRate > 0 ? Number(unitRate) : existing.costPerUnit,
+          updatedAt: new Date()
+        }
+      });
+    } else {
+      createdBatch = await prisma.inventoryBatch.create({
+        data: {
+          rawMaterialId: targetRmId,
+          rawMaterialName: rm?.name || 'Raw Material',
+          batchNumber: cleanBatchNo,
+          mfgBatchNo: supplierBatchNo || 'SUP-LOT-01',
+          netQty: Number(availableQty || 0),
+          status: 'AVAILABLE',
+          expiryDate: expDate,
+          mfgDate: mDate,
+          costPerUnit: Number(unitRate || 0),
+          storageLocation: storageLocation,
+          isManualOverride: true
+        }
+      });
+    }
+
+    if (rm && Number(availableQty) > 0) {
+      await prisma.rawMaterial.update({
+        where: { id: rm.id },
+        data: {
+          currentStock: { increment: Number(availableQty) }
+        }
+      });
+    }
+
+    const expStr = expDate.toISOString().split('T')[0];
+    const mfgStr = mDate.toISOString().split('T')[0];
+
+    res.status(201).json({
+      success: true,
+      message: `Batch ${cleanBatchNo} successfully registered in inventory.`,
+      batch: {
+        id: createdBatch.id,
+        internalBatchNo: cleanBatchNo,
+        batchNumber: cleanBatchNo,
+        supplierBatchNo: supplierBatchNo || 'SUP-LOT-01',
+        poNumber: poNumber || 'PO-MANUAL-OVERRIDE',
+        grnNumber: grnNumber || 'GRN-MANUAL-OVERRIDE',
+        availableQty: Number(createdBatch.netQty || availableQty),
+        netQty: Number(createdBatch.netQty || availableQty),
+        unitCost: Number(createdBatch.costPerUnit || unitRate),
+        unitRate: Number(createdBatch.costPerUnit || unitRate),
+        expiryDate: expStr,
+        mfgDate: mfgStr,
+        isManualOverride: true
+      }
+    });
+  } catch (err) {
+    console.error('Error creating manual inventory batch:', err);
     next(err);
   }
 });
