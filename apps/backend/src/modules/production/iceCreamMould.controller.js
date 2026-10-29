@@ -39,27 +39,45 @@ class IceCreamMouldController {
         paramIdx++;
       }
 
-      const sql = `
-        SELECT 
-          "id", "mould_code" AS "mouldCode", "mould_name" AS "mouldName", 
-          "mould_category" AS "mouldCategory", "model_number" AS "modelNumber",
-          "capacity_ml"::FLOAT AS "capacityMl", "cavity_count" AS "cavityCount",
-          "total_nominal_capacity_ml"::FLOAT AS "totalNominalCapacityMl",
-          "length_mm"::FLOAT AS "lengthMm", "width_mm"::FLOAT AS "widthMm", "height_mm"::FLOAT AS "heightMm",
-          "cavity_length_mm"::FLOAT AS "cavityLengthMm", "cavity_width_mm"::FLOAT AS "cavityWidthMm", "cavity_depth_mm"::FLOAT AS "cavityDepthMm",
-          "material", "machine_type" AS "machineType", "dimension_source" AS "dimensionSource",
-          "specification_status" AS "specificationStatus", "supplier_id" AS "supplierId", 
-          "supplier_name" AS "supplierName", "status", "created_at" AS "createdAt"
-        FROM "ice_cream_moulds"
-        ${whereClause}
-        ORDER BY 
-          CASE WHEN "specification_status" = 'VERIFIED' THEN 1 ELSE 2 END,
-          "mould_category" ASC, 
-          "capacity_ml" ASC, 
-          "mould_code" ASC
-      `;
-
-      const rows = await prisma.$queryRawUnsafe(sql, ...params);
+      let rows = [];
+      try {
+        const sql = `
+          SELECT 
+            "id", "mould_code" AS "mouldCode", "mould_name" AS "mouldName", 
+            "mould_category" AS "mouldCategory", "model_number" AS "modelNumber",
+            "capacity_ml"::FLOAT AS "capacityMl", "cavity_count" AS "cavityCount",
+            "total_nominal_capacity_ml"::FLOAT AS "totalNominalCapacityMl",
+            "tray_length_mm"::FLOAT AS "lengthMm", "tray_width_mm"::FLOAT AS "widthMm", "tray_height_mm"::FLOAT AS "heightMm",
+            "cavity_length_mm"::FLOAT AS "cavityLengthMm", "cavity_width_mm"::FLOAT AS "cavityWidthMm", "cavity_depth_mm"::FLOAT AS "cavityDepthMm",
+            "material", "machine_type" AS "machineType", "dimension_source" AS "dimensionSource",
+            "specification_status" AS "specificationStatus", "supplier_id" AS "supplierId", 
+            "supplier_name" AS "supplierName", "status", "created_at" AS "createdAt"
+          FROM ice_cream_mould
+          ${whereClause}
+          ORDER BY 
+            CASE WHEN "specification_status" = 'VERIFIED' THEN 1 ELSE 2 END,
+            "mould_category" ASC, 
+            "capacity_ml" ASC, 
+            "mould_code" ASC
+        `;
+        rows = await prisma.$queryRawUnsafe(sql, ...params);
+      } catch (viewErr) {
+        // Fallback to production_moulds
+        const fallbackSql = `
+          SELECT 
+            "id", "mould_code" AS "mouldCode", "mould_name" AS "mouldName", 
+            "mould_category" AS "mouldCategory", "model_number" AS "modelNumber",
+            "capacity_ml"::FLOAT AS "capacityMl", "cavity_count" AS "cavityCount",
+            "total_nominal_capacity_ml"::FLOAT AS "totalNominalCapacityMl",
+            "tray_length_mm"::FLOAT AS "lengthMm", "tray_width_mm"::FLOAT AS "widthMm", "tray_height_mm"::FLOAT AS "heightMm",
+            "material", "machine_type" AS "machineType",
+            "specification_status" AS "specificationStatus", "status", "created_at" AS "createdAt"
+          FROM production_moulds
+          ${whereClause}
+          ORDER BY "mould_category" ASC, "capacity_ml" ASC, "mould_code" ASC
+        `;
+        rows = await prisma.$queryRawUnsafe(fallbackSql, ...params);
+      }
       res.json(rows);
     } catch (err) {
       console.error('Failed to get ice cream moulds:', err);
@@ -70,27 +88,42 @@ class IceCreamMouldController {
   // GET /api/production/moulds/categories
   async getCategories(req, res, next) {
     try {
-      const sql = `
-        SELECT 
-          "mould_category" AS "category",
-          COUNT(*)::INT AS "count",
-          SUM("total_nominal_capacity_ml")::FLOAT AS "totalNominalCapacityMl",
-          SUM(CASE WHEN "specification_status" = 'VERIFIED' THEN 1 ELSE 0 END)::INT AS "verifiedCount"
-        FROM "ice_cream_moulds"
-        WHERE "status" != 'INACTIVE'
-        GROUP BY "mould_category"
-        ORDER BY 
-          CASE 
-            WHEN "mould_category" = 'VERIFIED_SPECS' THEN 1
-            WHEN "mould_category" = 'STICK' THEN 2
-            WHEN "mould_category" = 'KULFI' THEN 3
-            WHEN "mould_category" = 'NOVELTY' THEN 4
-            WHEN "mould_category" = 'CUPS_CONES_TUBS' THEN 5
-            WHEN "mould_category" = 'SANDWICH_CAKE_SPECIALTY' THEN 6
-            ELSE 7
-          END
-      `;
-      const categories = await prisma.$queryRawUnsafe(sql);
+      let categories = [];
+      try {
+        const sql = `
+          SELECT 
+            "mould_category" AS "category",
+            COUNT(*)::INT AS "count",
+            SUM("total_nominal_capacity_ml")::FLOAT AS "totalNominalCapacityMl",
+            SUM(CASE WHEN "specification_status" = 'VERIFIED' THEN 1 ELSE 0 END)::INT AS "verifiedCount"
+          FROM ice_cream_mould
+          WHERE "status" != 'INACTIVE'
+          GROUP BY "mould_category"
+          ORDER BY 
+            CASE 
+              WHEN "mould_category" = 'VERIFIED_SPECS' THEN 1
+              WHEN "mould_category" = 'STICK' THEN 2
+              WHEN "mould_category" = 'KULFI' THEN 3
+              WHEN "mould_category" = 'NOVELTY' THEN 4
+              WHEN "mould_category" = 'CUPS_CONES_TUBS' THEN 5
+              WHEN "mould_category" = 'SANDWICH_CAKE_SPECIALTY' THEN 6
+              ELSE 7
+            END
+        `;
+        categories = await prisma.$queryRawUnsafe(sql);
+      } catch (_) {
+        const fallbackSql = `
+          SELECT 
+            "mould_category" AS "category",
+            COUNT(*)::INT AS "count",
+            SUM("total_nominal_capacity_ml")::FLOAT AS "totalNominalCapacityMl",
+            SUM(CASE WHEN "specification_status" = 'VERIFIED' THEN 1 ELSE 0 END)::INT AS "verifiedCount"
+          FROM production_moulds
+          WHERE "status" != 'INACTIVE'
+          GROUP BY "mould_category"
+        `;
+        categories = await prisma.$queryRawUnsafe(fallbackSql);
+      }
       res.json(categories);
     } catch (err) {
       console.error('Failed to get mould categories:', err);

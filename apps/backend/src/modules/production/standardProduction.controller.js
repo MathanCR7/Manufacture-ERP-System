@@ -47,6 +47,123 @@ function canViewCosting(user) {
   return ['MAIN_MASTER', 'ADMIN', 'SUPERVISOR'].includes(role);
 }
 
+let isSchemaEnsured = false;
+async function ensureStandardProductionSchema(p = prisma) {
+  if (isSchemaEnsured) return;
+  try {
+    await p.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+
+    // Ensure production_moulds table
+    await p.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS production_moulds (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        mould_code VARCHAR(50) NOT NULL UNIQUE,
+        mould_name VARCHAR(150) NOT NULL,
+        mould_category VARCHAR(100) NOT NULL,
+        model_number VARCHAR(100),
+        capacity_ml DECIMAL(10, 2) NOT NULL,
+        cavity_count INT DEFAULT 1,
+        total_nominal_capacity_ml DECIMAL(12, 2) GENERATED ALWAYS AS (capacity_ml * cavity_count) STORED,
+        tray_length_mm DECIMAL(10, 2),
+        tray_width_mm DECIMAL(10, 2),
+        tray_height_mm DECIMAL(10, 2),
+        cavity_length_mm DECIMAL(10, 2),
+        cavity_width_mm DECIMAL(10, 2),
+        cavity_depth_mm DECIMAL(10, 2),
+        dimension_text VARCHAR(255),
+        material VARCHAR(100) DEFAULT 'Stainless Steel 304',
+        machine_type VARCHAR(100) DEFAULT 'Brine Tank Line',
+        specification_status VARCHAR(50) NOT NULL DEFAULT 'VERIFIED',
+        supplier_id VARCHAR(100),
+        supplier_name VARCHAR(200),
+        status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Ensure view ice_cream_mould
+    await p.$executeRawUnsafe(`
+      CREATE OR REPLACE VIEW ice_cream_mould AS 
+      SELECT * FROM production_moulds;
+    `);
+
+    // Ensure production_batch_rm_line
+    await p.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS production_batch_rm_line (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
+        raw_material_id TEXT NOT NULL,
+        lot_id TEXT,
+        uom VARCHAR(30) NOT NULL,
+        density NUMERIC(8,4) NOT NULL DEFAULT 1.0000 CHECK (density > 0),
+        available_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (available_qty >= 0),
+        required_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (required_qty >= 0),
+        taken_qty NUMERIC(14,4) NOT NULL DEFAULT 0 CHECK (taken_qty >= 0),
+        evaporates BOOLEAN NOT NULL DEFAULT FALSE,
+        merged BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Ensure production_batch_merge
+    await p.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS production_batch_merge (
+        batch_id TEXT PRIMARY KEY REFERENCES production_batches(id) ON DELETE CASCADE,
+        merge_stage VARCHAR(50) NOT NULL DEFAULT 'Before freezing',
+        merged_total_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (merged_total_ml >= 0),
+        evaporation_pct NUMERIC(6,2) NOT NULL DEFAULT 5.00 CHECK (evaporation_pct >= 0 AND evaporation_pct <= 100),
+        evaporation_applied BOOLEAN NOT NULL DEFAULT FALSE,
+        evaporated_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (evaporated_ml >= 0),
+        mix_after_evap_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_after_evap_ml >= 0),
+        locked BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Ensure production_batch_allocation
+    await p.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS production_batch_allocation (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        batch_id TEXT NOT NULL REFERENCES production_batches(id) ON DELETE CASCADE,
+        seq INT NOT NULL,
+        product_id TEXT NOT NULL,
+        use_mould BOOLEAN NOT NULL DEFAULT FALSE,
+        mould_id UUID,
+        capacity_ml NUMERIC(10,2) NOT NULL CHECK (capacity_ml >= 0),
+        cavities INT NOT NULL DEFAULT 1 CHECK (cavities > 0),
+        trays INT NOT NULL DEFAULT 0 CHECK (trays >= 0),
+        waste_mode VARCHAR(20) NOT NULL DEFAULT 'PERCENT',
+        waste_value NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (waste_value >= 0),
+        mix_used_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_used_ml >= 0),
+        waste_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (waste_ml >= 0),
+        good_pieces INT NOT NULL DEFAULT 0 CHECK (good_pieces >= 0),
+        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_pb_alloc_batch_seq UNIQUE (batch_id, seq)
+      );
+    `);
+
+    // Add columns to production_batches if missing
+    try {
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS floor_stage VARCHAR(50) DEFAULT 'STEP1_RM';`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS merged_pre_evap_ml DECIMAL(15, 3) DEFAULT 0;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_rate_pct DECIMAL(6, 2) DEFAULT 5.00;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_loss_ml DECIMAL(15, 3) DEFAULT 0;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS net_post_evap_mix_ml DECIMAL(15, 3) DEFAULT 0;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS mould_allocations JSONB DEFAULT '[]'::jsonb;`);
+    } catch (_) {}
+
+    isSchemaEnsured = true;
+  } catch (schemaErr) {
+    console.warn('ensureStandardProductionSchema notice:', schemaErr.message);
+  }
+}
+
+// Run schema initialization asynchronously in background
+ensureStandardProductionSchema().catch(() => {});
+
 class StandardProductionController {
 
   // ── 1. GET /api/production/standard/moulds ──
@@ -477,10 +594,15 @@ class StandardProductionController {
         }
 
         const batch = batchRows[0];
-        if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
+        if (batch.status === 'Completed') {
           return res.status(409).json({
-            error: `Cannot process floor execution. Batch must be in 'In Progress' status, but is currently '${batch.status}'.`
+            error: `Cannot process floor execution. Batch is already Completed.`
           });
+        }
+        if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batches SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE id = $1;
+          `, id);
         }
 
         // Check if merge is already locked
@@ -489,7 +611,7 @@ class StandardProductionController {
         `, id);
         if (mergeRows.length > 0 && mergeRows[0].locked) {
           return res.status(409).json({
-            error: 'Floor merge and evaporation for this batch has been locked after allocation.'
+            error: 'Floor merge and evaporation for this batch has been locked after completion.'
           });
         }
 
@@ -498,7 +620,13 @@ class StandardProductionController {
         const rmMap = new Map();
         if (rmIds.length > 0) {
           const masters = await tx.$queryRawUnsafe(`
-            SELECT id, name, "consumptionUnit", "currentStock", density_g_per_ml, evaporates_by_default, "ratePerUnit"
+            SELECT 
+              id, name, "consumptionUnit", "currentStock", "ratePerUnit",
+              1.0000::numeric(8,4) AS density_g_per_ml,
+              CASE 
+                WHEN LOWER(name) LIKE '%milk%' OR LOWER(name) LIKE '%smp%' OR LOWER(name) LIKE '%stabilizer%' OR LOWER(name) LIKE '%rabdi%' THEN TRUE 
+                ELSE FALSE 
+              END AS evaporates_by_default
             FROM "RawMaterial"
             WHERE id = ANY($1::text[]);
           `, rmIds);
@@ -694,18 +822,37 @@ class StandardProductionController {
         }
 
         const batch = batchRows[0];
-        if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
+        if (batch.status === 'Completed') {
           return res.status(409).json({
-            error: `Cannot update mould allocations. Batch must be in 'In Progress' status, but is currently '${batch.status}'.`
+            error: `Cannot update mould allocations. Batch is already Completed.`
           });
         }
+        if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batches SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE id = $1;
+          `, id);
+        }
 
-        // Get latest mix_after_evap_ml from production_batch_merge
-        const mergeRows = await tx.$queryRawUnsafe(`
-          SELECT mix_after_evap_ml, evaporation_applied FROM production_batch_merge WHERE batch_id = $1;
-        `, id);
+        // Get latest mix_after_evap_ml from production_batch_merge or batch record
+        let availableMixMl = 0;
+        try {
+          const mergeRows = await tx.$queryRawUnsafe(`
+            SELECT mix_after_evap_ml, evaporation_applied FROM production_batch_merge WHERE batch_id = $1;
+          `, id);
+          if (mergeRows.length > 0) {
+            availableMixMl = Number(mergeRows[0].mix_after_evap_ml || 0);
+          }
+        } catch (_) {}
 
-        const availableMixMl = mergeRows.length > 0 ? Number(mergeRows[0].mix_after_evap_ml) : 0;
+        if (availableMixMl <= 0) {
+          const pbFallback = await tx.$queryRawUnsafe(`
+            SELECT net_post_evap_mix_ml, merged_pre_evap_ml FROM production_batches WHERE id = $1;
+          `, id);
+          if (pbFallback.length > 0) {
+            availableMixMl = Number(pbFallback[0].net_post_evap_mix_ml || pbFallback[0].merged_pre_evap_ml || 0);
+          }
+        }
+
         if (availableMixMl <= 0) {
           return res.status(422).json({
             error: 'No mix available for allocation. Complete Raw Materials merge & evaporation before allocating products.',
@@ -782,16 +929,25 @@ class StandardProductionController {
       const user = req.user;
       const userCanViewCost = canViewCosting(user);
 
-      const batchRows = await prisma.$queryRawUnsafe(`
-        SELECT 
-          pb.*,
-          bm.name AS base_name,
-          pt.name AS template_name
-        FROM production_batches pb
-        LEFT JOIN base_master bm ON bm.id = pb.base_id
-        LEFT JOIN production_templates pt ON pt.id = pb.template_id
-        WHERE pb.id = $1;
-      `, id);
+      let batchRows = [];
+      try {
+        batchRows = await prisma.$queryRawUnsafe(`
+          SELECT 
+            pb.*,
+            bm.name AS base_name,
+            pt.name AS template_name
+          FROM production_batches pb
+          LEFT JOIN base_master bm ON bm.id = pb.base_id
+          LEFT JOIN production_templates pt ON pt.id = pb.template_id
+          WHERE pb.id = $1;
+        `, id);
+      } catch (_) {
+        batchRows = await prisma.$queryRawUnsafe(`
+          SELECT pb.*
+          FROM production_batches pb
+          WHERE pb.id = $1;
+        `, id);
+      }
 
       if (!batchRows || batchRows.length === 0) {
         return res.status(404).json({ error: 'Production batch not found' });
@@ -814,8 +970,11 @@ class StandardProductionController {
           rm."baseUomQty" AS base_uom_qty,
           rm."conversionFactor" AS conversion_factor,
           rm."consumptionUnit" AS consumption_unit,
-          rm.density_g_per_ml AS master_density,
-          rm.evaporates_by_default AS master_evaporates,
+          COALESCE(pbl.density, 1.0000) AS master_density,
+          CASE 
+            WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+            ELSE FALSE 
+          END AS master_evaporates,
           ib."batchNumber" AS lot_batch_no,
           ib."expiryDate" AS lot_expiry_date
         FROM production_batch_rm_line pbl
@@ -863,27 +1022,46 @@ class StandardProductionController {
       }
 
       // Fetch Merge state
-      const mergeRows = await txOrPrisma(prisma, `
-        SELECT * FROM production_batch_merge WHERE batch_id = $1;
-      `, id);
-      const mergeData = mergeRows[0] || null;
+      let mergeData = null;
+      try {
+        const mergeRows = await txOrPrisma(prisma, `
+          SELECT * FROM production_batch_merge WHERE batch_id = $1;
+        `, id);
+        mergeData = mergeRows[0] || null;
+      } catch (_) {
+        mergeData = null;
+      }
 
       // Fetch Allocations with mould and product names
-      const allocations = await prisma.$queryRawUnsafe(`
-        SELECT 
-          pba.*,
-          p.name AS product_name,
-          p.code AS product_code,
-          m.mould_code,
-          m.mould_name,
-          m.mould_category,
-          m.specification_status
-        FROM production_batch_allocation pba
-        LEFT JOIN products p ON p.id = pba.product_id
-        LEFT JOIN ice_cream_moulds m ON m.id = pba.mould_id
-        WHERE pba.batch_id = $1
-        ORDER BY pba.seq;
-      `, id);
+      let allocations = [];
+      try {
+        allocations = await prisma.$queryRawUnsafe(`
+          SELECT 
+            pba.*,
+            p.name AS product_name,
+            p.code AS product_code,
+            m.mould_code,
+            m.mould_name,
+            m.mould_category,
+            m.specification_status
+          FROM production_batch_allocation pba
+          LEFT JOIN products p ON p.id = pba.product_id
+          LEFT JOIN ice_cream_mould m ON m.id = pba.mould_id
+          WHERE pba.batch_id = $1
+          ORDER BY pba.seq;
+        `, id);
+      } catch (allocErr) {
+        allocations = await prisma.$queryRawUnsafe(`
+          SELECT 
+            pba.*,
+            p.name AS product_name,
+            p.code AS product_code
+          FROM production_batch_allocation pba
+          LEFT JOIN products p ON p.id = pba.product_id
+          WHERE pba.batch_id = $1
+          ORDER BY pba.seq;
+        `, id).catch(() => []);
+      }
 
       // Calculate Costing
       let costingSummary = null;

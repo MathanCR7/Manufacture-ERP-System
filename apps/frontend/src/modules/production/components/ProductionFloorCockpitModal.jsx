@@ -858,13 +858,14 @@ export default function ProductionFloorCockpitModal({
 
   const handleFillMaxTrays = (index) => {
     const alloc = allocations[index];
+    if (!alloc) return;
     const prevAllocations = allocations.slice(0, index);
     const prevUsed = prevAllocations.reduce((acc, a) => {
       const cap = Number(a.capacityMl || 50);
       const cav = Number(a.cavities || 1);
       const trays = Number(a.trays || 0);
       const wm = a.wasteMode || 'PERCENT';
-      const wv = Number(a.wasteValue ?? 2.0);
+      const wv = Number(a.wasteValue ?? 0);
       const rawMl = trays * cav * cap;
       const wasteMl = wm === 'PERCENT' ? rawMl * (wv / 100) : trays * wv;
       return acc + (rawMl + wasteMl);
@@ -890,16 +891,39 @@ export default function ProductionFloorCockpitModal({
   const handleSelectMouldFromPicker = (selectedMould) => {
     if (targetAllocIndex === null) return;
     const cap = Number(selectedMould.mould_capacity_ml || selectedMould.capacity_ml || 50);
-    const cav = selectedMould.cavities_per_tray ? Number(selectedMould.cavities_per_tray) : null;
+    const cav = selectedMould.cavities_per_tray ? Number(selectedMould.cavities_per_tray) : (selectedMould.cavity_count ? Number(selectedMould.cavity_count) : 1);
+    
     setAllocations(prev => {
       const copy = [...prev];
+      const currentAlloc = copy[targetAllocIndex] || {};
+      const prevAllocations = copy.slice(0, targetAllocIndex);
+      const prevUsed = prevAllocations.reduce((acc, a) => {
+        const c = Number(a.capacityMl || 50);
+        const cv = Number(a.cavities || 1);
+        const t = Number(a.trays || 0);
+        const wm = a.wasteMode || 'PERCENT';
+        const wv = Number(a.wasteValue ?? 0);
+        const rawMl = t * cv * c;
+        const wMl = wm === 'PERCENT' ? rawMl * (wv / 100) : t * wv;
+        return acc + (rawMl + wMl);
+      }, 0);
+      const remainingForThis = Math.max(0, availableMixMl - prevUsed);
+      const autoMaxTrays = computeMaxTrays({
+        availableMixMl: remainingForThis,
+        capacityMl: cap,
+        cavities: cav,
+        wasteMode: currentAlloc.wasteMode || 'PERCENT',
+        wasteValue: currentAlloc.wasteValue || 0
+      });
+
       copy[targetAllocIndex] = {
-        ...copy[targetAllocIndex],
+        ...currentAlloc,
         mouldId: selectedMould.id,
         mouldCode: selectedMould.mould_code,
         mouldName: selectedMould.mould_name,
         capacityMl: cap,
-        cavities: cav !== null ? cav : (copy[targetAllocIndex].cavities || 1)
+        cavities: cav,
+        trays: autoMaxTrays > 0 ? autoMaxTrays : (Number(currentAlloc.trays) || 0)
       };
       return copy;
     });
@@ -1852,7 +1876,7 @@ export default function ProductionFloorCockpitModal({
                           <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
                             <span className="truncate max-w-[140px]">{line.rawMaterialName}</span>
                             <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                              {formatIndian(line.takenMlAfterEvap)} ml
+                              {formatIndian(line.takenMlAfterEvap ?? line.postEvapMl ?? line.takenMl ?? 0)} ml
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-[11px] text-slate-500 mt-0.5">
@@ -2055,7 +2079,11 @@ export default function ProductionFloorCockpitModal({
                                 type="number"
                                 min="0"
                                 value={alloc.trays}
-                                onChange={(e) => handleUpdateAllocation(idx, 'trays', parseInt(e.target.value, 10) || 0)}
+                                onChange={(e) => {
+                                  const rawVal = e.target.value;
+                                  const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
+                                  handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
+                                }}
                                 className="h-8 font-mono font-black text-xs border-purple-400 dark:border-purple-700 bg-white dark:bg-slate-900"
                               />
                             </div>
@@ -2096,10 +2124,10 @@ export default function ProductionFloorCockpitModal({
                                 Mix Required
                               </div>
                               <div className="text-sm font-mono font-black text-purple-950 dark:text-purple-200">
-                                {formatIndian(alloc.mixRequiredMl)} ml
+                                {formatIndian(alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0)} ml
                               </div>
                               <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400">
-                                Good: {alloc.goodPieces} pcs
+                                Good: {alloc.goodPieces ?? 0} pcs
                               </div>
                             </div>
                           </div>
@@ -2110,7 +2138,7 @@ export default function ProductionFloorCockpitModal({
                               Mould Spec: <strong className="text-slate-800 dark:text-slate-200">{alloc.mouldName || 'Standard Ice Cream Mould'}</strong>
                             </span>
                             <span className="font-mono">
-                              Remaining mix after this product: <strong className={alloc.mixRemainingAfterMl < 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{formatIndian(alloc.mixRemainingAfterMl)} ml</strong>
+                              Remaining mix after this product: <strong className={(alloc.mixRemainingAfterMl ?? alloc.mixLeftAfterThisProduct ?? 0) < 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{formatIndian(alloc.mixRemainingAfterMl ?? alloc.mixLeftAfterThisProduct ?? 0)} ml</strong>
                             </span>
                           </div>
                         </div>
@@ -2212,9 +2240,19 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Actual Good Recorded</div>
-                      <div className="text-lg font-mono font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                        {actualYieldPieces} pcs
+                      <div className="flex items-center justify-between">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase">Actual Good Recorded</div>
+                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">Editable</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Input
+                          type="number"
+                          min="0"
+                          value={actualYieldPieces}
+                          onChange={(e) => setActualYieldPieces(parseFloat(e.target.value) || 0)}
+                          className="h-8 font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/20"
+                        />
+                        <span className="text-xs font-bold text-slate-500">pcs</span>
                       </div>
                     </div>
 
