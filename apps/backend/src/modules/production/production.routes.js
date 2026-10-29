@@ -860,6 +860,28 @@ const baseMasterController = require('./baseMaster.controller');
 const productionTemplateController = require('./productionTemplate.controller');
 const liveRateController = require('./liveRate.controller');
 const productionBatchRedesignController = require('./productionBatchRedesign.controller');
+const iceCreamMouldController = require('./iceCreamMould.controller');
+const standardProductionController = require('./standardProduction.controller');
+
+// ── Standard Production Batches Module (/api/production/standard) ──
+router.get('/standard/moulds', authenticateToken, (req, res, next) => standardProductionController.getMoulds(req, res, next));
+router.get('/standard/raw-materials-catalog', authenticateToken, (req, res, next) => standardProductionController.getRawMaterialsCatalog(req, res, next));
+router.get('/standard/products-catalog', authenticateToken, (req, res, next) => standardProductionController.getProductsCatalog(req, res, next));
+router.post('/standard', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.createDraft(req, res, next));
+router.put('/standard/:id/draft', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDraft(req, res, next));
+router.post('/standard/:id/start', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.startProduction(req, res, next));
+router.put('/standard/:id/process', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.processFloorExecution(req, res, next));
+router.put('/standard/:id/allocations', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.saveAllocations(req, res, next));
+router.post('/standard/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.completeProduction(req, res, next));
+router.post('/standard/:id/pause', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.pauseProduction(req, res, next));
+router.post('/standard/:id/resume', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.resumeProduction(req, res, next));
+router.get('/standard/:id', authenticateToken, (req, res, next) => standardProductionController.getBatchDetails(req, res, next));
+
+// ── Ice Cream Moulds Master Routes ──
+router.get('/moulds', authenticateToken, (req, res, next) => iceCreamMouldController.getMoulds(req, res, next));
+router.get('/moulds/categories', authenticateToken, (req, res, next) => iceCreamMouldController.getCategories(req, res, next));
+router.post('/moulds', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => iceCreamMouldController.createMould(req, res, next));
+router.put('/moulds/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => iceCreamMouldController.updateMould(req, res, next));
 
 // ── Base Master Routes ──
 router.get('/bases', authenticateToken, (req, res, next) => baseMasterController.getAll(req, res, next));
@@ -886,6 +908,7 @@ router.get('/batches-redesign/:id', authenticateToken, (req, res, next) => produ
 router.post('/batches-redesign', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.createBatch(req, res, next));
 router.put('/batches-redesign/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateBatch(req, res, next));
 router.patch('/batches-redesign/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateStatus(req, res, next));
+router.patch('/batches-redesign/:id/floor-execution', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateFloorExecution(req, res, next));
 router.post('/batches-redesign/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.completeBatch(req, res, next));
 router.get('/batches-redesign/:id/label', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchLabel(req, res, next));
 router.get('/traceability/:batchNo', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchTraceability(req, res, next));

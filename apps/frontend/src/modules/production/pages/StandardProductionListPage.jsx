@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   Factory, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
   Package, Check, Layers, Lock, FlaskConical, X, ArrowUpDown, ArrowUp, ArrowDown,
-  RotateCcw, ChevronDown, Printer, Tag, Pencil
+  RotateCcw, ChevronDown, Printer, Tag, Pencil, Sliders, Droplets
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,18 +14,24 @@ import { Pagination } from '@/components/ui/Pagination';
 import BatchCompletionModal from '../components/BatchCompletionModal';
 import ProductionBatchDetailModal from '../components/ProductionBatchDetailModal';
 import BatchLabelModal from '../components/BatchLabelModal';
+import ProductionFloorCockpitModal from '../components/ProductionFloorCockpitModal';
 import { analyzeProductionBatchNumber } from '../utils/batchNumberUtil';
 import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
 
 export default function StandardProductionListPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // View Details Modal State
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [selectedViewBatchId, setSelectedViewBatchId] = useState(null);
+
+  // Production Floor Execution Cockpit Modal State
+  const [cockpitModalOpen, setCockpitModalOpen] = useState(false);
+  const [selectedCockpitBatchId, setSelectedCockpitBatchId] = useState(null);
 
   // GS1 Label Modal State
   const [labelModalOpen, setLabelModalOpen] = useState(false);
@@ -84,6 +90,15 @@ export default function StandardProductionListPage() {
     fetchBatches();
   }, []);
 
+  // Auto-open Floor Execution Cockpit if navigated with cockpitBatchId query param
+  useEffect(() => {
+    const cockpitId = searchParams.get('cockpitBatchId');
+    if (cockpitId) {
+      setSelectedCockpitBatchId(cockpitId);
+      setCockpitModalOpen(true);
+    }
+  }, [searchParams]);
+
   // Distinct Base Masters for filter dropdown
   const baseOptions = useMemo(() => {
     const set = new Set();
@@ -93,17 +108,29 @@ export default function StandardProductionListPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [batches]);
 
+  // Open Floor Execution Cockpit Modal
+  const handleOpenCockpit = (batch) => {
+    setSelectedCockpitBatchId(batch.id);
+    setCockpitModalOpen(true);
+  };
+
   // Handle Starting a batch
   const handleStartBatch = async (batch) => {
     try {
       await api.patch(`/production/batches-redesign/${batch.id}/status`, { status: 'In Progress' });
-      Swal.fire({
-        title: 'Batch Started',
-        text: `Batch #${batch.referenceNo || batch.batchNo} is now In Progress on the factory floor.`,
-        icon: 'success',
-        timer: 1500
-      });
       fetchBatches();
+      const promptRes = await Swal.fire({
+        title: 'Batch Started on Factory Floor!',
+        text: `Batch #${batch.referenceNo || batch.batchNo} is now In Progress. Open Floor Execution Cockpit now?`,
+        icon: 'success',
+        showCancelButton: true,
+        confirmButtonText: '🚀 Open Floor Cockpit',
+        cancelButtonText: 'Stay on List',
+        confirmButtonColor: '#4f46e5'
+      });
+      if (promptRes.isConfirmed) {
+        handleOpenCockpit(batch);
+      }
     } catch (err) {
       console.error('Failed to start batch:', err);
       Swal.fire({ title: 'Error', text: 'Failed to start batch.', icon: 'error' });
@@ -940,15 +967,27 @@ export default function StandardProductionListPage() {
                             )}
 
                             {b.status === 'In Progress' && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleOpenCompleteModal(b)}
-                                className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
-                                title="Record actual yield & complete production"
-                              >
-                                <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                Yield
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenCockpit(b)}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
+                                >
+                                  <Sliders className="w-3 h-3 shrink-0" />
+                                  Floor Run
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenCompleteModal(b)}
+                                  className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  title="Record actual yield & complete production"
+                                >
+                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                  Yield
+                                </Button>
+                              </>
                             )}
 
                             {(b.status === 'Completed' || b.status === 'qc_passed') && (
@@ -1048,6 +1087,20 @@ export default function StandardProductionListPage() {
           batchId={selectedLabelBatch.id}
           batch={selectedLabelBatch}
           batchStatus={selectedLabelBatch.status}
+        />
+      )}
+
+      {/* ── PRODUCTION FLOOR EXECUTION COCKPIT MODAL (Evaporation, UOM Merge & Mould Math) ── */}
+      {cockpitModalOpen && selectedCockpitBatchId && (
+        <ProductionFloorCockpitModal
+          isOpen={cockpitModalOpen}
+          onClose={() => {
+            setCockpitModalOpen(false);
+            setSelectedCockpitBatchId(null);
+          }}
+          batchId={selectedCockpitBatchId}
+          onBatchUpdated={fetchBatches}
+          onOpenCompleteModal={handleOpenCompleteModal}
         />
       )}
 

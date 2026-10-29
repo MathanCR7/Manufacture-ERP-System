@@ -570,6 +570,9 @@ class ProductionBatchRedesignController {
                 b.eb_rate_per_unit, b.eb_total_cost, b.labour_total_cost,
                 b.labour_count, b.labour_staff_ids, b.labour_staff_details,
                 b.completed_by, b.completed_at,
+                b.evaporation_data, b.floor_stage, b.merged_pre_evap_ml,
+                b.evaporation_rate_pct, b.evaporation_loss_ml, b.net_post_evap_mix_ml,
+                b.mould_allocations,
                 bm.name as base_name, pt.name as template_name
          FROM "production_batches" b
          LEFT JOIN "base_master" bm ON b.base_id = bm.id
@@ -796,6 +799,14 @@ class ProductionBatchRedesignController {
         labourStaffDetails: Array.isArray(extra.labour_staff_details) ? extra.labour_staff_details : (typeof extra.labour_staff_details === 'string' ? JSON.parse(extra.labour_staff_details || '[]') : []),
         completedBy: extra.completed_by || null,
         completedAt: extra.completed_at || null,
+        // Floor Execution & Evaporation Data
+        floorStage: extra.floor_stage || 'PRE_EVAPORATION',
+        mergedPreEvapMl: Number(extra.merged_pre_evap_ml || 0),
+        evaporationRatePct: Number(extra.evaporation_rate_pct || 5.0),
+        evaporationLossMl: Number(extra.evaporation_loss_ml || 0),
+        netPostEvapMixMl: Number(extra.net_post_evap_mix_ml || 0),
+        mouldAllocations: Array.isArray(extra.mould_allocations) ? extra.mould_allocations : (typeof extra.mould_allocations === 'string' ? JSON.parse(extra.mould_allocations || '[]') : []),
+        evaporationData: (extra.evaporation_data && typeof extra.evaporation_data === 'object') ? extra.evaporation_data : (typeof extra.evaporation_data === 'string' ? JSON.parse(extra.evaporation_data || '{}') : {}),
         rmUsages: enrichedUsages,
         createdAt: batch.createdAt
       });
@@ -2030,8 +2041,72 @@ class ProductionBatchRedesignController {
       next(err);
     }
   }
+
+  // PATCH /api/production/batches-redesign/:id/floor-execution
+  async updateFloorExecution(req, res, next) {
+    try {
+      const { id } = req.params;
+      const {
+        floorStage,
+        mergedPreEvapMl,
+        evaporationRatePct,
+        evaporationLossMl,
+        netPostEvapMixMl,
+        mouldAllocations,
+        rawMaterialsFloorUsage,
+        note
+      } = req.body;
+
+      const userIdentifier = req.user?.name || req.user?.email || 'Floor Supervisor';
+
+      const evaporationData = {
+        floorStage: floorStage || 'PRE_EVAPORATION',
+        mergedPreEvapMl: Number(mergedPreEvapMl || 0),
+        evaporationRatePct: Number(evaporationRatePct || 5.0),
+        evaporationLossMl: Number(evaporationLossMl || 0),
+        netPostEvapMixMl: Number(netPostEvapMixMl || 0),
+        mouldAllocations: Array.isArray(mouldAllocations) ? mouldAllocations : [],
+        rawMaterialsFloorUsage: Array.isArray(rawMaterialsFloorUsage) ? rawMaterialsFloorUsage : [],
+        note: note || '',
+        updatedBy: userIdentifier,
+        updatedAt: new Date().toISOString()
+      };
+
+      await prisma.$executeRawUnsafe(`
+        UPDATE "production_batches" SET
+          "floor_stage" = $2,
+          "merged_pre_evap_ml" = $3,
+          "evaporation_rate_pct" = $4,
+          "evaporation_loss_ml" = $5,
+          "net_post_evap_mix_ml" = $6,
+          "mould_allocations" = $7::jsonb,
+          "evaporation_data" = $8::jsonb,
+          "updated_at" = CURRENT_TIMESTAMP
+        WHERE "id" = $1
+      `,
+        id,
+        floorStage || 'PRE_EVAPORATION',
+        Number(mergedPreEvapMl || 0),
+        Number(evaporationRatePct || 5.0),
+        Number(evaporationLossMl || 0),
+        Number(netPostEvapMixMl || 0),
+        JSON.stringify(mouldAllocations || []),
+        JSON.stringify(evaporationData)
+      );
+
+      res.json({
+        success: true,
+        message: 'Floor execution data saved successfully',
+        evaporationData
+      });
+    } catch (err) {
+      console.error('Failed to update floor execution data:', err);
+      next(err);
+    }
+  }
 }
 
 module.exports = new ProductionBatchRedesignController();
 module.exports.analyzeProductionBatchNumber = analyzeProductionBatchNumber;
 module.exports.generateBatchReference = generateBatchReference;
+

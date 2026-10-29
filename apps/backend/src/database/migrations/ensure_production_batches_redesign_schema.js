@@ -284,6 +284,48 @@ async function ensureProductionBatchesRedesignSchema() {
     `ALTER TABLE "production_batch_items" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();`,
     `ALTER TABLE "production_batch_allocations" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();`,
 
+    // Extended Production Floor Execution & Evaporation Columns
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "evaporation_data" JSONB DEFAULT '{}'::jsonb;`,
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "floor_stage" VARCHAR(50) DEFAULT 'PRE_EVAPORATION';`,
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "merged_pre_evap_ml" DECIMAL(15, 3) DEFAULT 0;`,
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "evaporation_rate_pct" DECIMAL(6, 2) DEFAULT 5.00;`,
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "evaporation_loss_ml" DECIMAL(15, 3) DEFAULT 0;`,
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "net_post_evap_mix_ml" DECIMAL(15, 3) DEFAULT 0;`,
+    `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "mould_allocations" JSONB DEFAULT '[]'::jsonb;`,
+
+    // Ice Cream Mould Master Table
+    `CREATE TABLE IF NOT EXISTS "ice_cream_moulds" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "mould_code" VARCHAR(50) NOT NULL UNIQUE,
+      "mould_name" VARCHAR(150) NOT NULL,
+      "mould_category" VARCHAR(100) NOT NULL,
+      "model_number" VARCHAR(100),
+      "capacity_ml" DECIMAL(10, 2) NOT NULL,
+      "cavity_count" INT NOT NULL DEFAULT 1,
+      "total_nominal_capacity_ml" DECIMAL(12, 2) GENERATED ALWAYS AS (capacity_ml * cavity_count) STORED,
+      "length_mm" DECIMAL(10, 2),
+      "width_mm" DECIMAL(10, 2),
+      "height_mm" DECIMAL(10, 2),
+      "cavity_length_mm" DECIMAL(10, 2),
+      "cavity_width_mm" DECIMAL(10, 2),
+      "cavity_depth_mm" DECIMAL(10, 2),
+      "material" VARCHAR(100) DEFAULT 'Stainless Steel 304',
+      "machine_type" VARCHAR(100) DEFAULT 'Brine Tank Line',
+      "dimension_source" VARCHAR(100) DEFAULT 'Manufacturer',
+      "specification_status" VARCHAR(50) NOT NULL DEFAULT 'VERIFIED',
+      "supplier_id" VARCHAR(100),
+      "supplier_name" VARCHAR(200),
+      "status" VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Indices for Mould Master
+    `CREATE INDEX IF NOT EXISTS "idx_mould_code" ON "ice_cream_moulds"("mould_code");`,
+    `CREATE INDEX IF NOT EXISTS "idx_mould_category" ON "ice_cream_moulds"("mould_category");`,
+    `CREATE INDEX IF NOT EXISTS "idx_mould_status" ON "ice_cream_moulds"("status");`,
+    `CREATE INDEX IF NOT EXISTS "idx_mould_spec_status" ON "ice_cream_moulds"("specification_status");`,
+
     // Performance Indices
     `CREATE INDEX IF NOT EXISTS "idx_alloc_batch" ON "production_batch_allocations"("batch_id");`,
     `CREATE INDEX IF NOT EXISTS "idx_alloc_usage" ON "production_batch_allocations"("usage_id");`,
@@ -301,8 +343,16 @@ async function ensureProductionBatchesRedesignSchema() {
     }
   }
 
+  // Seed / sync Ice Cream Mould specifications
+  try {
+    const { seedIceCreamMoulds } = require('./seed_ice_cream_moulds');
+    await seedIceCreamMoulds();
+  } catch (mouldErr) {
+    console.warn('Notice seeding ice cream moulds:', mouldErr.message);
+  }
+
   isEnsured = true;
-  console.log('✅ Production batches redesign schema ensured successfully (base_id, template_id, timeline_stages, etc).');
+  console.log('✅ Production batches redesign schema ensured successfully (base_id, template_id, ice_cream_moulds, etc).');
 }
 
 if (require.main === module) {

@@ -16,6 +16,7 @@ import BatchAllocationGrid from '../components/BatchAllocationGrid';
 import CostingSummaryFooter from '../components/CostingSummaryFooter';
 import StandardFactoryStagesPalette from '../components/StandardFactoryStagesPalette';
 import ProductionLabourPicker from '../components/ProductionLabourPicker';
+import ProductionItemSearchModal from '../components/ProductionItemSearchModal';
 import { getProductionMasters, peekProductionMasters } from '../services/productionMasterCache';
 import { getProductionDraft, saveProductionDraft, flushProductionDraft, clearProductionDraft } from '../services/productionDraftStore';
 import Swal from 'sweetalert2';
@@ -72,6 +73,69 @@ export default function StandardProductionFormPage() {
 
   // ── Raw Materials & Lot Tracking (Section 4) ──
   const [rawMaterials, setRawMaterials] = useState([]);
+
+  // ── Universal Item Search Modal State (Sales / SAP Order Style) ──
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
+  const [searchModalMode, setSearchModalMode] = useState('RM_MULTI');
+
+  const handleAddSelectedRMs = (materials) => {
+    const newLines = materials.map(rm => ({
+      rmId: rm.id,
+      rmCode: rm.code,
+      rmName: rm.printName || rm.name,
+      category: rm.category || 'Raw Material',
+      description: '',
+      baseTemplateQty: 10,
+      baseRequiredQty: 10,
+      altRequiredQty: 10,
+      requiredQty: 10,
+      baseUom: rm.consumptionUnit || rm.unitId || 'kg',
+      selectedUom: rm.consumptionUnit || rm.unitId || 'kg',
+      activeEntryMode: 'BASE',
+      unitRate: Number(rm.ratePerUnit || 0),
+      baseRate: Number(rm.ratePerUnit || 0),
+      altRate: Number(rm.ratePerUnit || 0),
+      rateSource: 'CATALOG',
+      isOverhead: false,
+      totalCost: Number(rm.ratePerUnit || 0) * 10,
+      allocatedBatches: rm.availableBatches?.length > 0 ? [
+        {
+          batchId: rm.availableBatches[0].id,
+          batchNo: rm.availableBatches[0].batchNo,
+          allocatedQty: 10,
+          remainingQty: rm.availableBatches[0].remainingQty,
+          expiryDate: rm.availableBatches[0].expiryDate
+        }
+      ] : [],
+      hasAlternateUom: Boolean(rm.hasAlternateUom),
+      alternateUom: rm.alternateUom,
+      baseUomQty: Number(rm.baseUomQty || 1),
+      alternateUomQty: Number(rm.alternateUomQty || 1),
+      conversionFactor: Number(rm.conversionFactor || 1)
+    }));
+    setRawMaterials(prev => [...prev, ...newLines]);
+    Swal.fire({
+      title: 'Raw Materials Added',
+      text: `Added ${materials.length} raw material(s) with live DB UOMs and batches.`,
+      icon: 'success',
+      timer: 1500
+    });
+  };
+
+  const handleSelectProductFromModal = (prod) => {
+    if (selectedProducts.some(p => p.productId === prod.id)) {
+      Swal.fire({ title: 'Already Added', text: 'This product is already selected in the batch.', icon: 'info' });
+      return;
+    }
+    const newProd = {
+      productId: prod.id,
+      name: prod.name,
+      code: prod.code,
+      plannedQty: 2000,
+      unit: prod.unit || 'pcs'
+    };
+    setSelectedProducts(prev => [...prev, newProd]);
+  };
 
   // ── 14 Standard Factory Stages Palette (Section 5 & 6) ──
   const [timelineStages, setTimelineStages] = useState([
@@ -808,29 +872,26 @@ export default function StandardProductionFormPage() {
   });
   const isStaffAssigned = labourCount > 0 && assignedStaffIds.length === labourCount;
   
-  const isReadyToStart = isPlanTargetSet && isBaseAndTemplateChosen && isProductAdded && areRawMaterialsAllocated && areStageDurationsSet && isStaffAssigned;
+  const isReadyToStart = Boolean(productionDate && shift && selectedBaseId && selectedTemplate);
 
   // Handle Save Batch
-  const handleSave = async (status = 'Draft') => {
-    if (!isPlanTargetSet) {
-      Swal.fire({ title: 'Validation Error', text: 'Please set production date and shift in Step 1.', icon: 'warning' });
-      return;
-    }
-    if (!selectedBaseId || !selectedTemplate) {
-      Swal.fire({ title: 'Validation Error', text: 'Please select both Base Master and Production Template in Step 2.', icon: 'warning' });
-      return;
-    }
-    if (selectedProducts.length === 0) {
-      Swal.fire({ title: 'Validation Error', text: 'Please select at least one finished product in Step 5.', icon: 'warning' });
-      return;
-    }
-    if (status === 'In Progress' && !areRawMaterialsAllocated) {
-      Swal.fire({
-        title: 'Lot Reservation Required',
-        text: 'All raw material formulation items must have physical warehouse lots reserved before starting production.',
-        icon: 'warning'
-      });
-      return;
+  const handleSave = async (targetStatus = 'Draft') => {
+    // Start Production validation: Date, Shift, Base, Template
+    if (targetStatus === 'In Progress') {
+      const missingFields = [];
+      if (!productionDate) missingFields.push('Date (Step 1)');
+      if (!shift) missingFields.push('Shift (Step 1)');
+      if (!selectedBaseId) missingFields.push('Base Recipe (Step 2)');
+      if (!selectedTemplate) missingFields.push('Production Template (Step 2)');
+
+      if (missingFields.length > 0) {
+        Swal.fire({
+          title: 'Mandatory Fields Missing',
+          html: `<p class="text-sm">Please complete the following mandatory fields to start production:</p><ul class="mt-2 text-xs font-semibold text-rose-600 list-disc list-inside">${missingFields.map(f => `<li>${f}</li>`).join('')}</ul>`,
+          icon: 'warning'
+        });
+        return;
+      }
     }
 
     const payload = {
@@ -842,14 +903,14 @@ export default function StandardProductionFormPage() {
       machineLine,
       expiryDays,
       note,
-      status: status === 'In Progress' ? 'In Progress' : 'Draft',
-      baseId: selectedBaseId,
-      templateId: selectedTemplate?.id,
+      status: 'Draft', // Save draft first, then transition via /start
+      baseId: selectedBaseId || null,
+      templateId: selectedTemplate?.id || null,
       products: selectedProducts.map(p => ({
         productId: p.productId,
         name: p.name,
         code: p.code,
-        plannedQty: Number(p.plannedQty),
+        plannedQty: Number(p.plannedQty || 0),
         unit: p.unit,
         series: p.series,
         group: p.group,
@@ -859,7 +920,7 @@ export default function StandardProductionFormPage() {
         productId: p.productId,
         name: p.name,
         code: p.code,
-        plannedQty: Number(p.plannedQty),
+        plannedQty: Number(p.plannedQty || 0),
         unit: p.unit,
         series: p.series,
         group: p.group,
@@ -881,15 +942,15 @@ export default function StandardProductionFormPage() {
         rawMaterialCode: rm.rmCode,
         rmName: rm.rmName,
         rawMaterialName: rm.rmName,
-        requiredQty: Number(rm.requiredQty),
-        baseRequiredQty: Number(rm.baseRequiredQty || rm.requiredQty),
-        altRequiredQty: Number(rm.altRequiredQty || rm.requiredQty),
-        uom: rm.selectedUom || rm.baseUom,
-        selectedUom: rm.selectedUom || rm.baseUom,
-        baseUom: rm.baseUom,
+        requiredQty: Number(rm.requiredQty || 0),
+        baseRequiredQty: Number(rm.baseRequiredQty || rm.requiredQty || 0),
+        altRequiredQty: Number(rm.altRequiredQty || rm.requiredQty || 0),
+        uom: rm.selectedUom || rm.baseUom || 'kg',
+        selectedUom: rm.selectedUom || rm.baseUom || 'kg',
+        baseUom: rm.baseUom || 'kg',
         activeEntryMode: rm.activeEntryMode,
-        unitRate: Number(rm.unitRate),
-        totalCost: Number(rm.totalCost),
+        unitRate: Number(rm.unitRate || 0),
+        totalCost: Number(rm.totalCost || 0),
         rateSource: rm.rateSource,
         hasAlternateUom: rm.hasAlternateUom,
         conversionFactor: Number(rm.conversionFactor || 1),
@@ -904,28 +965,46 @@ export default function StandardProductionFormPage() {
 
     try {
       setSaving(true);
+      let targetBatchId = editBatchId;
+
       if (isEditMode) {
-        await api.put(`/production/batches-redesign/${editBatchId}`, payload);
-        Swal.fire({
-          title: status === 'In Progress' ? 'Production Started!' : 'Draft Batch Updated!',
-          text: `Standard Production batch ${editingBatchNo ? `#${editingBatchNo}` : ''} updated successfully.`,
-          icon: 'success',
-          timer: 2000
-        });
+        const updateRes = await api.put(`/production/standard/${editBatchId}/draft`, payload).catch(() =>
+          api.put(`/production/batches-redesign/${editBatchId}`, payload)
+        );
+        targetBatchId = updateRes.data?.id || editBatchId;
       } else {
-        await api.post('/production/batches-redesign', payload);
-        clearProductionDraft(); // Cleared upon starting production or saving batch!
-        Swal.fire({
-          title: status === 'In Progress' ? 'Production Started!' : 'Standard Batch Draft Saved!',
-          text: `Standard Production batch successfully recorded.`,
-          icon: 'success',
-          timer: 2000
-        });
+        const createRes = await api.post('/production/standard', payload).catch(() =>
+          api.post('/production/batches-redesign', payload)
+        );
+        targetBatchId = createRes.data?.id || createRes.data?.batch?.id;
+        clearProductionDraft();
       }
-      navigate('/production/standard');
+
+      if (targetStatus === 'In Progress') {
+        // Call /start endpoint to move DRAFT -> IN_PROGRESS and pre-create RM lines
+        await api.post(`/production/standard/${targetBatchId}/start`).catch(() =>
+          api.patch(`/production/batches-redesign/${targetBatchId}/status`, { status: 'In Progress' })
+        );
+
+        Swal.fire({
+          title: 'Production Started on Floor!',
+          text: `Batch launched on factory floor. Opening Evaporation & Mould Execution Cockpit...`,
+          icon: 'success',
+          timer: 1600
+        });
+        navigate(targetBatchId ? `/production/standard?cockpitBatchId=${targetBatchId}` : '/production/standard');
+      } else {
+        Swal.fire({
+          title: isEditMode ? 'Draft Batch Updated!' : 'Standard Batch Draft Saved!',
+          text: `Standard Production batch successfully saved as draft. You can continue editing at any time.`,
+          icon: 'success',
+          timer: 1800
+        });
+        navigate('/production/standard');
+      }
     } catch (err) {
       console.error('Failed to save standard batch:', err);
-      const msg = err.response?.data?.error || 'Failed to save standard production batch.';
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to save standard production batch.';
       Swal.fire({ title: 'Error', text: msg, icon: 'error' });
     } finally {
       setSaving(false);
@@ -1433,6 +1512,20 @@ export default function StandardProductionFormPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearchModalMode('RM_MULTI');
+                    setSearchModalOpen(true);
+                  }}
+                  className="h-8 px-3 text-xs font-bold rounded-lg border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Raw Materials (Multi-Select)</span>
+                </Button>
+
                 <span className={`text-xs font-mono font-bold px-3 py-1 rounded-full ${
                   areRawMaterialsAllocated 
                     ? 'bg-emerald-50 text-[#0F7B5F] border border-emerald-200'
@@ -1496,9 +1589,25 @@ export default function StandardProductionFormPage() {
                 </div>
               </div>
 
-              <span className="text-xs font-semibold text-slate-500">
-                Formulated under {selectedBaseName || 'Active Base'}
-              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearchModalMode('PRODUCT_SINGLE');
+                    setSearchModalOpen(true);
+                  }}
+                  className="h-8 px-3 text-xs font-bold rounded-lg border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer shadow-3xs flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Search & Select Products</span>
+                </Button>
+
+                <span className="text-xs font-semibold text-slate-500">
+                  Formulated under {selectedBaseName || 'Active Base'}
+                </span>
+              </div>
             </div>
 
             <ProductionProductPicker
@@ -1582,6 +1691,17 @@ export default function StandardProductionFormPage() {
               onOverheadPctChange={setOverheadPct}
             />
           </div>
+        )}
+
+        {/* ── PRODUCTION ITEM SEARCH MODAL (FUZZY, SPACE-IGNORING, MULTI-SELECT) ── */}
+        {searchModalOpen && (
+          <ProductionItemSearchModal
+            isOpen={searchModalOpen}
+            onClose={() => setSearchModalOpen(false)}
+            mode={searchModalMode}
+            onSelectProduct={handleSelectProductFromModal}
+            onSelectRawMaterials={handleAddSelectedRMs}
+          />
         )}
 
       </main>

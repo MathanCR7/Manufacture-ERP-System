@@ -6,13 +6,14 @@ import {
   FileText, ShieldCheck, AlertTriangle, ArrowRight, 
   RefreshCw, Database, Sparkles, Scale, Tag, Check, Info,
   Printer, Zap, FlaskConical, Users, HardHat, UserCheck, CheckSquare,
-  Maximize2, Minimize2, Pencil
+  Maximize2, Minimize2, Pencil, Sliders
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
 import Swal from 'sweetalert2';
 import BatchLabelModal from './BatchLabelModal';
 import ProductionCancelModal from './ProductionCancelModal';
+import ProductionFloorCockpitModal from './ProductionFloorCockpitModal';
 import { analyzeProductionBatchNumber } from '../utils/batchNumberUtil';
 
 export default function ProductionBatchDetailModal({
@@ -30,6 +31,7 @@ export default function ProductionBatchDetailModal({
   const [actionLoading, setActionLoading] = useState(false);
   const [showLabelModal, setShowLabelModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showCockpit, setShowCockpit] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
 
   const fetchBatchDetail = async () => {
@@ -324,6 +326,16 @@ export default function ProductionBatchDetailModal({
               <>
                 <Button
                   size="sm"
+                  onClick={() => setShowCockpit(true)}
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
+                  title="Open Evaporation, UOM Merge & Mould Math Cockpit"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  Floor Run Cockpit
+                </Button>
+
+                <Button
+                  size="sm"
                   disabled={actionLoading}
                   onClick={handlePause}
                   className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
@@ -342,7 +354,7 @@ export default function ProductionBatchDetailModal({
                   className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  Complete & Record Actual Yield
+                  Complete &amp; Record Actual Yield
                 </Button>
               </>
             )}
@@ -1964,6 +1976,20 @@ export default function ProductionBatchDetailModal({
             fetchBatchDetail();
             if (onStatusUpdated) onStatusUpdated();
           }}
+        />
+      )}
+
+      {/* Production Floor Execution Cockpit Modal */}
+      {showCockpit && batch?.id && (
+        <ProductionFloorCockpitModal
+          isOpen={showCockpit}
+          onClose={() => setShowCockpit(false)}
+          batchId={batch.id}
+          onBatchUpdated={() => {
+            fetchBatchDetail();
+            if (onStatusUpdated) onStatusUpdated();
+          }}
+          onOpenCompleteModal={onOpenCompleteModal}
         />
       )}
     </div>

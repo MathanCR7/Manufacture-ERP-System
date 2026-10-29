@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Package, Trash2, Tag, Layers, Check, Database, Search, Filter, Sparkles, Plus, AlertCircle } from 'lucide-react';
+import { Package, Trash2, Tag, Layers, Check, Database, Search, Filter, Sparkles, Plus, AlertCircle, Box } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import ProductSelectionModal, { createProductSearchIndex, matchProductSearch } from './ProductSelectionModal';
+import ProductionMouldPickerModal from './ProductionMouldPickerModal';
 
 export default function ProductionProductPicker({
   categories = [],
@@ -24,6 +25,8 @@ export default function ProductionProductPicker({
   stepNumber = 5
 }) {
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
+  const [mouldModalOpen, setMouldModalOpen] = useState(false);
+  const [selectedProductIdxForMould, setSelectedProductIdxForMould] = useState(null);
   const [inlineSearchQuery, setInlineSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
@@ -108,6 +111,24 @@ export default function ProductionProductPicker({
   const totalPlannedQty = useMemo(() => {
     return selectedProducts.reduce((sum, p) => sum + Number(p.plannedQty || 0), 0);
   }, [selectedProducts]);
+
+  // Handle selecting mould for product
+  const handleSelectMouldForProduct = (selectedMould) => {
+    if (selectedProductIdxForMould === null || !selectedMould) return;
+    const updated = [...selectedProducts];
+    const target = { ...updated[selectedProductIdxForMould] };
+    target.mouldId = selectedMould.id || selectedMould.mouldCode;
+    target.mouldCode = selectedMould.mouldCode;
+    target.mouldName = selectedMould.mouldName;
+    target.capacityMl = Number(selectedMould.capacityMl || 50);
+    target.cavityCount = Number(selectedMould.cavityCount || 50);
+    target.totalNominalCapacityMl = Number(selectedMould.totalNominalCapacityMl || (target.capacityMl * target.cavityCount));
+    target.usesMould = true;
+    updated[selectedProductIdxForMould] = target;
+    onUpdateProducts(updated);
+    setMouldModalOpen(false);
+    setSelectedProductIdxForMould(null);
+  };
 
   return (
     <div className="space-y-4">
@@ -258,6 +279,29 @@ export default function ProductionProductPicker({
                     <span>•</span>
                     <span className="font-bold text-[#4F46E5] dark:text-indigo-400">{p.baseName || selectedBaseName}</span>
                   </div>
+
+                  {/* Mould Spec Badge & Action */}
+                  <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {p.mouldCode ? (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10.5px] font-bold text-indigo-700 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-300 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                        <Box className="w-3 h-3 text-indigo-500" />
+                        Mould: {p.mouldCode} ({p.capacityMl || 50} ml × {p.cavityCount || 50} = {p.totalNominalCapacityMl || 2500} ml)
+                      </span>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        setSelectedProductIdxForMould(idx);
+                        setMouldModalOpen(true);
+                      }}
+                      className="text-[10.5px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 underline decoration-indigo-300 cursor-pointer flex items-center gap-1"
+                    >
+                      <Box className="w-3 h-3" />
+                      {p.mouldCode ? 'Change Mould' : '+ Assign Mould'}
+                    </button>
+                  </div>
                 </td>
 
                 {/* SKU / Code */}
@@ -347,6 +391,17 @@ export default function ProductionProductPicker({
         }}
         selectedBaseName={selectedBaseName}
         title="Finished Product Catalog"
+      />
+
+      {/* Mould Specifications Picker Modal */}
+      <ProductionMouldPickerModal
+        isOpen={mouldModalOpen}
+        onClose={() => {
+          setMouldModalOpen(false);
+          setSelectedProductIdxForMould(null);
+        }}
+        onSelectMould={handleSelectMouldForProduct}
+        selectedMouldId={selectedProductIdxForMould !== null ? selectedProducts[selectedProductIdxForMould]?.mouldId : null}
       />
     </div>
   );

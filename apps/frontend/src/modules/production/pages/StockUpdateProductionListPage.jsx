@@ -5,13 +5,14 @@ import {
   Layers, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
   Package, Check, Lock, FlaskConical, X, ArrowUpDown, ArrowUp, ArrowDown,
-  RotateCcw, ChevronDown, Printer, Tag, SlidersHorizontal, Pencil
+  RotateCcw, ChevronDown, Printer, Tag, SlidersHorizontal, Pencil, Sliders
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/Pagination';
 import BatchCompletionModal from '../components/BatchCompletionModal';
 import ProductionBatchDetailModal from '../components/ProductionBatchDetailModal';
+import ProductionFloorCockpitModal from '../components/ProductionFloorCockpitModal';
 import BatchLabelModal from '../components/BatchLabelModal';
 import { analyzeProductionBatchNumber } from '../utils/batchNumberUtil';
 import useAuthStore from '@/app/store/authStore';
@@ -34,6 +35,15 @@ export default function StockUpdateProductionListPage() {
   const [completionModalOpen, setCompletionModalOpen] = useState(false);
   const [batchToComplete, setBatchToComplete] = useState(null);
   const [completing, setCompleting] = useState(false);
+
+  // Production Floor Execution Cockpit Modal State
+  const [cockpitModalOpen, setCockpitModalOpen] = useState(false);
+  const [selectedCockpitBatchId, setSelectedCockpitBatchId] = useState(null);
+
+  const handleOpenCockpit = (batch) => {
+    setSelectedCockpitBatchId(batch.id);
+    setCockpitModalOpen(true);
+  };
 
   // Role visibility (hide amounts for production staff role, allow admin/supervisors to see all)
   const currentUser = useAuthStore(s => s.user);
@@ -797,15 +807,27 @@ export default function StockUpdateProductionListPage() {
                             )}
 
                             {b.status === 'In Progress' && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleOpenCompleteModal(b)}
-                                className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
-                                title="Record actual output & update stock"
-                              >
-                                <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                Yield
-                              </Button>
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenCockpit(b)}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
+                                >
+                                  <Sliders className="w-3 h-3 shrink-0" />
+                                  Floor Run
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenCompleteModal(b)}
+                                  className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  title="Record actual output & update stock"
+                                >
+                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                                  Yield
+                                </Button>
+                              </>
                             )}
 
                             {(b.status === 'Completed' || b.status === 'qc_passed' || b.status === 'Approved') && (
@@ -896,6 +918,20 @@ export default function StockUpdateProductionListPage() {
           batchId={selectedLabelBatch.id}
           batch={selectedLabelBatch}
           batchStatus={selectedLabelBatch.status}
+        />
+      )}
+
+      {/* ── PRODUCTION FLOOR EXECUTION COCKPIT MODAL (Evaporation, UOM Merge & Mould Math) ── */}
+      {cockpitModalOpen && selectedCockpitBatchId && (
+        <ProductionFloorCockpitModal
+          isOpen={cockpitModalOpen}
+          onClose={() => {
+            setCockpitModalOpen(false);
+            setSelectedCockpitBatchId(null);
+          }}
+          batchId={selectedCockpitBatchId}
+          onBatchUpdated={fetchBatches}
+          onOpenCompleteModal={handleOpenCompleteModal}
         />
       )}
 
