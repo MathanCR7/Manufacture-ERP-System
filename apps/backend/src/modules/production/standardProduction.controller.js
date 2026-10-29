@@ -994,33 +994,84 @@ class StandardProductionController {
       const batch = batchRows[0];
 
       // Fetch RM Lines with live database UOMs, alternate UOMs, and lot batch details
-      const rmLines = await prisma.$queryRawUnsafe(`
-        SELECT 
-          pbl.*,
-          rm.name AS raw_material_name,
-          rm.code AS raw_material_code,
-          rm."currentStock" AS current_stock,
-          rm."ratePerUnit" AS rate_per_unit,
-          rm."unitId" AS unit_id,
-          rm."hasAlternateUom" AS has_alternate_uom,
-          rm."alternateUom" AS alternate_uom,
-          rm."alternateUomQty" AS alternate_uom_qty,
-          rm."baseUomQty" AS base_uom_qty,
-          rm."conversionFactor" AS conversion_factor,
-          rm."consumptionUnit" AS consumption_unit,
-          COALESCE(pbl.density, 1.0000) AS master_density,
-          CASE 
-            WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
-            ELSE FALSE 
-          END AS master_evaporates,
-          ib."batchNumber" AS lot_batch_no,
-          ib."expiryDate" AS lot_expiry_date
-        FROM production_batch_rm_line pbl
-        LEFT JOIN "RawMaterial" rm ON rm.id = pbl.raw_material_id
-        LEFT JOIN "InventoryBatch" ib ON ib.id = pbl.lot_id
-        WHERE pbl.batch_id = $1
-        ORDER BY pbl.created_at;
-      `, id);
+      let rmLines = [];
+      try {
+        rmLines = await prisma.$queryRawUnsafe(`
+          SELECT 
+            pbl.*,
+            rm.name AS raw_material_name,
+            rm.code AS raw_material_code,
+            rm."currentStock" AS current_stock,
+            rm."ratePerUnit" AS rate_per_unit,
+            rm."unitId" AS unit_id,
+            rm."hasAlternateUom" AS has_alternate_uom,
+            rm."alternateUom" AS alternate_uom,
+            rm."alternateUomQty" AS alternate_uom_qty,
+            rm."baseUomQty" AS base_uom_qty,
+            rm."conversionFactor" AS conversion_factor,
+            rm."consumptionUnit" AS consumption_unit,
+            COALESCE(pbl.density, 1.0000) AS master_density,
+            CASE 
+              WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%stabl%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+              ELSE FALSE 
+            END AS master_evaporates,
+            ib."batchNumber" AS lot_batch_no,
+            ib."expiryDate" AS lot_expiry_date
+          FROM production_batch_rm_line pbl
+          LEFT JOIN "RawMaterial" rm ON rm.id = pbl.raw_material_id
+          LEFT JOIN "InventoryBatch" ib ON ib.id = pbl.lot_id
+          WHERE pbl.batch_id = $1
+          ORDER BY pbl.created_at;
+        `, id);
+      } catch (_) {
+        rmLines = [];
+      }
+
+      // If production_batch_rm_line is empty, seamlessly fallback to production_batch_rm_usage
+      if (!rmLines || rmLines.length === 0) {
+        try {
+          rmLines = await prisma.$queryRawUnsafe(`
+            SELECT 
+              u.id,
+              u.batch_id,
+              u.rm_id AS raw_material_id,
+              u.allocated_batch_id AS lot_id,
+              COALESCE(u.selected_uom, rm."consumptionUnit", rm."unitId", 'kg') AS uom,
+              1.0000 AS density,
+              COALESCE(rm."currentStock", u.available_qty_at_time, 0) AS available_qty,
+              COALESCE(u.required_qty, 0) AS required_qty,
+              COALESCE(u.input_qty, u.actual_used_qty, u.required_qty, 0) AS taken_qty,
+              CASE 
+                WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%stabl%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+                ELSE FALSE 
+              END AS evaporates,
+              TRUE AS merged,
+              rm.name AS raw_material_name,
+              rm.code AS raw_material_code,
+              rm."currentStock" AS current_stock,
+              COALESCE(u.unit_cost, rm."ratePerUnit", 0) AS rate_per_unit,
+              rm."unitId" AS unit_id,
+              rm."hasAlternateUom" AS has_alternate_uom,
+              rm."alternateUom" AS alternate_uom,
+              rm."conversionFactor" AS conversion_factor,
+              rm."consumptionUnit" AS consumption_unit,
+              1.0000 AS master_density,
+              CASE 
+                WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%stabl%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+                ELSE FALSE 
+              END AS master_evaporates,
+              COALESCE(u.internal_batch_no, ib."batchNumber") AS lot_batch_no,
+              ib."expiryDate" AS lot_expiry_date
+            FROM production_batch_rm_usage u
+            LEFT JOIN "RawMaterial" rm ON rm.id = u.rm_id
+            LEFT JOIN "InventoryBatch" ib ON ib.id = u.allocated_batch_id
+            WHERE u.batch_id = $1
+            ORDER BY u.id;
+          `, id);
+        } catch (uErr) {
+          console.warn('Fallback rm_usage query error:', uErr.message);
+        }
+      }
 
       // Fetch saved raw material batch allocations
       let savedBatchAllocations = [];
@@ -1113,13 +1164,24 @@ class StandardProductionController {
           const rate = Number(line.rate_per_unit || 0);
           const lineCost = taken * rate;
           totalMaterialCost += lineCost;
+          const uom = line.uom || 'kg';
+          const density = Number(line.density || 1.0);
+          let liquidMl = 0;
+          try {
+            liquidMl = toMl(taken, uom, density);
+          } catch (_) {}
+
           return {
             rawMaterialId: line.raw_material_id,
             rawMaterialName: line.raw_material_name,
+            rawMaterialCode: line.raw_material_code || 'RM',
             takenQty: taken,
-            uom: line.uom,
+            uom,
             unitRate: rate,
-            totalCost: round2(lineCost)
+            totalCost: round2(lineCost),
+            lotBatchNo: line.lot_batch_no || 'BATCH-DIRECT',
+            evaporates: Boolean(line.evaporates),
+            liquidVolumeMl: liquidMl
           };
         });
 
@@ -1199,23 +1261,40 @@ class StandardProductionController {
             supplierBatchNo: a.supplier_batch_no || 'SUP-LOT-01'
           }));
 
-          const resolvedLotBatchNo = allocatedBatches.length > 0
-            ? allocatedBatches.map(b => b.lotNumber).join(', ')
+          let resolvedAllocatedBatches = allocatedBatches;
+          if (resolvedAllocatedBatches.length === 0 && (r.lot_id || r.lot_batch_no)) {
+            resolvedAllocatedBatches = [{
+              batchId: r.lot_id || r.lot_batch_no,
+              lotNumber: r.lot_batch_no || 'LOT-AUTO-01',
+              internalBatchNo: r.lot_batch_no || 'LOT-AUTO-01',
+              allocatedQty: Number(r.taken_qty || r.required_qty || 0),
+              unitRate: Number(r.rate_per_unit || 0),
+              allocatedAmount: Number(r.taken_qty || r.required_qty || 0) * Number(r.rate_per_unit || 0),
+              uom: r.uom,
+              isManualOverride: false,
+              grnNumber: 'GRN-AUTO',
+              poNumber: 'PO-AUTO',
+              supplierBatchNo: r.lot_batch_no || 'SUP-LOT-01'
+            }];
+          }
+
+          const resolvedLotBatchNo = resolvedAllocatedBatches.length > 0
+            ? resolvedAllocatedBatches.map(b => b.lotNumber).join(', ')
             : (r.lot_batch_no || (batchMap.get(r.raw_material_id)?.[0]?.batchNo || null));
 
           return {
             ...r,
-            density: Number(r.density),
-            available_qty: Number(r.available_qty),
-            required_qty: Number(r.required_qty),
-            taken_qty: Number(r.taken_qty),
+            density: Number(r.density || 1.0),
+            available_qty: Number(r.available_qty || 0),
+            required_qty: Number(r.required_qty || 0),
+            taken_qty: Number(r.taken_qty || 0),
             unit_id: r.unit_id,
             has_alternate_uom: Boolean(r.has_alternate_uom),
             alternate_uom: r.alternate_uom,
             conversion_factor: Number(r.conversion_factor || 1),
             consumption_unit: r.consumption_unit,
             lot_batch_no: resolvedLotBatchNo,
-            allocatedBatches: allocatedBatches,
+            allocatedBatches: resolvedAllocatedBatches,
             available_batches: batchMap.get(r.raw_material_id) || []
           };
         }),

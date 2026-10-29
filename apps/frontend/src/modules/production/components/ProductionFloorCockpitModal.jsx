@@ -5,7 +5,8 @@ import {
   Flame, Droplets, Snowflake, CheckCircle2, AlertCircle, RotateCcw,
   Plus, Trash2, ChevronRight, HardHat, FileSpreadsheet, Eye,
   DollarSign, TrendingDown, Package, HelpCircle, ArrowDownRight, Layers2,
-  Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, ChevronLeft
+  Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, ChevronLeft,
+  Unlock, Lock, FileText, CheckCheck, TrendingUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,7 @@ import {
 } from '../utils/productionCalculation';
 import ProductionMouldPickerModal from './ProductionMouldPickerModal';
 import ProductionItemSearchModal from './ProductionItemSearchModal';
+import ProductionCleanReportView from './ProductionCleanReportView';
 import { getProductionDraft } from '../services/productionDraftStore';
 
 const formatDateDMY = (dateVal) => {
@@ -58,6 +60,9 @@ export default function ProductionFloorCockpitModal({
   
   // High-impact Fullscreen default for industrial floor terminal view
   const [isFullscreen, setIsFullscreen] = useState(true);
+
+  // View mode: 'STEPS' (interactive 4-step wizard) vs 'REPORT' (clean executive costing & yield ledger)
+  const [viewMode, setViewMode] = useState('STEPS');
 
   // ── 4-STEP PROCESS GUIDANCE STATE ──
   // 1: RM Formulation & Warehouse Lot Allocation
@@ -131,6 +136,9 @@ export default function ProductionFloorCockpitModal({
       const b = detailRes.data.batch || detailRes.data;
       setBatch(b);
       setActualYieldPieces(Number(b.actualOutput || b.quantity || 2000));
+      if (b.status === 'Completed') {
+        setViewMode('REPORT');
+      }
 
       // Moulds
       const moulds = mouldsRes.data.moulds || mouldsRes.data.data || [];
@@ -198,7 +206,7 @@ export default function ProductionFloorCockpitModal({
             requiredQty: Number(line.required_qty || 0),
             takenQty,
             evaporates: Boolean(line.evaporates),
-            merged: Boolean(line.merged),
+            merged: line.merged !== undefined && line.merged !== null ? Boolean(line.merged) : true,
             unitRate,
             lotBatchNo: lotBatchNo || null,
             availableBatches: line.available_batches || [],
@@ -1097,6 +1105,43 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
+  // ── REOPEN BATCH FOR CONTINUOUS EDITING ──
+  const handleReopenProduction = async () => {
+    const confirm = await Swal.fire({
+      title: 'Reopen Batch for Editing?',
+      text: 'This will unlock raw materials, evaporation, and mould allocations so you can modify and re-save parameters in the database.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Reopen for Editing',
+      confirmButtonColor: '#4f46e5'
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setActionLoading(true);
+      await api.post(`/production/standard/${batchId}/reopen`);
+      Swal.fire({
+        title: 'Batch Reopened',
+        text: 'Batch is now In Progress and unlocked for continuous editing.',
+        icon: 'success',
+        timer: 1800
+      });
+      setViewMode('STEPS');
+      setActiveStep(1);
+      fetchAllData();
+      if (onBatchUpdated) onBatchUpdated();
+    } catch (err) {
+      console.error('Failed to reopen batch:', err);
+      Swal.fire({
+        title: 'Error',
+        text: err.response?.data?.error || 'Failed to reopen production batch.',
+        icon: 'error'
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // ── YIELD RECORDING & COMPLETION ──
   const handleCompleteBatchSubmit = async () => {
     const pieces = Number(actualYieldPieces);
@@ -1113,13 +1158,14 @@ export default function ProductionFloorCockpitModal({
       });
 
       Swal.fire({
-        title: 'Floor Run Completed!',
-        text: `Recorded actual yield of ${pieces} pcs. Batch successfully finalized.`,
+        title: 'Production Run Finalized!',
+        text: `Recorded actual yield of ${pieces} pcs. Batch successfully finalized. Presenting Clean Production Execution & Cost Report.`,
         icon: 'success',
         timer: 2000
       });
 
       setShowYieldModal(false);
+      setViewMode('REPORT');
       fetchAllData();
       if (onBatchUpdated) onBatchUpdated();
     } catch (err) {
@@ -1181,6 +1227,49 @@ export default function ProductionFloorCockpitModal({
 
           {/* Center & Right Action Buttons */}
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {/* View Mode Toggle Switcher */}
+            <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700">
+              <button
+                type="button"
+                onClick={() => setViewMode('STEPS')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'STEPS'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Floor Steps</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('REPORT')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  viewMode === 'REPORT'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Clean Report</span>
+              </button>
+            </div>
+
+            {/* Reopen Batch Button (when Completed) */}
+            {isCompleted && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={actionLoading}
+                onClick={handleReopenProduction}
+                className="rounded-xl border-amber-500/70 text-amber-300 hover:bg-amber-950/40 h-8 px-2.5 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                title="Unlock completed batch and resume edits in PostgreSQL"
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>Reopen Batch</span>
+              </Button>
+            )}
+
             {/* Pause / Resume Button */}
             {!isCompleted && (
               isPaused ? (
@@ -1214,7 +1303,7 @@ export default function ProductionFloorCockpitModal({
                 className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-3 text-xs shadow-xs cursor-pointer flex items-center gap-1.5"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Complete &amp; Record Actual Yield</span>
+                <span>Complete &amp; Finalize Yield</span>
               </Button>
             )}
 
@@ -1281,8 +1370,10 @@ export default function ProductionFloorCockpitModal({
           </div>
         </div>
 
-        {/* ── TOP KPI SUMMARY RIBBON ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-xs select-none">
+        {/* ── TOP KPI SUMMARY RIBBON (STEPS MODE ONLY) ── */}
+        {viewMode === 'STEPS' && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 px-4 sm:px-6 py-2.5 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-xs select-none">
           <div className="flex items-center gap-2">
             <span className="text-slate-500 font-bold">Planned Output:</span>
             <strong className="font-mono text-slate-900 dark:text-white">{batch?.quantity || 2000} pcs</strong>
@@ -1433,8 +1524,10 @@ export default function ProductionFloorCockpitModal({
             )}
           </div>
         </div>
+        </>
+        )}
 
-        {/* ── BODY (Scrollable Step Sections) ── */}
+        {/* ── BODY (Scrollable Step Sections or Clean Executive Report) ── */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
           
           {loading ? (
@@ -1442,6 +1535,20 @@ export default function ProductionFloorCockpitModal({
               <RefreshCw className="w-8 h-8 animate-spin mb-3 text-indigo-600" />
               <p className="text-sm font-semibold">Loading batch formulation and warehouse inventory lots...</p>
             </div>
+          ) : viewMode === 'REPORT' ? (
+            <ProductionCleanReportView
+              batch={batch}
+              costingData={costingData}
+              liveAllocationsResult={liveAllocationsResult}
+              liveEvaporationResult={liveEvaporationResult}
+              rmRows={rmRows}
+              actualYieldPieces={actualYieldPieces}
+              completionNotes={completionNotes}
+              canViewCost={canViewCost}
+              onReopen={handleReopenProduction}
+              onSwitchToSteps={() => setViewMode('STEPS')}
+              onClose={onClose}
+            />
           ) : (
             <>
               {/* ══════════════════════════════════════════════════════════════════════════
@@ -1871,22 +1978,46 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-3 divide-y divide-slate-100 dark:divide-slate-800">
-                      {liveEvaporationResult.lines.map((line, idx) => (
-                        <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-2.5 first:pt-1 last:pb-1 text-xs">
-                          <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
-                            <span className="truncate max-w-[140px]">{line.rawMaterialName}</span>
-                            <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                              {formatIndian(line.takenMlAfterEvap ?? line.postEvapMl ?? line.takenMl ?? 0)} ml
-                            </span>
+                      {liveEvaporationResult.lines.map((line, idx) => {
+                        const postMl = Number(line.takenMlAfterEvap ?? line.postEvapMl ?? line.takenMl ?? 0);
+                        let displayMl = postMl;
+                        if (displayMl <= 0 && Number(line.takenQty || 0) > 0) {
+                          try {
+                            displayMl = toMl(Number(line.takenQty || 0), line.uom, Number(line.density || 1.0));
+                          } catch (_) {}
+                        }
+                        const avail = Number(line.availableQty ?? 0);
+                        const taken = Number(line.takenQty ?? 0);
+                        const remStock = Number(line.remainingStock !== undefined ? line.remainingStock : (avail - taken));
+
+                        return (
+                          <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-2.5 first:pt-1 last:pb-1 text-xs space-y-1">
+                            <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+                              <span className="truncate max-w-[150px]">{line.rawMaterialName}</span>
+                              <span className="font-mono text-emerald-600 dark:text-emerald-400 font-extrabold">
+                                {formatIndian(displayMl)} ml
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-500">
+                              <span>Taken / Stock:</span>
+                              <span className="font-mono text-slate-700 dark:text-slate-300">
+                                <strong className="text-indigo-600 dark:text-indigo-400">{taken}</strong> / {formatIndian(avail > 0 ? avail : (remStock + taken))} {line.uom}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-500">
+                              <span>Remaining Stock:</span>
+                              <span className={`font-mono font-bold ${remStock < 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
+                                {formatIndian(remStock)} {line.uom}
+                              </span>
+                            </div>
+                            {line.lotBatchNo && (
+                              <div className="text-[10px] font-mono text-slate-400 truncate">
+                                PO Lot: <span className="text-indigo-600 dark:text-indigo-400 font-bold">{line.lotBatchNo}</span>
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center justify-between text-[11px] text-slate-500 mt-0.5">
-                            <span>Remaining Stock:</span>
-                            <span className={`font-mono font-bold ${line.remainingStock < 0 ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
-                              {formatIndian(line.remainingStock)} {line.uom}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </Card>
 
@@ -2214,12 +2345,23 @@ export default function ProductionFloorCockpitModal({
                     <div className="flex items-center gap-2">
                       <Button
                         type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setViewMode('REPORT')}
+                        className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>View Executive Clean Report</span>
+                      </Button>
+
+                      <Button
+                        type="button"
                         size="sm"
                         onClick={() => setShowYieldModal(true)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 rounded-lg"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>Record Actual Yield &amp; Complete Run</span>
+                        <span>Record Actual Yield &amp; Finalize Batch</span>
                       </Button>
                     </div>
                   </div>
@@ -2263,6 +2405,46 @@ export default function ProductionFloorCockpitModal({
                       </div>
                     </div>
                   </div>
+
+                  {/* Multi-Product Chained Output Breakdown */}
+                  {liveAllocationsResult.allocations?.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-emerald-200/60 dark:border-emerald-800/60 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                          Finished Products Chained From Batch Mix:
+                        </h4>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          Total mix allocated: {formatIndian(liveAllocationsResult.totalMixUsedMl)} ml
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {liveAllocationsResult.allocations.map((a, aIdx) => (
+                          <div key={`step4-prod-${a.seq || aIdx}`} className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                            <div>
+                              <div className="flex items-center gap-1.5 font-extrabold text-slate-900 dark:text-white">
+                                <span className="w-5 h-5 rounded-full bg-purple-700 text-white font-mono text-[10px] flex items-center justify-center font-black">
+                                  #{a.seq}
+                                </span>
+                                <span>{a.productName}</span>
+                              </div>
+                              <div className="text-[10.5px] text-slate-400 mt-0.5">
+                                Mould: {a.mouldCode || 'IM-0001'} • {a.trays} trays ({a.cavities} cav × {a.capacityMl}ml)
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-mono font-black text-sm text-purple-600 dark:text-purple-400">
+                                {a.goodPieces} pcs
+                              </span>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {formatIndian(a.mixUsedMl)} ml mix
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Card>
 
                 {/* 2. Role-Protected Batch Costing (Admin & Supervisor Only) */}
@@ -2380,7 +2562,7 @@ export default function ProductionFloorCockpitModal({
         {/* ── FOOTER ACTIONS ── */}
         <div className="sticky bottom-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs select-none flex-wrap gap-2">
           <div className="text-slate-500">
-            Batch: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{batch?.referenceNo || batch?.batchNo || batchId}</span> • Real-time floor execution active
+            Batch: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{batch?.referenceNo || batch?.batchNo || batchId}</span> • {viewMode === 'REPORT' ? 'Executive Cost & Yield Ledger' : 'Real-time floor execution active'}
           </div>
 
           <div className="flex items-center gap-2">
@@ -2394,14 +2576,39 @@ export default function ProductionFloorCockpitModal({
               Exit Cockpit
             </Button>
 
+            {viewMode === 'REPORT' ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMode('STEPS')}
+                className="h-8 px-3 text-xs font-bold rounded-lg border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center gap-1.5"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Return to Floor Run Steps</span>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMode('REPORT')}
+                className="h-8 px-3 text-xs font-bold rounded-lg border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1.5"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>View Clean Report</span>
+              </Button>
+            )}
+
             {!isCompleted && (
               <Button
                 type="button"
                 size="sm"
                 onClick={() => setShowYieldModal(true)}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5"
               >
-                Complete &amp; Record Actual Yield
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Finalize Entire Production</span>
               </Button>
             )}
           </div>
