@@ -83,10 +83,22 @@ async function ensureStandardProductionSchema(p = prisma) {
     `);
 
     // Ensure view ice_cream_mould
-    await p.$executeRawUnsafe(`
-      CREATE OR REPLACE VIEW ice_cream_mould AS 
-      SELECT * FROM production_moulds;
-    `);
+    try {
+      await p.$executeRawUnsafe(`
+        CREATE OR REPLACE VIEW ice_cream_mould AS 
+        SELECT * FROM production_moulds;
+      `);
+    } catch (_) {
+      try {
+        await p.$executeRawUnsafe(`DROP VIEW IF EXISTS ice_cream_mould CASCADE;`);
+        await p.$executeRawUnsafe(`
+          CREATE VIEW ice_cream_mould AS 
+          SELECT * FROM production_moulds;
+        `);
+      } catch (dropErr) {
+        // ignore if not allowed
+      }
+    }
 
     // Ensure production_batch_rm_line
     await p.$executeRawUnsafe(`
