@@ -402,6 +402,16 @@ export default function ProductionBatchDetailModal({
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               GS1 Label / Barcode
             </Button>
+
+            <Button
+              size="sm"
+              onClick={() => setShowCockpit(true)}
+              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
+              title="Open Executive Clean Sheet, Material Traceability & Cost Ledger"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Clean Sheet &amp; Cost Report
+            </Button>
           </div>
 
           {/* Group 2: Quick Jump Highlighting (Middle) */}
@@ -1985,6 +1995,7 @@ export default function ProductionBatchDetailModal({
           isOpen={showCockpit}
           onClose={() => setShowCockpit(false)}
           batchId={batch.id}
+          initialViewMode={batch?.status === 'Completed' || batch?.status === 'qc_passed' ? 'REPORT' : 'STEPS'}
           onBatchUpdated={() => {
             fetchBatchDetail();
             if (onStatusUpdated) onStatusUpdated();

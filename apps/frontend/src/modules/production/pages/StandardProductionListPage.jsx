@@ -32,6 +32,7 @@ export default function StandardProductionListPage() {
   // Production Floor Execution Cockpit Modal State
   const [cockpitModalOpen, setCockpitModalOpen] = useState(false);
   const [selectedCockpitBatchId, setSelectedCockpitBatchId] = useState(null);
+  const [cockpitViewMode, setCockpitViewMode] = useState('STEPS');
 
   // GS1 Label Modal State
   const [labelModalOpen, setLabelModalOpen] = useState(false);
@@ -94,11 +95,17 @@ export default function StandardProductionListPage() {
     fetchBatches();
   }, []);
 
-  // Auto-open Floor Execution Cockpit if navigated with cockpitBatchId query param
+  // Auto-open Floor Execution Cockpit or Clean Sheet if navigated with query params
   useEffect(() => {
+    const reportId = searchParams.get('reportBatchId');
     const cockpitId = searchParams.get('cockpitBatchId');
-    if (cockpitId) {
+    if (reportId) {
+      setSelectedCockpitBatchId(reportId);
+      setCockpitViewMode('REPORT');
+      setCockpitModalOpen(true);
+    } else if (cockpitId) {
       setSelectedCockpitBatchId(cockpitId);
+      setCockpitViewMode(searchParams.get('mode') === 'report' ? 'REPORT' : 'STEPS');
       setCockpitModalOpen(true);
     }
   }, [searchParams]);
@@ -206,9 +213,17 @@ export default function StandardProductionListPage() {
     }
   };
 
-  // Open Floor Execution Cockpit Modal
-  const handleOpenCockpit = (batch) => {
+  // Open Floor Execution Cockpit Modal (Interactive 4-Step Floor Run)
+  const handleOpenCockpit = (batch, mode = 'STEPS') => {
     setSelectedCockpitBatchId(batch.id);
+    setCockpitViewMode(mode);
+    setCockpitModalOpen(true);
+  };
+
+  // Open Clean Sheet / Executive Cost & Yield Ledger
+  const handleOpenCleanSheet = (batch) => {
+    setSelectedCockpitBatchId(batch.id);
+    setCockpitViewMode('REPORT');
     setCockpitModalOpen(true);
   };
 
@@ -536,7 +551,7 @@ export default function StandardProductionListPage() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Planned routine manufacturing batches, capacity utilization & standard formula execution
+                Planned routine manufacturing batches, capacity utilization & standard formula execution • Click <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">📄 Clean Sheet</span> on any batch to view executive costing &amp; PO traceability
               </p>
             </div>
           </div>
@@ -1114,7 +1129,7 @@ export default function StandardProductionListPage() {
                         ) : null}
 
                         {/* 9. Operations & Yield (Never wraps, clean single row) */}
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap w-[210px]">
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap min-w-[260px]">
                           <div className="flex items-center justify-end gap-1.5 flex-nowrap shrink-0">
                             <Button
                               variant="outline"
@@ -1145,7 +1160,7 @@ export default function StandardProductionListPage() {
                               <>
                                 <Button
                                   size="sm"
-                                  onClick={() => handleOpenCockpit(b)}
+                                  onClick={() => handleOpenCockpit(b, 'STEPS')}
                                   className="bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
                                   title="Open Floor Cockpit to allocate lots and preview merge math"
                                 >
@@ -1180,12 +1195,23 @@ export default function StandardProductionListPage() {
                               <>
                                 <Button
                                   size="sm"
-                                  onClick={() => handleOpenCockpit(b)}
+                                  onClick={() => handleOpenCockpit(b, 'STEPS')}
                                   className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
                                   title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
                                 >
                                   <Sliders className="w-3 h-3 shrink-0" />
                                   Floor Run
+                                </Button>
+
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenCleanSheet(b)}
+                                  className="rounded-xl border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  title="Preview Clean Sheet & Cost Ledger"
+                                >
+                                  <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  Clean Sheet
                                 </Button>
 
                                 <Button
@@ -1201,9 +1227,32 @@ export default function StandardProductionListPage() {
                             )}
 
                             {(b.status === 'Completed' || b.status === 'qc_passed') && (
-                              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
-                                {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                              </span>
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleOpenCleanSheet(b)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  title="Open Executive Clean Sheet, Yields, PO Raw Material Consumption & Cost Ledger"
+                                >
+                                  <FileText className="w-3 h-3 shrink-0" />
+                                  Clean Sheet
+                                </Button>
+
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenCockpit(b, 'STEPS')}
+                                  className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  title="Review Floor Steps & Batch Parameters"
+                                >
+                                  <Sliders className="w-3 h-3 text-slate-500 shrink-0" />
+                                  Steps
+                                </Button>
+
+                                <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
+                                  {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                                </span>
+                              </>
                             )}
                           </div>
                         </td>
@@ -1347,6 +1396,7 @@ export default function StandardProductionListPage() {
             setSelectedCockpitBatchId(null);
           }}
           batchId={selectedCockpitBatchId}
+          initialViewMode={cockpitViewMode}
           onBatchUpdated={fetchBatches}
           onOpenCompleteModal={handleOpenCompleteModal}
         />

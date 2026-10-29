@@ -46,7 +46,8 @@ export default function ProductionFloorCockpitModal({
   onClose,
   batchId,
   onBatchUpdated,
-  onOpenCompleteModal
+  onOpenCompleteModal,
+  initialViewMode = 'STEPS'
 }) {
   const currentUser = useAuthStore(s => s.user);
   const userRole = currentUser?.role?.toUpperCase();
@@ -62,7 +63,13 @@ export default function ProductionFloorCockpitModal({
   const [isFullscreen, setIsFullscreen] = useState(true);
 
   // View mode: 'STEPS' (interactive 4-step wizard) vs 'REPORT' (clean executive costing & yield ledger)
-  const [viewMode, setViewMode] = useState('STEPS');
+  const [viewMode, setViewMode] = useState(initialViewMode || 'STEPS');
+
+  useEffect(() => {
+    if (isOpen && initialViewMode) {
+      setViewMode(initialViewMode);
+    }
+  }, [isOpen, initialViewMode]);
 
   // ── 4-STEP PROCESS GUIDANCE STATE ──
   // 1: RM Formulation & Warehouse Lot Allocation
@@ -136,7 +143,7 @@ export default function ProductionFloorCockpitModal({
       const b = detailRes.data.batch || detailRes.data;
       setBatch(b);
       setActualYieldPieces(Number(b.actualOutput || b.quantity || 2000));
-      if (b.status === 'Completed') {
+      if (initialViewMode === 'REPORT' || b.status === 'Completed' || b.status === 'qc_passed') {
         setViewMode('REPORT');
       }
 
