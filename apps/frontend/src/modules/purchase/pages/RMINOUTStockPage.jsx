@@ -32,6 +32,7 @@ import {
   CheckCircle2,
   Boxes,
   Maximize2,
+  Minimize2,
   Loader2,
   Sparkles,
   Download,
@@ -420,6 +421,7 @@ export default function RMINOUTStockPage() {
   const initialCode = searchParams.get('code') || 'ALL';
   const initialStartDate = searchParams.get('startDate') || '';
   const initialEndDate = searchParams.get('endDate') || '';
+  const initialMovement = searchParams.get('movement') || 'ALL';
 
   // Time Period State - default is 'all' (All Time)
   const [period, setPeriod] = useState(initialPeriod); // today | yesterday | this_week | last_week | this_month | last_month | all | custom
@@ -440,9 +442,21 @@ export default function RMINOUTStockPage() {
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [categoryFilter, setCategoryFilter] = useState(initialCategory);
   const [codeFilter, setCodeFilter] = useState(initialCode);
-  const [movementFilter, setMovementFilter] = useState('ALL'); // ALL | IN_PROGRESS | FREE_AVAILABLE | LAB_REJECTED | WITH_MOVEMENT | IN_ONLY | OUT_ONLY | NET_POSITIVE | NET_NEGATIVE | LOW_STOCK | OUT_OF_STOCK
+  const [movementFilter, setMovementFilter] = useState(initialMovement); // ALL | IN_PROGRESS | FREE_AVAILABLE | LAB_REJECTED | WITH_MOVEMENT | IN_ONLY | OUT_ONLY | NET_POSITIVE | NET_NEGATIVE | LOW_STOCK | OUT_OF_STOCK
   const [sortBy, setSortBy] = useState('code_asc');
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
+
+  // Table Fullscreen State & ESC Listener
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
   // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -1504,8 +1518,9 @@ export default function RMINOUTStockPage() {
     if (searchTerm) params.set('search', searchTerm);
     if (categoryFilter !== 'ALL') params.set('category', categoryFilter);
     if (codeFilter !== 'ALL') params.set('code', codeFilter);
+    if (movementFilter !== 'ALL') params.set('movement', movementFilter);
     setSearchParams(params, { replace: true });
-  }, [period, appliedCustomStart, appliedCustomEnd, searchTerm, categoryFilter, codeFilter, setSearchParams]);
+  }, [period, appliedCustomStart, appliedCustomEnd, searchTerm, categoryFilter, codeFilter, movementFilter, setSearchParams]);
 
   // Reset pagination on filter or view changes
   useEffect(() => {
@@ -1593,11 +1608,14 @@ export default function RMINOUTStockPage() {
       } else if (movementFilter === 'LAB_REJECTED') {
         if (!item.hasLabRejection && item.labStatus !== 'LAB_REJECTED') return false;
       } else if (movementFilter === 'WITH_MOVEMENT') {
-        if (Number(item.periodInQty || 0) === 0 && Number(item.periodOutQty || 0) === 0) return false;
+        const hasMov = Number(item.periodInQty || item.lifetimeIn || 0) > 0 || Number(item.periodOutQty || item.lifetimeOut || 0) > 0;
+        if (!hasMov) return false;
       } else if (movementFilter === 'IN_ONLY') {
-        if (Number(item.periodInQty || 0) <= 0) return false;
+        const inQty = period !== 'all' ? Number(item.periodInQty || 0) : Number(item.periodInQty || item.lifetimeIn || 0);
+        if (inQty <= 0) return false;
       } else if (movementFilter === 'OUT_ONLY') {
-        if (Number(item.periodOutQty || 0) <= 0) return false;
+        const outQty = period !== 'all' ? Number(item.periodOutQty || 0) : Number(item.periodOutQty || item.lifetimeOut || 0);
+        if (outQty <= 0) return false;
       } else if (movementFilter === 'NET_POSITIVE') {
         if (Number(item.netMovement || 0) <= 0) return false;
       } else if (movementFilter === 'NET_NEGATIVE') {
@@ -1843,6 +1861,11 @@ export default function RMINOUTStockPage() {
       const qty = Number(tx.quantity || 0);
       if (qty <= 0) return; // No zero-movement records
 
+      // When Inward Only is selected, ONLY process IN transactions!
+      if (movementFilter === 'IN_ONLY' && tx.flow !== 'IN') return;
+      // When Outward Only is selected, ONLY process OUT transactions!
+      if (movementFilter === 'OUT_ONLY' && tx.flow !== 'OUT') return;
+
       let targetMat = null;
       if (tx.rawMaterialId && filteredMatMap.has(tx.rawMaterialId)) {
         targetMat = filteredMatMap.get(tx.rawMaterialId);
@@ -1926,7 +1949,10 @@ export default function RMINOUTStockPage() {
     const finalDates = sortedDates.filter(dStr => {
       return filteredMaterials.some(m => {
         const cell = tempMap[m.id]?.[dStr];
-        return cell && (Number(cell.inQty || 0) > 0 || Number(cell.outQty || 0) > 0);
+        if (!cell) return false;
+        if (movementFilter === 'IN_ONLY') return Number(cell.inQty || 0) > 0;
+        if (movementFilter === 'OUT_ONLY') return Number(cell.outQty || 0) > 0;
+        return Number(cell.inQty || 0) > 0 || Number(cell.outQty || 0) > 0;
       });
     });
 
@@ -1943,7 +1969,7 @@ export default function RMINOUTStockPage() {
       matrixDates: finalDates,
       matrixData: finalData
     };
-  }, [filteredMaterials, unifiedAllTransactions]);
+  }, [filteredMaterials, unifiedAllTransactions, movementFilter]);
 
   const formatDateTime = (dateStr) => {
     if (!dateStr) return '—';
@@ -2386,6 +2412,31 @@ export default function RMINOUTStockPage() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5 ml-auto lg:ml-0">
+            {/* Fullscreen Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFullscreen(prev => !prev)}
+              className={`h-7 px-2.5 text-xs flex items-center gap-1 cursor-pointer font-semibold shadow-2xs transition-all ${
+                isFullscreen
+                  ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-700 hover:bg-rose-100'
+                  : 'text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/50'
+              }`}
+              title={isFullscreen ? 'Exit Full Screen View (ESC)' : 'Expand Table into Full Screen View'}
+            >
+              {isFullscreen ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                  <span className="hidden sm:inline">Minimize</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  <span className="hidden sm:inline">Full Screen</span>
+                </>
+              )}
+            </Button>
+
             {/* Export Report Trigger */}
             <Button
               variant="default"
@@ -2403,22 +2454,22 @@ export default function RMINOUTStockPage() {
 
       {/* ── KPI EXECUTIVE STAT CARDS (Ultra-Compact SAP Tool Style Strip) ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9 gap-1 sm:gap-1.5">
-        {/* Card 1: TOTAL - TOTAL PO + TAX */}
+        {/* Card 1: TOTAL - PO (WITHOUT TAX) */}
         <div
-          className="border border-emerald-300/90 dark:border-emerald-800/80 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-emerald-400 shadow-2xs"
-          title="Total stock valuation derived strictly from Purchase Orders including GST"
+          className="border border-cyan-300/90 dark:border-cyan-800/80 bg-gradient-to-br from-cyan-500/10 via-cyan-500/5 to-transparent dark:from-cyan-500/20 dark:via-slate-900 dark:to-slate-900 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-cyan-400 shadow-2xs"
+          title="Total stock valuation derived strictly from Purchase Orders excluding GST tax"
         >
-          <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-[10px]">
-            <span className="font-bold truncate uppercase tracking-wider">Total - Total PO + Tax</span>
-            <IndianRupee className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <div className="flex items-center justify-between text-cyan-800 dark:text-cyan-300 text-[10px]">
+            <span className="font-bold truncate uppercase tracking-wider">Total - PO (Without Tax)</span>
+            <IndianRupee className="w-3 h-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
           </div>
-          <div className="text-[13px] sm:text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
-            ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          <div className="text-[13px] sm:text-sm font-black text-cyan-800 dark:text-cyan-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalValuationWithoutTax || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO Gross Valuation</span>
-            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
-              PO Realtime
+          <div className="text-[9px] text-cyan-700/80 dark:text-cyan-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO Net Subtotal</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/60 text-cyan-900 dark:text-cyan-200 border border-cyan-300 dark:border-cyan-700 font-bold shrink-0 leading-none">
+              Excl. GST
             </span>
           </div>
         </div>
@@ -2443,22 +2494,22 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Card 3: TOTAL - TOTAL PO (WITHOUT TAX) */}
+        {/* Card 3: TOTAL + TAX (TOTAL PO + TAX) */}
         <div
-          className="border border-cyan-200/80 dark:border-cyan-900/40 bg-cyan-50/30 dark:bg-cyan-950/20 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-cyan-300"
-          title="Total stock valuation derived strictly from Purchase Orders excluding GST tax"
+          className="border border-emerald-300/90 dark:border-emerald-800/80 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 rounded-lg px-2 sm:px-2.5 py-1.5 transition-all select-none hover:border-emerald-400 shadow-2xs"
+          title="Total stock valuation derived strictly from Purchase Orders including GST"
         >
-          <div className="flex items-center justify-between text-cyan-700 dark:text-cyan-400 text-[10px]">
-            <span className="font-semibold truncate uppercase tracking-wider">Total - PO (Without Tax)</span>
-            <IndianRupee className="w-3 h-3 text-cyan-600 dark:text-cyan-400 shrink-0" />
+          <div className="flex items-center justify-between text-emerald-800 dark:text-emerald-300 text-[10px]">
+            <span className="font-bold truncate uppercase tracking-wider">Total + Tax</span>
+            <IndianRupee className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
           </div>
-          <div className="text-[13px] sm:text-sm font-bold text-cyan-800 dark:text-cyan-300 font-mono leading-tight tracking-tight my-0.5">
-            ₹{Number(summary.totalValuationWithoutTax || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          <div className="text-[13px] sm:text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
+            ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[9px] text-cyan-600/80 dark:text-cyan-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO Net Subtotal</span>
-            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/50 text-cyan-800 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/50 font-medium shrink-0 leading-none">
-              Excl. GST
+          <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
+            <span className="truncate">PO Gross Valuation</span>
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
+              PO Realtime
             </span>
           </div>
         </div>
@@ -2758,19 +2809,19 @@ export default function RMINOUTStockPage() {
             <select
               value={movementFilter}
               onChange={(e) => setMovementFilter(e.target.value)}
-              className="w-full text-xs px-2 py-1 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer"
+              className="w-full text-xs px-2 py-1 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden cursor-pointer font-medium"
             >
               <option value="ALL">All Movement Status</option>
+              <option value="IN_ONLY">🟢 Inward Only (IN &gt; 0)</option>
+              <option value="OUT_ONLY">🔴 Outward Only (OUT &gt; 0)</option>
+              <option value="WITH_MOVEMENT">🟣 With Movement In Period</option>
               <option value="IN_PROGRESS">🟡 In-Progress WIP (Floor Runs)</option>
               <option value="FREE_AVAILABLE">🟢 Free Available Stock (&gt; 0)</option>
               <option value="LAB_REJECTED">❌ Lab Rejected / QC Discrepancies</option>
-              <option value="WITH_MOVEMENT">With Movement In Period</option>
-              <option value="IN_ONLY">Inward Only (IN &gt; 0)</option>
-              <option value="OUT_ONLY">Outward Only (OUT &gt; 0)</option>
-              <option value="NET_POSITIVE">Net Positive (+ Movement)</option>
-              <option value="NET_NEGATIVE">Net Drawdown (- Movement)</option>
-              <option value="LOW_STOCK">Low Stock Warning</option>
-              <option value="OUT_OF_STOCK">Out of Stock (Zero)</option>
+              <option value="NET_POSITIVE">⬆️ Net Positive (+ Movement)</option>
+              <option value="NET_NEGATIVE">⬇️ Net Drawdown (- Movement)</option>
+              <option value="LOW_STOCK">⚠️ Low Stock Warning</option>
+              <option value="OUT_OF_STOCK">⛔ Out of Stock (Zero)</option>
             </select>
           </div>
 
@@ -2856,6 +2907,21 @@ export default function RMINOUTStockPage() {
                 Code: {codeFilter}
               </span>
             )}
+            {movementFilter === 'IN_ONLY' && (
+              <span className="px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1">
+                🟢 Inward Only (IN &gt; 0)
+              </span>
+            )}
+            {movementFilter === 'OUT_ONLY' && (
+              <span className="px-2 py-0.2 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 font-bold text-[10px] flex items-center gap-1">
+                🔴 Outward Only (OUT &gt; 0)
+              </span>
+            )}
+            {movementFilter === 'WITH_MOVEMENT' && (
+              <span className="px-2 py-0.2 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-300 font-bold text-[10px]">
+                🟣 With Movement
+              </span>
+            )}
             {movementFilter === 'IN_PROGRESS' && (
               <span className="px-2 py-0.2 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold text-[10px]">
                 🟡 In-Progress WIP Floor
@@ -2882,9 +2948,61 @@ export default function RMINOUTStockPage() {
       {/* ── MAIN CONTENT AREA ── */}
       {viewMode === 'material' ? (
         /* MODE 1: MATERIAL-WISE SUMMARY TABLE WITH COLUMN SORTING */
-        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
+        <Card className={`border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden ${
+          isFullscreen
+            ? 'fixed inset-0 z-50 rounded-none border-none p-3 sm:p-5 flex flex-col h-screen w-screen bg-white dark:bg-slate-950 shadow-2xl'
+            : ''
+        }`}>
+          {/* Fullscreen Dedicated Header Bar */}
+          {isFullscreen && (
+            <div className="flex items-center justify-between pb-3 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                      Raw Material Summary & Stock Balance
+                    </h2>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                      FULL SCREEN
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
+                    <span>Period: <strong className="text-slate-700 dark:text-slate-200">{periodDisplayText.label}</strong></span>
+                    <span>•</span>
+                    <span>Materials: <strong className="text-slate-700 dark:text-slate-200">{filteredMaterials.length}</strong></span>
+                    {movementFilter !== 'ALL' && (
+                      <>
+                        <span>•</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                          Filter: {movementFilter === 'IN_ONLY' ? '🟢 Inward Only (IN > 0)' : movementFilter}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => setIsFullscreen(false)}
+                  className="h-8 px-3.5 text-xs bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 cursor-pointer font-bold shadow-md transition-transform hover:scale-102"
+                  title="Exit Full Screen Mode (ESC)"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Minimize (ESC)</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Desktop Table View with Sticky Top Header & Clickable Column Sorting */}
-          <div className="hidden lg:block overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
+          <div className={`hidden lg:block overflow-auto ${
+            isFullscreen ? 'flex-1 min-h-0 max-h-[calc(100vh-135px)]' : 'max-h-[70vh]'
+          } relative border-b border-slate-200 dark:border-slate-800`}>
             <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
               <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
                 <TableRow className="bg-slate-100 dark:bg-black hover:bg-slate-100 dark:hover:bg-black border-b border-slate-200 dark:border-neutral-800 text-[11px]">
@@ -3037,7 +3155,8 @@ export default function RMINOUTStockPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginatedMaterials.map((mat) => {
+                  paginatedMaterials.map((mat, rowIdx) => {
+                    const isEven = rowIdx % 2 === 1;
                     const isExpanded = expandedMaterialIds.has(mat.id);
                     const isLoadingHistory = expandedLoadingIds.has(mat.id);
                     const isLow = mat.status === 'LOW_STOCK';
@@ -3045,14 +3164,19 @@ export default function RMINOUTStockPage() {
                     const hasWip = Number(mat.inProgressStock || 0) > 0;
                     const hasReject = mat.hasLabRejection || mat.labStatus === 'LAB_REJECTED';
                     const pyClass = isCompactDensity ? 'py-1.5' : 'py-2.5';
+                    const rowBgClass = isExpanded
+                      ? 'bg-slate-100/90 dark:bg-slate-800/60'
+                      : isEven
+                      ? 'bg-slate-100/60 dark:bg-slate-800/40 hover:bg-slate-100/90 dark:hover:bg-slate-800/70'
+                      : 'bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/40';
 
                     return (
                       <React.Fragment key={mat.id}>
                         {/* Main Item Row */}
                         <TableRow
-                          className={`text-xs transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-b border-slate-200/80 dark:border-slate-800 ${
-                            isExpanded ? 'bg-slate-50/90 dark:bg-slate-800/50' : ''
-                          } ${hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''}`}
+                          className={`text-xs transition-colors border-b border-slate-200/80 dark:border-slate-800 ${rowBgClass} ${
+                            hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''
+                          }`}
                         >
                           {/* 0. Expand Button */}
                           <TableCell className={`text-center ${pyClass} px-1`}>
@@ -3882,14 +4006,100 @@ export default function RMINOUTStockPage() {
                 <Download className="w-3 h-3 text-emerald-600" />
                 <span>Export Matrix (Excel)</span>
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsFullscreen(prev => !prev)}
+                className={`h-6 px-2 text-[11px] flex items-center gap-1 cursor-pointer font-semibold shadow-2xs transition-all ${
+                  isFullscreen
+                    ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-700 hover:bg-rose-100'
+                    : 'text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700 hover:bg-purple-50 dark:hover:bg-purple-950/50'
+                }`}
+                title={isFullscreen ? 'Exit Full Screen Mode (ESC)' : 'Expand Matrix Table into Full Screen View'}
+              >
+                {isFullscreen ? (
+                  <>
+                    <Minimize2 className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                    <span>Minimize</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                    <span>Full Screen</span>
+                  </>
+                )}
+              </Button>
             </div>
           </div>
 
           {ledgerSubMode === 'matrix' ? (
             /* SUB-MODE A: DATE-WISE MOVEMENT MATRIX (EXACT EXCEL FORMAT) */
-            <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
+            <Card className={`border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden ${
+              isFullscreen
+                ? 'fixed inset-0 z-50 rounded-none border-none p-3 sm:p-5 flex flex-col h-screen w-screen bg-white dark:bg-slate-950 shadow-2xl'
+                : ''
+            }`}>
+              {/* Fullscreen Dedicated Header Bar */}
+              {isFullscreen && (
+                <div className="flex items-center justify-between pb-3 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400">
+                      <TableProperties className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                          RM Stock In-Out Movement Matrix
+                        </h2>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          FULL SCREEN
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span>Period: <strong className="text-slate-700 dark:text-slate-200">{periodDisplayText.label}</strong></span>
+                        <span>•</span>
+                        <span>Materials: <strong className="text-slate-700 dark:text-slate-200">{filteredMaterials.length}</strong></span>
+                        <span>•</span>
+                        <span>Dates: <strong className="text-slate-700 dark:text-slate-200">{matrixDates.length}</strong></span>
+                        {movementFilter !== 'ALL' && (
+                          <>
+                            <span>•</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              Filter: {movementFilter === 'IN_ONLY' ? '🟢 Inward Only (IN > 0)' : movementFilter}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportMatrixOnly}
+                      className="h-8 px-3 text-xs text-emerald-700 dark:text-emerald-300 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex items-center gap-1.5 cursor-pointer font-semibold shadow-2xs"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Export Matrix (Excel)</span>
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => setIsFullscreen(false)}
+                      className="h-8 px-3.5 text-xs bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 cursor-pointer font-bold shadow-md transition-transform hover:scale-102"
+                      title="Exit Full Screen Mode (ESC)"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      <span>Minimize (ESC)</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Desktop Table (and Tablet Table if tabletViewMode === 'table') with Sticky Header & Sticky Left Columns */}
-              <div className={`${tabletViewMode === 'table' ? 'block' : 'hidden lg:block'} overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800`}>
+              <div className={`${tabletViewMode === 'table' ? 'block' : 'hidden lg:block'} overflow-auto ${
+                isFullscreen ? 'flex-1 min-h-0 max-h-[calc(100vh-135px)]' : 'max-h-[70vh]'
+              } relative border-b border-slate-200 dark:border-slate-800`}>
                 <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
                     <TableRow className="border-b border-slate-200 dark:border-neutral-800 text-[11px] bg-slate-100 dark:bg-black">
@@ -4053,7 +4263,10 @@ export default function RMINOUTStockPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      paginatedMaterials.map((mat) => {
+                      paginatedMaterials.map((mat, rowIdx) => {
+                        const isEven = rowIdx % 2 === 1;
+                        const rowBgClass = isEven ? 'bg-slate-100/70 dark:bg-slate-800/40' : 'bg-white dark:bg-slate-900';
+                        const stickyBgClass = isEven ? 'bg-slate-100 dark:bg-slate-800' : 'bg-white dark:bg-slate-900';
                         const cur = Number(mat.currentStock || 0);
                         const wip = Number(mat.inProgressStock || 0);
                         const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
@@ -4062,10 +4275,10 @@ export default function RMINOUTStockPage() {
                         return (
                           <TableRow
                             key={mat.id}
-                            className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-b border-slate-200/80 dark:border-slate-800 text-xs transition-colors group"
+                            className={`${rowBgClass} hover:bg-emerald-50/70 dark:hover:bg-slate-700/60 border-b border-slate-200/80 dark:border-slate-800 text-xs transition-colors group`}
                           >
                             {/* 1. Frozen RM Code */}
-                            <TableCell className="sticky left-0 z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-2 px-2 shadow-xs w-[95px] min-w-[95px] max-w-[95px] truncate">
+                            <TableCell className={`sticky left-0 z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-2 px-2 shadow-xs w-[95px] min-w-[95px] max-w-[95px] truncate`}>
                               <button
                                 onClick={() => handleOpenHistory(mat.id)}
                                 className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer truncate"
@@ -4076,17 +4289,17 @@ export default function RMINOUTStockPage() {
                             </TableCell>
 
                             {/* 2. Frozen Category Name */}
-                            <TableCell className="sticky left-[95px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-2 px-2 shadow-xs w-[130px] min-w-[130px] max-w-[130px] truncate" title={mat.category}>
+                            <TableCell className={`sticky left-[95px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-2 px-2 shadow-xs w-[130px] min-w-[130px] max-w-[130px] truncate`} title={mat.category}>
                               {mat.category || '—'}
                             </TableCell>
 
                             {/* 3. Frozen Raw Material Name */}
-                            <TableCell className="sticky left-[225px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-2 px-2 shadow-xs w-[170px] min-w-[170px] max-w-[170px] truncate" title={mat.name}>
+                            <TableCell className={`sticky left-[225px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-2 px-2 shadow-xs w-[170px] min-w-[170px] max-w-[170px] truncate`} title={mat.name}>
                               {mat.name}
                             </TableCell>
 
                             {/* 4. Frozen UOM */}
-                            <TableCell className="sticky left-[395px] z-20 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-2 px-2 w-[65px] min-w-[65px] max-w-[65px] truncate">
+                            <TableCell className={`sticky left-[395px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-2 px-2 w-[65px] min-w-[65px] max-w-[65px] truncate`}>
                               {formatUOM(mat.uom)}
                             </TableCell>
 
@@ -4139,8 +4352,8 @@ export default function RMINOUTStockPage() {
                             ) : (
                               matrixDates.map((dateStr) => {
                                 const cell = matrixData[mat.id]?.[dateStr] || { inQty: 0, outQty: 0, transactions: [] };
-                                const hasIn = cell.inQty > 0;
-                                const hasOut = cell.outQty > 0;
+                                const hasIn = movementFilter === 'OUT_ONLY' ? false : cell.inQty > 0;
+                                const hasOut = movementFilter === 'IN_ONLY' ? false : cell.outQty > 0;
 
                                 // PO Supplier Invoice No check
                                 const poTx = cell.transactions.find(t => t.supplierInvoiceNo || t.poReferenceNo);
@@ -4223,7 +4436,10 @@ export default function RMINOUTStockPage() {
                     // Collect dates with movement for this material
                     const activeDates = matrixDates.filter(dStr => {
                       const c = matrixData[mat.id]?.[dStr];
-                      return c && (c.inQty > 0 || c.outQty > 0);
+                      if (!c) return false;
+                      if (movementFilter === 'IN_ONLY') return c.inQty > 0;
+                      if (movementFilter === 'OUT_ONLY') return c.outQty > 0;
+                      return c.inQty > 0 || c.outQty > 0;
                     });
 
                     return (
@@ -4310,12 +4526,12 @@ export default function RMINOUTStockPage() {
                                     <div className="flex items-center justify-between gap-1 text-xs pt-0.5">
                                       <span className="text-[10px] text-slate-500">Flow:</span>
                                       <div className="flex items-center gap-1.5">
-                                        {c.inQty > 0 && (
+                                        {c.inQty > 0 && movementFilter !== 'OUT_ONLY' && (
                                           <span className="px-1.5 py-0.5 rounded font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 text-xs">
                                             +{c.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                           </span>
                                         )}
-                                        {c.outQty > 0 && (
+                                        {c.outQty > 0 && movementFilter !== 'IN_ONLY' && (
                                           <span className="px-1.5 py-0.5 rounded font-bold text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 text-xs">
                                             -{c.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                           </span>
@@ -4386,9 +4602,61 @@ export default function RMINOUTStockPage() {
             </Card>
           ) : (
             /* SUB-MODE B: CHRONOLOGICAL DETAILED TRANSACTION STREAM */
-            <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
+            <Card className={`border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden ${
+              isFullscreen
+                ? 'fixed inset-0 z-50 rounded-none border-none p-3 sm:p-5 flex flex-col h-screen w-screen bg-white dark:bg-slate-950 shadow-2xl'
+                : ''
+            }`}>
+              {/* Fullscreen Dedicated Header Bar */}
+              {isFullscreen && (
+                <div className="flex items-center justify-between pb-3 mb-2.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400">
+                      <Calendar className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                          Raw Material Transaction Ledger Stream
+                        </h2>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          FULL SCREEN
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-0.5">
+                        <span>Period: <strong className="text-slate-700 dark:text-slate-200">{periodDisplayText.label}</strong></span>
+                        <span>•</span>
+                        <span>Transactions: <strong className="text-slate-700 dark:text-slate-200">{filteredTransactions.length}</strong></span>
+                        {movementFilter !== 'ALL' && (
+                          <>
+                            <span>•</span>
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              Filter: {movementFilter}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => setIsFullscreen(false)}
+                      className="h-8 px-3.5 text-xs bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1.5 cursor-pointer font-bold shadow-md transition-transform hover:scale-102"
+                      title="Exit Full Screen Mode (ESC)"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      <span>Minimize (ESC)</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Desktop Table View */}
-              <div className="hidden lg:block overflow-auto max-h-[70vh] relative border-b border-slate-200 dark:border-slate-800">
+              <div className={`hidden lg:block overflow-auto ${
+                isFullscreen ? 'flex-1 min-h-0 max-h-[calc(100vh-135px)]' : 'max-h-[70vh]'
+              } relative border-b border-slate-200 dark:border-slate-800`}>
                 <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
                     <TableRow className="bg-slate-100 dark:bg-black hover:bg-slate-100 dark:hover:bg-black border-b border-slate-200 dark:border-neutral-800 text-[11px]">
@@ -4573,12 +4841,16 @@ export default function RMINOUTStockPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      paginatedTransactions.map((tx) => {
+                      paginatedTransactions.map((tx, rowIdx) => {
+                        const isEven = rowIdx % 2 === 1;
                         const isIn = tx.flow === 'IN';
                         const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
                         const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
                         const pyClass = isCompactDensity ? 'py-1.5' : 'py-2.5';
                         const invDate = tx.supplierInvoiceDate ? formatDate(tx.supplierInvoiceDate) : '—';
+                        const defaultRowBg = isEven
+                          ? 'bg-slate-100/60 dark:bg-slate-800/40 hover:bg-slate-100/90 dark:hover:bg-slate-800/70 border-slate-200/80 dark:border-slate-800'
+                          : 'bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-slate-200/80 dark:border-slate-800';
 
                         return (
                           <TableRow
@@ -4588,7 +4860,7 @@ export default function RMINOUTStockPage() {
                                 ? 'bg-rose-50/70 dark:bg-rose-950/30 border-l-4 border-l-rose-500'
                                 : isInProgress
                                 ? 'bg-amber-50/70 dark:bg-amber-950/30 border-l-4 border-l-amber-500'
-                                : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-slate-200/80 dark:border-slate-800'
+                                : defaultRowBg
                             }`}
                           >
                             <TableCell className={`font-mono text-slate-600 dark:text-slate-400 ${pyClass}`}>
