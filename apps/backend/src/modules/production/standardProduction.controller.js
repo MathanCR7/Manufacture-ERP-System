@@ -324,9 +324,15 @@ class StandardProductionController {
           const rmId = rm.rawMaterialId || rm.rmId;
           if (!rmId) continue;
 
-          // Lookup RM defaults
+          // Lookup RM defaults safely
           const rmMaster = await tx.$queryRawUnsafe(`
-            SELECT density_g_per_ml, evaporates_by_default, "currentStock" 
+            SELECT 
+              "currentStock",
+              1.0000::numeric(8,4) AS density_g_per_ml,
+              CASE 
+                WHEN LOWER(name) LIKE '%milk%' OR LOWER(name) LIKE '%smp%' OR LOWER(name) LIKE '%stabilizer%' OR LOWER(name) LIKE '%rabdi%' THEN TRUE 
+                ELSE FALSE 
+              END AS evaporates_by_default
             FROM "RawMaterial" WHERE id = $1 LIMIT 1;
           `, rmId);
           const master = rmMaster[0] || {};
@@ -421,7 +427,13 @@ class StandardProductionController {
             const rmId = rm.rawMaterialId || rm.rmId;
             if (!rmId) continue;
             const rmMaster = await tx.$queryRawUnsafe(`
-              SELECT density_g_per_ml, evaporates_by_default, "currentStock" 
+              SELECT 
+                "currentStock",
+                1.0000::numeric(8,4) AS density_g_per_ml,
+                CASE 
+                  WHEN LOWER(name) LIKE '%milk%' OR LOWER(name) LIKE '%smp%' OR LOWER(name) LIKE '%stabilizer%' OR LOWER(name) LIKE '%rabdi%' THEN TRUE 
+                  ELSE FALSE 
+                END AS evaporates_by_default
               FROM "RawMaterial" WHERE id = $1 LIMIT 1;
             `, rmId);
             const master = rmMaster[0] || {};
@@ -511,8 +523,11 @@ class StandardProductionController {
             rm.name AS raw_material_name,
             rm.code AS raw_material_code,
             rm."currentStock" AS current_stock,
-            rm.density_g_per_ml,
-            rm.evaporates_by_default,
+            1.0000::numeric(8,4) AS density_g_per_ml,
+            CASE 
+              WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+              ELSE FALSE 
+            END AS evaporates_by_default,
             rm."ratePerUnit" AS rate_per_unit
           FROM production_template_lines ptl
           LEFT JOIN "RawMaterial" rm ON rm.id = ptl.raw_material_id
