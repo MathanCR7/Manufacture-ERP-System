@@ -4732,9 +4732,9 @@ export default function RMINOUTStockPage() {
                         </button>
                       </TableHead>
 
-                      {/* Supplier Invoice Date Header */}
-                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[125px] font-semibold text-slate-700 dark:text-white border-b border-slate-200 dark:border-neutral-800">
-                        Supplier Inv Date
+                      {/* Supplier Invoice Date / Production Date Header */}
+                      <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[135px] font-semibold text-slate-700 dark:text-white border-b border-slate-200 dark:border-neutral-800">
+                        Supplier Inv / Prod Date
                       </TableHead>
 
                       {/* Batch / Lot Header */}
@@ -4939,9 +4939,27 @@ export default function RMINOUTStockPage() {
                               )}
                             </TableCell>
 
-                            {/* Supplier Invoice Date */}
-                            <TableCell className={`font-mono text-xs ${pyClass} ${invDate !== '—' ? 'font-bold text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`}>
-                              {invDate}
+                            {/* Supplier Invoice Date / Production Date */}
+                            <TableCell className={`font-mono text-xs ${pyClass} ${
+                              tx.productionDate
+                                ? 'font-bold text-purple-700 dark:text-purple-400'
+                                : invDate !== '—'
+                                ? 'font-bold text-emerald-700 dark:text-emerald-400'
+                                : 'text-slate-400'
+                            }`}>
+                              {tx.productionDate ? (
+                                <span className="inline-flex items-center gap-1" title={`Production Date (Started): ${formatDate(tx.productionDate)}`}>
+                                  <Factory className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0" />
+                                  <span>{formatDate(tx.productionDate)}</span>
+                                </span>
+                              ) : invDate !== '—' ? (
+                                <span className="inline-flex items-center gap-1" title={`Supplier Invoice Date: ${invDate}`}>
+                                  <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  <span>{invDate}</span>
+                                </span>
+                              ) : (
+                                '—'
+                              )}
                             </TableCell>
 
                             <TableCell className={`font-mono text-slate-500 ${pyClass}`}>
@@ -5120,11 +5138,17 @@ export default function RMINOUTStockPage() {
                           </div>
 
                           <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                            {invDate && (
-                              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                            {tx.productionDate ? (
+                              <span className="font-semibold text-purple-700 dark:text-purple-400 inline-flex items-center gap-1">
+                                <Factory className="w-3 h-3 text-purple-600" />
+                                Prod Date: {formatDate(tx.productionDate)}
+                              </span>
+                            ) : invDate ? (
+                              <span className="font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1">
+                                <FileText className="w-3 h-3 text-emerald-600" />
                                 Inv: {invDate}
                               </span>
-                            )}
+                            ) : null}
                             <span className="truncate max-w-[160px]" title={tx.partyName || tx.user}>
                               {tx.partyName || tx.user || '—'}
                             </span>
@@ -5480,8 +5504,8 @@ export default function RMINOUTStockPage() {
                         </div>
                       )}
 
-                      {/* Invoice Number & Date */}
-                      {(t.supplierInvoiceNo || invDate) && (
+                      {/* Invoice Number & Date / Production Date */}
+                      {(t.supplierInvoiceNo || invDate || t.productionDate) && (
                         <div className="grid grid-cols-2 gap-1 text-[9.5px]">
                           {t.supplierInvoiceNo && (
                             <div className="bg-white dark:bg-slate-900/90 px-1.5 py-0.5 rounded border border-slate-200/80 dark:border-slate-700/60">
@@ -5496,6 +5520,16 @@ export default function RMINOUTStockPage() {
                               <span className="text-amber-700 dark:text-amber-400 block text-[8.5px] font-medium">Inv Date</span>
                               <span className="font-semibold text-amber-800 dark:text-amber-300 truncate block">
                                 {invDate}
+                              </span>
+                            </div>
+                          )}
+                          {t.productionDate && (
+                            <div className="bg-purple-50/70 dark:bg-purple-950/40 px-1.5 py-0.5 rounded border border-purple-200/80 dark:border-purple-800/50 col-span-2">
+                              <span className="text-purple-700 dark:text-purple-400 block text-[8.5px] font-medium flex items-center gap-1">
+                                <Factory className="w-2.5 h-2.5" /> Production Date (Started)
+                              </span>
+                              <span className="font-semibold text-purple-800 dark:text-purple-300 truncate block">
+                                {formatDate(t.productionDate)}
                               </span>
                             </div>
                           )}

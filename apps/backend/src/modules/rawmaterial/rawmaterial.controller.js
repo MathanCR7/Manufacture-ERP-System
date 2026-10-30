@@ -3876,8 +3876,10 @@ exports.getRmInOutStock = async (req, res, next) => {
               batchNo: true,
               referenceNo: true,
               status: true,
+              approvalStatus: true,
               cancelledAt: true,
               startDate: true,
+              startedAt: true,
               createdAt: true,
               startedBy: true,
               completeDate: true,
@@ -4263,14 +4265,6 @@ exports.getRmInOutStock = async (req, res, next) => {
       );
       if (isCancelled) continue;
 
-      const date = u.batch?.startDate || u.batch?.createdAt || new Date();
-      const qty = Number(u.actualUsedQty || u.requiredQty || 0);
-      const isPeriod = inRange(date);
-      const isAfter = isAfterRange(date);
-      const batchRef = u.batch?.batchNo || u.batch?.referenceNo || 'Prod Batch';
-      const productName = u.batch?.product?.name || 'Manufactured Item';
-      const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
-
       const rawBatchStatus = u.batch?.status || u.batch?.approvalStatus || 'Completed';
       const statusLower = String(rawBatchStatus).toLowerCase();
       const approvalLower = String(u.batch?.approvalStatus || '').toLowerCase();
@@ -4282,16 +4276,24 @@ exports.getRmInOutStock = async (req, res, next) => {
                            Boolean(u.batch?.isDraft);
 
       // Rule: If production batch is draft / planned / not started, do not display in OUT and do not reduce stock.
-      // OUT is ONLY displayed once the production has actually started/run or from /waste/raw-material/add.
       if (isNotStarted) continue;
+
+      const qty = Number(u.actualUsedQty || u.requiredQty || 0);
+      if (qty <= 0) continue;
+
+      // The production start date is the definitive date when production started
+      const prodStartDate = u.batch?.startDate || u.batch?.startedAt || u.batch?.createdAt || new Date();
 
       const isInProgress = statusLower.includes('progress') ||
                            statusLower.includes('running') ||
                            statusLower.includes('paused') ||
-                           statusLower.includes('active');
+                           statusLower.includes('active') ||
+                           statusLower.includes('hold');
 
       if (isInProgress) {
-        const batchStart = u.batch?.startDate || u.batch?.createdAt || date;
+        // While the production is running, raw material usage is strictly tracked as Floor WIP (inProgressStock).
+        // It must NOT display as completed OUT and must NOT reduce stock or periodOut / lifetimeOut.
+        const batchStart = u.batch?.startDate || u.batch?.startedAt || u.batch?.createdAt || prodStartDate;
         const batchStartMs = batchStart ? new Date(batchStart).getTime() : 0;
         const batchEnd = u.batch?.completeDate || u.batch?.completedAt || u.batch?.cancelledAt || null;
         const batchEndMs = batchEnd ? new Date(batchEnd).getTime() : null;
@@ -4310,12 +4312,35 @@ exports.getRmInOutStock = async (req, res, next) => {
         if (activeInPeriod) {
           target.inProgressStock += qty;
         }
+
+        // Crucial: continue here so running batches do NOT create OUT transactions or add to lifetimeOut / periodOut!
+        continue;
       }
+
+      // Check if batch is completed
+      const isCompleted = statusLower.includes('complete') ||
+                          statusLower.includes('done') ||
+                          statusLower.includes('passed') ||
+                          statusLower.includes('closed') ||
+                          Boolean(u.batch?.completedAt || u.batch?.completeDate);
+
+      // Rule: OUT is displayed ONLY once the production is completed!
+      if (!isCompleted) continue;
+
+      // OUT transaction date is strictly set to the Production Date (when production started)
+      // so operators and accountants can easily identify when the production started.
+      const date = prodStartDate;
+      const isPeriod = inRange(date);
+      const isAfter = isAfterRange(date);
+      const batchRef = u.batch?.batchNo || u.batch?.referenceNo || 'Prod Batch';
+      const productName = u.batch?.product?.name || 'Manufactured Item';
+      const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
 
       target.lifetimeOut += qty;
 
       const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
       const amount = Math.round(qty * rate * 100) / 100;
+      const prodDateStr = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
       const tx = {
         id: `usage-${u.id}`,
@@ -4324,31 +4349,34 @@ exports.getRmInOutStock = async (req, res, next) => {
         rawMaterialName: rm.name,
         category: rm.category?.name || 'Uncategorised',
         uom: rm.unitId,
-        date,
+        date, // Strictly the Production Start Date
+        productionDate: date,
         flow: 'OUT',
         type: 'PROD_USAGE',
-        typeLabel: isInProgress ? 'Production Issue (In Progress WIP)' : 'Production Consumption',
-        isInProgress,
-        batchStatus: isInProgress ? 'IN_PROGRESS' : 'COMPLETED',
+        typeLabel: 'Production Consumption',
+        isInProgress: false,
+        batchStatus: 'COMPLETED',
         quantity: qty,
         rate,
         amount,
         referenceNo: batchRef,
         productionBatchId: u.batchId || u.batch?.id || null,
+        batchId: u.batchId || u.batch?.id || null,
         poReferenceNo: null,
         poId: null,
         grnId: null,
         batchNumber: rmBatchTaken,
         partyName: `Production: ${productName}`,
+        productionDateStr: prodDateStr,
         user: u.batch?.startedBy || 'Operator',
         labStatus: 'QC_PASSED',
         isLabRejected: false,
-        notes: `Product: ${productName} (Status: ${rawBatchStatus})`,
-        compositeComment: `Batch: ${batchRef} | Taken From RM Lot: ${rmBatchTaken} | Product: ${productName} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Status: ${rawBatchStatus}`
+        notes: `Production Date: ${prodDateStr} | Product: ${productName} (Completed Batch: ${batchRef})`,
+        compositeComment: `Production Date: ${prodDateStr} | Batch: ${batchRef} | Taken From RM Lot: ${rmBatchTaken} | Product: ${productName} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Status: Completed`
       };
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-        target.lastOut = { date, ref: batchRef, qty, party: productName, batchId: u.batchId, isInProgress };
+        target.lastOut = { date, ref: batchRef, qty, party: productName, batchId: u.batchId || u.batch?.id, isInProgress: false };
       }
 
       if (isPeriod) {

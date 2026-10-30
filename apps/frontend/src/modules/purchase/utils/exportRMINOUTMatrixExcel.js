@@ -94,9 +94,10 @@ export function filterOutDraftTransactions(txList) {
   return (txList || []).filter(tx => {
     const status = String(tx.status || tx.batchStatus || '').toLowerCase();
     const type = String(tx.type || '').toUpperCase();
-    // Production batches: OUT only if started/running/completed (never planned or draft)
+    // Production batches: OUT only if completed (never in progress, running, planned, or draft)
     if (type.includes('PRODUCTION') || type.includes('USAGE')) {
-      if (['planned', 'draft', 'scheduled', 'pending', 'cancelled'].includes(status)) return false;
+      if (['planned', 'draft', 'scheduled', 'pending', 'cancelled', 'in_progress', 'in progress', 'running'].includes(status)) return false;
+      if (tx.isInProgress) return false;
     }
     // Purchase Orders: IN only if confirmed (never pending or draft)
     if (type.includes('PO') || type.includes('PURCHASE')) {
@@ -1593,7 +1594,7 @@ export async function exportDateWiseLedgerToExcel({
     { title: 'Total Amount (₹)', width: 18, align: 'right', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Document Ref', width: 18, align: 'center', hdrColor: COLORS.TABLE_HEADER },
     { title: 'PO Reference', width: 18, align: 'center', hdrColor: COLORS.TABLE_HEADER },
-    { title: 'Supplier Invoice Date', width: 20, align: 'center', hdrColor: 'FF3730A3' },
+    { title: 'Supplier Inv / Prod Date', width: 22, align: 'center', hdrColor: 'FF3730A3' },
     { title: 'Batch / Lot Number', width: 20, align: 'center', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Quality Decision', width: 18, align: 'center', hdrColor: COLORS.TABLE_HEADER },
     { title: 'Party / Supplier / Product', width: 26, align: 'left', hdrColor: COLORS.TABLE_HEADER },
@@ -1714,10 +1715,14 @@ export async function exportDateWiseLedgerToExcel({
     row.getCell(12).value = tx.poReferenceNo || '—';
     row.getCell(12).alignment = { vertical: 'middle', horizontal: 'center' };
 
-    // 13. Supplier Invoice Date (Highlighted Badge)
+    // 13. Supplier Invoice Date / Production Date
     const cInv = row.getCell(13);
-    cInv.value = tx.supplierInvoiceDate ? formatShortDate(tx.supplierInvoiceDate) : '—';
-    if (tx.supplierInvoiceDate) {
+    const dispDate = tx.supplierInvoiceDate || tx.productionDate;
+    cInv.value = dispDate ? formatShortDate(dispDate) : '—';
+    if (tx.productionDate && !tx.supplierInvoiceDate) {
+      cInv.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF7E22CE' } };
+      cInv.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
+    } else if (tx.supplierInvoiceDate) {
       cInv.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: COLORS.INV_BADGE_TEXT } };
       cInv.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.INV_BADGE_FILL } };
     }
