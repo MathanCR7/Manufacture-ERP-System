@@ -1,816 +1,129 @@
 const prisma = require('../prisma');
 
 const MOULD_SEEDS = [
-  // ── 1. VERIFIED MANUFACTURER SPECIFICATIONS ──
   {
-    mouldCode: 'IM-VF-SG5011',
-    mouldName: 'Lolly / Chocobar SG-5011',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'SG-5011',
-    capacityMl: 50.00,
-    cavityCount: 50,
-    lengthMm: 325,
-    widthMm: 260,
-    heightMm: 160,
+    mouldCode: 'SG-2006',
+    mouldName: 'Egypt Small (SG 2006)',
+    mouldCategory: '2000 Series',
+    modelNumber: 'SG-2006',
+    capacityMl: 18.00,
+    cavityCount: 42,
+    totalNominalCapacityMl: 756.00,
+    trayLengthMm: 325,
+    trayWidthMm: 245,
+    trayHeightMm: 160,
+    dimensionText: '5N Mould / Delivery 210 NOS',
     material: 'Stainless Steel 304',
     machineType: 'Brine tank line',
-    dimensionSource: 'Manufacturer (icecreammoulds.com)',
+    dimensionSource: 'Satnam Group / Manufacturer',
     specificationStatus: 'VERIFIED',
     supplierId: 'SUP-SATNAM-01',
     supplierName: 'Satnam Group',
     status: 'ACTIVE'
   },
   {
-    mouldCode: 'IM-VF-SG6011',
-    mouldName: 'Dolly / Big Chocobar SG-6011',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'SG-6011',
-    capacityMl: 65.00,
-    cavityCount: 36,
-    lengthMm: 325,
-    widthMm: 245,
-    heightMm: 160,
+    mouldCode: 'SG-3006',
+    mouldName: 'Flat Stick (SG 3006)',
+    mouldCategory: '3000 Series',
+    modelNumber: 'SG-3006',
+    capacityMl: 40.00,
+    cavityCount: 50,
+    totalNominalCapacityMl: 2000.00,
+    trayLengthMm: 325,
+    trayWidthMm: 260,
+    trayHeightMm: 160,
+    dimensionText: '10N Mould / Delivery 500 NOS',
     material: 'Stainless Steel 304',
     machineType: 'Brine tank line',
-    dimensionSource: 'Manufacturer (icecreammoulds.com)',
+    dimensionSource: 'Satnam Group / Manufacturer',
     specificationStatus: 'VERIFIED',
     supplierId: 'SUP-SATNAM-01',
     supplierName: 'Satnam Group',
     status: 'ACTIVE'
   },
   {
-    mouldCode: 'IM-VF-SB8001',
-    mouldName: 'Kulfi Mould SB-8001',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'SB-8001',
+    mouldCode: 'SG-8112',
+    mouldName: 'Kulfi Small (SG 8112)',
+    mouldCategory: '8000 Series',
+    modelNumber: 'SG-8112',
     capacityMl: 50.00,
-    cavityCount: 30,
-    lengthMm: 310,
-    widthMm: 250,
-    heightMm: null,
-    material: 'Stainless Steel 304',
-    machineType: 'Brine tank line',
-    dimensionSource: 'Manufacturer (aaravicecreammoulds.com)',
-    specificationStatus: 'VERIFIED',
-    supplierId: 'SUP-AARAV-01',
-    supplierName: 'Aarav Trading Corporation',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-VF-SB8002',
-    mouldName: 'Kulfi Mould SB-8002',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'SB-8002',
-    capacityMl: 60.00,
-    cavityCount: 30,
-    lengthMm: 310,
-    widthMm: 250,
-    heightMm: null,
-    material: 'Stainless Steel 304',
-    machineType: 'Brine tank line',
-    dimensionSource: 'Manufacturer (aaravicecreammoulds.com)',
-    specificationStatus: 'VERIFIED',
-    supplierId: 'SUP-AARAV-01',
-    supplierName: 'Aarav Trading Corporation',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-VF-SB8103',
-    mouldName: 'Kulfi Mould SB-8103',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'SB-8103',
-    capacityMl: 36.00,
     cavityCount: 42,
-    lengthMm: 280,
-    widthMm: 240,
-    heightMm: null,
+    totalNominalCapacityMl: 2100.00,
+    trayLengthMm: 325,
+    trayWidthMm: 245,
+    trayHeightMm: 160,
+    dimensionText: '20N Mould / Delivery 840 NOS',
     material: 'Stainless Steel 304',
     machineType: 'Brine tank line',
-    dimensionSource: 'Manufacturer (aaravicecreammoulds.com)',
+    dimensionSource: 'Satnam Group / Manufacturer',
     specificationStatus: 'VERIFIED',
-    supplierId: 'SUP-AARAV-01',
-    supplierName: 'Aarav Trading Corporation',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-VF-SB8105',
-    mouldName: 'Kulfi Mould SB-8105',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'SB-8105',
-    capacityMl: 60.00,
-    cavityCount: 42,
-    lengthMm: 280,
-    widthMm: 240,
-    heightMm: null,
-    material: 'Stainless Steel 304',
-    machineType: 'Brine tank line',
-    dimensionSource: 'Manufacturer (aaravicecreammoulds.com)',
-    specificationStatus: 'VERIFIED',
-    supplierId: 'SUP-AARAV-01',
-    supplierName: 'Aarav Trading Corporation',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-VF-KUNAL-ELL',
-    mouldName: 'Industrial Elliptical Stick-Line Cavity',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'KUNAL-ELL-1400',
-    capacityMl: 65.00,
-    cavityCount: 1400,
-    lengthMm: null,
-    widthMm: null,
-    heightMm: null,
-    cavityLengthMm: 180,
-    cavityWidthMm: 55,
-    cavityDepthMm: 28,
-    material: 'Stainless Steel 316',
-    machineType: 'Continuous stick-line machine',
-    dimensionSource: 'Manufacturer (Kunal International)',
-    specificationStatus: 'VERIFIED',
-    supplierId: 'SUP-KUNAL-01',
-    supplierName: 'Kunal International',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-VF-CMH-24',
-    mouldName: 'Candy Mould Holder (24 Cavities)',
-    mouldCategory: 'VERIFIED_SPECS',
-    modelNumber: 'CMH-24',
-    capacityMl: 50.00,
-    cavityCount: 24,
-    lengthMm: 444.5,
-    widthMm: 184.2,
-    heightMm: 228.6,
-    material: 'Stainless Steel 304',
-    machineType: 'Semi-auto candy brine tank',
-    dimensionSource: 'Manufacturer (img.tradeindia.com)',
-    specificationStatus: 'VERIFIED',
-    supplierId: 'SUP-TRADE-01',
-    supplierName: 'Indian Candy Tooling',
-    status: 'ACTIVE'
-  },
-
-  // ── 2. MINI & STANDARD STICK CATALOGUE (ERP Planning Variants) ──
-  {
-    mouldCode: 'IM-ST-020',
-    mouldName: 'Mini Stick 20ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-020',
-    capacityMl: 20.00,
-    cavityCount: 50,
-    cavityLengthMm: 50,
-    cavityWidthMm: 25,
-    cavityDepthMm: 16,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-030',
-    mouldName: 'Mini Stick 30ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-030',
-    capacityMl: 30.00,
-    cavityCount: 50,
-    cavityLengthMm: 60,
-    cavityWidthMm: 28,
-    cavityDepthMm: 18,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-040',
-    mouldName: 'Mini Stick 40ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-040',
-    capacityMl: 40.00,
-    cavityCount: 50,
-    cavityLengthMm: 70,
-    cavityWidthMm: 30,
-    cavityDepthMm: 20,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-050',
-    mouldName: 'Standard Stick 50ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-050',
-    capacityMl: 50.00,
-    cavityCount: 50,
-    cavityLengthMm: 80,
-    cavityWidthMm: 35,
-    cavityDepthMm: 22,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-060',
-    mouldName: 'Standard Stick 60ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-060',
-    capacityMl: 60.00,
-    cavityCount: 36,
-    cavityLengthMm: 90,
-    cavityWidthMm: 35,
-    cavityDepthMm: 22,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-080',
-    mouldName: 'Large Stick 80ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-080',
-    capacityMl: 80.00,
-    cavityCount: 36,
-    cavityLengthMm: 100,
-    cavityWidthMm: 40,
-    cavityDepthMm: 25,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-100',
-    mouldName: 'Large Stick 100ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-100',
-    capacityMl: 100.00,
-    cavityCount: 28,
-    cavityLengthMm: 110,
-    cavityWidthMm: 40,
-    cavityDepthMm: 28,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-ST-120',
-    mouldName: 'Large Stick 120ml',
-    mouldCategory: 'STICK',
-    modelNumber: 'ST-120',
-    capacityMl: 120.00,
-    cavityCount: 24,
-    cavityLengthMm: 115,
-    cavityWidthMm: 45,
-    cavityDepthMm: 30,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam / Aarav',
-    status: 'ACTIVE'
-  },
-
-  // ── 3. KULFI MOULDS ──
-  {
-    mouldCode: 'IM-KF-035',
-    mouldName: 'Cone Kulfi 35ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-035',
-    capacityMl: 35.00,
-    cavityCount: 42,
-    cavityLengthMm: 100,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-KF-040',
-    mouldName: 'Round Kulfi 40ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-040',
-    capacityMl: 40.00,
-    cavityCount: 42,
-    cavityLengthMm: 105,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-KF-050',
-    mouldName: 'Mawa / Pista Kulfi 50ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-050',
-    capacityMl: 50.00,
-    cavityCount: 30,
-    cavityLengthMm: 115,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-KF-060',
-    mouldName: 'Punjabi Kulfi 60ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-060',
-    capacityMl: 60.00,
-    cavityCount: 30,
-    cavityLengthMm: 120,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-KF-080',
-    mouldName: 'Large Kulfi 80ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-080',
-    capacityMl: 80.00,
-    cavityCount: 24,
-    cavityLengthMm: 130,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-KF-100',
-    mouldName: 'Jumbo Kulfi 100ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-100',
-    capacityMl: 100.00,
-    cavityCount: 20,
-    cavityLengthMm: 140,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-KF-120',
-    mouldName: 'Jumbo Kulfi 120ml',
-    mouldCategory: 'KULFI',
-    modelNumber: 'KF-120',
-    capacityMl: 120.00,
-    cavityCount: 18,
-    cavityLengthMm: 150,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Aarav Moulds',
-    status: 'ACTIVE'
-  },
-
-  // ── 4. NOVELTY / MINI & CHARACTER SHAPES ──
-  {
-    mouldCode: 'IM-NV-025',
-    mouldName: 'Mini Novelty Shape 25ml',
-    mouldCategory: 'NOVELTY',
-    modelNumber: 'NV-025',
-    capacityMl: 25.00,
-    cavityCount: 48,
-    cavityLengthMm: 55,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
+    supplierId: 'SUP-SATNAM-01',
     supplierName: 'Satnam Group',
     status: 'ACTIVE'
   },
   {
-    mouldCode: 'IM-NV-050',
-    mouldName: 'Novelty / Character 50ml',
-    mouldCategory: 'NOVELTY',
-    modelNumber: 'NV-050',
-    capacityMl: 50.00,
-    cavityCount: 36,
-    cavityLengthMm: 75,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam Group',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-NV-080',
-    mouldName: 'Novelty / Character 80ml',
-    mouldCategory: 'NOVELTY',
-    modelNumber: 'NV-080',
-    capacityMl: 80.00,
-    cavityCount: 24,
-    cavityLengthMm: 95,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam Group',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-NV-100',
-    mouldName: 'Heart / Star / Character 100ml',
-    mouldCategory: 'NOVELTY',
-    modelNumber: 'NV-100',
-    capacityMl: 100.00,
-    cavityCount: 20,
-    cavityLengthMm: 110,
-    material: 'Stainless Steel',
-    machineType: 'Brine tank line',
-    dimensionSource: 'ERP Planning Catalogue',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Satnam Group',
-    status: 'ACTIVE'
-  },
-
-  // ── 5. CUPS, CONES & TUBS (Verified Container Dimensions) ──
-  {
-    mouldCode: 'IM-CP-0100',
-    mouldName: 'Round Ice Cream Cup 100ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'CUP-100',
-    capacityMl: 100.00,
-    cavityCount: 1,
-    lengthMm: 69,
-    widthMm: 69,
-    heightMm: 53.2,
-    material: 'Food Grade Paperboard / Poly',
-    machineType: 'Rotary Cup Filler',
-    dimensionSource: 'Supplier Spec (Packaging Since 1955)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Packaging Since 1955',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-CP-0115',
-    mouldName: 'Round Ice Cream Cup 115ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'CUP-115',
-    capacityMl: 115.00,
-    cavityCount: 1,
-    lengthMm: 69,
-    widthMm: 69,
-    heightMm: 60.5,
-    material: 'Food Grade Paperboard / Poly',
-    machineType: 'Rotary Cup Filler',
-    dimensionSource: 'Supplier Spec (Packaging Since 1955)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Packaging Since 1955',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-CP-0200',
-    mouldName: 'Round Ice Cream Cup 200ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'CUP-200',
-    capacityMl: 200.00,
-    cavityCount: 1,
-    lengthMm: 81,
-    widthMm: 81,
-    heightMm: 84.5,
-    material: 'Food Grade Paperboard / Poly',
-    machineType: 'Rotary Cup Filler',
-    dimensionSource: 'Supplier Spec (Packaging Since 1955)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Packaging Since 1955',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-TB-0520',
-    mouldName: 'Round Ice Cream Tub 520ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'TUB-520',
-    capacityMl: 520.00,
-    cavityCount: 1,
-    lengthMm: 94.5,
-    widthMm: 94.5,
-    heightMm: 115,
-    material: 'IML Polypropylene',
-    machineType: 'Linear Tub Filler',
-    dimensionSource: 'Supplier Spec (Packaging Since 1955)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Packaging Since 1955',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-TB-0750',
-    mouldName: 'Round Ice Cream Tub 750ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'TUB-750',
-    capacityMl: 750.00,
-    cavityCount: 1,
-    lengthMm: 122.5,
-    widthMm: 122.5,
-    heightMm: 128,
-    material: 'IML Polypropylene',
-    machineType: 'Linear Tub Filler',
-    dimensionSource: 'Supplier Spec (Packaging Since 1955)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Packaging Since 1955',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-TB-1180',
-    mouldName: 'Family Tub 1,180ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'TUB-1180',
-    capacityMl: 1180.00,
-    cavityCount: 1,
-    lengthMm: 134.5,
-    widthMm: 134.5,
-    heightMm: 130.5,
-    material: 'IML Polypropylene',
-    machineType: 'Linear Tub Filler',
-    dimensionSource: 'Supplier Spec (Packaging Since 1955)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Packaging Since 1955',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-FMC-0100',
-    mouldName: 'Filling-Machine Cup Format 100ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'FMC-100',
-    capacityMl: 100.00,
-    cavityCount: 1,
-    lengthMm: 80,
-    widthMm: 80,
-    heightMm: null,
-    material: 'Stainless Steel Die',
-    machineType: 'Rotary Cup Machine (Shreya)',
-    dimensionSource: 'Machine Limit (Shreya Engineering Works – Anand)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Shreya Engineering Works',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-FMN-0120',
-    mouldName: 'Filling-Machine Cone Format 120ml',
-    mouldCategory: 'CUPS_CONES_TUBS',
-    modelNumber: 'FMN-120',
-    capacityMl: 120.00,
-    cavityCount: 1,
-    lengthMm: 60,
-    widthMm: 60,
-    heightMm: null,
-    material: 'Stainless Steel Die',
-    machineType: 'Rotary Cone Machine (Shreya)',
-    dimensionSource: 'Machine Limit (Shreya Engineering Works – Anand)',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Shreya Engineering Works',
-    status: 'ACTIVE'
-  },
-
-  // ── 6. SANDWICH, CAKE, ROLL & SPECIALTY MOULDS ──
-  {
-    mouldCode: 'IM-SW-0050',
-    mouldName: 'Mini Ice Cream Sandwich (50ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'SW-050',
-    capacityMl: 50.00,
-    cavityCount: 18,
-    cavityLengthMm: 60,
-    cavityWidthMm: 40,
-    cavityDepthMm: 20,
-    material: 'Stainless Steel',
-    machineType: 'Sandwich line',
-    dimensionSource: 'ERP Planning Estimate',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Arnav Candy',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-SW-0090',
-    mouldName: 'Standard Ice Cream Sandwich (90ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'SW-090',
-    capacityMl: 90.00,
-    cavityCount: 14,
-    cavityLengthMm: 80,
-    cavityWidthMm: 50,
-    cavityDepthMm: 25,
-    material: 'Stainless Steel',
-    machineType: 'Sandwich line',
-    dimensionSource: 'ERP Planning Estimate',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Arnav Candy',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-SW-0120',
-    mouldName: 'Large Ice Cream Sandwich (120ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'SW-0120',
-    capacityMl: 120.00,
-    cavityCount: 10,
-    cavityLengthMm: 100,
-    cavityWidthMm: 60,
-    cavityDepthMm: 25,
-    material: 'Stainless Steel',
-    machineType: 'Sandwich line',
-    dimensionSource: 'ERP Planning Estimate',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Arnav Candy',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-CK-0350',
-    mouldName: 'Mini Round Ice Cream Cake (350ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'CK-350',
-    capacityMl: 350.00,
-    cavityCount: 4,
-    cavityLengthMm: 90,
-    cavityWidthMm: 90,
-    cavityDepthMm: 50,
-    material: 'Stainless Steel Ring',
-    machineType: 'Cake blast line',
-    dimensionSource: 'ERP Planning Estimate',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Arnav Candy',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-CK-0750',
-    mouldName: 'Round Ice Cream Cake (750ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'CK-750',
-    capacityMl: 750.00,
-    cavityCount: 2,
-    cavityLengthMm: 140,
-    cavityWidthMm: 140,
-    cavityDepthMm: 60,
-    material: 'Stainless Steel Ring',
-    machineType: 'Cake blast line',
-    dimensionSource: 'ERP Planning Estimate',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Arnav Candy',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-CK-1750',
-    mouldName: 'Large Ice Cream Cake (1750ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'CK-1750',
-    capacityMl: 1750.00,
-    cavityCount: 1,
-    cavityLengthMm: 200,
-    cavityWidthMm: 200,
-    cavityDepthMm: 75,
-    material: 'Stainless Steel Ring',
-    machineType: 'Cake blast line',
-    dimensionSource: 'ERP Planning Estimate',
-    specificationStatus: 'ESTIMATE',
-    supplierName: 'Arnav Candy',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-SP-TW75',
-    mouldName: 'Twister / Swirl Mould (75ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'TW-075',
-    capacityMl: 75.00,
-    cavityCount: 24,
-    material: 'Stainless Steel',
-    machineType: 'Tooling design / Extruder',
-    dimensionSource: 'Machine-specific',
-    specificationStatus: 'MACHINE_SPECIFIC',
-    supplierName: 'Indian Manufacturer Spec',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-SP-NT70',
-    mouldName: 'Nutty / Coated Mould (70ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'NT-070',
+    mouldCode: 'SG-8115',
+    mouldName: 'Kulfi Large (SG 8115)',
+    mouldCategory: '8000 Series',
+    modelNumber: 'SG-8115',
     capacityMl: 70.00,
-    cavityCount: 24,
-    material: 'Stainless Steel',
-    machineType: 'Tooling design / Double dip',
-    dimensionSource: 'Machine-specific',
-    specificationStatus: 'MACHINE_SPECIFIC',
-    supplierName: 'Indian Manufacturer Spec',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-SP-DU75',
-    mouldName: 'Mango Duet / Dual-Flavour (75ml)',
-    mouldCategory: 'SANDWICH_CAKE_SPECIALTY',
-    modelNumber: 'DU-075',
-    capacityMl: 75.00,
-    cavityCount: 24,
-    material: 'Stainless Steel',
-    machineType: 'Co-axial inner/outer mould',
-    dimensionSource: 'Machine-specific',
-    specificationStatus: 'MACHINE_SPECIFIC',
-    supplierName: 'Indian Manufacturer Spec',
-    status: 'ACTIVE'
-  },
-
-  // ── 7. INDUSTRIAL TRAY AND MACHINE SIZES ──
-  {
-    mouldCode: 'IM-TR-50CB',
-    mouldName: '50-Cavity Chocobar Mould Tray',
-    mouldCategory: 'INDUSTRIAL_TRAY',
-    modelNumber: 'TRAY-50CB',
-    capacityMl: 50.00,
-    cavityCount: 50,
-    lengthMm: 325,
-    widthMm: 260,
-    heightMm: 160,
-    material: 'Stainless Steel 304',
-    machineType: 'Brine tank line',
-    dimensionSource: 'icecreammoulds.com',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Satnam Group',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-TR-36BC',
-    mouldName: '36-Cavity Big Chocobar Mould Tray',
-    mouldCategory: 'INDUSTRIAL_TRAY',
-    modelNumber: 'TRAY-36BC',
-    capacityMl: 65.00,
-    cavityCount: 36,
-    lengthMm: 325,
-    widthMm: 245,
-    heightMm: 160,
-    material: 'Stainless Steel 304',
-    machineType: 'Brine tank line',
-    dimensionSource: 'icecreammoulds.com',
-    specificationStatus: 'VERIFIED',
-    supplierName: 'Satnam Group',
-    status: 'ACTIVE'
-  },
-  {
-    mouldCode: 'IM-TR-42KF',
-    mouldName: '42-Cavity Kulfi Mould Tray',
-    mouldCategory: 'INDUSTRIAL_TRAY',
-    modelNumber: 'TRAY-42KF',
-    capacityMl: 60.00,
     cavityCount: 42,
-    lengthMm: 280,
-    widthMm: 240,
-    heightMm: null,
+    totalNominalCapacityMl: 2940.00,
+    trayLengthMm: 325,
+    trayWidthMm: 245,
+    trayHeightMm: 160,
+    dimensionText: '10N Mould / Delivery 420 NOS',
     material: 'Stainless Steel 304',
     machineType: 'Brine tank line',
-    dimensionSource: 'aaravicecreammoulds.com',
+    dimensionSource: 'Satnam Group / Manufacturer',
     specificationStatus: 'VERIFIED',
-    supplierName: 'Aarav Trading Corporation',
+    supplierId: 'SUP-SATNAM-01',
+    supplierName: 'Satnam Group',
     status: 'ACTIVE'
   }
 ];
 
-async function seedIceCreamMoulds() {
-  console.log('🔄 Checking & Seeding Ice Cream Moulds Catalogue...');
-  let count = 0;
+async function seedIceCreamMoulds(customPrisma = null) {
+  const db = customPrisma || prisma;
+  console.log(`🔄 Syncing Ice Cream Moulds Catalogue (Total ${MOULD_SEEDS.length} active moulds)...`);
 
+  const activeCodes = MOULD_SEEDS.map(m => m.mouldCode);
+
+  // 1. Remove previous moulds not in the active list from both tables
+  try {
+    const deletedCount1 = await db.$executeRawUnsafe(`
+      DELETE FROM "ice_cream_moulds" 
+      WHERE "mould_code" NOT IN (${activeCodes.map((_, i) => `$${i + 1}`).join(', ')});
+    `, ...activeCodes);
+    console.log(`Cleaned ${deletedCount1} previous moulds from ice_cream_moulds.`);
+  } catch (err) {
+    console.warn('Notice removing old moulds from ice_cream_moulds:', err.message);
+  }
+
+  try {
+    const deletedCount2 = await db.$executeRawUnsafe(`
+      DELETE FROM "production_moulds" 
+      WHERE "mould_code" NOT IN (${activeCodes.map((_, i) => `$${i + 1}`).join(', ')});
+    `, ...activeCodes);
+    console.log(`Cleaned ${deletedCount2} previous moulds from production_moulds.`);
+  } catch (err) {
+    console.warn('Notice removing old moulds from production_moulds:', err.message);
+  }
+
+  // 2. Insert or update the verified moulds in ice_cream_moulds table
+  // Note: total_nominal_capacity_ml is a GENERATED column in Postgres on ice_cream_moulds
+  let icCount = 0;
   for (const m of MOULD_SEEDS) {
     try {
-      await prisma.$executeRawUnsafe(`
+      await db.$executeRawUnsafe(`
         INSERT INTO "ice_cream_moulds" (
           "mould_code", "mould_name", "mould_category", "model_number",
           "capacity_ml", "cavity_count",
           "length_mm", "width_mm", "height_mm",
-          "cavity_length_mm", "cavity_width_mm", "cavity_depth_mm",
           "material", "machine_type", "dimension_source",
           "specification_status", "supplier_id", "supplier_name", "status"
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
         )
         ON CONFLICT ("mould_code") DO UPDATE SET
           "mould_name" = EXCLUDED."mould_name",
@@ -821,9 +134,6 @@ async function seedIceCreamMoulds() {
           "length_mm" = EXCLUDED."length_mm",
           "width_mm" = EXCLUDED."width_mm",
           "height_mm" = EXCLUDED."height_mm",
-          "cavity_length_mm" = EXCLUDED."cavity_length_mm",
-          "cavity_width_mm" = EXCLUDED."cavity_width_mm",
-          "cavity_depth_mm" = EXCLUDED."cavity_depth_mm",
           "material" = EXCLUDED."material",
           "machine_type" = EXCLUDED."machine_type",
           "dimension_source" = EXCLUDED."dimension_source",
@@ -835,30 +145,115 @@ async function seedIceCreamMoulds() {
         m.mouldCode,
         m.mouldName,
         m.mouldCategory,
-        m.modelNumber || null,
+        m.modelNumber,
         m.capacityMl,
-        m.cavityCount || 1,
-        m.lengthMm !== undefined ? m.lengthMm : null,
-        m.widthMm !== undefined ? m.widthMm : null,
-        m.heightMm !== undefined ? m.heightMm : null,
-        m.cavityLengthMm !== undefined ? m.cavityLengthMm : null,
-        m.cavityWidthMm !== undefined ? m.cavityWidthMm : null,
-        m.cavityDepthMm !== undefined ? m.cavityDepthMm : null,
-        m.material || 'Stainless Steel 304',
-        m.machineType || 'Brine Tank Line',
-        m.dimensionSource || 'Manufacturer',
-        m.specificationStatus || 'VERIFIED',
-        m.supplierId || null,
-        m.supplierName || null,
-        m.status || 'ACTIVE'
+        m.cavityCount,
+        m.trayLengthMm,
+        m.trayWidthMm,
+        m.trayHeightMm,
+        m.material,
+        m.machineType,
+        m.dimensionSource,
+        m.specificationStatus,
+        m.supplierId,
+        m.supplierName,
+        m.status
       );
-      count++;
+      icCount++;
     } catch (err) {
-      console.warn(`Notice inserting mould ${m.mouldCode}:`, err.message);
+      console.warn(`Notice inserting into ice_cream_moulds ${m.mouldCode}:`, err.message);
     }
   }
 
-  console.log(`✅ Successfully synced ${count} Ice Cream Mould specifications into ERP.`);
+  // 3. Insert or update the verified moulds in production_moulds table (used by ice_cream_mould view on Live)
+  let pmCount = 0;
+  for (const m of MOULD_SEEDS) {
+    try {
+      await db.$executeRawUnsafe(`
+        INSERT INTO "production_moulds" (
+          "mould_code", "mould_name", "mould_category", "model_number",
+          "capacity_ml", "cavity_count",
+          "tray_length_mm", "tray_width_mm", "tray_height_mm",
+          "dimension_text", "material", "machine_type",
+          "specification_status", "supplier_id", "supplier_name", "status"
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+        )
+        ON CONFLICT ("mould_code") DO UPDATE SET
+          "mould_name" = EXCLUDED."mould_name",
+          "mould_category" = EXCLUDED."mould_category",
+          "model_number" = EXCLUDED."model_number",
+          "capacity_ml" = EXCLUDED."capacity_ml",
+          "cavity_count" = EXCLUDED."cavity_count",
+          "tray_length_mm" = EXCLUDED."tray_length_mm",
+          "tray_width_mm" = EXCLUDED."tray_width_mm",
+          "tray_height_mm" = EXCLUDED."tray_height_mm",
+          "dimension_text" = EXCLUDED."dimension_text",
+          "material" = EXCLUDED."material",
+          "machine_type" = EXCLUDED."machine_type",
+          "specification_status" = EXCLUDED."specification_status",
+          "supplier_name" = EXCLUDED."supplier_name",
+          "status" = EXCLUDED."status",
+          "updated_at" = CURRENT_TIMESTAMP;
+      `,
+        m.mouldCode,
+        m.mouldName,
+        m.mouldCategory,
+        m.modelNumber,
+        m.capacityMl,
+        m.cavityCount,
+        m.trayLengthMm,
+        m.trayWidthMm,
+        m.trayHeightMm,
+        m.dimensionText,
+        m.material,
+        m.machineType,
+        m.specificationStatus,
+        m.supplierId,
+        m.supplierName,
+        m.status
+      );
+      pmCount++;
+    } catch (err) {
+      console.warn(`Notice inserting into production_moulds ${m.mouldCode}:`, err.message);
+    }
+  }
+
+  // 4. Ensure view ice_cream_mould exists and is valid
+  try {
+    await db.$executeRawUnsafe(`
+      CREATE OR REPLACE VIEW ice_cream_mould AS 
+      SELECT 
+        id, 
+        mould_code, 
+        mould_name, 
+        mould_category, 
+        model_number, 
+        capacity_ml, 
+        cavity_count, 
+        total_nominal_capacity_ml, 
+        tray_length_mm, 
+        tray_width_mm, 
+        tray_height_mm, 
+        cavity_length_mm, 
+        cavity_width_mm, 
+        cavity_depth_mm, 
+        dimension_text::varchar(255) AS dimension_text, 
+        material, 
+        machine_type, 
+        specification_status, 
+        supplier_id, 
+        supplier_name, 
+        status, 
+        created_at, 
+        updated_at
+      FROM production_moulds;
+    `);
+  } catch (viewErr) {
+    console.log('View creation notice (view may already point to production_moulds):', viewErr.message);
+  }
+
+  console.log(`✅ Synced ${icCount} to ice_cream_moulds and ${pmCount} to production_moulds.`);
 }
 
 module.exports = { seedIceCreamMoulds, MOULD_SEEDS };

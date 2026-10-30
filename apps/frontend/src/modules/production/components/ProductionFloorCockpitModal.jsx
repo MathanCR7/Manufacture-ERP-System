@@ -463,10 +463,10 @@ export default function ProductionFloorCockpitModal({
             productCode: p.code || p.productCode || 'FP',
             useMould: true,
             mouldId: null,
-            mouldCode: 'IM-0001',
-            mouldName: 'Lolly / Chocobar SG-5011 (Verified)',
+            mouldCode: 'SG-8112',
+            mouldName: 'Kulfi Small (SG 8112)',
             capacityMl: 50,
-            cavities: 50,
+            cavities: 42,
             trays: 0,
             wasteMode: 'PERCENT',
             wasteValue: 2.0
@@ -1267,10 +1267,10 @@ export default function ProductionFloorCockpitModal({
         productCode: product.code || product.systemCode,
         useMould: true,
         mouldId: null,
-        mouldCode: 'IM-0001',
-        mouldName: 'Lolly / Chocobar SG-5011 (Verified)',
+        mouldCode: 'SG-8112',
+        mouldName: 'Kulfi Small (SG 8112)',
         capacityMl: 50,
-        cavities: 50,
+        cavities: 42,
         trays: 0,
         wasteMode: 'PERCENT',
         wasteValue: 2.0
@@ -3004,7 +3004,7 @@ export default function ProductionFloorCockpitModal({
                                 <span>{a.productName}</span>
                               </div>
                               <div className="text-[10.5px] text-slate-400 mt-0.5">
-                                Mould: {a.mouldCode || 'IM-0001'} • {a.trays} trays ({a.cavities} cav × {a.capacityMl}ml)
+                                Mould: {a.mouldCode || 'SG-8112'} • {a.trays} trays ({a.cavities || 42} cav × {a.capacityMl || 50}ml)
                               </div>
                             </div>
                             <div className="text-right">

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, Search, Check, Layers, Sliders, ShieldCheck, 
   Sparkles, Info, Factory, RefreshCw, Box, AlertCircle,
-  HelpCircle, CheckCircle2, ChevronRight
+  HelpCircle, CheckCircle2, ChevronRight, Award
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,19 +10,10 @@ import { api } from '@/lib/axios';
 import { formatIndian } from '../utils/productionCalculation';
 
 const CATEGORY_TABS = [
-  { id: 'ALL', label: 'All Moulds' },
-  { id: 'Chocobar / Stick', label: 'Chocobar / Stick' },
-  { id: 'Kulfi', label: 'Kulfi' },
-  { id: 'Cup / Tub', label: 'Cup / Tub' },
-  { id: 'Mini stick', label: 'Mini stick' },
-  { id: 'Standard stick', label: 'Standard stick' },
-  { id: 'Large stick', label: 'Large stick' },
-  { id: 'Cone kulfi', label: 'Cone kulfi' },
-  { id: 'Sandwich', label: 'Sandwich' },
-  { id: 'Cake', label: 'Cake' },
-  { id: 'Novelty', label: 'Novelty' },
-  { id: 'Twister', label: 'Twister' },
-  { id: 'Dual flavour', label: 'Dual flavour' },
+  { id: 'ALL', label: 'All Active Moulds' },
+  { id: '2000 Series', label: '2000 Series (Egypt)' },
+  { id: '3000 Series', label: '3000 Series (Flat Stick)' },
+  { id: '8000 Series', label: '8000 Series (Kulfi)' },
   { id: 'VERIFIED_SPECS', label: '⭐ Verified Specs' }
 ];
 
@@ -37,7 +28,7 @@ export default function ProductionMouldPickerModal({
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState(initialCategory || 'ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, VERIFIED, ESTIMATED, MACHINE_SPECIFIC
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, VERIFIED
 
   // Fetch moulds catalogue
   useEffect(() => {
@@ -97,7 +88,7 @@ export default function ProductionMouldPickerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-150">
       <div 
-        className="w-full max-w-5xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
+        className="w-full max-w-4xl max-h-[92vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
         role="dialog"
         aria-modal="true"
       >
@@ -113,11 +104,11 @@ export default function ProductionMouldPickerModal({
                   Ice Cream Mould Specifications Master
                 </h2>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300">
-                  {moulds.length} Moulds in Catalog
+                  {moulds.length} Moulds Active
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Select verified manufacturer specifications or ERP planning size variants with automatic nominal capacity math
+                Verified standard mould specifications with tray cavity capacity and batch delivery math
               </p>
             </div>
           </div>
@@ -137,12 +128,12 @@ export default function ProductionMouldPickerModal({
             <span>
               <strong>Nominal Mould Set Capacity Formula:</strong>
               <code className="ml-2 px-2 py-0.5 rounded bg-white dark:bg-slate-900 font-mono text-[11.5px] font-bold text-indigo-700 dark:text-indigo-300 border border-indigo-200">
-                Total Nominal Capacity (ml) = Capacity per Cavity (ml) × Cavity Count
+                Total Nominal Capacity (ml) = Cavity Volume (ml) × Cavities per Tray
               </code>
             </span>
           </div>
           <div className="text-[11px] text-indigo-600 dark:text-indigo-300 font-semibold">
-            Sources: Satnam Group • Aarav Trading • Kunal International • Packaging Since 1955
+            Manufacturer: Satnam Group (SS 304 Brine Tank Line)
           </div>
         </div>
 
@@ -153,7 +144,7 @@ export default function ProductionMouldPickerModal({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search by mould code (IM-0001, SG-5011, SB-8002), name, category..."
+                placeholder="Search by mould code (SG-2006, SG-3006, SG-8112, SG-8115), series, shape..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-8 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50/60 dark:bg-slate-950 focus:outline-hidden focus:ring-1.5 focus:ring-indigo-500 focus:bg-white transition-all shadow-3xs"
@@ -177,8 +168,6 @@ export default function ProductionMouldPickerModal({
               >
                 <option value="ALL">All Statuses</option>
                 <option value="VERIFIED">Verified Specifications</option>
-                <option value="ESTIMATED">ERP Planning Estimates</option>
-                <option value="MACHINE_SPECIFIC">Machine Specific</option>
               </select>
             </div>
           </div>
@@ -227,18 +216,18 @@ export default function ProductionMouldPickerModal({
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredMoulds.map(m => {
                 const code = m.mould_code || m.mouldCode;
                 const name = m.mould_name || m.mouldName;
-                const model = m.model_number || m.modelNumber;
+                const category = m.mould_category || m.mouldCategory;
                 const supplier = m.supplier_name || m.supplierName;
                 const specStatus = m.specification_status || m.specificationStatus;
                 const cap = Number(m.capacity_ml ?? m.capacityMl ?? 0);
                 const cav = (m.cavity_count !== null && m.cavity_count !== undefined) ? Number(m.cavity_count) : ((m.cavityCount !== null && m.cavityCount !== undefined) ? Number(m.cavityCount) : null);
                 const totalNominal = (m.total_nominal_capacity_ml !== null && m.total_nominal_capacity_ml !== undefined) ? Number(m.total_nominal_capacity_ml) : (cav !== null ? cap * cav : null);
+                const deliveryText = m.dimension_text || m.dimensionText || '';
                 const isSelected = selectedMouldId === m.id || selectedMouldId === code;
-                const isVerified = specStatus === 'VERIFIED';
 
                 return (
                   <div
@@ -250,11 +239,15 @@ export default function ProductionMouldPickerModal({
                       mouldCode: code,
                       mould_name: name,
                       mouldName: name,
+                      mould_category: category,
+                      mouldCategory: category,
                       capacity_ml: cap,
                       capacityMl: cap,
                       cavity_count: cav,
                       cavityCount: cav,
-                      total_nominal_capacity_ml: totalNominal
+                      total_nominal_capacity_ml: totalNominal,
+                      dimension_text: deliveryText,
+                      dimensionText: deliveryText
                     })}
                     className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                       isSelected
@@ -262,71 +255,73 @@ export default function ProductionMouldPickerModal({
                         : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 hover:shadow-xs'
                     }`}
                   >
-                    {/* Top Row: Code & Verified Badge */}
+                    {/* Top Row: Code & Category Badge */}
                     <div>
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <span className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800">
                           {code}
                         </span>
 
-                        {isVerified ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/70 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-300 shrink-0">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            VERIFIED SPEC
-                          </span>
-                        ) : specStatus === 'MACHINE_SPECIFIC' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 dark:bg-amber-950/70 dark:text-amber-300 px-2 py-0.5 rounded-full border border-amber-300 shrink-0">
-                            MACHINE SPEC
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 rounded-full shrink-0">
-                            ERP ESTIMATE
-                          </span>
-                        )}
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/70 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-300 shrink-0">
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          VERIFIED SPEC
+                        </span>
                       </div>
 
                       {/* Mould Title */}
                       <h4 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1 mt-1">
                         {name}
                       </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        {model ? `Model: ${model}` : ''} {supplier ? `• ${supplier}` : ''}
+                      <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                        {category} • {supplier || 'Satnam Group'}
                       </p>
                     </div>
 
+                    {/* Delivery & Mould Set Highlight Badge */}
+                    {deliveryText && (
+                      <div className="mt-2.5 px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/40 flex items-center justify-between text-xs">
+                        <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                          Set & Delivery:
+                        </span>
+                        <span className="font-mono font-bold text-amber-900 dark:text-amber-200 text-[11.5px]">
+                          {deliveryText}
+                        </span>
+                      </div>
+                    )}
+
                     {/* Specifications Metrics Box */}
-                    <div className="my-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 space-y-1.5 text-xs">
+                    <div className="my-2.5 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 space-y-1.5 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500 text-[11px]">Capacity / Cavity:</span>
+                        <span className="text-slate-500 text-[11px]">Cavity Capacity:</span>
                         <span className="font-mono font-bold text-slate-900 dark:text-white">
-                          {cap.toFixed(1)} ml
+                          {cap.toFixed(0)} ml
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500 text-[11px]">Cavity Count:</span>
+                        <span className="text-slate-500 text-[11px]">Cavities per Tray:</span>
                         <span className="font-mono font-bold text-slate-900 dark:text-white">
-                          {cav !== null ? `${cav} cavities` : 'NULL (Enter on floor)'}
+                          {cav !== null ? `${cav} cavities` : '42 cavities'}
                         </span>
                       </div>
 
                       <div className="pt-1.5 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
                         <span className="text-indigo-600 dark:text-indigo-400 font-bold text-[11px]">
-                          Nominal Tray Capacity:
+                          Tray Nominal Capacity:
                         </span>
                         <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-sm">
-                          {totalNominal !== null ? `${formatIndian(totalNominal)} ml` : 'Computed on floor'}
+                          {totalNominal !== null ? `${formatIndian(totalNominal)} ml` : 'Computed'}
                         </span>
                       </div>
                     </div>
 
-                    {/* Dimensions & Material footer */}
+                    {/* Material & Line */}
                     <div className="text-[10px] text-slate-500 border-t border-slate-100 dark:border-slate-800/60 pt-2 flex items-center justify-between">
-                      <span className="truncate mr-2">
-                        {m.dimension_text || (m.tray_length_mm ? `${m.tray_length_mm}x${m.tray_width_mm} mm` : 'Dimensions on drawing')}
+                      <span className="font-medium text-slate-600 dark:text-slate-400">
+                        {m.material || 'Stainless Steel 304'}
                       </span>
-                      <span className="shrink-0 font-medium text-slate-400">
-                        {m.material || 'SS 304'}
+                      <span className="font-medium text-slate-400">
+                        {m.machine_type || 'Brine Tank Line'}
                       </span>
                     </div>
                   </div>
@@ -340,7 +335,7 @@ export default function ProductionMouldPickerModal({
         <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shrink-0 text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Industrial reference tooling catalogue ready for automatic mould tray math</span>
+            <span>Active Mould Specs: SG 2006 (18ml) • SG 3006 (40ml) • SG 8112 (50ml) • SG 8115 (70ml)</span>
           </div>
           <Button
             variant="outline"

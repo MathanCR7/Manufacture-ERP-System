@@ -354,9 +354,9 @@ export default function ProductionCleanReportView({
                   const seqNum = alloc.seq || (idx + 1);
                   const pName = alloc.productName || alloc.product_name || 'Finished Product';
                   const pCode = alloc.productCode || alloc.product_code || 'FP';
-                  const mouldCode = alloc.mouldCode || alloc.mould_code || 'IM-0001';
-                  const mouldName = alloc.mouldName || alloc.mould_name || 'Lolly / Chocobar SG-5011';
-                  const cavities = Number(alloc.cavities || alloc.cavity_count || 50);
+                  const mouldCode = alloc.mouldCode || alloc.mould_code || 'SG-8112';
+                  const mouldName = alloc.mouldName || alloc.mould_name || 'Kulfi Small (SG 8112)';
+                  const cavities = Number(alloc.cavities || alloc.cavity_count || 42);
                   const capacityMl = Number(alloc.capacityMl || alloc.capacity_ml || 50);
                   const trays = Number(alloc.trays || 0);
                   const mixUsed = Number(alloc.mixUsedMl || alloc.mix_used_ml || 0);
