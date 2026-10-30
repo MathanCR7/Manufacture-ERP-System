@@ -223,11 +223,20 @@ export default function ProductionFloorCockpitModal({
             if (totQty > 0) unitRate = Number((totAmt / totQty).toFixed(4));
           }
 
+          let resolvedUom = line.unit_id || line.unitId || line.uom;
+          if (line.has_alternate_uom || line.hasAlternateUom) {
+            const alt = (line.alternate_uom || line.alternateUom || '').toLowerCase();
+            const curr = String(resolvedUom || '').toLowerCase();
+            if (alt && curr === alt && Number(line.conversion_factor || line.conversionFactor || 1) >= 1000) {
+              resolvedUom = 'kg';
+            }
+          }
+
           return {
             rawMaterialId: rmId,
             rawMaterialName: line.raw_material_name || line.rmName || 'Raw Material',
             rawMaterialCode: line.raw_material_code || line.rmCode || 'RM',
-            uom: formatCleanUom(line.uom || line.unit_id, 'kg', line),
+            uom: formatCleanUom(resolvedUom, 'kg', line),
             hasAlternateUom: Boolean(line.has_alternate_uom),
             alternateUom: line.alternate_uom,
             conversionFactor: Number(line.conversion_factor || 1),
@@ -303,11 +312,20 @@ export default function ProductionFloorCockpitModal({
             if (totQty > 0) unitRate = Number((totAmt / totQty).toFixed(4));
           }
 
+          let resolvedUom = u.rawMaterial?.unitId || u.selectedUom || u.unit;
+          if (u.rawMaterial?.hasAlternateUom) {
+            const alt = (u.rawMaterial?.alternateUom || '').toLowerCase();
+            const curr = String(resolvedUom || '').toLowerCase();
+            if (alt && curr === alt && Number(u.rawMaterial?.conversionFactor || 1) >= 1000) {
+              resolvedUom = 'kg';
+            }
+          }
+
           return {
             rawMaterialId: rmId,
             rawMaterialName: name,
             rawMaterialCode: u.rawMaterial?.code || 'RM',
-            uom: formatCleanUom(u.selectedUom || u.unit || u.rawMaterial?.consumptionUnit || u.rawMaterial?.unitId, 'kg', u.rawMaterial),
+            uom: formatCleanUom(resolvedUom || u.rawMaterial?.consumptionUnit, 'kg', u.rawMaterial),
             hasAlternateUom: Boolean(u.rawMaterial?.hasAlternateUom),
             alternateUom: u.rawMaterial?.alternateUom,
             conversionFactor: Number(u.rawMaterial?.conversionFactor || 1),
@@ -364,11 +382,20 @@ export default function ProductionFloorCockpitModal({
             takenQty = reqQty;
           }
 
+          let resolvedUom = rm.unitId || rm.baseUom || rm.selectedUom || rm.uom;
+          if (rm.hasAlternateUom) {
+            const alt = (rm.alternateUom || '').toLowerCase();
+            const curr = String(resolvedUom || '').toLowerCase();
+            if (alt && curr === alt && Number(rm.conversionFactor || 1) >= 1000) {
+              resolvedUom = 'kg';
+            }
+          }
+
           return {
             rawMaterialId: rmId,
             rawMaterialName: name,
             rawMaterialCode: rm.rmCode || rm.rawMaterialCode || 'RM',
-            uom: formatCleanUom(rm.selectedUom || rm.baseUom || rm.uom || rm.unitId, 'kg', rm),
+            uom: formatCleanUom(resolvedUom, 'kg', rm),
             hasAlternateUom: Boolean(rm.hasAlternateUom),
             alternateUom: rm.alternateUom,
             conversionFactor: Number(rm.conversionFactor || 1),

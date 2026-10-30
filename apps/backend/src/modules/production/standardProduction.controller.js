@@ -1213,10 +1213,11 @@ class StandardProductionController {
           SELECT 
             pbl.*,
             COALESCE(
-              CASE WHEN pbl.uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE pbl.uom END,
-              CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
               uom_tbl.abbreviation,
               uom_tbl.name,
+              CASE WHEN rm."unitId" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."unitId" END,
+              CASE WHEN pbl.uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE pbl.uom END,
+              CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
               'kg'
             ) AS uom,
             rm.name AS raw_material_name,
@@ -1258,10 +1259,11 @@ class StandardProductionController {
               u.rm_id AS raw_material_id,
               u.allocated_batch_id AS lot_id,
               COALESCE(
-                CASE WHEN u.selected_uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE u.selected_uom END,
-                CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
                 uom_tbl.abbreviation,
                 uom_tbl.name,
+                CASE WHEN rm."unitId" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."unitId" END,
+                CASE WHEN u.selected_uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE u.selected_uom END,
+                CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
                 'kg'
               ) AS uom,
               1.0000 AS density,
@@ -1613,7 +1615,7 @@ class StandardProductionController {
 
       const formatted = materials.map(m => {
         const primaryUom = Array.isArray(m.uoms) && m.uoms.length > 0 ? m.uoms[0] : null;
-        const uomAbbr = primaryUom?.abbreviation || primaryUom?.name || (!isUuid(m.consumptionUnit) ? m.consumptionUnit : null) || (!isUuid(m.unitId) ? m.unitId : null) || 'kg';
+        const uomAbbr = primaryUom?.abbreviation || primaryUom?.name || (!isUuid(m.unitId) ? m.unitId : null) || (!isUuid(m.consumptionUnit) ? m.consumptionUnit : null) || 'kg';
         const uomName = primaryUom?.name || uomAbbr;
 
         return {
