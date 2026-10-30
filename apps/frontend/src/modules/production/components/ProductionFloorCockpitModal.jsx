@@ -20,7 +20,8 @@ import {
   formatIndian,
   calculateEvaporation,
   calculateAllocations,
-  computeMaxTrays
+  computeMaxTrays,
+  formatCleanUom
 } from '../utils/productionCalculation';
 import ProductionMouldPickerModal from './ProductionMouldPickerModal';
 import ProductionItemSearchModal from './ProductionItemSearchModal';
@@ -203,7 +204,7 @@ export default function ProductionFloorCockpitModal({
             rawMaterialId: rmId,
             rawMaterialName: line.raw_material_name || line.rmName || 'Raw Material',
             rawMaterialCode: line.raw_material_code || line.rmCode || 'RM',
-            uom: line.uom || line.unit_id || 'kg',
+            uom: formatCleanUom(line.uom || line.unit_id, 'kg', line),
             hasAlternateUom: Boolean(line.has_alternate_uom),
             alternateUom: line.alternate_uom,
             conversionFactor: Number(line.conversion_factor || 1),
@@ -275,7 +276,7 @@ export default function ProductionFloorCockpitModal({
             rawMaterialId: rmId,
             rawMaterialName: name,
             rawMaterialCode: u.rawMaterial?.code || 'RM',
-            uom: u.selectedUom || u.unit || u.rawMaterial?.consumptionUnit || u.rawMaterial?.unitId || 'kg',
+            uom: formatCleanUom(u.selectedUom || u.unit || u.rawMaterial?.consumptionUnit || u.rawMaterial?.unitId, 'kg', u.rawMaterial),
             hasAlternateUom: Boolean(u.rawMaterial?.hasAlternateUom),
             alternateUom: u.rawMaterial?.alternateUom,
             conversionFactor: Number(u.rawMaterial?.conversionFactor || 1),
@@ -328,7 +329,7 @@ export default function ProductionFloorCockpitModal({
             rawMaterialId: rmId,
             rawMaterialName: name,
             rawMaterialCode: rm.rmCode || rm.rawMaterialCode || 'RM',
-            uom: rm.selectedUom || rm.baseUom || rm.uom || 'kg',
+            uom: formatCleanUom(rm.selectedUom || rm.baseUom || rm.uom || rm.unitId, 'kg', rm),
             hasAlternateUom: Boolean(rm.hasAlternateUom),
             alternateUom: rm.alternateUom,
             conversionFactor: Number(rm.conversionFactor || 1),
@@ -611,7 +612,7 @@ export default function ProductionFloorCockpitModal({
     setLotAllocations(newAlloc);
     Swal.fire({
       title: 'FEFO Auto-Allocation Applied',
-      text: `Reserved lots in earliest expiry order. Remaining required: ${remainingNeeded} ${row.uom}`,
+      text: `Reserved lots in earliest expiry order. Remaining required: ${remainingNeeded} ${formatCleanUom(row?.uom, 'kg', row)}`,
       icon: 'success',
       timer: 1500
     });
@@ -672,7 +673,7 @@ export default function ProductionFloorCockpitModal({
 
     Swal.fire({
       title: 'Continuing Lot Added & Inventory Synced!',
-      text: `${newLot.internalBatchNo} registered with ${newLot.availableQty} ${row.uom} available in warehouse inventory.`,
+      text: `${newLot.internalBatchNo} registered with ${newLot.availableQty} ${formatCleanUom(row?.uom, 'kg', row)} available in warehouse inventory.`,
       icon: 'success',
       timer: 1800
     });
@@ -750,7 +751,7 @@ export default function ProductionFloorCockpitModal({
 
     Swal.fire({
       title: 'Batches Allocated!',
-      text: `Allocated ${totalAllocQty} ${targetRow.uom} across ${allocatedBatches.length} lot(s). Live PO rate blended: ₹${targetRow.unitRate}/unit.`,
+      text: `Allocated ${totalAllocQty} ${formatCleanUom(targetRow?.uom, 'kg', targetRow)} across ${allocatedBatches.length} lot(s). Live PO rate blended: ₹${targetRow.unitRate}/unit.`,
       icon: 'success',
       timer: 1800
     });
@@ -784,7 +785,7 @@ export default function ProductionFloorCockpitModal({
       rawMaterialId: rm.id,
       rawMaterialName: rm.printName || rm.name,
       rawMaterialCode: rm.code || 'RM',
-      uom: rm.consumptionUnit || rm.unitId || 'kg',
+      uom: formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, 'kg', rm),
       hasAlternateUom: Boolean(rm.hasAlternateUom),
       alternateUom: rm.alternateUom,
       conversionFactor: Number(rm.conversionFactor || 1),
@@ -1742,7 +1743,7 @@ export default function ProductionFloorCockpitModal({
                               {/* Live UOM & Alternate UOM */}
                               <td className="py-2.5 px-3 text-center">
                                 <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[11px] text-slate-800 dark:text-slate-200">
-                                  {line.uom}
+                                  {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                                 {line.hasAlternateUom && line.alternateUom && (
                                   <div className="text-[9.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
@@ -2041,13 +2042,13 @@ export default function ProductionFloorCockpitModal({
                               <div>
                                 <span className="text-[9.5px] text-slate-400 block">Warehouse Stock:</span>
                                 <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                                  {formatIndian(avail)} {line.uom}
+                                  {formatIndian(avail)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </div>
                               <div className="text-right">
                                 <span className="text-[9.5px] text-slate-400 block">Batch Taken:</span>
                                 <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                  {formatIndian(taken)} {line.uom}
+                                  {formatIndian(taken)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </div>
                             </div>
@@ -2055,7 +2056,7 @@ export default function ProductionFloorCockpitModal({
                             <div className="flex items-center justify-between text-[11px] pt-0.5">
                               <span className="text-slate-500 font-medium">Remaining Warehouse Stock:</span>
                               <span className={`font-mono font-black ${remStock < 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                {formatIndian(remStock)} {line.uom}
+                                {formatIndian(remStock)} {formatCleanUom(line.uom, 'kg', line)}
                               </span>
                             </div>
 

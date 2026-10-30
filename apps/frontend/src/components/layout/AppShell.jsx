@@ -725,6 +725,7 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'],
     items: [
+      { name: '🩺 Inventory Health Check', path: '/inventory/health-check', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
       { name: '🏬 RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
       { name: '🔄 RM-IN-OUT Stock', path: '/rm/stock/in-out?period=all', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'] },
       { name: '⏳ Upcoming & Expired RM', path: '/rm/stock/expiry', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'] },
@@ -821,6 +822,7 @@ const MENU_GROUPS = [
     icon: Layers,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
+      { name: '🩺 Inventory Health Check', path: '/inventory/health-check', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
       { name: '📦 Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'], badgeKey: 'lowStock' },
       { name: '🚨 Reproduction Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'], badgeKey: 'lowStock' },
       { name: '🔄 Stock Adjustment', path: '/products/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF'] },
@@ -909,6 +911,7 @@ const MENU_GROUPS = [
 const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'dashboards' },
   { type: 'link', id: 'calendar' },
+  { type: 'link', id: 'inventoryHealthCheck' },
   { type: 'group', id: 'companyDirectory' },
   { type: 'group', id: 'assetManagement' },
   { type: 'group', id: 'purchases' },
@@ -1746,6 +1749,39 @@ const AppShell = () => {
                       {/* Subtle active indicator dot in collapsed mode */}
                       {isSidebarCollapsed && isCalendarActive && (
                         <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
+                      )}
+                    </Link>
+                  </div>
+                );
+              }
+              if (layoutItem.id === 'inventoryHealthCheck') {
+                const isHealthActive = location.pathname.startsWith('/inventory/health-check') || location.pathname.startsWith('/stock/health-check');
+                return (
+                  <div key="inventoryHealthCheck" className={`mb-2 w-full flex transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-4'}`}>
+                    <Link 
+                      to="/inventory/health-check" 
+                      className={`flex items-center rounded-xl transition-all duration-200 group/btn relative ${
+                        isSidebarCollapsed ? 'w-12 h-12 justify-center px-0' : 'w-full px-4 py-3 hover:translate-x-1'
+                      } ${
+                        isHealthActive 
+                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 font-medium shadow-sm border border-rose-200 dark:border-rose-900/40' 
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                      }`}
+                      title={isSidebarCollapsed ? "Inventory Health Check" : undefined}
+                    >
+                      <Activity className={`w-5 h-5 flex-shrink-0 transition-colors ${
+                        isSidebarCollapsed ? '' : 'mr-3'
+                      } ${isHealthActive ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 group-hover/btn:text-rose-500'}`} />
+                      
+                      <span className={`transition-all duration-300 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+                        isSidebarCollapsed ? 'w-0 opacity-0' : 'w-full opacity-100'
+                      }`}>
+                        Inventory Health Check
+                      </span>
+
+                      {/* Subtle active indicator dot in collapsed mode */}
+                      {isSidebarCollapsed && isHealthActive && (
+                        <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-rose-400 shadow-sm" />
                       )}
                     </Link>
                   </div>

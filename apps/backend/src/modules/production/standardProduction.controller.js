@@ -1014,6 +1014,13 @@ class StandardProductionController {
         rmLines = await prisma.$queryRawUnsafe(`
           SELECT 
             pbl.*,
+            COALESCE(
+              CASE WHEN pbl.uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE pbl.uom END,
+              CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
+              uom_tbl.abbreviation,
+              uom_tbl.name,
+              'kg'
+            ) AS uom,
             rm.name AS raw_material_name,
             rm.code AS raw_material_code,
             rm."currentStock" AS current_stock,
@@ -1035,6 +1042,7 @@ class StandardProductionController {
           FROM production_batch_rm_line pbl
           LEFT JOIN "RawMaterial" rm ON rm.id = pbl.raw_material_id
           LEFT JOIN "InventoryBatch" ib ON ib.id = pbl.lot_id
+          LEFT JOIN "UOM" uom_tbl ON uom_tbl.id = rm."unitId"
           WHERE pbl.batch_id = $1
           ORDER BY pbl.created_at;
         `, id);
@@ -1051,7 +1059,13 @@ class StandardProductionController {
               u.batch_id,
               u.rm_id AS raw_material_id,
               u.allocated_batch_id AS lot_id,
-              COALESCE(u.selected_uom, rm."consumptionUnit", rm."unitId", 'kg') AS uom,
+              COALESCE(
+                CASE WHEN u.selected_uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE u.selected_uom END,
+                CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
+                uom_tbl.abbreviation,
+                uom_tbl.name,
+                'kg'
+              ) AS uom,
               1.0000 AS density,
               COALESCE(rm."currentStock", u.available_qty_at_time, 0) AS available_qty,
               COALESCE(u.required_qty, 0) AS required_qty,
@@ -1080,6 +1094,7 @@ class StandardProductionController {
             FROM production_batch_rm_usage u
             LEFT JOIN "RawMaterial" rm ON rm.id = u.rm_id
             LEFT JOIN "InventoryBatch" ib ON ib.id = u.allocated_batch_id
+            LEFT JOIN "UOM" uom_tbl ON uom_tbl.id = rm."unitId"
             WHERE u.batch_id = $1
             ORDER BY u.id;
           `, id);
@@ -1144,12 +1159,14 @@ class StandardProductionController {
             pba.*,
             p.name AS product_name,
             p.code AS product_code,
+            COALESCE(puom.abbreviation, puom.name, 'pcs') AS product_unit,
             m.mould_code,
             m.mould_name,
             m.mould_category,
             m.specification_status
           FROM production_batch_allocation pba
           LEFT JOIN products p ON p.id = pba.product_id
+          LEFT JOIN "UOM" puom ON puom.id = p.unit_id
           LEFT JOIN ice_cream_mould m ON m.id = pba.mould_id
           WHERE pba.batch_id = $1
           ORDER BY pba.seq;
@@ -1159,9 +1176,11 @@ class StandardProductionController {
           SELECT 
             pba.*,
             p.name AS product_name,
-            p.code AS product_code
+            p.code AS product_code,
+            COALESCE(puom.abbreviation, puom.name, 'pcs') AS product_unit
           FROM production_batch_allocation pba
           LEFT JOIN products p ON p.id = pba.product_id
+          LEFT JOIN "UOM" puom ON puom.id = p.unit_id
           WHERE pba.batch_id = $1
           ORDER BY pba.seq;
         `, id).catch(() => []);
@@ -1343,9 +1362,12 @@ class StandardProductionController {
   // Returns raw materials with live DB UOMs, alternate UOMs, stock, and available lot batches
   async getRawMaterialsCatalog(req, res, next) {
     try {
+      const isUuid = (str) => typeof str === 'string' && /^[0-9a-fA-F-]{32,36}$/.test(str.trim());
+
       const materials = await prisma.rawMaterial.findMany({
         include: {
-          category: true
+          category: true,
+          uoms: true
         },
         orderBy: { name: 'asc' }
       });
@@ -1370,27 +1392,36 @@ class StandardProductionController {
         });
       });
 
-      const formatted = materials.map(m => ({
-        id: m.id,
-        code: m.code,
-        name: m.name,
-        printName: m.printName || m.name,
-        category: m.category?.name || 'Raw Material',
-        categoryId: m.categoryId,
-        unitId: m.unitId || 'kg',
-        hasAlternateUom: Boolean(m.hasAlternateUom),
-        alternateUom: m.alternateUom,
-        alternateUomQty: Number(m.alternateUomQty || 1),
-        baseUomQty: Number(m.baseUomQty || 1),
-        conversionFactor: Number(m.conversionFactor || 1),
-        consumptionUnit: m.consumptionUnit || m.unitId || 'kg',
-        currentStock: Number(m.currentStock || 0),
-        density_g_per_ml: Number(m.density_g_per_ml || 1.0),
-        evaporates_by_default: Boolean(m.evaporates_by_default),
-        ratePerUnit: Number(m.ratePerUnit || 0),
-        hsnCode: m.hsnCode || '',
-        availableBatches: batchMap.get(m.id) || []
-      }));
+      const formatted = materials.map(m => {
+        const primaryUom = Array.isArray(m.uoms) && m.uoms.length > 0 ? m.uoms[0] : null;
+        const uomAbbr = primaryUom?.abbreviation || primaryUom?.name || (!isUuid(m.consumptionUnit) ? m.consumptionUnit : null) || (!isUuid(m.unitId) ? m.unitId : null) || 'kg';
+        const uomName = primaryUom?.name || uomAbbr;
+
+        return {
+          id: m.id,
+          code: m.code,
+          name: m.name,
+          printName: m.printName || m.name,
+          category: m.category?.name || 'Raw Material',
+          categoryId: m.categoryId,
+          unitId: uomAbbr,
+          uom: uomAbbr,
+          uomName,
+          rawUnitId: m.unitId,
+          hasAlternateUom: Boolean(m.hasAlternateUom),
+          alternateUom: m.alternateUom,
+          alternateUomQty: Number(m.alternateUomQty || 1),
+          baseUomQty: Number(m.baseUomQty || 1),
+          conversionFactor: Number(m.conversionFactor || 1),
+          consumptionUnit: (!isUuid(m.consumptionUnit) ? m.consumptionUnit : null) || uomAbbr,
+          currentStock: Number(m.currentStock || 0),
+          density_g_per_ml: Number(m.density_g_per_ml || 1.0),
+          evaporates_by_default: Boolean(m.evaporates_by_default),
+          ratePerUnit: Number(m.ratePerUnit || 0),
+          hsnCode: m.hsnCode || '',
+          availableBatches: batchMap.get(m.id) || []
+        };
+      });
 
       res.json({
         success: true,
@@ -1404,35 +1435,43 @@ class StandardProductionController {
   }
 
   // ── 9. GET /api/production/standard/products-catalog ──
-  // Returns finished products with live stock, base category, subcategory and sale price
+  // Returns finished products with live stock, base category, subcategory, sale price, and human-readable UOM
   async getProductsCatalog(req, res, next) {
     try {
       const products = await prisma.finishedProduct.findMany({
         where: { deletedAt: null },
         include: {
           category: true,
-          subcategory: true
+          subcategory: true,
+          unit: true
         },
         orderBy: { name: 'asc' }
       });
 
-      const formatted = products.map(p => ({
-        id: p.id,
-        code: p.code,
-        systemCode: p.code,
-        name: p.productName || p.name,
-        categoryId: p.categoryId,
-        category: p.category?.name || 'Standard',
-        subcategoryId: p.subcategoryId,
-        subcategory: p.subcategory?.name || '-',
-        baseId: p.baseId,
-        baseCategory: p.category?.name || 'Ice Cream',
-        unit: p.unitId || 'pcs',
-        salePrice: Number(p.salePrice || 0),
-        currentStock: Number(p.currentStock || 0),
-        sku: p.sku,
-        barcode: p.barcode
-      }));
+      const formatted = products.map(p => {
+        const unitAbbr = p.unit?.abbreviation || p.unit?.name || 'pcs';
+        const unitFullName = p.unit?.name || 'Pieces';
+
+        return {
+          id: p.id,
+          code: p.code,
+          systemCode: p.code,
+          name: p.productName || p.name,
+          categoryId: p.categoryId,
+          category: p.category?.name || 'Standard',
+          subcategoryId: p.subcategoryId,
+          subcategory: p.subcategory?.name || '-',
+          baseId: p.baseId,
+          baseCategory: p.category?.name || 'Ice Cream',
+          unit: unitAbbr,
+          unitName: unitFullName,
+          unitId: p.unitId,
+          salePrice: Number(p.salePrice || 0),
+          currentStock: Number(p.currentStock || 0),
+          sku: p.sku,
+          barcode: p.barcode
+        };
+      });
 
       res.json({
         success: true,

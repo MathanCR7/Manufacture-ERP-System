@@ -88,6 +88,7 @@ const QRLifecyclePage = lazy(() => import('@/modules/shared/pages/QRLifecyclePag
 
 // Inventory Module
 const InventoryUploadPage = lazy(() => import('@/modules/inventory/pages/InventoryUploadPage'));
+const InventoryHealthCheckPage = lazy(() => import('@/modules/inventory/pages/InventoryHealthCheckPage'));
 
 // Production Module Pages
 const ProductStockPage = lazy(() => import('@/modules/production/pages/ProductStockPage'));
@@ -390,6 +391,12 @@ const AppRouter = () => {
             </Route>
 
             {/* Inventory Management */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
+              <Route path="/inventory/health-check" element={<InventoryHealthCheckPage />} />
+              <Route path="/stock/health-check" element={<InventoryHealthCheckPage />} />
+              <Route path="/inventory-health-check" element={<InventoryHealthCheckPage />} />
+            </Route>
+
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']} />}>
               <Route path="/inventory/upload" element={<InventoryUploadPage />} />
               <Route path="/inventory/list" element={<Navigate to="/rm/stock" replace />} />

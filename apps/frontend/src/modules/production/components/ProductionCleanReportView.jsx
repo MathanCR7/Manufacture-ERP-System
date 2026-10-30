@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { round2, formatIndian, toMl } from '../utils/productionCalculation';
+import { round2, formatIndian, toMl, formatCleanUom } from '../utils/productionCalculation';
 
 const formatDateDMY = (dateVal) => {
   if (!dateVal) return 'dd-mm-yyyy';
@@ -488,11 +488,11 @@ export default function ProductionCleanReportView({
                         {line.lotBatchNo || 'BATCH-DIRECT'}
                       </td>
                       <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-white">
-                        {formatIndian(line.takenQty)} {line.uom}
+                        {formatIndian(line.takenQty)} {formatCleanUom(line.uom, 'kg', line)}
                       </td>
                       {canViewCost && (
                         <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">
-                          ₹{formatIndian(line.unitRate)} / {line.uom}
+                          ₹{formatIndian(line.unitRate)} / {formatCleanUom(line.uom, 'kg', line)}
                         </td>
                       )}
                       {canViewCost && (

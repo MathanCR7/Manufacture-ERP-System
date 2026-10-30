@@ -391,3 +391,74 @@ export function computeMaxTrays(param1, param2, param3) {
 
   return Math.max(0, Math.floor((remainingMix + EPSILON) / mixPerTray));
 }
+
+/**
+ * Universal UOM Sanitizer
+ * Guarantees that raw database UUIDs or corrupt keys are never displayed to the user.
+ * Resolves to human-readable units like 'pcs', 'liter', 'kg', 'box', etc.
+ * 
+ * @param {string|object} uom - Unit string or UOM object
+ * @param {string} [defaultUom='pcs'] - Fallback unit if empty
+ * @param {object} [itemContext=null] - Item metadata (product or RM) for contextual inference
+ * @returns {string} Clean, human-readable UOM abbreviation
+ */
+export function formatCleanUom(uom, defaultUom = 'pcs', itemContext = null) {
+  // If object with abbreviation or name passed
+  if (uom && typeof uom === 'object') {
+    if (uom.abbreviation && !/^[0-9a-fA-F-]{32,36}$/.test(String(uom.abbreviation).trim())) {
+      return String(uom.abbreviation).trim();
+    }
+    if (uom.name && !/^[0-9a-fA-F-]{32,36}$/.test(String(uom.name).trim())) {
+      return String(uom.name).trim();
+    }
+  }
+
+  const raw = String(uom || '').trim();
+  const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(raw) ||
+                 /^[0-9a-fA-F-]{32,36}$/.test(raw);
+
+  if (!raw || isUuid) {
+    const cat = String(itemContext?.category || itemContext?.baseCategory || itemContext?.categoryName || '').toLowerCase();
+    const name = String(itemContext?.name || itemContext?.productName || itemContext?.printName || '').toLowerCase();
+    const code = String(itemContext?.code || itemContext?.systemCode || '').toLowerCase();
+
+    // Volume / liquid goods
+    if (cat.includes('gallon') || cat.includes('tub') || cat.includes('bulk') || 
+        name.includes('gallon') || name.includes('litre') || name.includes('liter') ||
+        code.startsWith('bg') || code.startsWith('fd') || code.startsWith('tb')) {
+      return 'Ltr';
+    }
+
+    // Weight raw materials or ice creams sold by kg
+    if (cat.includes('raw') || name.includes('powder') || name.includes('sugar') || 
+        name.includes('smp') || name.includes('stabilizer') || name.includes('salt') ||
+        name.includes('butter') || name.includes('fat')) {
+      return 'kg';
+    }
+
+    // Single unit products (Stick, Popsicle, Bar, Cone, Matka, Cassataa)
+    if (cat.includes('stick') || cat.includes('popsicle') || cat.includes('matka') || 
+        cat.includes('cassat') || name.includes('stick') || name.includes('kulfi') ||
+        code.startsWith('k') || code.startsWith('p') || code.startsWith('m')) {
+      return 'pcs';
+    }
+
+    if (defaultUom && !/^[0-9a-fA-F-]{32,36}$/.test(String(defaultUom))) {
+      return defaultUom;
+    }
+    return 'pcs';
+  }
+
+  // Normalization of common unit variations
+  const lower = raw.toLowerCase();
+  if (lower === 'pieces' || lower === 'piece' || lower === 'nos' || lower === 'no' || lower === 'unit' || lower === 'units') return 'pcs';
+  if (lower === 'litres' || lower === 'litre' || lower === 'liters' || lower === 'liter' || lower === 'l' || lower === 'ltr') return 'liter';
+  if (lower === 'kilograms' || lower === 'kilogram' || lower === 'kgs' || lower === 'kg') return 'kg';
+  if (lower === 'grams' || lower === 'gram' || lower === 'grm' || lower === 'g') return 'g';
+  if (lower === 'milliliters' || lower === 'millilitres' || lower === 'milliliter' || lower === 'millilitre' || lower === 'ml') return 'ml';
+  if (lower === 'boxes' || lower === 'box') return 'box';
+  if (lower === 'rolls' || lower === 'roll') return 'rolls';
+
+  return raw;
+}
+

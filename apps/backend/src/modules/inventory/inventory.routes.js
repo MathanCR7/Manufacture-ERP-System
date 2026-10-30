@@ -149,6 +149,170 @@ router.get('/',
   }
 );
 
+// GET /api/inventory/health-check — Complete Stock Auditing & Health Check Dataset across 4 categories
+router.get('/health-check',
+  authenticateToken,
+  async (req, res, next) => {
+    try {
+      const now = new Date();
+      const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      // 1. Raw Materials: Batches + Master + Adjustments
+      const [rmBatches, rawMaterials, rmAdjustments] = await Promise.all([
+        prisma.inventoryBatch.findMany({
+          orderBy: { createdAt: 'desc' },
+          include: {
+            uom: { select: { id: true, name: true, abbreviation: true } },
+            po: { include: { supplier: { select: { id: true, name: true, phone: true } } } },
+            grn: { select: { id: true, referenceNo: true, receivedDate: true } },
+            adder: { select: { id: true, name: true } },
+          },
+        }),
+        prisma.rawMaterial.findMany({
+          orderBy: { name: 'asc' },
+          include: {
+            category: { select: { id: true, name: true } },
+          },
+        }),
+        prisma.rMStockAdjustment.findMany({
+          take: 50,
+          orderBy: { createdAt: 'desc' },
+        })
+      ]);
+
+      // 2. Finished Goods: Production Batches + Master + Stock Levels
+      const [fgBatches, finishedProducts] = await Promise.all([
+        prisma.productionBatchNew.findMany({
+          orderBy: { createdAt: 'desc' },
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                sku: true,
+                barcode: true,
+                currentStock: true,
+                alertLevel: true,
+                salePrice: true,
+                category: { select: { id: true, name: true } },
+                subcategory: { select: { id: true, name: true } },
+              },
+            },
+          },
+        }),
+        prisma.finishedProduct.findMany({
+          orderBy: { name: 'asc' },
+          include: {
+            category: { select: { id: true, name: true } },
+            subcategory: { select: { id: true, name: true } },
+            stockLevels: true,
+          },
+        }),
+      ]);
+
+      // 3. Machine / Equipment Assets & Asset Masters
+      const [assets, assetMasters, machineLogs] = await Promise.all([
+        prisma.asset.findMany({
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.assetMaster.findMany({
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.productionMachineLog.findMany({
+          take: 50,
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+
+      // 4. Other Items (Non-Inventory Items)
+      const nonInventoryItems = await prisma.nonInventoryItem.findMany({
+        orderBy: { name: 'asc' },
+        include: {
+          productNonInventoryCosts: true,
+        },
+      });
+
+      // Compute Health Metrics
+      let expiredCount = 0;
+      let expiringSoonCount = 0;
+      let lowStockCount = 0;
+      let healthyCount = 0;
+
+      // Check RM batches expiry
+      rmBatches.forEach(b => {
+        if (b.expiryDate) {
+          const exp = new Date(b.expiryDate);
+          if (exp < now) expiredCount++;
+          else if (exp <= in30Days) expiringSoonCount++;
+          else healthyCount++;
+        } else {
+          healthyCount++;
+        }
+      });
+
+      // Check FG batches expiry
+      fgBatches.forEach(b => {
+        if (b.expiryDate) {
+          const exp = new Date(b.expiryDate);
+          if (exp < now) expiredCount++;
+          else if (exp <= in30Days) expiringSoonCount++;
+        }
+      });
+
+      // Check RM master low stock
+      rawMaterials.forEach(rm => {
+        if (Number(rm.currentStock || 0) <= Number(rm.alertLevel || 0)) {
+          lowStockCount++;
+        }
+      });
+
+      // Check FG master low stock
+      finishedProducts.forEach(fp => {
+        if (Number(fp.currentStock || 0) <= Number(fp.alertLevel || 0)) {
+          lowStockCount++;
+        }
+      });
+
+      res.json({
+        success: true,
+        summary: {
+          totalRawMaterialBatches: rmBatches.length,
+          totalRawMaterialsMaster: rawMaterials.length,
+          totalFinishedGoodsBatches: fgBatches.length,
+          totalFinishedProductsMaster: finishedProducts.length,
+          totalAssets: assets.length,
+          totalAssetMasters: assetMasters.length,
+          totalOtherItems: nonInventoryItems.length,
+          expiredCount,
+          expiringSoonCount,
+          lowStockCount,
+          healthyCount,
+        },
+        rawMaterials: {
+          batches: rmBatches,
+          master: rawMaterials,
+          adjustments: rmAdjustments,
+        },
+        finishedGoods: {
+          batches: fgBatches,
+          master: finishedProducts,
+        },
+        machineAssets: {
+          assets,
+          assetMasters,
+          machineLogs,
+        },
+        otherItems: {
+          items: nonInventoryItems,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // GET /api/inventory/:id — Get single inventory batch
 router.get('/:id',
   authenticateToken,

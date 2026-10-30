@@ -19,6 +19,7 @@ import ProductionLabourPicker from '../components/ProductionLabourPicker';
 import ProductionItemSearchModal from '../components/ProductionItemSearchModal';
 import { getProductionMasters, peekProductionMasters } from '../services/productionMasterCache';
 import { getProductionDraft, saveProductionDraft, flushProductionDraft, clearProductionDraft } from '../services/productionDraftStore';
+import { formatCleanUom } from '../utils/productionCalculation';
 import Swal from 'sweetalert2';
 
 const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
@@ -132,7 +133,7 @@ export default function StandardProductionFormPage() {
       name: prod.name,
       code: prod.code,
       plannedQty: 2000,
-      unit: prod.unit || 'pcs'
+      unit: formatCleanUom(prod.unit, 'pcs', prod)
     };
     setSelectedProducts(prev => [...prev, newProd]);
   };
@@ -396,7 +397,7 @@ export default function StandardProductionFormPage() {
                     factor: Number(p.factor || masterProd.specifications?.factor || 1.0),
                     baseName: p.baseName || masterProd.base?.name || 'Ice Cream Base',
                     plannedQty: Number(p.plannedQty || p.quantity || 100),
-                    unit: p.unit || masterProd.unit?.abbreviation || masterProd.unit?.name || 'Nos'
+                    unit: formatCleanUom(p.unit || masterProd.unit?.abbreviation || masterProd.unit?.name, 'pcs', masterProd)
                   };
                 });
               } else if (b.product || b.productId) {
@@ -410,7 +411,7 @@ export default function StandardProductionFormPage() {
                   factor: Number(masterProd.specifications?.factor || 1.0),
                   baseName: masterProd.base?.name || 'Ice Cream Base',
                   plannedQty: Number(b.quantity || 100),
-                  unit: masterProd.unit?.abbreviation || masterProd.unit?.name || 'Nos'
+                  unit: formatCleanUom(masterProd.unit?.abbreviation || masterProd.unit?.name, 'pcs', masterProd)
                 }];
               }
               setSelectedProducts(loadedProducts);
@@ -799,7 +800,7 @@ export default function StandardProductionFormPage() {
       factor,
       baseName,
       plannedQty: 2000,
-      unit: product.unit?.abbreviation || product.unit?.name || 'Nos'
+      unit: formatCleanUom(product.unit?.abbreviation || product.unit?.name || product.unit, 'pcs', product)
     };
 
     setSelectedProducts(prev => [...prev, newProd]);

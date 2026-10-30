@@ -20,6 +20,7 @@ import {
   Plus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatCleanUom } from '../utils/productionCalculation';
 
 // ── FAST LEVENSHTEIN DISTANCE FOR SPELLING MISTAKES ──
 function levenshteinDistance(a, b) {
@@ -677,7 +678,7 @@ export default function ProductionItemSearchModal({
                       {p.baseCategory} {p.subcategory && p.subcategory !== '-' ? `• ${p.subcategory}` : ''}
                     </div>
                     <div className="col-span-1 text-center font-medium text-slate-700 dark:text-slate-300">
-                      {p.unit || 'pcs'}
+                      {formatCleanUom(p.unit, 'pcs', p)}
                     </div>
                     <div className="col-span-1 text-center">
                       <span className={`px-2 py-0.5 rounded-full font-mono font-bold text-[10px] inline-flex items-center gap-1 ${
@@ -731,6 +732,7 @@ export default function ProductionItemSearchModal({
                 const liveStock = Number(rm.currentStock || 0);
                 const hasAlt = Boolean(rm.hasAlternateUom && rm.alternateUom);
                 const topBatch = rm.availableBatches?.[0];
+                const cleanUom = formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, 'kg', rm);
 
                 return (
                   <div
@@ -771,10 +773,10 @@ export default function ProductionItemSearchModal({
                     {/* Live Database UOM & Alternate */}
                     <div className="col-span-2">
                       <span className="font-mono font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-sm">
-                        {rm.unitId || rm.consumptionUnit || 'kg'}
+                        {cleanUom}
                       </span>
                       {hasAlt && (
-                        <div className="text-[9.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5 truncate" title={`Alternate: 1 ${rm.alternateUom} = ${rm.conversionFactor} ${rm.unitId}`}>
+                        <div className="text-[9.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5 truncate" title={`Alternate: 1 ${rm.alternateUom} = ${rm.conversionFactor} ${cleanUom}`}>
                           Alt: {rm.alternateUom} ({rm.conversionFactor}x)
                         </div>
                       )}
