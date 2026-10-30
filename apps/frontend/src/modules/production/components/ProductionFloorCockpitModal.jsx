@@ -952,16 +952,12 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
-  // Step Gating & Continuous Navigation Handler
-  const handleStepClick = (targetStep) => {
+  // Step Gating & Continuous Navigation Handler with Automatic Step Data Persistence
+  const handleStepClick = async (targetStep) => {
     if (targetStep === activeStep) return;
-    // Allow continuous backward editing freely at any time
-    if (targetStep < activeStep) {
-      setActiveStep(targetStep);
-      return;
-    }
+
     // Gating check for Step 2: Step 1 must have raw materials with taken quantities > 0
-    if (targetStep >= 2) {
+    if (targetStep >= 2 && activeStep === 1) {
       const isStep1Valid = rmRows.length > 0 && rmRows.every(r => Number(r.takenQty || 0) > 0);
       if (!isStep1Valid) {
         Swal.fire({
@@ -971,9 +967,26 @@ export default function ProductionFloorCockpitModal({
         });
         return;
       }
+
+      // Automatically save Step 1 data to database when proceeding to Step 2
+      try {
+        setSavingProcess(true);
+        await api.put(`/production/standard/${batchId}/process`, {
+          mergeStage,
+          evaporationPct,
+          evaporationApplied,
+          lines: rmRows
+        });
+        if (onBatchUpdated) onBatchUpdated();
+      } catch (err) {
+        console.warn('Auto-save step 1 data failed:', err);
+      } finally {
+        setSavingProcess(false);
+      }
     }
-    // Gating check for Step 2: Mix must be merged with positive volume before Step 3
-    if (targetStep >= 3) {
+
+    // Gating check for Step 3: Mix must be merged with positive volume before Step 3
+    if (targetStep >= 3 && activeStep === 2) {
       if (!isSlideMerged || availableMixMl <= 0) {
         Swal.fire({
           title: 'Step 2 Merge Required',
@@ -982,9 +995,26 @@ export default function ProductionFloorCockpitModal({
         });
         return;
       }
+
+      // Automatically save Step 2 merge & evaporation parameters when proceeding to Step 3
+      try {
+        setSavingProcess(true);
+        await api.put(`/production/standard/${batchId}/process`, {
+          mergeStage,
+          evaporationPct,
+          evaporationApplied,
+          lines: rmRows
+        });
+        if (onBatchUpdated) onBatchUpdated();
+      } catch (err) {
+        console.warn('Auto-save step 2 data failed:', err);
+      } finally {
+        setSavingProcess(false);
+      }
     }
+
     // Gating check for Step 4: Product mould allocation configured
-    if (targetStep >= 4) {
+    if (targetStep >= 4 && activeStep === 3) {
       if (allocations.length === 0 || !allocations.some(a => Number(a.trays || 0) > 0)) {
         Swal.fire({
           title: 'Step 3 Allocations Incomplete',
@@ -993,7 +1023,35 @@ export default function ProductionFloorCockpitModal({
         });
         return;
       }
+
+      // Automatically save Step 3 allocations when proceeding to Step 4
+      try {
+        setSavingAllocations(true);
+        const validAllocations = allocations.filter(a => a.productId);
+        await api.put(`/production/standard/${batchId}/allocations`, {
+          allocations: validAllocations.map(a => ({
+            seq: a.seq,
+            productId: a.productId,
+            useMould: a.useMould !== false,
+            mouldId: a.mouldId || null,
+            capacityMl: Number(a.capacityMl || 0),
+            cavities: Number(a.cavities || 0),
+            trays: Number(a.trays || 0),
+            wasteMode: a.wasteMode || 'PERCENT',
+            wasteValue: Number(a.wasteValue ?? 2),
+            mixUsedMl: Number(a.mixUsedMl || 0),
+            wasteMl: Number(a.wasteMl || 0),
+            goodPieces: Number(a.goodPieces || 0)
+          }))
+        });
+        if (onBatchUpdated) onBatchUpdated();
+      } catch (err) {
+        console.warn('Auto-save step 3 allocations failed:', err);
+      } finally {
+        setSavingAllocations(false);
+      }
     }
+
     setActiveStep(targetStep);
   };
 
@@ -1767,9 +1825,13 @@ export default function ProductionFloorCockpitModal({
               <Button
                 type="button"
                 size="sm"
+                disabled={savingProcess || savingAllocations}
                 onClick={() => handleStepClick(activeStep + 1)}
-                className="h-7 px-3 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 shadow-xs"
+                className="h-7 px-3 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 shadow-xs disabled:opacity-60 cursor-pointer"
               >
+                {savingProcess || savingAllocations ? (
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                ) : null}
                 <span>Proceed to Step {activeStep + 1}</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </Button>
@@ -1834,17 +1896,6 @@ export default function ProductionFloorCockpitModal({
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>+ Add Raw Materials (Multi-Select)</span>
-                      </Button>
-
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={savingProcess}
-                        onClick={handleSaveProcess}
-                        className="h-8 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1"
-                      >
-                        {savingProcess ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                        <span>Save Step 1 Data</span>
                       </Button>
                     </div>
                   </div>
@@ -2058,9 +2109,11 @@ export default function ProductionFloorCockpitModal({
                   </span>
                   <Button
                     type="button"
+                    disabled={savingProcess}
                     onClick={() => handleStepClick(2)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
                   >
+                    {savingProcess ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
                     <span>Proceed to Step 2: Volume Merge &amp; Evaporation</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
@@ -2335,9 +2388,11 @@ export default function ProductionFloorCockpitModal({
 
                   <Button
                     type="button"
+                    disabled={savingProcess}
                     onClick={() => handleStepClick(3)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
                   >
+                    {savingProcess ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
                     <span>Proceed to Step 3: Mould &amp; Product Allocation</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
@@ -2656,9 +2711,11 @@ export default function ProductionFloorCockpitModal({
 
                   <Button
                     type="button"
+                    disabled={savingAllocations}
                     onClick={() => handleStepClick(4)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
                   >
+                    {savingAllocations ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
                     <span>Proceed to Step 4: Quality, Costing &amp; Yield</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
