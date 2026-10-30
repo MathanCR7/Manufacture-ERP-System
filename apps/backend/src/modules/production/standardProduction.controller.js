@@ -337,11 +337,15 @@ class StandardProductionController {
           `, rmId);
           const master = rmMaster[0] || {};
 
+          const totalAlloc = Array.isArray(rm.allocatedBatches)
+            ? rm.allocatedBatches.reduce((sum, b) => sum + Number(b.allocatedQty || 0), 0)
+            : 0;
           const density = Number(rm.density || master.density_g_per_ml || 1.0);
           const evaporates = Boolean(rm.evaporates ?? master.evaporates_by_default ?? false);
-          const available = Number(rm.availableQty ?? master.currentStock ?? 0);
-          const required = Number(rm.requiredQty || 0);
-          const taken = Number(rm.takenQty ?? required);
+          const required = totalAlloc > 0 ? totalAlloc : Number(rm.requiredQty || 0);
+          const available = totalAlloc > 0 ? totalAlloc : Number(rm.availableQty ?? master.currentStock ?? 0);
+          const taken = totalAlloc > 0 ? totalAlloc : Number(rm.takenQty ?? required);
+          const lineId = require('crypto').randomUUID();
 
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_rm_line (
@@ -349,12 +353,88 @@ class StandardProductionController {
               available_qty, required_qty, taken_qty, evaporates, merged,
               created_at, updated_at
             ) VALUES (
-              gen_random_uuid(), $1, $2, $3, $4, $5,
-              $6, $7, $8, $9, $10,
+              $1::uuid, $2, $3, $4, $5, $6,
+              $7, $8, $9, $10, $11,
               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
-          `, batch.id, rmId, rm.lotId || null, rm.uom || rm.selectedUom || 'kg', density,
+          `, lineId, batch.id, rmId, rm.lotId || (rm.allocatedBatches?.[0]?.batchId) || null, rm.uom || rm.selectedUom || 'kg', density,
              available, required, taken, evaporates, rm.merged !== undefined ? Boolean(rm.merged) : true);
+
+          // Persist raw material batch allocations to database
+          if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
+            for (const ab of rm.allocatedBatches) {
+              const isManual = Boolean(ab.isManualOverride || String(ab.batchId).startsWith('manual-'));
+              const lotNum = ab.lotNumber || ab.internalBatchNo || 'LOT-DIRECT';
+              
+              if (isManual) {
+                try {
+                  const existingLot = await tx.inventoryBatch.findFirst({ where: { batchNumber: lotNum } });
+                  if (!existingLot) {
+                    await tx.inventoryBatch.create({
+                      data: {
+                        rawMaterialId: rmId,
+                        rawMaterialName: rm.rawMaterialName || rm.name,
+                        batchNumber: lotNum,
+                        mfgBatchNo: ab.supplierBatchNo || 'SUP-LOT-01',
+                        netQty: Number(ab.availableQty || Math.max(Number(ab.allocatedQty || 0) * 2, 500)),
+                        status: 'AVAILABLE',
+                        expiryDate: ab.expiryDate ? new Date(ab.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                        costPerUnit: Number(ab.unitRate || rm.unitRate || 0),
+                        storageLocation: 'Central Store / Floor Manual',
+                        isManualOverride: true
+                      }
+                    });
+                  }
+                } catch (_) {}
+              }
+
+              try {
+                await tx.$executeRawUnsafe(
+                  `INSERT INTO production_batch_rm_usage (
+                    id, batch_id, rm_id, required_qty, available_qty_at_time,
+                    actual_used_qty, unit_cost, total_cost, status,
+                    internal_batch_no, selected_uom, input_qty
+                  ) VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8, 'ALLOCATED',
+                    $9, $10, $11
+                  ) ON CONFLICT (id) DO UPDATE SET
+                    actual_used_qty = EXCLUDED.actual_used_qty,
+                    input_qty = EXCLUDED.input_qty;`,
+                  lineId, batch.id, rmId, required, available,
+                  taken, Number(rm.unitRate || 0), Number(rm.unitRate || 0) * taken,
+                  lotNum, rm.uom || rm.selectedUom || 'kg', taken
+                );
+              } catch (_) {}
+
+              try {
+                await tx.$executeRawUnsafe(
+                  `INSERT INTO "production_batch_allocations" (
+                    batch_id, usage_id, inventory_batch_id, lot_number,
+                    allocated_qty, po_original_qty, po_total_amount,
+                    allocated_amount, unit_rate, uom,
+                    is_manual_override, grn_number, po_number, supplier_batch_no
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                  batch.id,
+                  lineId,
+                  ab.batchId ? String(ab.batchId) : null,
+                  lotNum,
+                  Number(ab.allocatedQty || 0),
+                  Number(ab.availableQty || ab.allocatedQty || 0),
+                  Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || 0))),
+                  Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || 0))),
+                  Number(ab.unitRate || rm.unitRate || 0),
+                  ab.uom || rm.uom || rm.selectedUom || 'kg',
+                  isManual,
+                  ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
+                  ab.poNumber || 'PO-MANUAL-OVERRIDE',
+                  ab.supplierBatchNo || 'SUP-LOT-01'
+                );
+              } catch (allocErr) {
+                console.warn('Notice saving production_batch_allocations:', allocErr.message);
+              }
+            }
+          }
         }
 
         return batch;
@@ -423,6 +503,10 @@ class StandardProductionController {
         // Update RM lines if provided
         if (Array.isArray(data.rawMaterials) && data.rawMaterials.length > 0) {
           await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_line WHERE batch_id = $1;`, id);
+          try {
+            await tx.$executeRawUnsafe(`DELETE FROM "production_batch_allocations" WHERE batch_id = $1;`, id);
+          } catch (_) {}
+
           for (const rm of data.rawMaterials) {
             const rmId = rm.rawMaterialId || rm.rmId;
             if (!rmId) continue;
@@ -437,11 +521,15 @@ class StandardProductionController {
               FROM "RawMaterial" WHERE id = $1 LIMIT 1;
             `, rmId);
             const master = rmMaster[0] || {};
+            const totalAlloc = Array.isArray(rm.allocatedBatches)
+              ? rm.allocatedBatches.reduce((sum, b) => sum + Number(b.allocatedQty || 0), 0)
+              : 0;
             const density = Number(rm.density || master.density_g_per_ml || 1.0);
             const evaporates = Boolean(rm.evaporates ?? master.evaporates_by_default ?? false);
-            const available = Number(rm.availableQty ?? master.currentStock ?? 0);
-            const required = Number(rm.requiredQty || 0);
-            const taken = Number(rm.takenQty ?? required);
+            const required = totalAlloc > 0 ? totalAlloc : Number(rm.requiredQty || 0);
+            const available = totalAlloc > 0 ? totalAlloc : Number(rm.availableQty ?? master.currentStock ?? 0);
+            const taken = totalAlloc > 0 ? totalAlloc : Number(rm.takenQty ?? required);
+            const lineId = require('crypto').randomUUID();
 
             await tx.$executeRawUnsafe(`
               INSERT INTO production_batch_rm_line (
@@ -449,12 +537,88 @@ class StandardProductionController {
                 available_qty, required_qty, taken_qty, evaporates, merged,
                 created_at, updated_at
               ) VALUES (
-                gen_random_uuid(), $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10,
+                $1::uuid, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
               );
-            `, id, rmId, rm.lotId || null, rm.uom || rm.selectedUom || 'kg', density,
+            `, lineId, id, rmId, rm.lotId || (rm.allocatedBatches?.[0]?.batchId) || null, rm.uom || rm.selectedUom || 'kg', density,
                available, required, taken, evaporates, rm.merged !== undefined ? Boolean(rm.merged) : true);
+
+            // Persist raw material batch allocations to database
+            if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
+              for (const ab of rm.allocatedBatches) {
+                const isManual = Boolean(ab.isManualOverride || String(ab.batchId).startsWith('manual-'));
+                const lotNum = ab.lotNumber || ab.internalBatchNo || 'LOT-DIRECT';
+                
+                if (isManual) {
+                  try {
+                    const existingLot = await tx.inventoryBatch.findFirst({ where: { batchNumber: lotNum } });
+                    if (!existingLot) {
+                      await tx.inventoryBatch.create({
+                        data: {
+                          rawMaterialId: rmId,
+                          rawMaterialName: rm.rawMaterialName || rm.name,
+                          batchNumber: lotNum,
+                          mfgBatchNo: ab.supplierBatchNo || 'SUP-LOT-01',
+                          netQty: Number(ab.availableQty || Math.max(Number(ab.allocatedQty || 0) * 2, 500)),
+                          status: 'AVAILABLE',
+                          expiryDate: ab.expiryDate ? new Date(ab.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                          costPerUnit: Number(ab.unitRate || rm.unitRate || 0),
+                          storageLocation: 'Central Store / Floor Manual',
+                          isManualOverride: true
+                        }
+                      });
+                    }
+                  } catch (_) {}
+                }
+
+                try {
+                  await tx.$executeRawUnsafe(
+                    `INSERT INTO production_batch_rm_usage (
+                      id, batch_id, rm_id, required_qty, available_qty_at_time,
+                      actual_used_qty, unit_cost, total_cost, status,
+                      internal_batch_no, selected_uom, input_qty
+                    ) VALUES (
+                      $1, $2, $3, $4, $5,
+                      $6, $7, $8, 'ALLOCATED',
+                      $9, $10, $11
+                    ) ON CONFLICT (id) DO UPDATE SET
+                      actual_used_qty = EXCLUDED.actual_used_qty,
+                      input_qty = EXCLUDED.input_qty;`,
+                    lineId, id, rmId, required, available,
+                    taken, Number(rm.unitRate || 0), Number(rm.unitRate || 0) * taken,
+                    lotNum, rm.uom || rm.selectedUom || 'kg', taken
+                  );
+                } catch (_) {}
+
+                try {
+                  await tx.$executeRawUnsafe(
+                    `INSERT INTO "production_batch_allocations" (
+                      batch_id, usage_id, inventory_batch_id, lot_number,
+                      allocated_qty, po_original_qty, po_total_amount,
+                      allocated_amount, unit_rate, uom,
+                      is_manual_override, grn_number, po_number, supplier_batch_no
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                    id,
+                    lineId,
+                    ab.batchId ? String(ab.batchId) : null,
+                    lotNum,
+                    Number(ab.allocatedQty || 0),
+                    Number(ab.availableQty || ab.allocatedQty || 0),
+                    Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || 0))),
+                    Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || 0))),
+                    Number(ab.unitRate || rm.unitRate || 0),
+                    ab.uom || rm.uom || rm.selectedUom || 'kg',
+                    isManual,
+                    ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
+                    ab.poNumber || 'PO-MANUAL-OVERRIDE',
+                    ab.supplierBatchNo || 'SUP-LOT-01'
+                  );
+                } catch (allocErr) {
+                  console.warn('Notice saving production_batch_allocations in updateDraft:', allocErr.message);
+                }
+              }
+            }
           }
         }
 
@@ -700,6 +864,16 @@ class StandardProductionController {
 
           const master = rmMap.get(rmId) || (rmId ? await tx.rawMaterial.findUnique({ where: { id: rmId } }) : null) || {};
 
+          const totalAlloc = Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0
+            ? line.allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0)
+            : 0;
+          const lineReq = Number(line.requiredQty || 0);
+          const requiredQty = totalAlloc > 0 ? totalAlloc : lineReq;
+          const availableQty = totalAlloc > 0 ? totalAlloc : Number(line.availableQty || 0);
+          const takenQty = Number(line.takenQty !== undefined && line.takenQty !== null 
+            ? line.takenQty 
+            : (totalAlloc > 0 ? totalAlloc : requiredQty));
+
           enrichedLines.push({
             ...line,
             rawMaterialId: rmId,
@@ -707,9 +881,9 @@ class StandardProductionController {
             uom: line.uom || master.consumptionUnit || master.unitId || 'kg',
             density: Number(line.density || master.density_g_per_ml || 1.0),
             evaporates: line.evaporates !== undefined ? Boolean(line.evaporates) : Boolean(master.evaporates_by_default),
-            availableQty: Number(line.availableQty ?? master.currentStock ?? 0),
-            requiredQty: Number(line.requiredQty || 0),
-            takenQty: Number(line.takenQty ?? line.requiredQty ?? 0),
+            availableQty,
+            requiredQty,
+            takenQty,
             merged: Boolean(line.merged ?? true),
             unitRate: Number(line.unitRate || master.ratePerUnit || 0)
           });
@@ -730,17 +904,22 @@ class StandardProductionController {
         } catch (_) {}
 
         for (const line of computed.lines) {
+          const lineId = require('crypto').randomUUID();
+          const primaryLotId = (Array.isArray(line.allocatedBatches) && line.allocatedBatches[0]?.batchId)
+            ? String(line.allocatedBatches[0].batchId)
+            : (line.lotId || null);
+
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_rm_line (
               id, batch_id, raw_material_id, lot_id, uom, density,
               available_qty, required_qty, taken_qty, evaporates, merged,
               created_at, updated_at
             ) VALUES (
-              gen_random_uuid(), $1, $2, $3, $4, $5,
-              $6, $7, $8, $9, $10,
+              $1::uuid, $2, $3, $4, $5, $6,
+              $7, $8, $9, $10, $11,
               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
-          `, id, line.rawMaterialId, line.lotId || null, line.uom, line.density,
+          `, lineId, id, line.rawMaterialId, primaryLotId, line.uom, line.density,
              line.availableQty, line.requiredQty, line.takenQty, line.evaporates, line.merged);
 
           // If raw material line has allocated lots, persist to production_batch_allocations
@@ -776,6 +955,25 @@ class StandardProductionController {
 
               try {
                 await tx.$executeRawUnsafe(
+                  `INSERT INTO production_batch_rm_usage (
+                    id, batch_id, rm_id, required_qty, available_qty_at_time,
+                    actual_used_qty, unit_cost, total_cost, status,
+                    internal_batch_no, selected_uom, input_qty
+                  ) VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8, 'ALLOCATED',
+                    $9, $10, $11
+                  ) ON CONFLICT (id) DO UPDATE SET
+                    actual_used_qty = EXCLUDED.actual_used_qty,
+                    input_qty = EXCLUDED.input_qty;`,
+                  lineId, id, line.rawMaterialId, Number(line.requiredQty || 0), Number(line.availableQty || 0),
+                  Number(line.takenQty || 0), Number(line.unitRate || 0), Number(line.unitRate || 0) * Number(line.takenQty || 0),
+                  lotNum, line.uom || 'kg', Number(line.takenQty || 0)
+                );
+              } catch (_) {}
+
+              try {
+                await tx.$executeRawUnsafe(
                   `INSERT INTO "production_batch_allocations" (
                     batch_id, usage_id, inventory_batch_id, lot_number,
                     allocated_qty, po_original_qty, po_total_amount,
@@ -783,13 +981,13 @@ class StandardProductionController {
                     is_manual_override, grn_number, po_number, supplier_batch_no
                   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                   id,
-                  id,
+                  lineId,
                   ab.batchId ? String(ab.batchId) : null,
                   lotNum,
                   Number(ab.allocatedQty || 0),
                   Number(ab.availableQty || ab.allocatedQty || 0),
-                  Number(ab.allocatedAmount || 0),
-                  Number(ab.allocatedAmount || 0),
+                  Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || line.unitRate || 0))),
+                  Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || line.unitRate || 0))),
                   Number(ab.unitRate || line.unitRate || 0),
                   ab.uom || line.uom || 'kg',
                   isManual,
@@ -1107,7 +1305,13 @@ class StandardProductionController {
       let savedBatchAllocations = [];
       try {
         savedBatchAllocations = await prisma.$queryRawUnsafe(
-          `SELECT * FROM "production_batch_allocations" WHERE batch_id = $1`,
+          `SELECT 
+             pba.*,
+             COALESCE(u.rm_id, ib."rawMaterialId", pba.usage_id) AS matched_rm_id
+           FROM "production_batch_allocations" pba
+           LEFT JOIN production_batch_rm_usage u ON u.id = pba.usage_id
+           LEFT JOIN "InventoryBatch" ib ON ib.id = pba.inventory_batch_id
+           WHERE pba.batch_id = $1`,
           id
         );
       } catch (_) {
@@ -1271,13 +1475,19 @@ class StandardProductionController {
           ...batch,
           quantity: Number(batch.quantity || 0),
           baseName: batch.base_name,
-          templateName: batch.template_name
+          templateName: batch.template_name,
+          timelineStages: Array.isArray(batch.timeline_stages) ? batch.timeline_stages : (
+            typeof batch.timeline_stages === 'string' ? JSON.parse(batch.timeline_stages || '[]') : []
+          )
         },
         rmLines: rmLines.map(r => {
           const matchedAllocs = (savedBatchAllocations || []).filter(a => 
+            (a.matched_rm_id && (a.matched_rm_id === r.raw_material_id || a.matched_rm_id === r.id)) ||
             a.usage_id === r.id || 
+            a.usage_id === r.raw_material_id ||
             (r.lot_id && a.inventory_batch_id === r.lot_id) ||
-            (r.lot_batch_no && a.lot_number === r.lot_batch_no)
+            (r.lot_batch_no && a.lot_number === r.lot_batch_no) ||
+            (a.inventory_batch_id && batchMap.has(r.raw_material_id) && batchMap.get(r.raw_material_id).some(b => b.id === a.inventory_batch_id || b.batchNo === a.lot_number))
           );
           const allocatedBatches = matchedAllocs.map(a => ({
             batchId: a.inventory_batch_id || a.lot_number,
@@ -1316,12 +1526,21 @@ class StandardProductionController {
             ? resolvedAllocatedBatches.map(b => b.lotNumber).join(', ')
             : (r.lot_batch_no || (batchMap.get(r.raw_material_id)?.[0]?.batchNo || null));
 
+          const totalAllocQty = resolvedAllocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          const reqQty = Number(r.required_qty || 0);
+          const effectiveAvailableQty = totalAllocQty > 0 ? totalAllocQty : 0;
+          const effectiveTakenQty = totalAllocQty > 0 ? totalAllocQty : Number(r.taken_qty || reqQty);
+          const effectiveReqQty = totalAllocQty > 0 ? totalAllocQty : reqQty;
+
           return {
             ...r,
             density: Number(r.density || 1.0),
-            available_qty: Number(r.available_qty || 0),
-            required_qty: Number(r.required_qty || 0),
-            taken_qty: Number(r.taken_qty || 0),
+            available_qty: effectiveAvailableQty,
+            warehouse_stock: Number(r.current_stock || 0),
+            current_stock: Number(r.current_stock || 0),
+            required_qty: effectiveReqQty,
+            taken_qty: effectiveTakenQty,
+            allocated_qty: totalAllocQty,
             unit_id: r.unit_id,
             has_alternate_uom: Boolean(r.has_alternate_uom),
             alternate_uom: r.alternate_uom,
@@ -1485,15 +1704,21 @@ class StandardProductionController {
   }
 
   // ── 10. POST /api/production/standard/:id/complete ──
-  // Record actual yield, complete run, deduct inventory, and transition status to 'Completed'
+  // Record actual yield, complete run, deduct raw material inventory, add finished goods, and transition status
   async completeProduction(req, res, next) {
     try {
       const { id } = req.params;
-      const { actualOutput, notes = '' } = req.body || {};
+      const { 
+        actualOutput, 
+        notes = '', 
+        labTestRequired = false,
+        subBatchLetter = 'A',
+        isFinalize = true 
+      } = req.body || {};
 
       const result = await prisma.$transaction(async (tx) => {
         const rows = await tx.$queryRawUnsafe(`
-          SELECT id, status, batch_no FROM production_batches WHERE id = $1 FOR UPDATE;
+          SELECT * FROM production_batches WHERE id = $1 FOR UPDATE;
         `, id);
 
         if (!rows || rows.length === 0) {
@@ -1507,32 +1732,137 @@ class StandardProductionController {
 
         const operatorName = req.user?.name || req.user?.username || 'Supervisor';
 
+        // 1. Fetch raw materials in this batch to deduct taken quantities
+        const rmLines = await tx.$queryRawUnsafe(`
+          SELECT * FROM production_batch_rm_line WHERE batch_id = $1;
+        `, id);
+
+        const rmDeductionLog = [];
+        for (const line of rmLines) {
+          const taken = Number(line.taken_qty || 0);
+          if (taken > 0 && line.raw_material_id) {
+            // Deduct taken from RawMaterial.currentStock
+            await tx.$executeRawUnsafe(`
+              UPDATE "RawMaterial" 
+              SET "currentStock" = GREATEST(0, "currentStock" - $1),
+                  "updatedAt" = CURRENT_TIMESTAMP
+              WHERE id = $2;
+            `, taken, line.raw_material_id);
+
+            // Fetch remaining stock in warehouse
+            const postStockRes = await tx.$queryRawUnsafe(`
+              SELECT "currentStock", name, "consumptionUnit" FROM "RawMaterial" WHERE id = $1;
+            `, line.raw_material_id);
+
+            rmDeductionLog.push({
+              rawMaterialId: line.raw_material_id,
+              name: postStockRes[0]?.name || 'Raw Material',
+              consumedQty: taken,
+              uom: postStockRes[0]?.consumptionUnit || line.uom || 'kg',
+              remainingWarehouseStock: Number(postStockRes[0]?.currentStock || 0),
+              batchLeftoverRestored: Math.max(0, Number(line.available_qty || 0) - taken)
+            });
+          }
+        }
+
+        // 2. Deduct from allocated lots in InventoryBatch
+        const allocations = await tx.$queryRawUnsafe(`
+          SELECT inventory_batch_id, allocated_qty, lot_number 
+          FROM "production_batch_allocations" 
+          WHERE batch_id = $1;
+        `, id);
+
+        for (const alloc of allocations) {
+          if (alloc.inventory_batch_id && Number(alloc.allocated_qty) > 0) {
+            try {
+              await tx.$executeRawUnsafe(`
+                UPDATE "InventoryBatch" 
+                SET "netQty" = GREATEST(0, "netQty" - $1),
+                    "updatedAt" = CURRENT_TIMESTAMP
+                WHERE id = $2;
+              `, Number(alloc.allocated_qty), alloc.inventory_batch_id);
+            } catch (_) {}
+          }
+        }
+
+        // 3. Process finished product allocations
+        const productAllocs = await tx.$queryRawUnsafe(`
+          SELECT * FROM production_batch_allocation WHERE batch_id = $1;
+        `, id);
+
+        const totalGoodPieces = productAllocs.reduce((s, a) => s + Number(a.good_pieces || 0), 0);
+        const finalOutput = Number(actualOutput || totalGoodPieces || batch.quantity || 0);
+
+        for (const pa of productAllocs) {
+          const pcs = Number(pa.good_pieces || 0);
+          if (pcs > 0 && pa.product_id && !labTestRequired) {
+            await tx.$executeRawUnsafe(`
+              UPDATE products 
+              SET current_stock = COALESCE(current_stock, 0) + $1,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = $2;
+            `, pcs, pa.product_id);
+
+            try {
+              await tx.$executeRawUnsafe(`
+                INSERT INTO product_stock_movements (
+                  id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
+                ) VALUES (
+                  gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
+                );
+              `, pa.product_id, id, pcs, `Standard Production Output #${batch.reference_no || batch.batch_no} (Sub-Run ${subBatchLetter})`, operatorName);
+            } catch (_) {}
+          }
+        }
+
+        if (productAllocs.length === 0 && batch.product_id && !labTestRequired && finalOutput > 0) {
+          await tx.$executeRawUnsafe(`
+            UPDATE products 
+            SET current_stock = COALESCE(current_stock, 0) + $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2;
+          `, finalOutput, batch.product_id);
+        }
+
+        // 4. Status decision: If lab test required -> 'Lab Test In Progress' / quarantine, else 'Completed'
+        const finalStatus = labTestRequired ? 'Lab Test In Progress' : 'Completed';
+        const qcStatus = labTestRequired ? 'PENDING' : 'EXEMPT';
+
         await tx.$executeRawUnsafe(`
           UPDATE production_batches
           SET 
-            status = 'Completed',
-            actual_output = $2,
-            note = COALESCE(note, '') || ' ' || $3,
+            status = $2,
+            qc_status = $3,
+            quarantine_stock = $4,
+            good_quantity = $5,
+            actual_output = $5,
+            note = COALESCE(note, '') || ' ' || $6,
             completed_at = CURRENT_TIMESTAMP,
-            completed_by = $4,
+            completed_by = $7,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
-        `, id, Number(actualOutput || 0), notes ? `[Completion Note]: ${notes}` : '', operatorName);
+        `, id, finalStatus, qcStatus, labTestRequired ? finalOutput : 0, finalOutput,
+           notes ? `[Sub-Run ${subBatchLetter}]: ${notes}` : `[Sub-Run ${subBatchLetter}] Completed`, operatorName);
 
-        // Lock merge table
-        try {
-          await tx.$executeRawUnsafe(`
-            UPDATE production_batch_merge SET locked = TRUE, updated_at = CURRENT_TIMESTAMP WHERE batch_id = $1;
-          `, id);
-        } catch (mErr) {
-          console.warn('Notice locking production_batch_merge:', mErr.message);
+        // Lock merge table if finalized
+        if (isFinalize) {
+          try {
+            await tx.$executeRawUnsafe(`
+              UPDATE production_batch_merge SET locked = TRUE, updated_at = CURRENT_TIMESTAMP WHERE batch_id = $1;
+            `, id);
+          } catch (_) {}
         }
 
         return {
           id,
           batchNo: batch.batch_no,
-          status: 'Completed',
-          actualOutput: Number(actualOutput || 0),
+          referenceNo: batch.reference_no,
+          status: finalStatus,
+          subBatchLetter,
+          actualOutput: finalOutput,
+          labTestRequired,
+          qcStatus,
+          rmDeductions: rmDeductionLog,
           completedBy: operatorName
         };
       });
@@ -1540,12 +1870,37 @@ class StandardProductionController {
       if (!res.headersSent) {
         res.json({
           success: true,
-          message: 'Production run successfully completed and actual yield recorded!',
+          message: result.labTestRequired
+            ? `Production sub-batch ${result.subBatchLetter} completed and dispatched to QC queue for lab testing.`
+            : `Production sub-batch ${result.subBatchLetter} completed and released to finished goods sellable inventory.`,
           data: result
         });
       }
     } catch (err) {
       console.error('Error completing production:', err);
+      next(err);
+    }
+  }
+
+  // ── 10B. PUT /api/production/standard/:id/stages ──
+  // Update Factory Stages & Timeline Sequence parameters
+  async updateStages(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { timelineStages = [] } = req.body || {};
+      await prisma.$executeRawUnsafe(`
+        UPDATE production_batches
+        SET timeline_stages = $2::jsonb, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1;
+      `, id, JSON.stringify(timelineStages));
+
+      res.json({
+        success: true,
+        message: 'Factory stages and timeline sequence updated successfully',
+        timelineStages
+      });
+    } catch (err) {
+      console.error('Error updating factory stages:', err);
       next(err);
     }
   }

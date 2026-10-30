@@ -26,6 +26,7 @@ import {
 import ProductionMouldPickerModal from './ProductionMouldPickerModal';
 import ProductionItemSearchModal from './ProductionItemSearchModal';
 import ProductionCleanReportView from './ProductionCleanReportView';
+import StandardFactoryStagesPalette from './StandardFactoryStagesPalette';
 import { getProductionDraft } from '../services/productionDraftStore';
 
 const formatDateDMY = (dateVal) => {
@@ -111,6 +112,24 @@ export default function ProductionFloorCockpitModal({
   const [completionNotes, setCompletionNotes] = useState('');
   const [completing, setCompleting] = useState(false);
 
+  // Factory Stages Timeline Sequence
+  const DEFAULT_FACTORY_STAGES = [
+    { id: 'ageing', name: 'Ageing', category: 'Thermal & Mixing', icon: 'clock', defaultTemp: '4°C', durationHours: 0, durationMinutes: 30, desc: 'Mix aging in refrigerated vats at 4°C' },
+    { id: 'vat', name: 'VAT', category: 'Thermal & Mixing', icon: 'database', defaultTemp: '10°C', durationHours: 0, durationMinutes: 45, desc: 'Holding and agitation in process tanks' },
+    { id: 'cf', name: 'CF – Cont. Freezer', category: 'Freezing & Molding', icon: 'snowflake', defaultTemp: '-5°C', durationHours: 1, durationMinutes: 0, desc: 'Continuous scraped surface freezing' },
+    { id: 'bf', name: 'BF – Bath Freezer', category: 'Freezing & Molding', icon: 'snowflake', defaultTemp: '-20°C', durationHours: 0, durationMinutes: 45, desc: 'Brine tank sub-zero mold immersion' }
+  ];
+  const [timelineStages, setTimelineStages] = useState(DEFAULT_FACTORY_STAGES);
+  const [savingStages, setSavingStages] = useState(false);
+
+  // Lab Testing Requirement State (Defaults to true, can be toggled)
+  const [labTestRequired, setLabTestRequired] = useState(true);
+
+  // Sub-Run / Multi End Product Sub-Batches Tracking (Run A, Run B, etc.)
+  const [completedSubBatches, setCompletedSubBatches] = useState([]);
+  const SUB_BATCH_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  const currentSubRunLetter = SUB_BATCH_LETTERS[completedSubBatches.length] || `Run-${completedSubBatches.length + 1}`;
+
   // ── COCKPIT LOT ALLOCATION MODAL STATE (Identical to /production/standard/add) ──
   const [lotModalOpen, setLotModalOpen] = useState(false);
   const [activeLotRowIndex, setActiveLotRowIndex] = useState(null);
@@ -185,12 +204,16 @@ export default function ProductionFloorCockpitModal({
             lotBatchNo = allocatedBatches.map(b => b.lotNumber || b.internalBatchNo).filter(Boolean).join(', ');
           }
 
+          const allocSum = allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          const rawStock = Number(line.warehouse_stock ?? line.current_stock ?? line.currentStock ?? 0);
+          const availableQty = allocSum > 0 ? allocSum : 0;
+          const reqQty = allocSum > 0 ? allocSum : Number(line.required_qty || 0);
+
           let takenQty = Number(line.taken_qty || 0);
-          if (takenQty <= 0 && allocatedBatches.length > 0) {
-            takenQty = allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
-          }
-          if (takenQty <= 0) {
-            takenQty = Number(line.required_qty || 0);
+          if (allocSum > 0) {
+            takenQty = allocSum;
+          } else if (takenQty <= 0) {
+            takenQty = reqQty;
           }
 
           let unitRate = Number(line.rate_per_unit || 0);
@@ -210,8 +233,9 @@ export default function ProductionFloorCockpitModal({
             conversionFactor: Number(line.conversion_factor || 1),
             consumptionUnit: line.consumption_unit,
             density: Number(line.density || 1.0),
-            availableQty: Number(line.available_qty ?? line.current_stock ?? 0),
-            requiredQty: Number(line.required_qty || 0),
+            availableQty,
+            warehouseStock: rawStock,
+            requiredQty: reqQty,
             takenQty,
             evaporates: Boolean(line.evaporates),
             merged: line.merged !== undefined && line.merged !== null ? Boolean(line.merged) : true,
@@ -260,9 +284,16 @@ export default function ProductionFloorCockpitModal({
             ? allocatedBatches.map(b => b.lotNumber || b.internalBatchNo).filter(Boolean).join(', ')
             : (u.lotBatchNo || null);
 
+          const allocSum = allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          const rawStock = Number(u.rawMaterial?.currentStock ?? u.availableQtyAtTime ?? 0);
+          const availableQty = allocSum > 0 ? allocSum : 0;
+          const reqQty = allocSum > 0 ? allocSum : Number(u.requiredQty || 0);
+
           let takenQty = Number(u.inputQty || u.requiredQty || 0);
-          if (takenQty <= 0 && allocatedBatches.length > 0) {
-            takenQty = allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          if (allocSum > 0) {
+            takenQty = allocSum;
+          } else if (takenQty <= 0) {
+            takenQty = reqQty;
           }
 
           let unitRate = Number(u.unitCost || 0);
@@ -282,8 +313,9 @@ export default function ProductionFloorCockpitModal({
             conversionFactor: Number(u.rawMaterial?.conversionFactor || 1),
             consumptionUnit: u.rawMaterial?.consumptionUnit,
             density: 1.0,
-            availableQty: Number(u.availableQtyAtTime || u.rawMaterial?.currentStock || 100),
-            requiredQty: Number(u.requiredQty || 0),
+            availableQty,
+            warehouseStock: rawStock,
+            requiredQty: reqQty,
             takenQty,
             evaporates: defaultEvap,
             merged: true,
@@ -320,9 +352,16 @@ export default function ProductionFloorCockpitModal({
             lotBatchNo = allocatedBatches.map(b => b.lotNumber || b.internalBatchNo).filter(Boolean).join(', ');
           }
 
+          const allocSum = allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          const rawStock = Number(rm.currentStock ?? rm.availableQty ?? 0);
+          const availableQty = allocSum > 0 ? allocSum : 0;
+          const reqQty = allocSum > 0 ? allocSum : Number(rm.requiredQty || 0);
+
           let takenQty = Number(rm.takenQty || rm.requiredQty || 0);
-          if (takenQty <= 0 && allocatedBatches.length > 0) {
-            takenQty = allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          if (allocSum > 0) {
+            takenQty = allocSum;
+          } else if (takenQty <= 0) {
+            takenQty = reqQty;
           }
 
           return {
@@ -335,8 +374,9 @@ export default function ProductionFloorCockpitModal({
             conversionFactor: Number(rm.conversionFactor || 1),
             consumptionUnit: rm.consumptionUnit,
             density: 1.0,
-            availableQty: Number(rm.availableQty || 100),
-            requiredQty: Number(rm.requiredQty || 0),
+            availableQty,
+            warehouseStock: rawStock,
+            requiredQty: reqQty,
             takenQty,
             evaporates: defaultEvap,
             merged: true,
@@ -410,6 +450,21 @@ export default function ProductionFloorCockpitModal({
       // Costing
       if (detailRes.data.costingSummary) {
         setCostingData(detailRes.data.costingSummary);
+      }
+
+      // Factory Timeline Stages
+      const stagesFromBatch = b.timeline_stages || b.timelineStages || detailRes.data.timelineStages;
+      if (Array.isArray(stagesFromBatch) && stagesFromBatch.length > 0) {
+        setTimelineStages(stagesFromBatch);
+      } else {
+        setTimelineStages(DEFAULT_FACTORY_STAGES);
+      }
+
+      // QC Lab Test Requirement (true = quarantine, false = direct to stock)
+      if (b.qc_required !== undefined) {
+        setLabTestRequired(Boolean(b.qc_required));
+      } else if (b.labTestRequired !== undefined) {
+        setLabTestRequired(Boolean(b.labTestRequired));
       }
     } catch (err) {
       console.error('Failed to load standard production details:', err);
@@ -739,6 +794,8 @@ export default function ProductionFloorCockpitModal({
     if (allocatedBatches.length > 0) {
       targetRow.lotBatchNo = allocatedBatches.map(b => b.lotNumber).join(', ');
       targetRow.takenQty = totalAllocQty;
+      targetRow.availableQty = totalAllocQty;
+      targetRow.requiredQty = totalAllocQty;
       if (weightedAmountSum > 0 && totalAllocQty > 0) {
         targetRow.unitRate = Number((weightedAmountSum / totalAllocQty).toFixed(4));
         targetRow.totalCost = Number(weightedAmountSum.toFixed(2));
@@ -749,8 +806,16 @@ export default function ProductionFloorCockpitModal({
     setRmRows(updatedRows);
     setLotModalOpen(false);
 
+    // Persist allocation changes to backend database immediately
+    api.put(`/production/standard/${batchId}/process`, {
+      mergeStage,
+      evaporationPct,
+      evaporationApplied,
+      lines: updatedRows
+    }).catch(e => console.warn('Auto-save process after allocation failed:', e));
+
     Swal.fire({
-      title: 'Batches Allocated!',
+      title: 'Batches Allocated & Database Persisted!',
       text: `Allocated ${totalAllocQty} ${formatCleanUom(targetRow?.uom, 'kg', targetRow)} across ${allocatedBatches.length} lot(s). Live PO rate blended: ₹${targetRow.unitRate}/unit.`,
       icon: 'success',
       timer: 1800
@@ -791,7 +856,8 @@ export default function ProductionFloorCockpitModal({
       conversionFactor: Number(rm.conversionFactor || 1),
       consumptionUnit: rm.consumptionUnit,
       density: Number(rm.density_g_per_ml || 1.0),
-      availableQty: Number(rm.currentStock || 0),
+      availableQty: rm.availableBatches?.length > 0 ? 10 : 0,
+      warehouseStock: Number(rm.currentStock || 0),
       requiredQty: 10,
       takenQty: 10,
       evaporates: rm.evaporates_by_default !== undefined ? Boolean(rm.evaporates_by_default) : (
@@ -850,6 +916,140 @@ export default function ProductionFloorCockpitModal({
     setEvaporationApplied(false);
   };
 
+  // Direct Mix After Evaporation Handler (2-way sync with Evaporation %)
+  const handleDirectMixAfterEvapChange = (valStr) => {
+    const postEvapMl = parseFloat(valStr);
+    if (isNaN(postEvapMl) || postEvapMl < 0) return;
+    const totalPre = Number(liveEvaporationResult.totalBeforeEvapMl || 0);
+    const evapBase = Number(liveEvaporationResult.evaporationBaseMl || 0);
+
+    if (totalPre > 0 && evapBase > 0) {
+      const evaporatedLoss = Math.max(0, totalPre - postEvapMl);
+      const calcPct = Math.max(0, Math.min(100, Number(((evaporatedLoss / evapBase) * 100).toFixed(2))));
+      setEvaporationPct(calcPct);
+      if (postEvapMl < totalPre) {
+        setEvaporationApplied(true);
+      }
+    }
+  };
+
+  // Factory Stages Persistence to PUT /api/production/standard/:id/stages
+  const handleSaveFactoryStages = async () => {
+    try {
+      setSavingStages(true);
+      await api.put(`/production/standard/${batchId}/stages`, { timelineStages });
+      Swal.fire({
+        title: 'Factory Stages Saved!',
+        text: `Persisted ${timelineStages.length} factory stages sequence to database.`,
+        icon: 'success',
+        timer: 1600
+      });
+    } catch (err) {
+      console.error('Failed to save stages:', err);
+      Swal.fire({ title: 'Error', text: 'Failed to persist factory stages sequence.', icon: 'error' });
+    } finally {
+      setSavingStages(false);
+    }
+  };
+
+  // Step Gating & Continuous Navigation Handler
+  const handleStepClick = (targetStep) => {
+    if (targetStep === activeStep) return;
+    // Allow continuous backward editing freely at any time
+    if (targetStep < activeStep) {
+      setActiveStep(targetStep);
+      return;
+    }
+    // Gating check for Step 2: Step 1 must have raw materials with taken quantities > 0
+    if (targetStep >= 2) {
+      const isStep1Valid = rmRows.length > 0 && rmRows.every(r => Number(r.takenQty || 0) > 0);
+      if (!isStep1Valid) {
+        Swal.fire({
+          title: 'Step 1 Incomplete',
+          text: 'Please configure all raw materials and ensure valid batch quantities are allocated (taken > 0) before proceeding to Step 2.',
+          icon: 'warning'
+        });
+        return;
+      }
+    }
+    // Gating check for Step 2: Mix must be merged with positive volume before Step 3
+    if (targetStep >= 3) {
+      if (!isSlideMerged || availableMixMl <= 0) {
+        Swal.fire({
+          title: 'Step 2 Merge Required',
+          text: 'Please complete Step 2 by toggling "Slide to Merge" to establish the liquid volume before proceeding to mould allocation.',
+          icon: 'warning'
+        });
+        return;
+      }
+    }
+    // Gating check for Step 4: Product mould allocation configured
+    if (targetStep >= 4) {
+      if (allocations.length === 0 || !allocations.some(a => Number(a.trays || 0) > 0)) {
+        Swal.fire({
+          title: 'Step 3 Allocations Incomplete',
+          text: 'Please configure at least one finished product mould with trays > 0 before proceeding to Quality & Yield.',
+          icon: 'warning'
+        });
+        return;
+      }
+    }
+    setActiveStep(targetStep);
+  };
+
+  // Sub-Run Completion & Adding Next Product from Remaining Mix
+  const handleRecordSubRunAndAddAnother = () => {
+    const mouldPieces = liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0);
+    const pieces = Number(actualYieldPieces) > 0 ? Number(actualYieldPieces) : mouldPieces;
+    if (pieces <= 0) {
+      Swal.fire({ title: 'Invalid Yield', text: 'Please enter actual good output pieces count.', icon: 'warning' });
+      return;
+    }
+
+    const batchRef = batch?.referenceNo || batch?.batchNo || 'PROD0001';
+    const subCode = currentSubRunLetter;
+    const currentProduct = allocations[0]?.productName || 'Ice Cream Product';
+    const mouldCode = allocations[0]?.mouldCode || 'Standard Mould';
+    const mixUsed = liveAllocationsResult.totalMixUsedMl;
+
+    const newSubRecord = {
+      subCode,
+      subBatchNumber: `${batchRef} - ${subCode}`,
+      productName: currentProduct,
+      pieces,
+      mould: mouldCode,
+      mixUsedMl: mixUsed,
+      completedAt: new Date().toLocaleTimeString()
+    };
+
+    setCompletedSubBatches(prev => [...prev, newSubRecord]);
+
+    Swal.fire({
+      title: `Production ${batchRef} ${subCode} Completed!`,
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+          <p><strong>Sub-Run:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${batchRef} - Sub-Run ${subCode}</span></p>
+          <p><strong>Product:</strong> ${currentProduct}</p>
+          <p><strong>Yield Recorded:</strong> <span style="font-family: monospace; font-weight: bold;">${pieces} pcs</span></p>
+          <p><strong>Mix Consumed:</strong> ${formatIndian(mixUsed)} ml</p>
+          <p><strong>Remaining Mix:</strong> <span style="font-family: monospace; font-weight: bold; color: #6366f1;">${formatIndian(liveAllocationsResult.remainingMixMl)} ml</span></p>
+        </div>
+      `,
+      icon: 'success'
+    });
+
+    if (liveAllocationsResult.remainingMixMl <= 50) {
+      Swal.fire({
+        title: 'Insufficient Mix Remaining',
+        text: `Remaining mix is ${formatIndian(liveAllocationsResult.remainingMixMl)} ml. Raw material volume has been fully converted into products. Ready to finalize entire production.`,
+        icon: 'info'
+      });
+    } else {
+      setAllocations(prev => prev.map(a => ({ ...a, trays: 0 })));
+      setActiveStep(3);
+    }
+  };
+
   // Save Section A & B via PUT /api/production/standard/:id/process
   const handleSaveProcess = async () => {
     try {
@@ -863,7 +1063,7 @@ export default function ProductionFloorCockpitModal({
 
       Swal.fire({
         title: 'Floor Process Saved!',
-        text: 'Raw materials, batch allocations, density, merge volume and evaporation parameters persisted successfully.',
+        text: 'Raw materials, batch allocations, merge volume and evaporation parameters persisted successfully.',
         icon: 'success',
         timer: 1800
       });
@@ -1183,16 +1383,37 @@ export default function ProductionFloorCockpitModal({
 
     try {
       setCompleting(true);
-      await api.post(`/production/standard/${batchId}/complete`, {
+      const res = await api.post(`/production/standard/${batchId}/complete`, {
         actualOutput: pieces,
-        remarks: completionNotes
+        remarks: completionNotes,
+        labTestRequired,
+        subBatches: completedSubBatches
       });
+
+      const leftoverLogs = res.data?.leftoverRestoration || [];
+      let restoreHtml = '';
+      if (leftoverLogs.length > 0) {
+        restoreHtml = `
+          <div style="margin-top: 10px; text-align: left; font-size: 11px; max-height: 140px; overflow-y: auto; background: #f8fafc; padding: 8px; border-radius: 8px;">
+            <strong style="color: #047857;">Restored / Verified in Warehouse Stock:</strong>
+            <ul style="padding-left: 16px; margin-top: 4px;">
+              ${leftoverLogs.map(l => `<li><strong>${l.rawMaterialName}</strong>: ${l.unusedRestoredQty} ${l.uom} remained (${l.remainingWarehouseStock} in warehouse)</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
 
       Swal.fire({
         title: 'Production Run Finalized!',
-        text: `Recorded actual yield of ${pieces} pcs. Batch successfully finalized. Presenting Clean Production Execution & Cost Report.`,
-        icon: 'success',
-        timer: 2000
+        html: `
+          <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+            <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
+            <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${pieces} pcs</span></p>
+            <p><strong>Lab Test Status:</strong> <span style="font-weight: bold; color: ${labTestRequired ? '#d97706' : '#047857'};">${labTestRequired ? 'Sent to QC Quarantine' : 'Directly added to Available Sellable Stock'}</span></p>
+            ${restoreHtml}
+          </div>
+        `,
+        icon: 'success'
       });
 
       setShowYieldModal(false);
@@ -1481,7 +1702,7 @@ export default function ProductionFloorCockpitModal({
               <button
                 key={s.id}
                 type="button"
-                onClick={() => setActiveStep(s.id)}
+                onClick={() => handleStepClick(s.id)}
                 className={`flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 border text-left ${
                   isActive 
                     ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-500/20 ring-2 ring-indigo-500/30' 
@@ -1546,7 +1767,7 @@ export default function ProductionFloorCockpitModal({
               <Button
                 type="button"
                 size="sm"
-                onClick={() => setActiveStep(prev => prev + 1)}
+                onClick={() => handleStepClick(activeStep + 1)}
                 className="h-7 px-3 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 shadow-xs"
               >
                 <span>Proceed to Step {activeStep + 1}</span>
@@ -1636,21 +1857,28 @@ export default function ProductionFloorCockpitModal({
                           <th className="py-2.5 px-3 text-center w-12" title="Include material in combined mix">Merge</th>
                           <th className="py-2.5 px-3 min-w-[160px]">Raw Material</th>
                           <th className="py-2.5 px-3 min-w-[200px]" title="Allocated Batch No from warehouse stock">Batch / Lot Allocation</th>
-                          <th className="py-2.5 px-3 text-center w-24">Live UOM</th>
-                          <th className="py-2.5 px-3 text-right w-24">Available</th>
+                          <th className="py-2.5 px-3 text-center w-28">Live UOM</th>
+                          <th className="py-2.5 px-3 text-right w-24" title="Allocated batch quantity available in production">Available in Batch</th>
                           <th className="py-2.5 px-3 text-right w-24">Required</th>
                           <th className="py-2.5 px-3 text-right w-28 bg-amber-50/50 dark:bg-amber-950/20">Taken (Used)</th>
-                          <th className="py-2.5 px-3 text-center w-20" title="Density in g/ml (Default 1.0)">Density</th>
-                          <th className="py-2.5 px-3 text-right w-24">Variance (ml)</th>
-                          <th className="py-2.5 px-3 text-right w-24">Remaining</th>
+                          <th className="py-2.5 px-3 text-right w-28" title="Remaining quantity from allocated batch in this production (Available - Taken)">Remaining in Production</th>
+                          <th className="py-2.5 px-3 text-right w-32" title="Remaining stock in warehouse after this batch allocation (Warehouse Stock - Taken)">Remaining Warehouse Stock</th>
                           <th className="py-2.5 px-3 text-center w-10">✕</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {liveEvaporationResult.lines.map((line, idx) => {
-                          const hasTakenMoreThanAvail = line.takenQty > line.availableQty && line.availableQty > 0;
-                          const hasNegative = line.takenQty < 0 || line.availableQty < 0;
                           const hasAllocations = Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0;
+                          const allocatedSum = hasAllocations 
+                            ? line.allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0)
+                            : Number(line.availableQty || 0);
+                          const displayAvailable = allocatedSum;
+                          const displayTaken = Number(line.takenQty || 0);
+                          const remInProduction = Number((displayAvailable - displayTaken).toFixed(3));
+                          const warehouseTotalStock = Number(line.warehouseStock ?? line.currentStock ?? line.availableQty ?? 0);
+                          const remWarehouseStock = Number((warehouseTotalStock - displayTaken).toFixed(3));
+                          const hasTakenMoreThanAvail = displayTaken > displayAvailable && displayAvailable > 0;
+                          const hasNegative = displayTaken < 0 || displayAvailable < 0;
 
                           return (
                             <tr 
@@ -1729,7 +1957,7 @@ export default function ProductionFloorCockpitModal({
                                   {/* Batch details summary tag */}
                                   {hasAllocations && (
                                     <div className="text-[9.5px] font-mono text-slate-500 flex items-center gap-1 flex-wrap">
-                                      <span>Allocated: <strong className="text-emerald-600">{line.takenQty} {line.uom}</strong></span>
+                                      <span>Allocated: <strong className="text-emerald-600">{displayAvailable} {formatCleanUom(line.uom, 'kg', line)}</strong></span>
                                       {line.allocatedBatches[0]?.poNumber && (
                                         <span className="text-slate-400 truncate max-w-[120px]" title={line.allocatedBatches[0].poNumber}>
                                           • {line.allocatedBatches[0].poNumber}
@@ -1742,25 +1970,24 @@ export default function ProductionFloorCockpitModal({
 
                               {/* Live UOM & Alternate UOM */}
                               <td className="py-2.5 px-3 text-center">
-                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-[11px] text-slate-800 dark:text-slate-200">
+                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[11px] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
                                   {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                                 {line.hasAlternateUom && line.alternateUom && (
-                                  <div className="text-[9.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                                    Alt: {line.alternateUom} ({line.conversionFactor}x)
+                                  <div className="text-[9.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-1 bg-indigo-50 dark:bg-indigo-950/50 px-1 py-0.5 rounded border border-indigo-200/50 dark:border-indigo-800/50">
+                                    1 {formatCleanUom(line.uom, 'kg', line)} = {line.conversionFactor || 1} {line.alternateUom}
                                   </div>
                                 )}
                               </td>
 
-                              {/* Available Now (Editable) */}
+                              {/* Available in Batch (Allocated Qty) */}
                               <td className="py-2.5 px-3 text-right">
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  value={line.availableQty}
-                                  onChange={(e) => handleUpdateRmRow(idx, 'availableQty', parseFloat(e.target.value) || 0)}
-                                  className="h-7 w-20 text-right font-mono text-xs px-1.5 ml-auto border-slate-200 dark:border-slate-700"
-                                />
+                                <div className="font-mono font-black text-xs text-slate-800 dark:text-slate-100">
+                                  {formatIndian(displayAvailable)}
+                                </div>
+                                <span className="text-[9px] text-slate-400 block font-mono">
+                                  {formatCleanUom(line.uom, 'kg', line)}
+                                </span>
                               </td>
 
                               {/* Required Qty (Editable) */}
@@ -1791,29 +2018,17 @@ export default function ProductionFloorCockpitModal({
                                 )}
                               </td>
 
-                              {/* Density (g/ml) (Editable, Default 1.0) */}
-                              <td className="py-2.5 px-3 text-center">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0.1"
-                                  value={line.density}
-                                  onChange={(e) => handleUpdateRmRow(idx, 'density', parseFloat(e.target.value) || 1.0)}
-                                  className="h-7 w-16 text-center font-mono text-xs px-1 mx-auto border-slate-200 dark:border-slate-700"
-                                />
-                              </td>
-
-                              {/* Variance (ml) */}
+                              {/* Remaining in Current Production (Available in Batch - Taken) */}
                               <td className="py-2.5 px-3 text-right font-mono font-bold">
-                                <span className={line.varianceMl > 0 ? 'text-amber-600' : line.varianceMl < 0 ? 'text-blue-600' : 'text-slate-500'}>
-                                  {line.varianceMl > 0 ? `+${formatIndian(line.varianceMl)}` : formatIndian(line.varianceMl)} ml
+                                <span className={remInProduction < 0 ? 'text-rose-600 font-black' : 'text-amber-600 dark:text-amber-400'}>
+                                  {formatIndian(remInProduction)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </td>
 
-                              {/* Remaining Stock in Warehouse */}
+                              {/* Remaining Stock in Warehouse after reducing batch taken */}
                               <td className="py-2.5 px-3 text-right font-mono font-bold">
-                                <span className={line.remainingStock < 0 ? 'text-rose-600 font-black' : 'text-slate-700 dark:text-slate-300'}>
-                                  {formatIndian(line.remainingStock)} {line.uom}
+                                <span className={remWarehouseStock < 0 ? 'text-rose-600 font-black' : 'text-emerald-600 dark:text-emerald-400'}>
+                                  {formatIndian(remWarehouseStock)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </td>
 
@@ -1822,7 +2037,7 @@ export default function ProductionFloorCockpitModal({
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveRmRow(idx)}
-                                  className="text-slate-400 hover:text-rose-600 transition-colors p-1"
+                                  className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
                                   title="Remove line"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -1843,7 +2058,7 @@ export default function ProductionFloorCockpitModal({
                   </span>
                   <Button
                     type="button"
-                    onClick={() => setActiveStep(2)}
+                    onClick={() => handleStepClick(2)}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
                   >
                     <span>Proceed to Step 2: Volume Merge &amp; Evaporation</span>
@@ -1889,7 +2104,7 @@ export default function ProductionFloorCockpitModal({
                     <div className="p-5 space-y-5">
                       
                       {/* Controls Row */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
                         {/* Merge Stage */}
                         <div>
                           <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
@@ -1909,9 +2124,9 @@ export default function ProductionFloorCockpitModal({
                         {/* Evaporation % */}
                         <div>
                           <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                            2. Evaporation Rate (%)
+                            2. Evaporation (%)
                           </label>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <Input
                               type="number"
                               min="0"
@@ -1925,10 +2140,29 @@ export default function ProductionFloorCockpitModal({
                           </div>
                         </div>
 
+                        {/* Direct Mix After Evaporation (Auto-Calculates %) */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                            3. Mix After Evap (ml)
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="10"
+                              value={liveEvaporationResult.mixAfterEvapMl || ''}
+                              onChange={(e) => handleDirectMixAfterEvapChange(e.target.value)}
+                              placeholder="Direct ml"
+                              className="h-9 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700"
+                            />
+                            <span className="font-bold text-xs text-slate-500">ml</span>
+                          </div>
+                        </div>
+
                         {/* Apply & Undo Buttons */}
                         <div className="flex flex-col justify-end">
                           <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
-                            3. Action
+                            4. Action
                           </label>
                           <div className="flex items-center gap-2">
                             <Button
@@ -1938,7 +2172,7 @@ export default function ProductionFloorCockpitModal({
                               className="flex-1 h-9 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-40"
                             >
                               <Flame className="w-3.5 h-3.5 mr-1" />
-                              <span>Apply Evaporation</span>
+                              <span>Apply Evap</span>
                             </Button>
                             {evaporationApplied && (
                               <Button
@@ -2018,9 +2252,14 @@ export default function ProductionFloorCockpitModal({
                         }
                         const displayMl = postMl > 0 ? postMl : rawMl;
                         
-                        const avail = Number(line.availableQty ?? 0);
+                        const hasAlloc = Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0;
+                        const allocAmount = hasAlloc 
+                          ? line.allocatedBatches.reduce((s, b) => s + Number(b.allocatedQty || 0), 0)
+                          : Number(line.availableQty || 0);
                         const taken = Number(line.takenQty || 0) > 0 ? Number(line.takenQty) : Number(line.requiredQty || 0);
-                        const remStock = Number(line.remainingStock !== undefined ? line.remainingStock : (avail - taken));
+                        const remInProd = Number((allocAmount - taken).toFixed(3));
+                        const warehouseTotalStock = Number(line.warehouseStock ?? line.currentStock ?? 0);
+                        const remStock = Number((warehouseTotalStock - taken).toFixed(3));
 
                         return (
                           <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-2.5 first:pt-1 last:pb-1 text-xs space-y-1.5 border-b last:border-b-0 border-slate-100 dark:border-slate-800">
@@ -2042,7 +2281,7 @@ export default function ProductionFloorCockpitModal({
                               <div>
                                 <span className="text-[9.5px] text-slate-400 block">Warehouse Stock:</span>
                                 <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                                  {formatIndian(avail)} {formatCleanUom(line.uom, 'kg', line)}
+                                  {formatIndian(warehouseTotalStock)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </div>
                               <div className="text-right">
@@ -2051,6 +2290,14 @@ export default function ProductionFloorCockpitModal({
                                   {formatIndian(taken)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </div>
+                            </div>
+
+                            {/* Remaining in Current Production directly above Remaining in Warehouse Stock */}
+                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <span className="text-slate-500 font-medium">Remaining in Current Production:</span>
+                              <span className="font-mono font-black text-amber-600 dark:text-amber-400">
+                                {formatIndian(remInProd)} {formatCleanUom(line.uom, 'kg', line)}
+                              </span>
                             </div>
 
                             <div className="flex items-center justify-between text-[11px] pt-0.5">
@@ -2088,7 +2335,7 @@ export default function ProductionFloorCockpitModal({
 
                   <Button
                     type="button"
-                    onClick={() => setActiveStep(3)}
+                    onClick={() => handleStepClick(3)}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
                   >
                     <span>Proceed to Step 3: Mould &amp; Product Allocation</span>
@@ -2098,9 +2345,48 @@ export default function ProductionFloorCockpitModal({
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
+              {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 3: FINISHED PRODUCTS / MOULD ALLOCATIONS (REPEATABLE & SEQUENTIAL)
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 3 ? 'block' : 'hidden'} space-y-4`}>
+                
+                {/* Factory Stages Palette & Timeline Sequence */}
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-4 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                        <Layers className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                          Factory stages palette &amp; Timeline sequence
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          Click stage chip to add/remove • Click any stage to configure temperature &amp; duration • Drag &amp; drop to reorder
+                        </p>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={savingStages}
+                      onClick={handleSaveFactoryStages}
+                      className="h-8 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1.5"
+                    >
+                      {savingStages ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>Save Timeline Sequence</span>
+                    </Button>
+                  </div>
+
+                  <StandardFactoryStagesPalette
+                    stages={timelineStages}
+                    onChangeStages={setTimelineStages}
+                    isEditable={!isCompleted}
+                    stepNumber={3}
+                  />
+                </div>
+
                 <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden">
                   <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
@@ -2169,6 +2455,9 @@ export default function ProductionFloorCockpitModal({
 
                   <div className="p-4 space-y-4">
                     {liveAllocationsResult.allocations.map((alloc, idx) => {
+                      const productMatch = availableProducts.find(p => p.id === alloc.productId);
+                      const prodUom = alloc.uom || alloc.productUom || productMatch?.consumptionUnit || productMatch?.uom || 'pcs';
+
                       return (
                         <div 
                           key={`alloc-${alloc.seq || alloc.productId || 'alloc'}-${idx}`}
@@ -2185,7 +2474,7 @@ export default function ProductionFloorCockpitModal({
                                   {alloc.productName}
                                 </h4>
                                 <span className="font-mono text-[10px] text-slate-400">
-                                  {alloc.productCode}
+                                  {alloc.productCode} • Unit: <strong className="text-purple-600 dark:text-purple-400 font-bold">{prodUom}</strong>
                                 </span>
                               </div>
                             </div>
@@ -2205,7 +2494,7 @@ export default function ProductionFloorCockpitModal({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveProductAllocation(idx)}
-                                className="text-slate-400 hover:text-rose-600 p-1"
+                                className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
                                 title="Remove allocation line"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -2308,8 +2597,8 @@ export default function ProductionFloorCockpitModal({
                               <div className="text-sm font-mono font-black text-purple-950 dark:text-purple-200">
                                 {formatIndian(alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0)} ml
                               </div>
-                              <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400">
-                                Good: {alloc.goodPieces ?? 0} pcs
+                              <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400 font-bold">
+                                Good: {alloc.goodPieces ?? 0} {prodUom}
                               </div>
                             </div>
                           </div>
@@ -2367,7 +2656,7 @@ export default function ProductionFloorCockpitModal({
 
                   <Button
                     type="button"
-                    onClick={() => setActiveStep(4)}
+                    onClick={() => handleStepClick(4)}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
                   >
                     <span>Proceed to Step 4: Quality, Costing &amp; Yield</span>
@@ -2381,7 +2670,139 @@ export default function ProductionFloorCockpitModal({
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 4 ? 'block' : 'hidden'} space-y-4`}>
                 
-                {/* 1. Final Yield & Batch Finalization Card */}
+                {/* 1. Sub-Run Active Header Banner */}
+                <div className="bg-slate-900 text-white rounded-xl p-4 border border-indigo-700/60 shadow-md flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-black text-sm text-white shrink-0">
+                      {currentSubRunLetter}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-extrabold text-sm text-white">
+                          Production Batch #{batch?.referenceNo || batch?.batchNo || 'PROD0001'} — Sub-Run {currentSubRunLetter}
+                        </h4>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold">
+                          ACTIVE SUB-RUN
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Product: <strong className="text-white">{allocations[0]?.productName || 'Finished Goods'}</strong> • Mix Allocated: <strong className="font-mono text-indigo-400">{formatIndian(liveAllocationsResult.totalMixUsedMl)} ml</strong> • Remaining Mix: <strong className="font-mono text-emerald-400">{formatIndian(liveAllocationsResult.remainingMixMl)} ml</strong>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleRecordSubRunAndAddAnother}
+                      className="h-8 px-3 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer shadow-xs flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Complete Sub-Run {currentSubRunLetter} &amp; Add Another End Product</span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* 2. Completed Sub-Batches History Ledger (If Any Completed) */}
+                {completedSubBatches.length > 0 && (
+                  <Card className="border border-emerald-300 dark:border-emerald-800 rounded-xl p-4 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Completed End Product Sub-Runs:</span>
+                      </h4>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        Total Good Pieces: <strong className="text-emerald-600 dark:text-emerald-400 font-black">{completedSubBatches.reduce((s, b) => s + b.pieces, 0) + Number(actualYieldPieces)} pcs</strong>
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                      {completedSubBatches.map((sub, sIdx) => (
+                        <div key={`sub-run-${sub.subCode}-${sIdx}`} className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-mono text-[9px] flex items-center justify-center font-bold">
+                                {sub.subCode}
+                              </span>
+                              <span>{sub.subBatchNumber}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-500">{sub.productName} • {sub.mould}</div>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                              {sub.pieces} pcs
+                            </span>
+                            <div className="text-[9.5px] text-slate-400 font-mono">{formatIndian(sub.mixUsedMl)} ml mix</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                {/* 3. Remaining Mix Status or Insufficient Mix Notification */}
+                {liveAllocationsResult.remainingMixMl <= 50 ? (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl text-xs flex items-center gap-2 text-amber-900 dark:text-amber-200">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span><strong>Insufficient Mix Remaining:</strong> Remaining mix is {formatIndian(liveAllocationsResult.remainingMixMl)} ml. Raw material volume has been fully converted into products. Click <strong>Finalize Entire Production</strong> below.</span>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs flex items-center justify-between text-indigo-900 dark:text-indigo-200">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span><strong>Mix Remaining in this Production:</strong> <strong className="font-mono text-emerald-600">{formatIndian(liveAllocationsResult.remainingMixMl)} ml</strong> liquid volume available for next product moulding.</span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRecordSubRunAndAddAnother}
+                      className="h-7 px-3 text-[11px] font-bold border-indigo-300 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100"
+                    >
+                      + Add Next Product
+                    </Button>
+                  </div>
+                )}
+
+                {/* 4. QA Lab Testing Requirement Status Card */}
+                <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
+                  labTestRequired 
+                    ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800' 
+                    : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white shrink-0 ${labTestRequired ? 'bg-amber-500' : 'bg-emerald-600'}`}>
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                        <span>QA / Quality Control Testing:</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                          labTestRequired ? 'bg-amber-200 text-amber-900' : 'bg-emerald-200 text-emerald-900'
+                        }`}>
+                          {labTestRequired ? 'LAB TEST REQUIRED (QUARANTINE QUEUE)' : 'NO LAB TEST REQUIRED (DIRECT TO SELLABLE STOCK)'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        {labTestRequired 
+                          ? 'Finished goods will be routed to QC Quarantine queue for microbiological sampling and clearance.' 
+                          : 'Micro biological clearance is waived: finished goods automatically added to Available Sellable Inventory upon completion.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLabTestRequired(prev => !prev)}
+                    className="text-xs font-bold h-8 px-3 cursor-pointer"
+                  >
+                    {labTestRequired ? 'Set: Not Required (Direct to Stock)' : 'Set: Lab Test Required'}
+                  </Button>
+                </div>
+
+                {/* 5. Final Yield & Batch Finalization Card */}
                 <Card className="border border-emerald-300 dark:border-emerald-800 shadow-xs bg-emerald-50/40 dark:bg-emerald-950/20 rounded-xl overflow-hidden p-5">
                   <div className="flex items-center justify-between pb-3 border-b border-emerald-200 dark:border-emerald-800/60 mb-4 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
@@ -2389,7 +2810,7 @@ export default function ProductionFloorCockpitModal({
                         4
                       </span>
                       <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                        Actual Production Output &amp; Yield Verification
+                        Actual Output &amp; Yield Verification (Sub-Run {currentSubRunLetter})
                       </h3>
                     </div>
 
@@ -2412,7 +2833,7 @@ export default function ProductionFloorCockpitModal({
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 rounded-lg"
                       >
                         <CheckCircle2 className="w-4 h-4" />
-                        <span>Record Actual Yield &amp; Finalize Batch</span>
+                        <span>Finalize Entire Production</span>
                       </Button>
                     </div>
                   </div>

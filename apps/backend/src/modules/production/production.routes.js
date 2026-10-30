@@ -872,6 +872,7 @@ router.put('/standard/:id/draft', authenticateToken, roleMiddleware(['MAIN_MASTE
 router.post('/standard/:id/start', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.startProduction(req, res, next));
 router.put('/standard/:id/process', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.processFloorExecution(req, res, next));
 router.put('/standard/:id/allocations', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.saveAllocations(req, res, next));
+router.put('/standard/:id/stages', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateStages(req, res, next));
 router.post('/standard/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.completeProduction(req, res, next));
 router.post('/standard/:id/reopen', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.reopenProduction(req, res, next));
 router.post('/standard/:id/pause', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.pauseProduction(req, res, next));
