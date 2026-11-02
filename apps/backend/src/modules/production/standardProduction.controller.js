@@ -175,6 +175,17 @@ async function ensureStandardProductionSchema(p = prisma) {
       await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_loss_ml DECIMAL(15, 3) DEFAULT 0;`);
       await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS net_post_evap_mix_ml DECIMAL(15, 3) DEFAULT 0;`);
       await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS mould_allocations JSONB DEFAULT '[]'::jsonb;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS timeline_stages JSONB DEFAULT '[]'::jsonb;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS product_yields JSONB DEFAULT '[]'::jsonb;`);
+
+      // Ensure production_batch_allocation columns for rich multi-product & essence data
+      await p.$executeRawUnsafe(`ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS allocated_base_ml NUMERIC(16,2) DEFAULT 0;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS bulk_uom VARCHAR(30) DEFAULT 'L';`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS product_rms JSONB DEFAULT '[]'::jsonb;`);
+
+      // Ensure production_batch_rm_line columns for cost rates
+      await p.$executeRawUnsafe(`ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS unit_rate NUMERIC(14,4) DEFAULT 0;`);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS total_cost NUMERIC(16,2) DEFAULT 0;`);
     } catch (_) {}
 
     isSchemaEnsured = true;
@@ -909,18 +920,24 @@ class StandardProductionController {
             ? String(line.allocatedBatches[0].batchId)
             : (line.lotId || null);
 
+          const lineRate = Number(line.unitRate || line.rate_per_unit || 0);
+          const lineCost = lineRate * Number(line.takenQty || 0);
+
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_rm_line (
               id, batch_id, raw_material_id, lot_id, uom, density,
               available_qty, required_qty, taken_qty, evaporates, merged,
+              unit_rate, total_cost,
               created_at, updated_at
             ) VALUES (
               $1::uuid, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11,
+              $12, $13,
               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
           `, lineId, id, line.rawMaterialId, primaryLotId, line.uom, line.density,
-             line.availableQty, line.requiredQty, line.takenQty, line.evaporates, line.merged);
+             line.availableQty, line.requiredQty, line.takenQty, line.evaporates, line.merged,
+             lineRate, lineCost);
 
           // If raw material line has allocated lots, persist to production_batch_allocations
           if (Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0) {
@@ -1135,16 +1152,21 @@ class StandardProductionController {
               id, batch_id, seq, product_id, use_mould, mould_id,
               capacity_ml, cavities, trays, waste_mode, waste_value,
               mix_used_ml, waste_ml, good_pieces,
+              allocated_base_ml, bulk_uom, product_rms,
               created_at, updated_at
             ) VALUES (
               gen_random_uuid(), $1, $2, $3, $4, ($5::uuid),
               $6, $7, $8, $9, $10,
               $11, $12, $13,
+              $14, $15, $16::jsonb,
               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
           `, id, alloc.seq, alloc.productId, Boolean(alloc.useMould), mouldUuid,
              alloc.capacityMl, alloc.cavities, alloc.trays, alloc.wasteMode, alloc.wasteValue,
-             alloc.mixUsedMl, alloc.wasteMl, alloc.goodPieces);
+             alloc.mixUsedMl, alloc.wasteMl, alloc.goodPieces,
+             Number(alloc.allocatedBaseMl || alloc.mixUsedMl || 0),
+             alloc.bulkUom || 'L',
+             JSON.stringify(alloc.productRms || []));
         }
 
         // Mirror allocations into production_batches.mould_allocations
@@ -1155,6 +1177,66 @@ class StandardProductionController {
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
         `, id, JSON.stringify(computed.allocations));
+
+        // Synchronize production_batch_items for multi-product consistency
+        try {
+          await tx.$executeRawUnsafe(`DELETE FROM "production_batch_items" WHERE batch_id = $1;`, id);
+          for (const alloc of computed.allocations) {
+            if (alloc.productId) {
+              await tx.$executeRawUnsafe(`
+                INSERT INTO "production_batch_items" (
+                  id, batch_id, product_id, planned_qty, actual_qty, factor, cost_per_unit, created_at
+                ) VALUES (
+                  gen_random_uuid(), $1, $2, $3, 0, 1.0, 0, CURRENT_TIMESTAMP
+                );
+              `, id, alloc.productId, Number(alloc.goodPieces || 0));
+            }
+          }
+        } catch (itemErr) {
+          console.warn('Notice synchronizing production_batch_items:', itemErr.message);
+        }
+
+        // Persist product-specific essence and ingredient lots to production_batch_allocations
+        try {
+          for (const alloc of computed.allocations) {
+            if (Array.isArray(alloc.productRms)) {
+              for (const prm of alloc.productRms) {
+                if (Array.isArray(prm.allocatedBatches)) {
+                  for (const ab of prm.allocatedBatches) {
+                    if (Number(ab.allocatedQty) > 0) {
+                      const isManual = Boolean(ab.isManualOverride || String(ab.batchId).startsWith('manual-'));
+                      const lotNum = ab.lotNumber || ab.internalBatchNo || 'LOT-DIRECT';
+                      await tx.$executeRawUnsafe(`
+                        INSERT INTO "production_batch_allocations" (
+                          batch_id, usage_id, inventory_batch_id, lot_number,
+                          allocated_qty, po_original_qty, po_total_amount,
+                          allocated_amount, unit_rate, uom,
+                          is_manual_override, grn_number, po_number, supplier_batch_no
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
+                      `, id,
+                         prm.rmId || alloc.productId,
+                         ab.batchId ? String(ab.batchId) : null,
+                         lotNum,
+                         Number(ab.allocatedQty || 0),
+                         Number(ab.availableQty || ab.allocatedQty || 0),
+                         Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || prm.unitRate || 0))),
+                         Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || prm.unitRate || 0))),
+                         Number(ab.unitRate || prm.unitRate || 0),
+                         ab.uom || prm.uom || 'kg',
+                         isManual,
+                         ab.grnNumber || 'GRN-PRODUCT-ESSENCE',
+                         ab.poNumber || 'PO-PRODUCT-ESSENCE',
+                         ab.supplierBatchNo || 'SUP-LOT-01'
+                      ).catch(() => {});
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (rmLotErr) {
+          console.warn('Notice persisting product RM lots to production_batch_allocations:', rmLotErr.message);
+        }
 
         return computed;
       });
@@ -1392,12 +1474,34 @@ class StandardProductionController {
         `, id).catch(() => []);
       }
 
+      // Merge saved rich mould_allocations JSON (includes productRms and explicit allocatedBaseMl)
+      let savedMouldAllocs = [];
+      try {
+        if (typeof batch.mould_allocations === 'string') {
+          savedMouldAllocs = JSON.parse(batch.mould_allocations || '[]');
+        } else if (Array.isArray(batch.mould_allocations)) {
+          savedMouldAllocs = batch.mould_allocations;
+        }
+      } catch (_) {}
+
+      const enrichedAllocs = allocations.map((a, idx) => {
+        const match = savedMouldAllocs.find(s => s.seq === a.seq || s.productId === a.product_id) || savedMouldAllocs[idx] || {};
+        return {
+          ...match,
+          ...a,
+          allocatedBaseMl: Number(match.allocatedBaseMl ?? a.mix_used_ml ?? 0),
+          productRms: Array.isArray(match.productRms) ? match.productRms : [],
+          useMould: a.use_mould !== undefined ? Boolean(a.use_mould) : (match.useMould !== undefined ? Boolean(match.useMould) : true),
+          bulkUom: match.bulkUom || a.product_unit || 'L'
+        };
+      });
+
       // Calculate Costing
       let costingSummary = null;
       if (userCanViewCost) {
         let totalMaterialCost = 0;
         let totalWastageCost = 0;
-        const totalMixUsedMl = allocations.reduce((sum, a) => sum + Number(a.mix_used_ml || 0), 0);
+        const totalMixUsedMl = enrichedAllocs.reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mix_used_ml || 0), 0);
 
         const rmCostBreakdown = rmLines.map(line => {
           const taken = Number(line.taken_qty || 0);
@@ -1429,30 +1533,46 @@ class StandardProductionController {
         const utilityCost = Number(batch.eb_total_cost || 0);
         const overheadCost = Number(batch.overhead_amt || 0);
 
+        const totalBaseMixMl = mergeData?.mix_after_evap_ml ? Number(mergeData.mix_after_evap_ml) : (totalMixUsedMl || 1);
+        const baseCostPerMl = totalBaseMixMl > 0 ? (totalMaterialCost / totalBaseMixMl) : 0;
+
         // Waste cost calculation
-        const totalWasteMl = allocations.reduce((sum, a) => sum + Number(a.waste_ml || 0), 0);
-        const costPerMixMl = totalMixUsedMl > 0 ? (totalMaterialCost / totalMixUsedMl) : 0;
-        totalWastageCost = totalWasteMl * costPerMixMl;
+        const totalWasteMl = enrichedAllocs.reduce((sum, a) => sum + Number(a.waste_ml || 0), 0);
+        const unallocatedMixMl = Math.max(0, totalBaseMixMl - totalMixUsedMl);
+        totalWastageCost = (totalWasteMl + unallocatedMixMl) * baseCostPerMl;
 
         const totalProductionCost = totalMaterialCost + labourCost + utilityCost + overheadCost;
 
-        // Per-product cost attribution
-        const productCostAttribution = allocations.map(a => {
-          const mixUsed = Number(a.mix_used_ml || 0);
-          const share = totalMixUsedMl > 0 ? (mixUsed / totalMixUsedMl) : 0;
-          const assignedRmCost = totalMaterialCost * share;
+        // Per-product cost attribution based on base mix consumption + specific product raw materials
+        const productCostAttribution = enrichedAllocs.map(a => {
+          const baseMixConsumed = Number(a.allocatedBaseMl || a.mix_used_ml || 0);
+          const assignedBaseRmCost = baseMixConsumed * baseCostPerMl;
+
+          let productSpecificRmCost = 0;
+          if (Array.isArray(a.productRms)) {
+            for (const prm of a.productRms) {
+              const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+              const prmRate = Number(prm.unitRate || prm.rate || 0);
+              productSpecificRmCost += (prmQty * prmRate);
+            }
+          }
+
+          const totalAssignedRmCost = assignedBaseRmCost + productSpecificRmCost;
+          const share = totalMixUsedMl > 0 ? (baseMixConsumed / totalMixUsedMl) : 0;
           const assignedLabourCost = labourCost * share;
-          const assignedTotal = assignedRmCost + assignedLabourCost;
+          const assignedTotal = totalAssignedRmCost + assignedLabourCost;
           const pieces = Number(a.good_pieces || 0);
           const costPerPiece = pieces > 0 ? (assignedTotal / pieces) : 0;
 
           return {
             seq: a.seq,
-            productId: a.product_id,
-            productName: a.product_name,
+            productId: a.product_id || a.productId,
+            productName: a.product_name || a.productName,
             goodPieces: pieces,
-            mixUsedMl: mixUsed,
-            assignedRmCost: round2(assignedRmCost),
+            mixUsedMl: baseMixConsumed,
+            productRmsCost: round2(productSpecificRmCost),
+            assignedRmCost: round2(totalAssignedRmCost),
+            assignedBaseRmCost: round2(assignedBaseRmCost),
             assignedLabourCost: round2(assignedLabourCost),
             totalAssignedCost: round2(assignedTotal),
             costPerPiece: round2(costPerPiece)
@@ -1462,6 +1582,8 @@ class StandardProductionController {
         costingSummary = {
           totalMaterialCost: round2(totalMaterialCost),
           totalWastageCost: round2(totalWastageCost),
+          unallocatedMixMl: round2(unallocatedMixMl),
+          baseCostPerMl: Number(baseCostPerMl.toFixed(4)),
           labourCost: round2(labourCost),
           utilityCost: round2(utilityCost),
           overheadCost: round2(overheadCost),
@@ -1471,6 +1593,15 @@ class StandardProductionController {
         };
       }
 
+      let savedProductYields = [];
+      try {
+        if (typeof batch.product_yields === 'string') {
+          savedProductYields = JSON.parse(batch.product_yields || '[]');
+        } else if (Array.isArray(batch.product_yields)) {
+          savedProductYields = batch.product_yields;
+        }
+      } catch (_) {}
+
       res.json({
         success: true,
         batch: {
@@ -1478,10 +1609,12 @@ class StandardProductionController {
           quantity: Number(batch.quantity || 0),
           baseName: batch.base_name,
           templateName: batch.template_name,
+          productYields: savedProductYields,
           timelineStages: Array.isArray(batch.timeline_stages) ? batch.timeline_stages : (
             typeof batch.timeline_stages === 'string' ? JSON.parse(batch.timeline_stages || '[]') : []
           )
         },
+        productYields: savedProductYields,
         rmLines: rmLines.map(r => {
           const matchedAllocs = (savedBatchAllocations || []).filter(a => 
             (a.matched_rm_id && (a.matched_rm_id === r.raw_material_id || a.matched_rm_id === r.id)) ||
@@ -1560,15 +1693,19 @@ class StandardProductionController {
           evaporated_ml: Number(mergeData.evaporated_ml),
           mix_after_evap_ml: Number(mergeData.mix_after_evap_ml)
         } : null,
-        allocations: allocations.map(a => ({
+        allocations: enrichedAllocs.map(a => ({
           ...a,
-          capacity_ml: Number(a.capacity_ml),
-          cavities: Number(a.cavities),
-          trays: Number(a.trays),
-          waste_value: Number(a.waste_value),
-          mix_used_ml: Number(a.mix_used_ml),
-          waste_ml: Number(a.waste_ml),
-          good_pieces: Number(a.good_pieces)
+          allocatedBaseMl: Number(a.allocatedBaseMl || a.mix_used_ml || 0),
+          productRms: Array.isArray(a.productRms) ? a.productRms : [],
+          useMould: a.use_mould !== undefined ? Boolean(a.use_mould) : (a.useMould !== undefined ? Boolean(a.useMould) : true),
+          bulkUom: a.bulkUom || a.product_unit || 'L',
+          capacity_ml: Number(a.capacity_ml || a.capacityMl || 0),
+          cavities: Number(a.cavities || 1),
+          trays: Number(a.trays || 0),
+          waste_value: Number(a.waste_value ?? a.wasteValue ?? 0),
+          mix_used_ml: Number(a.mix_used_ml || a.mixUsedMl || 0),
+          waste_ml: Number(a.waste_ml || a.wasteMl || 0),
+          good_pieces: Number(a.good_pieces ?? a.goodPieces ?? 0)
         })),
         costingSummary,
         costingHidden: !userCanViewCost
@@ -1715,7 +1852,9 @@ class StandardProductionController {
         notes = '', 
         labTestRequired = false,
         subBatchLetter = 'A',
-        isFinalize = true 
+        isFinalize = true,
+        productOutputs = [],
+        productYields = []
       } = req.body || {};
 
       const result = await prisma.$transaction(async (tx) => {
@@ -1787,37 +1926,151 @@ class StandardProductionController {
           }
         }
 
-        // 3. Process finished product allocations
+        // Deduct product-specific raw materials (essences, flavours, additions)
+        try {
+          let savedMAllocs = [];
+          if (typeof batch.mould_allocations === 'string') {
+            savedMAllocs = JSON.parse(batch.mould_allocations || '[]');
+          } else if (Array.isArray(batch.mould_allocations)) {
+            savedMAllocs = batch.mould_allocations;
+          }
+          for (const sAlloc of savedMAllocs) {
+            if (Array.isArray(sAlloc.productRms)) {
+              for (const prm of sAlloc.productRms) {
+                const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+                const prmId = prm.rmId || prm.rawMaterialId;
+                if (prmQty > 0 && prmId) {
+                  await tx.$executeRawUnsafe(`
+                    UPDATE "RawMaterial" 
+                    SET "currentStock" = GREATEST(0, "currentStock" - $1),
+                        "updatedAt" = CURRENT_TIMESTAMP
+                    WHERE id = $2;
+                  `, prmQty, prmId);
+
+                  if (Array.isArray(prm.allocatedBatches)) {
+                    for (const ab of prm.allocatedBatches) {
+                      if (ab.batchId && Number(ab.allocatedQty) > 0) {
+                        try {
+                          await tx.$executeRawUnsafe(`
+                            UPDATE "InventoryBatch" 
+                            SET "netQty" = GREATEST(0, "netQty" - $1),
+                                "updatedAt" = CURRENT_TIMESTAMP
+                            WHERE id = $2;
+                          `, Number(ab.allocatedQty), ab.batchId);
+                        } catch (_) {}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (rmErr) {
+          console.warn('Notice deducting product-specific RMs:', rmErr.message);
+        }
+
+        // 3. Process finished product allocations and actual outputs
         const productAllocs = await tx.$queryRawUnsafe(`
           SELECT * FROM production_batch_allocation WHERE batch_id = $1;
         `, id);
 
-        const totalGoodPieces = productAllocs.reduce((s, a) => s + Number(a.good_pieces || 0), 0);
-        const finalOutput = Number(actualOutput || totalGoodPieces || batch.quantity || 0);
+        const yieldsList = (Array.isArray(productYields) && productYields.length > 0)
+          ? productYields
+          : (Array.isArray(productOutputs) && productOutputs.length > 0 ? productOutputs : []);
 
-        for (const pa of productAllocs) {
-          const pcs = Number(pa.good_pieces || 0);
-          if (pcs > 0 && pa.product_id && !labTestRequired) {
-            await tx.$executeRawUnsafe(`
-              UPDATE products 
-              SET current_stock = COALESCE(current_stock, 0) + $1,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE id = $2;
-            `, pcs, pa.product_id);
+        let finalOutput = 0;
+        let totalRejects = 0;
 
-            try {
-              await tx.$executeRawUnsafe(`
-                INSERT INTO product_stock_movements (
-                  id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
-                ) VALUES (
-                  gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
-                );
-              `, pa.product_id, id, pcs, `Standard Production Output #${batch.reference_no || batch.batch_no} (Sub-Run ${subBatchLetter})`, operatorName);
-            } catch (_) {}
+        if (yieldsList.length > 0) {
+          for (const po of yieldsList) {
+            const qty = Number(po.actualGoodOutput ?? po.actualOutput ?? 0);
+            const rej = Number(po.rejectOutput || 0);
+            finalOutput += qty;
+            totalRejects += rej;
+            const pId = po.productId || po.id;
+
+            if (pId) {
+              // Update production_batch_items
+              try {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "production_batch_items"
+                  SET actual_qty = $1
+                  WHERE batch_id = $2 AND product_id = $3;
+                `, qty, id, pId);
+              } catch (_) {}
+
+              // Add to sellable inventory if not quarantined
+              if (qty > 0 && !labTestRequired) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE products 
+                  SET current_stock = COALESCE(current_stock, 0) + $1,
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, qty, pId);
+
+                try {
+                  await tx.$executeRawUnsafe(`
+                    INSERT INTO product_stock_movements (
+                      id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
+                    ) VALUES (
+                      gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
+                    );
+                  `, pId, id, qty, `Standard Production Output #${batch.reference_no || batch.batch_no} (${po.productName || 'Product'}: ${qty} ${po.uom || 'pcs'})`, operatorName);
+                } catch (_) {}
+              }
+
+              // Record in production_output_details
+              try {
+                await tx.$executeRawUnsafe(`
+                  INSERT INTO production_output_details (
+                    id, batch_id, good_qty, rejected_qty, rework_qty, scrap_qty,
+                    yield_percentage, created_at
+                  ) VALUES (
+                    gen_random_uuid(), $1, $2, $3, 0, $3,
+                    100, CURRENT_TIMESTAMP
+                  );
+                `, id, qty, rej);
+              } catch (_) {}
+            }
+          }
+        } else {
+          const totalGoodPieces = productAllocs.reduce((s, a) => s + Number(a.good_pieces || 0), 0);
+          finalOutput = Number(actualOutput || totalGoodPieces || batch.quantity || 0);
+
+          for (const pa of productAllocs) {
+            const pcs = Number(pa.good_pieces || 0);
+            if (pcs > 0 && pa.product_id) {
+              try {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "production_batch_items"
+                  SET actual_qty = $1
+                  WHERE batch_id = $2 AND product_id = $3;
+                `, pcs, id, pa.product_id);
+              } catch (_) {}
+
+              if (!labTestRequired) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE products 
+                  SET current_stock = COALESCE(current_stock, 0) + $1,
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, pcs, pa.product_id);
+
+                try {
+                  await tx.$executeRawUnsafe(`
+                    INSERT INTO product_stock_movements (
+                      id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
+                    ) VALUES (
+                      gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
+                    );
+                  `, pa.product_id, id, pcs, `Standard Production Output #${batch.reference_no || batch.batch_no} (Sub-Run ${subBatchLetter})`, operatorName);
+                } catch (_) {}
+              }
+            }
           }
         }
 
-        if (productAllocs.length === 0 && batch.product_id && !labTestRequired && finalOutput > 0) {
+        if (productAllocs.length === 0 && yieldsList.length === 0 && batch.product_id && !labTestRequired && finalOutput > 0) {
           await tx.$executeRawUnsafe(`
             UPDATE products 
             SET current_stock = COALESCE(current_stock, 0) + $1,
@@ -1825,6 +2078,21 @@ class StandardProductionController {
             WHERE id = $2;
           `, finalOutput, batch.product_id);
         }
+
+        // Record batch-level production output summary
+        try {
+          const totalPlanned = Number(batch.quantity || 0) || finalOutput;
+          const yieldPct = totalPlanned > 0 ? Math.min(100, Math.round((finalOutput / totalPlanned) * 100)) : 100;
+          await tx.$executeRawUnsafe(`
+            INSERT INTO production_batch_output (
+              id, batch_id, good_quantity, rejected_quantity, rework_quantity, scrap_quantity,
+              yield_percentage, created_at
+            ) VALUES (
+              gen_random_uuid(), $1, $2, $3, 0, $3,
+              $4, CURRENT_TIMESTAMP
+            );
+          `, id, finalOutput, totalRejects, yieldPct);
+        } catch (_) {}
 
         // 4. Status decision: If lab test required -> 'Lab Test In Progress' / quarantine, else 'Completed'
         const finalStatus = labTestRequired ? 'Lab Test In Progress' : 'Completed';
@@ -1838,13 +2106,20 @@ class StandardProductionController {
             quarantine_stock = $4,
             good_quantity = $5,
             actual_output = $5,
-            note = COALESCE(note, '') || ' ' || $6,
+            rejected_quantity = $6,
+            product_yields = $7::jsonb,
+            note = COALESCE(note, '') || ' ' || $8,
             completed_at = CURRENT_TIMESTAMP,
-            completed_by = $7,
+            completed_by = $9,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
-        `, id, finalStatus, qcStatus, labTestRequired ? finalOutput : 0, finalOutput,
-           notes ? `[Sub-Run ${subBatchLetter}]: ${notes}` : `[Sub-Run ${subBatchLetter}] Completed`, operatorName);
+        `, id, finalStatus, qcStatus, 
+           labTestRequired ? finalOutput : 0, 
+           finalOutput, 
+           totalRejects,
+           JSON.stringify(yieldsList),
+           notes ? `[Sub-Run ${subBatchLetter}]: ${notes}` : `[Sub-Run ${subBatchLetter}] Completed`, 
+           operatorName);
 
         // Lock merge table if finalized
         if (isFinalize) {
@@ -1862,6 +2137,8 @@ class StandardProductionController {
           status: finalStatus,
           subBatchLetter,
           actualOutput: finalOutput,
+          rejectedQuantity: totalRejects,
+          productYields: yieldsList,
           labTestRequired,
           qcStatus,
           rmDeductions: rmDeductionLog,

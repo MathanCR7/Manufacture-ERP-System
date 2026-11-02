@@ -114,7 +114,7 @@ export default function BatchLabelModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-black text-sm text-slate-900 dark:text-white">
-                  GS1 Batch Barcode & Product Label
+                  GST Compliance &amp; GS1 Batch Product Label
                 </h3>
                 {isCancelled && (
                   <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 rounded-full border border-rose-200 dark:border-rose-800">
@@ -197,9 +197,9 @@ export default function BatchLabelModal({
                   </div>
 
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-600 uppercase text-[10px]">Mfg Date (MFD):</span>
+                    <span className="font-bold text-slate-600 uppercase text-[10px]">Mfg Date (Production Date):</span>
                     <span className="font-mono font-bold">
-                      {labelData.mfd}
+                      {labelData.mfd || (batch?.completeDate ? new Date(batch.completeDate).toISOString().split('T')[0] : (batch?.startDate ? new Date(batch.startDate).toISOString().split('T')[0] : ''))}
                     </span>
                   </div>
 
@@ -211,9 +211,9 @@ export default function BatchLabelModal({
                   </div>
 
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="font-bold text-slate-600 uppercase text-[10px]">MRP (Incl. taxes):</span>
-                    <span className="font-black text-xs">
-                      ₹{Number(labelData.mrp || 0).toFixed(2)}
+                    <span className="font-bold text-slate-600 uppercase text-[10px]">MRP / Selling Price (Incl. GST):</span>
+                    <span className="font-black text-xs text-emerald-700">
+                      ₹{Number(labelData.mrp || batch?.salePrice || batch?.product?.ratePerUnit || 0).toFixed(2)}
                     </span>
                   </div>
                 </div>

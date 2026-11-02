@@ -1833,11 +1833,34 @@ class ProductionBatchRedesignController {
 
       const gtin = batch.product?.upcEan || batch.product?.barcode || batch.product?.sku || '8901234567890';
       const batchNo = batch.batchNo || batch.referenceNo;
-      const mfd = extra.mfd || batch.startDate;
+
+      // Manufacturing Date should be production date (completion or start date)
+      const mfd = extra.mfd || batch.completeDate || batch.startDate || batch.createdAt || new Date();
       const expiryDate = batch.expiryDate || new Date(new Date(mfd).getTime() + (extra.shelf_life_days || 365) * 86400000);
 
       const mfdStr = new Date(mfd).toISOString().split('T')[0];
       const expStr = new Date(expiryDate).toISOString().split('T')[0];
+
+      // Resolve current selling price for MRP from FinishedProduct or Product catalog
+      let currentSellingPrice = Number(batch.salePrice || 0);
+      if (currentSellingPrice === 0 && batch.productId) {
+        const fp = await prisma.finishedProduct.findUnique({
+          where: { id: batch.productId }
+        }).catch(() => null);
+        if (fp && Number(fp.salePrice || 0) > 0) {
+          currentSellingPrice = Number(fp.salePrice);
+        } else {
+          const p = await prisma.product.findUnique({
+            where: { id: batch.productId }
+          }).catch(() => null);
+          if (p && Number(p.ratePerUnit || 0) > 0) {
+            currentSellingPrice = Number(p.ratePerUnit);
+          }
+        }
+      }
+      if (currentSellingPrice === 0 && batch.product) {
+        currentSellingPrice = Number(batch.product.ratePerUnit || batch.product.salePrice || 0);
+      }
 
       // Fetch Live Business Profile from /setup/tax (PostgreSQL Live Data)
       let company = {};
@@ -1860,7 +1883,7 @@ class ProductionBatchRedesignController {
         gtin: gtin,
         mfd: mfdStr,
         exp: expStr,
-        mrp: Number(batch.salePrice || 0),
+        mrp: currentSellingPrice,
         netWt: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
         mfgBy: companyName,
         address: companyAddress,
@@ -1881,7 +1904,7 @@ class ProductionBatchRedesignController {
         gtin,
         mfd: mfdStr,
         expiryDate: expStr,
-        mrp: Number(batch.salePrice || 0),
+        mrp: currentSellingPrice,
         netWeight: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
         storageConditions: 'Store in cool and dry place away from direct sunlight',
         fssaiLicence: companyPan,

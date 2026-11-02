@@ -102,7 +102,7 @@ function round2(num) {
 function calculateEvaporation({
   lines = [],
   evaporationPct = 5.0,
-  mergeStage = 'Before freezing',
+  mergeStage = 'After heating',
   evaporationApplied = true
 }) {
   const pct = Math.max(0, Math.min(100, Number(evaporationPct) || 0));
@@ -225,6 +225,31 @@ function calculateEvaporation({
 }
 
 /**
+ * Detect whether an item/material is a packaging/dry non-mix item
+ * (e.g. sticks, poly covers, cups, cartons, labels, wrappers)
+ */
+function isPackagingMaterial(item) {
+  if (!item) return false;
+  const name = String(item.rawMaterialName || item.rmName || item.name || item.printName || '').toLowerCase();
+  const code = String(item.rawMaterialCode || item.rmCode || item.code || '').toLowerCase();
+  const cat = String(item.category || item.categoryName || '').toLowerCase();
+  const uom = String(item.uom || item.consumptionUnit || item.selectedUom || '').toLowerCase();
+
+  const packagingKeywords = [
+    'stick', 'poly', 'cover', 'pack', 'box', 'cup', 'wrapper', 'carton',
+    'label', 'seal', 'spoon', 'pouch', 'tray', 'cone', 'wrap', 'liner', 'film'
+  ];
+  if (packagingKeywords.some(kw => name.includes(kw) || code.includes(kw) || cat.includes(kw))) {
+    return true;
+  }
+  const packagingUoms = ['pcs', 'pc', 'piece', 'pieces', 'unit', 'units', 'box', 'boxes', 'roll', 'rolls', 'pkt', 'packet', 'bag', 'nos', 'case'];
+  if (packagingUoms.includes(uom)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Sequential Allocation of Finished Products
  * 
  * Each product consumes from the remaining mix left by the previous one.
@@ -243,6 +268,7 @@ function calculateAllocations({
   for (let i = 0; i < allocations.length; i++) {
     const item = allocations[i];
     const seq = item.seq ?? (i + 1);
+    const useMould = item.useMould !== undefined ? Boolean(item.useMould) : true;
     const capacityMl = Number(item.capacityMl || item.capacity_ml || 0);
     const cavities = item.cavities !== undefined && item.cavities !== null 
       ? Number(item.cavities) 
@@ -251,50 +277,100 @@ function calculateAllocations({
     const wasteMode = item.wasteMode || item.waste_mode || 'PERCENT';
     const wasteVal = Number(item.wasteValue ?? item.waste_value ?? 0);
 
+    // Explicit allocated base mix (ml) from user or calculated from mould trays
+    const allocatedBaseMl = Number(item.allocatedBaseMl ?? item.allocated_base_ml ?? 0);
     const mouldNominalSetMl = capacityMl * cavities;
-    const mixUsedMl = trays * mouldNominalSetMl;
+
+    let mixUsedMl = 0;
+    if (allocatedBaseMl > 0) {
+      mixUsedMl = allocatedBaseMl;
+    } else if (trays > 0 && mouldNominalSetMl > 0) {
+      mixUsedMl = trays * mouldNominalSetMl;
+    } else if (item.mixUsedMl || item.mix_used_ml) {
+      mixUsedMl = Number(item.mixUsedMl || item.mix_used_ml || 0);
+    }
+
+    // Product-specific raw materials / essences added to this end product
+    const productRms = Array.isArray(item.productRms) ? item.productRms : [];
+    let addedRmVolumeMl = 0;
+    for (const prm of productRms) {
+      // Check if this item is marked to add to the liquid mix (defaults to false for packaging items)
+      const shouldAdd = prm.addToMix !== undefined 
+        ? Boolean(prm.addToMix) 
+        : (prm.isLiquidMix !== undefined ? Boolean(prm.isLiquidMix) : !isPackagingMaterial(prm));
+      if (!shouldAdd) continue;
+
+      const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+      const prmUom = prm.uom || prm.selectedUom || 'ml';
+      const prmDensity = Number(prm.density || 1.0);
+      try {
+        addedRmVolumeMl += toMl(prmQty, prmUom, prmDensity);
+      } catch (_) {
+        addedRmVolumeMl += prmQty;
+      }
+    }
+
+    // Total product mix = base mix + added ingredients volume
+    const productTotalMixMl = mixUsedMl + addedRmVolumeMl;
 
     let wasteMl = 0;
     if (wasteMode === 'PERCENT' || wasteMode === '%') {
-      wasteMl = (mixUsedMl * wasteVal) / 100;
+      wasteMl = (productTotalMixMl * wasteVal) / 100;
     } else {
-      wasteMl = trays > 0 ? (wasteVal * trays) : 0;
+      wasteMl = trays > 0 ? (wasteVal * trays) : (wasteVal);
     }
 
-    if (capacityMl <= 0) {
-      errors.push({
-        seq,
-        index: i,
-        productId: item.productId,
-        type: 'INVALID_CAPACITY',
-        message: `Product #${seq}: Capacity per cavity/piece must be greater than 0.`
-      });
+    if (useMould) {
+      if (capacityMl <= 0) {
+        errors.push({
+          seq,
+          index: i,
+          productId: item.productId,
+          type: 'INVALID_CAPACITY',
+          message: `Product #${seq}: Capacity per cavity/piece must be greater than 0.`
+        });
+      }
+
+      if (cavities <= 0) {
+        errors.push({
+          seq,
+          index: i,
+          productId: item.productId,
+          type: 'INVALID_CAVITIES',
+          message: `Product #${seq}: Cavity count must be greater than 0.`
+        });
+      }
     }
 
-    if (cavities <= 0) {
-      errors.push({
-        seq,
-        index: i,
-        productId: item.productId,
-        type: 'INVALID_CAVITIES',
-        message: `Product #${seq}: Cavity count must be greater than 0.`
-      });
-    }
-
-    if (wasteMl > mixUsedMl + EPSILON) {
+    if (wasteMl > productTotalMixMl + EPSILON) {
       errors.push({
         seq,
         index: i,
         productId: item.productId,
         type: 'EXCESSIVE_WASTE',
-        message: `Product #${seq}: Wastage (${round2(wasteMl)} ml) cannot exceed mix used (${round2(mixUsedMl)} ml).`
+        message: `Product #${seq}: Wastage (${round2(wasteMl)} ml) cannot exceed mix used (${round2(productTotalMixMl)} ml).`
       });
     }
 
-    const usableMixMl = Math.max(0, mixUsedMl - wasteMl);
-    const goodPieces = capacityMl > 0 ? Math.floor((usableMixMl + EPSILON) / capacityMl) : 0;
-    const remainingAfter = runningMixLeft - mixUsedMl;
+    const usableMixMl = Math.max(0, productTotalMixMl - wasteMl);
+    let goodPieces = 0;
+    if (useMould && capacityMl > 0) {
+      goodPieces = Math.floor((usableMixMl + EPSILON) / capacityMl);
+    } else {
+      // Bulk Storage Mode: Gallon, Liter, Tub or Piece
+      const bulkUom = String(item.bulkUom || item.uom || 'L').toLowerCase();
+      if (bulkUom.includes('gallon')) {
+        goodPieces = round2(usableMixMl / 3785.41);
+      } else if (bulkUom.includes('liter') || bulkUom.includes('ltr') || bulkUom === 'l') {
+        goodPieces = round2(usableMixMl / 1000);
+      } else if (capacityMl > 0) {
+        goodPieces = Math.floor((usableMixMl + EPSILON) / capacityMl);
+      } else {
+        goodPieces = round2(usableMixMl / 1000);
+      }
+    }
 
+    const remainingAfter = runningMixLeft - mixUsedMl;
     totalMixUsed += mixUsedMl;
 
     if (remainingAfter < -EPSILON) {
@@ -303,17 +379,21 @@ function calculateAllocations({
         index: i,
         productId: item.productId,
         type: 'INSUFFICIENT_MIX',
-        message: `Product #${seq}: Insufficient mix. Demanded ${round2(mixUsedMl)} ml, but only ${round2(runningMixLeft)} ml remained.`
+        message: `Product #${seq}: Insufficient base mix. Demanded ${round2(mixUsedMl)} ml, but only ${round2(runningMixLeft)} ml remained.`
       });
     }
 
     results.push({
       ...item,
       seq,
+      useMould,
       capacityMl: round2(capacityMl),
       cavities,
       trays,
       nominalSetMl: round2(mouldNominalSetMl),
+      allocatedBaseMl: round2(mixUsedMl),
+      addedRmVolumeMl: round2(addedRmVolumeMl),
+      productTotalMixMl: round2(productTotalMixMl),
       mixUsedMl: round2(mixUsedMl),
       mixRequiredMl: round2(mixUsedMl),
       mixUsedL: round2(mixUsedMl / 1000),
@@ -323,6 +403,7 @@ function calculateAllocations({
       wasteL: round2(wasteMl / 1000),
       usableMixMl: round2(usableMixMl),
       goodPieces,
+      productRms,
       mixLeftBeforeThisProduct: round2(runningMixLeft),
       mixLeftAfterThisProduct: round2(remainingAfter),
       mixRemainingAfterMl: round2(remainingAfter)
@@ -389,5 +470,6 @@ module.exports = {
   calculateEvaporation,
   calculateAllocations,
   computeMaxTrays,
+  isPackagingMaterial,
   EPSILON
 };

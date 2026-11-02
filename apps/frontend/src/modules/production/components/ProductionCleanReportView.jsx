@@ -375,6 +375,23 @@ export default function ProductionCleanReportView({
                       <td className="py-2.5 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
                         <div>{pName}</div>
                         <span className="font-mono text-[10px] text-slate-400 font-normal">{pCode}</span>
+                        {Array.isArray(alloc.productRms) && alloc.productRms.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5 text-[9.5px] font-mono text-slate-500 font-normal border-t border-slate-100 dark:border-slate-800 pt-1">
+                            {alloc.productRms.map((prm, pIdx) => {
+                              const isMix = prm.addToMix !== false;
+                              const prmVol = isMix ? `+${formatIndian(toMl(prm.takenQty ?? prm.qty ?? 0, prm.uom, prm.density))} ml` : '0 ml (Packing)';
+                              return (
+                                <div key={`clean-prm-${pIdx}`} className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-amber-700 dark:text-amber-400 font-semibold">• {prm.rawMaterialName || prm.rmName}:</span>
+                                  <span>{prm.takenQty ?? prm.qty} {prm.uom}</span>
+                                  <span className={isMix ? "text-purple-600 dark:text-purple-400 font-bold" : "text-slate-400 font-medium italic"}>
+                                    ({prmVol})
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 font-sans text-slate-700 dark:text-slate-300">
                         <div className="font-bold">{mouldCode}</div>

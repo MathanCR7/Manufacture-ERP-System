@@ -21,7 +21,8 @@ import {
   calculateEvaporation,
   calculateAllocations,
   computeMaxTrays,
-  formatCleanUom
+  formatCleanUom,
+  isPackagingMaterial
 } from '../utils/productionCalculation';
 import ProductionMouldPickerModal from './ProductionMouldPickerModal';
 import ProductionItemSearchModal from './ProductionItemSearchModal';
@@ -73,11 +74,12 @@ export default function ProductionFloorCockpitModal({
     }
   }, [isOpen, initialViewMode]);
 
-  // ── 4-STEP PROCESS GUIDANCE STATE ──
+  // ── 5-STEP PROCESS GUIDANCE STATE ──
   // 1: RM Formulation & Warehouse Lot Allocation
   // 2: Volume Merge & Evaporation Mass Loss
-  // 3: Finished Products & Mould Allocation
-  // 4: Quality Verification, Costing & Yield Completion
+  // 3: Finished Products & Sequential Chaining + Product Ingredients
+  // 4: Factory Stages Palette & Timeline Sequence
+  // 5: Quality, Costing, Wastage & Yield Completion
   const [activeStep, setActiveStep] = useState(1);
 
   // Section A: Raw Materials
@@ -85,7 +87,7 @@ export default function ProductionFloorCockpitModal({
   const [availableProducts, setAvailableProducts] = useState([]);
 
   // Section B: Merge and Evaporation
-  const [mergeStage, setMergeStage] = useState('Before freezing');
+  const [mergeStage, setMergeStage] = useState('After heating');
   const [isSlideMerged, setIsSlideMerged] = useState(false);
   const [evaporationPct, setEvaporationPct] = useState(5.0);
   const [evaporationApplied, setEvaporationApplied] = useState(false);
@@ -106,8 +108,9 @@ export default function ProductionFloorCockpitModal({
   // Costing data (from server)
   const [costingData, setCostingData] = useState(null);
 
-  // Yield Recording Modal State
+  // Multi-Product Yield Recording Modal State
   const [showYieldModal, setShowYieldModal] = useState(false);
+  const [productYields, setProductYields] = useState({}); // { [productId]: { actualOutput, rejectOutput, notes } }
   const [actualYieldPieces, setActualYieldPieces] = useState(2000);
   const [completionNotes, setCompletionNotes] = useState('');
   const [completing, setCompleting] = useState(false);
@@ -130,9 +133,10 @@ export default function ProductionFloorCockpitModal({
   const SUB_BATCH_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
   const currentSubRunLetter = SUB_BATCH_LETTERS[completedSubBatches.length] || `Run-${completedSubBatches.length + 1}`;
 
-  // ── COCKPIT LOT ALLOCATION MODAL STATE (Identical to /production/standard/add) ──
+  // ── COCKPIT LOT ALLOCATION MODAL STATE (Supports Step 1 Base RMs & Step 3 Product RMs) ──
   const [lotModalOpen, setLotModalOpen] = useState(false);
   const [activeLotRowIndex, setActiveLotRowIndex] = useState(null);
+  const [activeLotTarget, setActiveLotTarget] = useState(null); // { type: 'STEP_1', rowIndex } | { type: 'PRODUCT_RM', allocIndex, prmIndex }
   const [loadingLots, setLoadingLots] = useState(false);
   const [availableLots, setAvailableLots] = useState([]);
   const [lotAllocations, setLotAllocations] = useState({}); // { [lotId]: allocatedQty }
@@ -163,8 +167,11 @@ export default function ProductionFloorCockpitModal({
       const b = detailRes.data.batch || detailRes.data;
       setBatch(b);
       setActualYieldPieces(Number(b.actualOutput || b.quantity || 2000));
-      if (initialViewMode === 'REPORT' || b.status === 'Completed' || b.status === 'qc_passed') {
+      const batchFinished = b.status === 'Completed' || b.status === 'qc_passed';
+      if (batchFinished) {
         setViewMode('REPORT');
+      } else {
+        setViewMode('STEPS');
       }
 
       // Moulds
@@ -419,7 +426,11 @@ export default function ProductionFloorCockpitModal({
       // Merge state
       const merge = detailRes.data.mergeData || b.evaporationData || {};
       if (merge.merge_stage || merge.mergeStage) {
-        setMergeStage(merge.merge_stage || merge.mergeStage || 'Before freezing');
+        let loadedStage = merge.merge_stage || merge.mergeStage;
+        if (loadedStage === 'Before heating') loadedStage = 'After heating';
+        else if (loadedStage === 'Before freezing') loadedStage = 'After freezing';
+        else if (loadedStage === 'Other Stage') loadedStage = 'Other Method';
+        setMergeStage(loadedStage || 'After heating');
       }
       if (merge.evaporation_pct !== undefined || merge.evaporationRatePct !== undefined) {
         setEvaporationPct(Number(merge.evaporation_pct ?? merge.evaporationRatePct ?? 5.0));
@@ -433,22 +444,43 @@ export default function ProductionFloorCockpitModal({
 
       // Allocations
       const serverAllocs = detailRes.data.allocations || [];
+      let savedMAllocs = [];
+      try {
+        if (typeof b.mould_allocations === 'string') savedMAllocs = JSON.parse(b.mould_allocations || '[]');
+        else if (Array.isArray(b.mould_allocations)) savedMAllocs = b.mould_allocations;
+        else if (Array.isArray(b.mouldAllocations)) savedMAllocs = b.mouldAllocations;
+      } catch (_) {}
+
       if (serverAllocs.length > 0) {
-        setAllocations(serverAllocs.map((a, idx) => ({
-          seq: a.seq || (idx + 1),
-          productId: a.product_id || a.productId,
-          productName: a.product_name || 'Finished Product',
-          productCode: a.product_code || 'FP',
-          useMould: Boolean(a.use_mould ?? a.useMould ?? true),
-          mouldId: a.mould_id || a.mouldId || null,
-          mouldCode: a.mould_code || a.mouldCode || '',
-          mouldName: a.mould_name || a.mouldName || '',
-          capacityMl: Number(a.capacity_ml || a.capacityMl || 50),
-          cavities: a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 1),
-          trays: Number(a.trays || 0),
-          wasteMode: a.waste_mode || a.wasteMode || 'PERCENT',
-          wasteValue: Number(a.waste_value ?? a.wasteValue ?? 2.0)
-        })));
+        setAllocations(serverAllocs.map((a, idx) => {
+          const matched = savedMAllocs.find(s => s.seq === a.seq || s.productId === (a.product_id || a.productId)) || savedMAllocs[idx] || {};
+          const matchedProd = prods.find(p => p.id === (a.product_id || a.productId));
+          const prodUom = a.product_unit || a.productUom || matched.productUom || formatCleanUom(matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd);
+          const rawPrms = Array.isArray(a.productRms) ? a.productRms : (Array.isArray(matched.productRms) ? matched.productRms : []);
+          const productRms = rawPrms.map(prm => ({
+            ...prm,
+            addToMix: prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm)
+          }));
+          return {
+            seq: a.seq || (idx + 1),
+            productId: a.product_id || a.productId,
+            productName: a.product_name || a.productName || matchedProd?.name || 'Finished Product',
+            productCode: a.product_code || a.productCode || matchedProd?.code || 'FP',
+            productUom: prodUom,
+            useMould: a.use_mould !== undefined ? Boolean(a.use_mould) : (matched.useMould !== undefined ? Boolean(matched.useMould) : true),
+            bulkUom: a.bulkUom || matched.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom),
+            allocatedBaseMl: Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0),
+            mouldId: a.mould_id || a.mouldId || null,
+            mouldCode: a.mould_code || a.mouldCode || '',
+            mouldName: a.mould_name || a.mouldName || '',
+            capacityMl: Number(a.capacity_ml || a.capacityMl || 50),
+            cavities: a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 1),
+            trays: Number(a.trays || 0),
+            wasteMode: a.waste_mode || a.wasteMode || 'PERCENT',
+            wasteValue: Number(a.waste_value ?? a.wasteValue ?? 2.0),
+            productRms
+          };
+        }));
       } else {
         // Initialize from batch planned products
         let batchProds = Array.isArray(b.products) && b.products.length > 0 ? b.products : (b.selectedProducts || []);
@@ -456,21 +488,28 @@ export default function ProductionFloorCockpitModal({
           batchProds = [b.product];
         }
         if (batchProds.length > 0) {
-          setAllocations(batchProds.map((p, idx) => ({
-            seq: idx + 1,
-            productId: p.productId || p.id,
-            productName: p.name || p.productName || 'Finished Product',
-            productCode: p.code || p.productCode || 'FP',
-            useMould: true,
-            mouldId: null,
-            mouldCode: 'SG-8112',
-            mouldName: 'Kulfi Small (SG 8112)',
-            capacityMl: 50,
-            cavities: 42,
-            trays: 0,
-            wasteMode: 'PERCENT',
-            wasteValue: 2.0
-          })));
+          setAllocations(batchProds.map((p, idx) => {
+            const prodUom = formatCleanUom(p.consumptionUnit || p.unit || p.uom, 'pcs', p);
+            return {
+              seq: idx + 1,
+              productId: p.productId || p.id,
+              productName: p.name || p.productName || 'Finished Product',
+              productCode: p.code || p.productCode || 'FP',
+              productUom: prodUom,
+              useMould: true,
+              bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
+              allocatedBaseMl: 0,
+              mouldId: null,
+              mouldCode: 'SG-8112',
+              mouldName: 'Kulfi Small (SG 8112)',
+              capacityMl: 50,
+              cavities: 42,
+              trays: 0,
+              wasteMode: 'PERCENT',
+              wasteValue: 2.0,
+              productRms: []
+            };
+          }));
         }
       }
 
@@ -492,6 +531,23 @@ export default function ProductionFloorCockpitModal({
         setLabTestRequired(Boolean(b.qc_required));
       } else if (b.labTestRequired !== undefined) {
         setLabTestRequired(Boolean(b.labTestRequired));
+      }
+
+      // Saved Product Yields from Step 5
+      const savedYields = b.product_yields || b.productYields || detailRes.data.productYields;
+      let parsedYields = [];
+      try {
+        if (typeof savedYields === 'string') parsedYields = JSON.parse(savedYields || '[]');
+        else if (Array.isArray(savedYields)) parsedYields = savedYields;
+      } catch (_) {}
+      if (parsedYields.length > 0) {
+        setProductYields(parsedYields);
+      }
+      if (b.actual_output || b.actualOutput || b.good_quantity || b.goodQuantity) {
+        setActualYieldPieces(Number(b.actual_output || b.actualOutput || b.good_quantity || b.goodQuantity));
+      }
+      if (b.note) {
+        setCompletionNotes(b.note);
       }
     } catch (err) {
       console.error('Failed to load standard production details:', err);
@@ -537,18 +593,44 @@ export default function ProductionFloorCockpitModal({
     });
   }, [availableMixMl, allocations]);
 
-  // ── LOT ALLOCATION MODAL HANDLERS (Identical to /production/standard/add) ──
-  const openLotModal = async (rowIndex) => {
-    const row = rmRows[rowIndex];
-    if (!row) return;
+  // Total Base Mix Cost from Step 1 raw materials (takenQty * unitRate)
+  const totalBaseMixCost = useMemo(() => {
+    return rmRows.reduce((sum, r) => sum + (Number(r.takenQty || 0) * Number(r.unitRate || 0)), 0);
+  }, [rmRows]);
 
-    setActiveLotRowIndex(rowIndex);
+  const baseCostPerMl = useMemo(() => {
+    const postMl = liveEvaporationResult.mixAfterEvapMl > 0 ? liveEvaporationResult.mixAfterEvapMl : (liveEvaporationResult.totalBeforeEvapMl || 1);
+    return postMl > 0 ? (totalBaseMixCost / postMl) : 0;
+  }, [totalBaseMixCost, liveEvaporationResult.mixAfterEvapMl, liveEvaporationResult.totalBeforeEvapMl]);
+
+  const totalAllocatedBaseMl = useMemo(() => {
+    return allocations.reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
+  }, [allocations]);
+
+  const unallocatedRemainingMl = useMemo(() => {
+    return availableMixMl - totalAllocatedBaseMl;
+  }, [availableMixMl, totalAllocatedBaseMl]);
+
+  const totalProcessWasteMl = useMemo(() => {
+    return liveAllocationsResult.allocations.reduce((sum, a) => sum + Number(a.wasteMl || 0), 0);
+  }, [liveAllocationsResult.allocations]);
+
+  const totalWastageMl = useMemo(() => {
+    return Math.max(0, unallocatedRemainingMl) + totalProcessWasteMl;
+  }, [unallocatedRemainingMl, totalProcessWasteMl]);
+
+  const totalWastageCost = useMemo(() => {
+    return totalWastageMl * baseCostPerMl;
+  }, [totalWastageMl, baseCostPerMl]);
+
+  // ── LOT ALLOCATION MODAL HANDLERS (Step 1 Base Mix & Step 3 Product-Specific RMs) ──
+  const initLotModalForRow = async (row) => {
+    if (!row) return;
     setLotModalOpen(true);
     setLoadingLots(true);
     setShowManualLotForm(false);
     setLotSearchTerm('');
 
-    // Pre-populate currently allocated quantities map
     const allocMap = {};
     if (Array.isArray(row.allocatedBatches)) {
       row.allocatedBatches.forEach(b => {
@@ -558,11 +640,11 @@ export default function ProductionFloorCockpitModal({
     }
     setLotAllocations(allocMap);
 
-    const rawClean = (row.rawMaterialName || row.rawMaterialCode || 'RM')
+    const rawClean = (row.rawMaterialName || row.rmName || row.rawMaterialCode || 'RM')
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '')
       .slice(0, 16);
-    const reqQty = Number(row.requiredQty || row.takenQty || 10);
+    const reqQty = Number(row.requiredQty || row.takenQty || row.qty || 10);
 
     const today = new Date();
     const dd = String(today.getDate()).padStart(2, '0');
@@ -582,14 +664,14 @@ export default function ProductionFloorCockpitModal({
       unitRate: Number(row.unitRate || 54)
     });
 
+    const rmId = row.rawMaterialId || row.rmId;
     try {
       const [batchesRes, metaRes] = await Promise.all([
-        api.get(`/production/rm-batches/${row.rawMaterialId}`).catch(() => ({ data: [] })),
-        api.get(`/production/rm-batch-meta/${row.rawMaterialId}?rmName=${encodeURIComponent(row.rawMaterialName || '')}`).catch(() => null)
+        rmId ? api.get(`/production/rm-batches/${rmId}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+        rmId ? api.get(`/production/rm-batch-meta/${rmId}?rmName=${encodeURIComponent(row.rawMaterialName || row.rmName || '')}`).catch(() => null) : Promise.resolve(null)
       ]);
 
       const lots = Array.isArray(batchesRes.data) ? [...batchesRes.data] : [];
-      // Ensure all row.allocatedBatches are represented in lots list
       if (Array.isArray(row.allocatedBatches)) {
         row.allocatedBatches.forEach(ab => {
           const abId = ab.batchId || ab.lotNumber || ab.internalBatchNo;
@@ -634,6 +716,21 @@ export default function ProductionFloorCockpitModal({
       setAvailableLots([]);
     } finally {
       setLoadingLots(false);
+    }
+  };
+
+  const openLotModal = async (rowIndex) => {
+    setActiveLotTarget({ type: 'STEP_1', rowIndex });
+    setActiveLotRowIndex(rowIndex);
+    await initLotModalForRow(rmRows[rowIndex]);
+  };
+
+  const openProductRmLotModal = async (allocIndex, prmIndex) => {
+    setActiveLotTarget({ type: 'PRODUCT_RM', allocIndex, prmIndex });
+    setActiveLotRowIndex(allocIndex);
+    const prm = allocations[allocIndex]?.productRms?.[prmIndex];
+    if (prm) {
+      await initLotModalForRow(prm);
     }
   };
 
@@ -763,7 +860,9 @@ export default function ProductionFloorCockpitModal({
 
   const handleSaveLotAllocations = async () => {
     if (activeLotRowIndex === null) return;
-    const row = rmRows[activeLotRowIndex];
+    const row = activeLotTarget?.type === 'PRODUCT_RM' 
+      ? allocations[activeLotTarget.allocIndex]?.productRms?.[activeLotTarget.prmIndex]
+      : rmRows[activeLotRowIndex];
 
     const allocatedBatches = [];
     let totalAllocQty = 0;
@@ -784,7 +883,7 @@ export default function ProductionFloorCockpitModal({
 
       totalAllocQty += qty;
 
-      let unitRate = Number(lot.unitCost || lot.rate || row.unitRate || 0);
+      let unitRate = Number(lot.unitCost || lot.rate || row?.unitRate || 0);
       // Fetch live rate from purchase API if available
       try {
         const rateRes = await api.get(`/purchase/live-rate?batchId=${lot.id}&allocatedQty=${qty}`).catch(() => null);
@@ -810,8 +909,40 @@ export default function ProductionFloorCockpitModal({
         remainingQty: Number(Math.max(0, Number(lot.availableQty || lot.netQty || 0) - qty).toFixed(3)),
         unitRate,
         allocatedAmount: lotAmount,
-        uom: row.uom
+        uom: row?.uom || 'kg'
       });
+    }
+
+    if (activeLotTarget?.type === 'PRODUCT_RM') {
+      const { allocIndex, prmIndex } = activeLotTarget;
+      setAllocations(prev => {
+        const copy = [...prev];
+        const targetAlloc = { ...copy[allocIndex] };
+        const prms = [...(targetAlloc.productRms || [])];
+        const targetPrm = { ...prms[prmIndex] };
+        targetPrm.allocatedBatches = allocatedBatches;
+        if (allocatedBatches.length > 0) {
+          targetPrm.lotBatchNo = allocatedBatches.map(b => b.lotNumber).join(', ');
+          targetPrm.takenQty = totalAllocQty;
+          targetPrm.qty = totalAllocQty;
+          if (weightedAmountSum > 0 && totalAllocQty > 0) {
+            targetPrm.unitRate = Number((weightedAmountSum / totalAllocQty).toFixed(4));
+            targetPrm.totalCost = Number(weightedAmountSum.toFixed(2));
+          }
+        }
+        prms[prmIndex] = targetPrm;
+        targetAlloc.productRms = prms;
+        copy[allocIndex] = targetAlloc;
+        return copy;
+      });
+      setLotModalOpen(false);
+      Swal.fire({
+        title: 'Batches Allocated!',
+        text: `Allocated ${totalAllocQty} ${row?.uom || 'ml'} across ${allocatedBatches.length} lot(s). Live PO blended rate: ₹${(weightedAmountSum / (totalAllocQty || 1)).toFixed(2)}/unit.`,
+        icon: 'success',
+        timer: 1600
+      });
+      return;
     }
 
     const updatedRows = [...rmRows];
@@ -873,6 +1004,65 @@ export default function ProductionFloorCockpitModal({
 
   // Callback when user multi-selects raw materials from ProductionItemSearchModal
   const handleAddSelectedRMsFromModal = (selectedMaterials) => {
+    if (targetAllocIndex !== null) {
+      // Adding product-specific flavours / essences / packaging to this allocation
+      const newPrms = selectedMaterials.map(rm => {
+        const isPackaging = isPackagingMaterial(rm);
+        const cleanUom = formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, isPackaging ? 'pcs' : 'ml', rm);
+        const uomLower = cleanUom.toLowerCase();
+        const initialQty = isPackaging ? 1 : (uomLower.includes('ml') ? 1000 : 1);
+        const unitRate = Number(rm.ratePerUnit || 0);
+
+        return {
+          rmId: rm.id,
+          rawMaterialId: rm.id,
+          rmName: rm.printName || rm.name,
+          rawMaterialName: rm.printName || rm.name,
+          rmCode: rm.code || 'RM',
+          rawMaterialCode: rm.code || 'RM',
+          uom: cleanUom,
+          density: Number(rm.density_g_per_ml || rm.density || 1.0),
+          takenQty: initialQty,
+          qty: initialQty,
+          addToMix: !isPackaging,
+          unitRate: unitRate,
+          totalCost: Number((unitRate * initialQty).toFixed(2)),
+          allocatedBatches: rm.availableBatches?.length > 0 ? [
+            {
+              batchId: rm.availableBatches[0].id,
+              lotNumber: rm.availableBatches[0].batchNo,
+              internalBatchNo: rm.availableBatches[0].batchNo,
+              allocatedQty: initialQty,
+              remainingQty: rm.availableBatches[0].remainingQty,
+              expiryDate: rm.availableBatches[0].expiryDate,
+              unitRate: unitRate,
+              allocatedAmount: Number((initialQty * unitRate).toFixed(2)),
+              uom: cleanUom
+            }
+          ] : []
+        };
+      });
+
+      setAllocations(prev => {
+        const copy = [...prev];
+        const target = { ...copy[targetAllocIndex] };
+        target.productRms = [...(target.productRms || []), ...newPrms];
+        copy[targetAllocIndex] = target;
+        return copy;
+      });
+
+      setItemSearchOpen(false);
+      setTargetAllocIndex(null);
+
+      Swal.fire({
+        title: 'Product Ingredients Added!',
+        text: `Added ${newPrms.length} item(s). Liquid ingredients marked 'Add to Mix' automatically add to the product mix volume; packaging items remain at 0 ml mix.`,
+        icon: 'success',
+        timer: 1600
+      });
+      return;
+    }
+
     const newRows = selectedMaterials.map(rm => ({
       rawMaterialId: rm.id,
       rawMaterialName: rm.printName || rm.name,
@@ -912,11 +1102,61 @@ export default function ProductionFloorCockpitModal({
     }));
 
     setRmRows(prev => [...prev, ...newRows]);
+    setItemSearchOpen(false);
     Swal.fire({
       title: 'Materials Added',
       text: `Added ${newRows.length} raw material(s) with live DB UOMs and batch allocations.`,
       icon: 'success',
       timer: 1500
+    });
+  };
+
+  const handleUpdateProductBaseMl = (index, value) => {
+    setAllocations(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], allocatedBaseMl: value, mixUsedMl: value };
+      return copy;
+    });
+  };
+
+  const handleAllocateRemainingMix = (index) => {
+    const effectiveTotal = availableMixMl > 0 ? availableMixMl : (liveEvaporationResult.mixAfterEvapMl || liveEvaporationResult.totalBeforeEvapMl || 0);
+    const otherUsed = allocations.reduce((sum, a, i) => i === index ? sum : sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
+    const rem = Math.max(0, effectiveTotal - otherUsed);
+    setAllocations(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], allocatedBaseMl: rem, mixUsedMl: rem };
+      return copy;
+    });
+  };
+
+  const handleRemoveProductRm = (allocIndex, prmIndex) => {
+    setAllocations(prev => {
+      const copy = [...prev];
+      const target = { ...copy[allocIndex] };
+      target.productRms = (target.productRms || []).filter((_, i) => i !== prmIndex);
+      copy[allocIndex] = target;
+      return copy;
+    });
+  };
+
+  const handleUpdateProductRm = (allocIndex, prmIndex, field, value) => {
+    setAllocations(prev => {
+      const copy = [...prev];
+      const target = { ...copy[allocIndex] };
+      const prms = [...(target.productRms || [])];
+      const current = { ...prms[prmIndex], [field]: value };
+      if (field === 'takenQty' || field === 'unitRate' || field === 'qty') {
+        const qty = Number(field === 'unitRate' ? (current.takenQty ?? current.qty ?? 0) : value);
+        const rate = Number(field === 'unitRate' ? value : current.unitRate || 0);
+        current.takenQty = qty;
+        current.qty = qty;
+        current.totalCost = Number((qty * rate).toFixed(2));
+      }
+      prms[prmIndex] = current;
+      target.productRms = prms;
+      copy[allocIndex] = target;
+      return copy;
     });
   };
 
@@ -1042,10 +1282,10 @@ export default function ProductionFloorCockpitModal({
 
     // Gating check for Step 4: Product mould allocation configured
     if (targetStep >= 4 && activeStep === 3) {
-      if (allocations.length === 0 || !allocations.some(a => Number(a.trays || 0) > 0)) {
+      if (allocations.length === 0) {
         Swal.fire({
           title: 'Step 3 Allocations Incomplete',
-          text: 'Please configure at least one finished product mould with trays > 0 before proceeding to Quality & Yield.',
+          text: 'Please configure at least one finished product before proceeding to Factory Stages.',
           icon: 'warning'
         });
         return;
@@ -1059,16 +1299,24 @@ export default function ProductionFloorCockpitModal({
           allocations: validAllocations.map(a => ({
             seq: a.seq,
             productId: a.productId,
+            productName: a.productName,
+            productCode: a.productCode,
+            productUom: a.productUom,
             useMould: a.useMould !== false,
+            bulkUom: a.bulkUom || a.productUom || 'L',
+            allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
             mouldId: a.mouldId || null,
+            mouldCode: a.mouldCode || '',
+            mouldName: a.mouldName || '',
             capacityMl: Number(a.capacityMl || 0),
-            cavities: Number(a.cavities || 0),
+            cavities: Number(a.cavities || 1),
             trays: Number(a.trays || 0),
             wasteMode: a.wasteMode || 'PERCENT',
             wasteValue: Number(a.wasteValue ?? 2),
-            mixUsedMl: Number(a.mixUsedMl || 0),
+            mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
             wasteMl: Number(a.wasteMl || 0),
-            goodPieces: Number(a.goodPieces || 0)
+            goodPieces: Number(a.goodPieces || 0),
+            productRms: Array.isArray(a.productRms) ? a.productRms : []
           }))
         });
         if (onBatchUpdated) onBatchUpdated();
@@ -1076,6 +1324,18 @@ export default function ProductionFloorCockpitModal({
         console.warn('Auto-save step 3 allocations failed:', err);
       } finally {
         setSavingAllocations(false);
+      }
+    }
+
+    // Gating check for Step 5: Factory stages
+    if (targetStep >= 5 && activeStep === 4) {
+      try {
+        setSavingStages(true);
+        await api.put(`/production/standard/${batchId}/stages`, { timelineStages });
+      } catch (err) {
+        console.warn('Auto-save step 4 stages failed:', err);
+      } finally {
+        setSavingStages(false);
       }
     }
 
@@ -1305,23 +1565,35 @@ export default function ProductionFloorCockpitModal({
 
     try {
       setSavingAllocations(true);
+      const validAllocations = allocations.filter(a => a.productId);
       await api.put(`/production/standard/${batchId}/allocations`, {
-        allocations: allocations.map(a => ({
+        allocations: validAllocations.map(a => ({
           seq: a.seq,
           productId: a.productId,
-          useMould: a.useMould,
-          mouldId: a.mouldId,
-          capacityMl: a.capacityMl,
-          cavities: a.cavities,
-          trays: a.trays,
-          wasteMode: a.wasteMode,
-          wasteValue: a.wasteValue
+          productName: a.productName,
+          productCode: a.productCode,
+          productUom: a.productUom || a.uom || 'pcs',
+          useMould: a.useMould !== false,
+          bulkUom: a.bulkUom || a.productUom || 'L',
+          allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+          mouldId: a.mouldId || null,
+          mouldCode: a.mouldCode || '',
+          mouldName: a.mouldName || '',
+          capacityMl: Number(a.capacityMl || 0),
+          cavities: Number(a.cavities || 1),
+          trays: Number(a.trays || 0),
+          wasteMode: a.wasteMode || 'PERCENT',
+          wasteValue: Number(a.wasteValue ?? 2),
+          mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+          wasteMl: Number(a.wasteMl || 0),
+          goodPieces: Number(a.goodPieces || 0),
+          productRms: Array.isArray(a.productRms) ? a.productRms : []
         }))
       });
 
       Swal.fire({
         title: 'Allocations Saved!',
-        text: 'Finished product mould allocations saved atomically.',
+        text: 'Finished product allocations and specific raw materials saved atomically.',
         icon: 'success',
         timer: 1800
       });
@@ -1459,18 +1731,92 @@ export default function ProductionFloorCockpitModal({
   };
 
   // ── YIELD RECORDING & COMPLETION ──
+  const handleOpenYieldModal = () => {
+    const allocs = liveAllocationsResult.allocations || [];
+    const existingYields = Array.isArray(productYields) ? productYields : [];
+
+    if (allocs.length === 0 && batch?.product) {
+      const prodUom = formatCleanUom(batch.product.consumptionUnit || batch.product.unit || 'pcs', 'pcs', batch.product);
+      const match = existingYields.find(y => y.productId === (batch.product.id || batch.productId));
+      setProductYields([
+        {
+          seq: 1,
+          productId: batch.product.id || batch.productId,
+          productName: batch.product.name || 'Finished Product',
+          productCode: batch.product.code || 'FP',
+          uom: prodUom,
+          planned: match?.planned ?? (batch.quantity || 2000),
+          calculatedYield: Number(match?.calculatedYield ?? actualYieldPieces ?? 2000),
+          actualGoodOutput: Number(match?.actualGoodOutput ?? actualYieldPieces ?? 2000),
+          rejectOutput: Number(match?.rejectOutput ?? 0)
+        }
+      ]);
+    } else {
+      setProductYields(allocs.map((a, i) => {
+        const uom = a.productUom || a.bulkUom || a.uom || 'pcs';
+        const calcYield = Number(a.goodPieces ?? a.goodUnits ?? 0);
+        const plannedYield = Number(a.plannedQty || calcYield || (batch?.quantity ? Math.round(batch.quantity / (allocs.length || 1)) : 2000));
+        const match = existingYields.find(y => y.productId === a.productId || y.seq === (a.seq || (i + 1)));
+        return {
+          seq: a.seq || (i + 1),
+          productId: a.productId,
+          productName: a.productName,
+          productCode: a.productCode,
+          uom,
+          planned: match?.planned ?? plannedYield,
+          calculatedYield: match?.calculatedYield ?? calcYield,
+          actualGoodOutput: match?.actualGoodOutput !== undefined ? Number(match.actualGoodOutput) : (calcYield > 0 ? calcYield : plannedYield),
+          rejectOutput: match?.rejectOutput !== undefined ? Number(match.rejectOutput) : 0
+        };
+      }));
+    }
+    setShowYieldModal(true);
+  };
+
+  const handleUpdateProductYield = (index, field, value) => {
+    setProductYields(prev => {
+      const copy = Array.isArray(prev) ? [...prev] : [];
+      if (!copy[index]) return copy;
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
   const handleCompleteBatchSubmit = async () => {
-    const pieces = Number(actualYieldPieces);
-    if (isNaN(pieces) || pieces <= 0) {
-      Swal.fire({ title: 'Invalid Yield', text: 'Please enter a valid good output pieces count greater than 0.', icon: 'warning' });
+    const yieldsList = Array.isArray(productYields) ? productYields : [];
+    const totalActual = yieldsList.length > 0
+      ? yieldsList.reduce((s, p) => s + Number(p.actualGoodOutput || 0), 0)
+      : Number(actualYieldPieces || 0);
+
+    if (totalActual <= 0 && yieldsList.every(p => Number(p.actualGoodOutput || 0) <= 0)) {
+      Swal.fire({ title: 'Invalid Yield', text: 'Please enter a valid good output count greater than 0.', icon: 'warning' });
       return;
     }
 
     try {
       setCompleting(true);
       const res = await api.post(`/production/standard/${batchId}/complete`, {
-        actualOutput: pieces,
-        remarks: completionNotes,
+        actualOutput: totalActual,
+        productOutputs: yieldsList.map(p => ({
+          productId: p.productId,
+          productName: p.productName,
+          actualOutput: Number(p.actualGoodOutput || 0),
+          actualGoodOutput: Number(p.actualGoodOutput || 0),
+          rejectOutput: Number(p.rejectOutput || 0),
+          uom: p.uom
+        })),
+        productYields: yieldsList.map(p => ({
+          seq: p.seq,
+          productId: p.productId,
+          productName: p.productName,
+          productCode: p.productCode,
+          uom: p.uom,
+          planned: Number(p.planned || 0),
+          calculatedYield: Number(p.calculatedYield || 0),
+          actualGoodOutput: Number(p.actualGoodOutput || 0),
+          rejectOutput: Number(p.rejectOutput || 0)
+        })),
+        notes: completionNotes,
         labTestRequired,
         subBatches: completedSubBatches
       });
@@ -1493,7 +1839,7 @@ export default function ProductionFloorCockpitModal({
         html: `
           <div style="text-align: left; font-size: 13px; line-height: 1.6;">
             <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
-            <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${pieces} pcs</span></p>
+            <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${totalActual} items</span></p>
             <p><strong>Lab Test Status:</strong> <span style="font-weight: bold; color: ${labTestRequired ? '#d97706' : '#047857'};">${labTestRequired ? 'Sent to QC Quarantine' : 'Directly added to Available Sellable Stock'}</span></p>
             ${restoreHtml}
           </div>
@@ -1578,18 +1924,20 @@ export default function ProductionFloorCockpitModal({
                 <Layers className="w-3.5 h-3.5" />
                 <span>Floor Steps</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('REPORT')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  viewMode === 'REPORT'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Clean Report</span>
-              </button>
+              {isCompleted && (
+                <button
+                  type="button"
+                  onClick={() => setViewMode('REPORT')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === 'REPORT'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Clean Report</span>
+                </button>
+              )}
             </div>
 
             {/* Reopen Batch Button (when Completed) */}
@@ -1632,15 +1980,21 @@ export default function ProductionFloorCockpitModal({
               )
             )}
 
-            {/* Complete & Record Actual Yield Button */}
+            {/* Finalize Entire Production Button (Only active after entering Step 5) */}
             {!isCompleted && (
               <Button
                 size="sm"
-                onClick={() => setShowYieldModal(true)}
-                className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-3 text-xs shadow-xs cursor-pointer flex items-center gap-1.5"
+                disabled={activeStep < 5 || actionLoading}
+                onClick={handleOpenYieldModal}
+                className={`rounded-xl font-bold h-8 px-3 text-xs shadow-xs flex items-center gap-1.5 transition-all ${
+                  activeStep === 5 
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400/50 shadow-sm' 
+                    : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60'
+                }`}
+                title={activeStep === 5 ? "Record Actual Yield & Finalize Entire Production" : "Advance through Step 5 Quality & Costing to finalize entire production"}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Complete &amp; Finalize Yield</span>
+                <span>{activeStep === 5 ? 'Finalize Entire Production' : 'Finalize Production (Step 5)'}</span>
               </Button>
             )}
 
@@ -1658,30 +2012,37 @@ export default function ProductionFloorCockpitModal({
               </Button>
             )}
 
-            {/* GS1 Barcode Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                Swal.fire({
-                  title: 'GS1 Barcode Ready',
-                  html: `
-                    <div style="text-align: left; font-size: 13px; line-height: 1.6;">
-                      <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
-                      <p><strong>Product:</strong> ${batch?.product?.name || allocations[0]?.productName || 'Ice Cream Goods'}</p>
-                      <p><strong>GS1 (01) GTIN:</strong> 08901234567890</p>
-                      <p><strong>GS1 (10) Batch:</strong> ${batch?.referenceNo || batch?.batchNo || 'LOT-2026'}</p>
-                      <p><strong>GS1 (17) Expiry:</strong> 271031</p>
-                    </div>
-                  `,
-                  icon: 'info'
-                });
-              }}
-              className="rounded-xl border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 h-8 px-2.5 text-xs font-bold"
-            >
-              <Printer className="w-3.5 h-3.5 mr-1 text-slate-400" />
-              <span>GS1 Label</span>
-            </Button>
+            {/* GST / GS1 Barcode Button (Only available once production is completed) */}
+            {isCompleted && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const primaryProduct = batch?.product || allocations[0];
+                  const sellingPrice = Number(primaryProduct?.salePrice || primaryProduct?.ratePerUnit || batch?.salePrice || 0);
+                  const mfdDisplay = batch?.completeDate ? new Date(batch.completeDate).toISOString().split('T')[0] : (batch?.startDate ? new Date(batch.startDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+                  Swal.fire({
+                    title: 'GST Compliance & GS1 Barcode Ready',
+                    html: `
+                      <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+                        <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
+                        <p><strong>Product:</strong> ${primaryProduct?.name || primaryProduct?.productName || 'Ice Cream Goods'}</p>
+                        <p><strong>MFD (Production Date):</strong> <span style="font-family: monospace; font-weight: bold;">${mfdDisplay}</span></p>
+                        <p><strong>MRP / Selling Price:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">₹${sellingPrice > 0 ? sellingPrice.toFixed(2) : '150.00'}</span></p>
+                        <p><strong>GS1 (01) GTIN:</strong> 08901234567890</p>
+                        <p><strong>GS1 (10) Batch:</strong> ${batch?.referenceNo || batch?.batchNo || 'LOT-2026'}</p>
+                      </div>
+                    `,
+                    icon: 'success'
+                  });
+                }}
+                className="rounded-xl border-indigo-500/50 bg-indigo-950/40 text-indigo-300 hover:text-white hover:bg-indigo-900/60 h-8 px-2.5 text-xs font-bold cursor-pointer flex items-center"
+                title="Print GST Compliance & GS1 Product Label"
+              >
+                <Printer className="w-3.5 h-3.5 mr-1 text-indigo-400" />
+                <span>GST Label</span>
+              </Button>
+            )}
 
             {/* Fullscreen Toggle */}
             <Button
@@ -1745,7 +2106,7 @@ export default function ProductionFloorCockpitModal({
           </div>
         </div>
 
-        {/* ── 4-STEP GUIDED FLOOR WORKFLOW RIBBON (ADVANCE STEP-BY-STEP PROCESS) ── */}
+        {/* ── 5-STEP GUIDED FLOOR WORKFLOW RIBBON (ADVANCE STEP-BY-STEP PROCESS) ── */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-2.5 bg-slate-900 border-b border-slate-800 overflow-x-auto gap-2 no-scrollbar select-none">
           {[
             { 
@@ -1766,18 +2127,26 @@ export default function ProductionFloorCockpitModal({
             },
             { 
               id: 3, 
-              title: 'Step 3: Mould Allocation', 
-              desc: 'Pieces & Cavity Yield', 
+              title: 'Step 3: Finished Products & Allocations', 
+              desc: 'Sequential Chaining & Essences', 
               icon: Box, 
               isDone: step3Ready,
               badge: `${allocations.length} products` 
             },
             { 
               id: 4, 
-              title: 'Step 4: Quality & Yield', 
-              desc: 'Actual Completion & Costing', 
+              title: 'Step 4: Factory Stages', 
+              desc: 'Timeline & Process Sequence', 
+              icon: Layers, 
+              isDone: timelineStages.length > 0,
+              badge: `${timelineStages.length} stages` 
+            },
+            { 
+              id: 5, 
+              title: 'Step 5: Quality, Costing & Yield', 
+              desc: 'Actual Completion & Finalization', 
               icon: ShieldCheck, 
-              isDone: step4Ready,
+              isDone: isCompleted,
               badge: `${actualYieldPieces} pcs` 
             }
           ].map((s) => {
@@ -1829,8 +2198,9 @@ export default function ProductionFloorCockpitModal({
             <span className="font-semibold">
               {activeStep === 1 && 'Step 1: Allocate warehouse batch lots, reserve inventory stock, and confirm taken quantities for production.'}
               {activeStep === 2 && 'Step 2: Slide to merge raw materials into a single liquid volume (ml), specify process stage, and apply evaporation % mass loss.'}
-              {activeStep === 3 && 'Step 3: Assign finished products to the evaporated mix, select ice cream moulds, and compute cavity & tray piece yields.'}
-              {activeStep === 4 && 'Step 4: Audit role-protected production costing, confirm actual completed pieces, and finalize floor run.'}
+              {activeStep === 3 && 'Step 3: Assign multiple finished products to the evaporated mix, allocate base mix volume, add product-specific essences/flavours with lots, and configure moulds or bulk storage.'}
+              {activeStep === 4 && 'Step 4: Factory stages palette & Timeline sequence. Click stage chip to add/remove • Click any stage to configure temperature & duration • Drag & drop to reorder.'}
+              {activeStep === 5 && 'Step 5: Review multi-product allocation economics, calculate wastage costs, record actual completed pieces per product, and finalize floor run.'}
             </span>
           </div>
 
@@ -1848,15 +2218,15 @@ export default function ProductionFloorCockpitModal({
               </Button>
             )}
 
-            {activeStep < 4 && (
+            {activeStep < 5 && (
               <Button
                 type="button"
                 size="sm"
-                disabled={savingProcess || savingAllocations}
+                disabled={savingProcess || savingAllocations || savingStages}
                 onClick={() => handleStepClick(activeStep + 1)}
                 className="h-7 px-3 text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 shadow-xs disabled:opacity-60 cursor-pointer"
               >
-                {savingProcess || savingAllocations ? (
+                {(savingProcess || savingAllocations || savingStages) ? (
                   <RefreshCw className="w-3 h-3 animate-spin" />
                 ) : null}
                 <span>Proceed to Step {activeStep + 1}</span>
@@ -2193,11 +2563,14 @@ export default function ProductionFloorCockpitModal({
                           <select
                             value={mergeStage}
                             onChange={(e) => setMergeStage(e.target.value)}
-                            className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500"
+                            className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 cursor-pointer"
                           >
-                            <option value="Before freezing">Before freezing</option>
-                            <option value="Before heating">Before heating</option>
-                            <option value="Other">Other Stage</option>
+                            <option value="After heating">After heating</option>
+                            <option value="After freezing">After freezing</option>
+                            <option value="Other Method">Other Method</option>
+                            {mergeStage && !['After heating', 'After freezing', 'Other Method'].includes(mergeStage) && (
+                              <option value={mergeStage}>{mergeStage}</option>
+                            )}
                           </select>
                         </div>
 
@@ -2427,60 +2800,24 @@ export default function ProductionFloorCockpitModal({
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
-              {/* ══════════════════════════════════════════════════════════════════════════
-                  STEP 3: FINISHED PRODUCTS / MOULD ALLOCATIONS (REPEATABLE & SEQUENTIAL)
+                  STEP 3: FINISHED PRODUCTS & MOULD ALLOCATIONS (SEQUENTIAL CHAINING)
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 3 ? 'block' : 'hidden'} space-y-4`}>
                 
-                {/* Factory Stages Palette & Timeline Sequence */}
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-4 space-y-3 shadow-xs">
-                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
-                        <Layers className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                          Factory stages palette &amp; Timeline sequence
-                        </h3>
-                        <p className="text-[11px] text-slate-500">
-                          Click stage chip to add/remove • Click any stage to configure temperature &amp; duration • Drag &amp; drop to reorder
-                        </p>
-                      </div>
-                    </div>
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={savingStages}
-                      onClick={handleSaveFactoryStages}
-                      className="h-8 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1.5"
-                    >
-                      {savingStages ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                      <span>Save Timeline Sequence</span>
-                    </Button>
-                  </div>
-
-                  <StandardFactoryStagesPalette
-                    stages={timelineStages}
-                    onChangeStages={setTimelineStages}
-                    isEditable={!isCompleted}
-                    stepNumber={3}
-                  />
-                </div>
-
+                {/* Section Header & Mix Available Summary KPIs */}
                 <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden">
                   <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-7 h-7 rounded-lg bg-purple-600 text-white text-xs font-bold flex items-center justify-center shadow-xs">
                         3
                       </span>
                       <div>
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
                           Finished Products &amp; Mould Allocations (Sequential Chaining)
                         </h3>
-                        <p className="text-[11px] text-slate-500">
-                          Total mix available: <strong className="font-mono text-purple-600 dark:text-purple-400">{formatIndian(availableMixMl)} ml</strong>
+                        <p className="text-[11.5px] text-slate-500">
+                          Total mix available: <strong className="font-mono text-purple-600 dark:text-purple-400 font-extrabold">{formatIndian(availableMixMl)} ml</strong>
+                          <span className="text-slate-400 font-normal"> ≈ {formatIndian(round2(availableMixMl / 1000))} Litres (Mix After Evaporation)</span>
                         </p>
                       </div>
                     </div>
@@ -2513,70 +2850,194 @@ export default function ProductionFloorCockpitModal({
                     </div>
                   </div>
 
-                  {/* Progress bar showing Mix Consumption */}
-                  <div className="px-5 py-2.5 bg-slate-100/50 dark:bg-slate-800/20 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center justify-between text-[11px] font-bold mb-1">
-                      <span className="text-slate-600 dark:text-slate-400">
-                        Mix Utilization: {formatIndian(liveAllocationsResult.totalMixUsedMl)} / {formatIndian(availableMixMl)} ml
-                      </span>
-                      <span className={liveAllocationsResult.remainingMixMl < 0 ? 'text-rose-600 font-black' : 'text-emerald-600 font-black'}>
-                        {liveAllocationsResult.remainingMixMl < 0 ? `Deficit: ${formatIndian(Math.abs(liveAllocationsResult.remainingMixMl))} ml` : `Remaining: ${formatIndian(liveAllocationsResult.remainingMixMl)} ml`}
+                  {/* Top KPI Metrics Tiles */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50/50 dark:bg-slate-800/20 border-b border-slate-200 dark:border-slate-800">
+                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Mix Available</span>
+                      <strong className="text-base font-mono font-black text-purple-600 dark:text-purple-400 block mt-0.5">
+                        {formatIndian(availableMixMl, 2)} ml
+                      </strong>
+                      <span className="text-[10px] text-slate-500 font-mono">≈ {(availableMixMl / 1000).toFixed(2)} Litres</span>
+                    </div>
+
+                    {canViewCost ? (
+                      <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Base Mix Cost (Spent)</span>
+                        <strong className="text-base font-mono font-black text-slate-900 dark:text-white block mt-0.5">
+                          ₹{formatIndian(round2(totalBaseMixCost))}
+                        </strong>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-semibold">₹{baseCostPerMl.toFixed(4)} / ml</span>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Allocated Products</span>
+                        <strong className="text-base font-mono font-black text-slate-900 dark:text-white block mt-0.5">
+                          {allocations.length} Products
+                        </strong>
+                        <span className="text-[10px] text-slate-500 font-mono">Sequential Chaining</span>
+                      </div>
+                    )}
+
+                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Base Mix Allocated</span>
+                      <strong className="text-base font-mono font-black text-indigo-600 dark:text-indigo-400 block mt-0.5">
+                        {formatIndian(totalAllocatedBaseMl, 2)} ml
+                      </strong>
+                      <span className="text-[10px] text-slate-500 font-mono">≈ {(totalAllocatedBaseMl / 1000).toFixed(2)} Litres</span>
+                    </div>
+
+                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Remaining to Allocate</span>
+                      <strong className={`text-base font-mono font-black block mt-0.5 ${unallocatedRemainingMl > 0 ? 'text-indigo-600 dark:text-indigo-400' : (unallocatedRemainingMl < 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400')}`}>
+                        {formatIndian(unallocatedRemainingMl, 2)} ml
+                      </strong>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {unallocatedRemainingMl > 0 ? 'Available for remaining products' : (unallocatedRemainingMl < 0 ? 'Exceeds available mix!' : 'Fully allocated (0.00 ml) ✓')}
                       </span>
                     </div>
-                    <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                  </div>
+
+                  {/* Global Base Mix Allocation Progress Ribbon */}
+                  <div className="px-5 py-3 bg-slate-100/70 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center justify-between text-xs font-bold mb-1.5 flex-wrap gap-2">
+                      <span className="text-slate-800 dark:text-slate-200 flex items-center gap-1.5 font-mono">
+                        <Droplets className="w-4 h-4 text-purple-600" />
+                        <span>Base Mix Allocation:</span>
+                        <strong className="text-purple-700 dark:text-purple-300 font-black">
+                          {formatIndian(totalAllocatedBaseMl, 2)} / {formatIndian(availableMixMl, 2)} ml ({availableMixMl > 0 ? Math.round((totalAllocatedBaseMl / availableMixMl) * 100) : 0}%)
+                        </strong>
+                      </span>
+                      <span className={`font-mono text-xs font-black px-2.5 py-0.5 rounded shadow-3xs ${
+                        unallocatedRemainingMl < 0 
+                          ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300' 
+                          : (unallocatedRemainingMl === 0 
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300' 
+                              : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 border border-indigo-300')
+                      }`}>
+                        {unallocatedRemainingMl < 0 
+                          ? `Deficit: ${formatIndian(Math.abs(unallocatedRemainingMl), 2)} ml` 
+                          : `Remaining to Allocate: ${formatIndian(unallocatedRemainingMl, 2)} ml`}
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-inner">
                       <div 
                         className={`h-full transition-all duration-300 ${
-                          liveAllocationsResult.remainingMixMl < 0 ? 'bg-rose-500' : 'bg-purple-600'
+                          unallocatedRemainingMl < 0 
+                            ? 'bg-rose-500' 
+                            : (unallocatedRemainingMl === 0 ? 'bg-emerald-500' : 'bg-purple-600')
                         }`}
                         style={{
-                          width: `${availableMixMl > 0 ? Math.min(100, (liveAllocationsResult.totalMixUsedMl / availableMixMl) * 100) : 0}%`
+                          width: `${availableMixMl > 0 ? Math.min(100, (totalAllocatedBaseMl / availableMixMl) * 100) : 0}%`
                         }}
                       />
                     </div>
                   </div>
 
-                  <div className="p-4 space-y-4">
-                    {liveAllocationsResult.allocations.map((alloc, idx) => {
+                  {/* Product Cards List */}
+                  <div className="p-4 space-y-5">
+                    {allocations.map((alloc, idx) => {
                       const productMatch = availableProducts.find(p => p.id === alloc.productId);
-                      const prodUom = alloc.uom || alloc.productUom || productMatch?.consumptionUnit || productMatch?.uom || 'pcs';
+                      const prodUom = alloc.productUom || alloc.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
+                      const isMould = alloc.useMould !== false;
+                      const bulkUom = alloc.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
+
+                      // Product RMs volume calculation (only items marked addToMix contribute to mix volume)
+                      const productRms = Array.isArray(alloc.productRms) ? alloc.productRms : [];
+                      const addedRmVolumeMl = productRms.reduce((sum, prm) => {
+                        const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
+                        if (!isAddToMix) return sum;
+                        const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+                        return sum + toMl(qty, prm.uom, prm.density);
+                      }, 0);
+
+                      const prevAllocatedBaseMl = allocations.slice(0, idx).reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
+                      const baseMl = Number(alloc.allocatedBaseMl || alloc.mixUsedMl || 0);
+                      const cumulativeAllocatedBaseMl = prevAllocatedBaseMl + baseMl;
+                      const availableBeforeThis = Math.max(0, availableMixMl - prevAllocatedBaseMl);
+                      const remainingAfterThis = availableMixMl - cumulativeAllocatedBaseMl;
+                      const productSharePct = availableMixMl > 0 ? ((baseMl / availableMixMl) * 100).toFixed(1) : '0.0';
+                      const cumulativeSharePct = availableMixMl > 0 ? ((cumulativeAllocatedBaseMl / availableMixMl) * 100).toFixed(1) : '0.0';
+                      const productTotalMixMl = baseMl + addedRmVolumeMl;
+
+                      // Costing distribution based on consumption level
+                      const assignedBaseCost = baseMl * baseCostPerMl;
+                      const productRmCost = productRms.reduce((sum, prm) => {
+                        const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+                        const rate = Number(prm.unitRate || 0);
+                        return sum + (Number(prm.totalCost) > 0 ? Number(prm.totalCost) : (qty * rate));
+                      }, 0);
+                      const totalProductCost = assignedBaseCost + productRmCost;
+
+                      // Calculated Good Units
+                      let goodUnits = 0;
+                      if (isMould) {
+                        goodUnits = Number(alloc.goodPieces || 0);
+                      } else {
+                        const uomLower = bulkUom.toLowerCase();
+                        let unitMl = 1000;
+                        if (uomLower.includes('gallon')) unitMl = 3785.41;
+                        else if (uomLower.includes('tub')) unitMl = 5000;
+                        else if (uomLower.includes('can')) unitMl = 20000;
+                        goodUnits = Number((productTotalMixMl / unitMl).toFixed(2));
+                      }
+
+                      const costPerUnit = goodUnits > 0 ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
 
                       return (
                         <div 
-                          key={`alloc-${alloc.seq || alloc.productId || 'alloc'}-${idx}`}
-                          className="border border-slate-200 dark:border-slate-700/80 rounded-xl p-4 bg-slate-50/50 dark:bg-slate-800/30 space-y-3 relative group"
+                          key={`alloc-card-${alloc.productId || 'alloc'}-${idx}`}
+                          className="border border-slate-200 dark:border-slate-700/80 rounded-xl p-4 bg-slate-50/60 dark:bg-slate-800/40 space-y-4 shadow-3xs"
                         >
-                          {/* Top Row: Sequence, Product Name, Mould Picker Trigger, Remove */}
-                          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-200 dark:border-slate-700/60">
-                            <div className="flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full bg-purple-700 text-white font-mono font-black text-xs flex items-center justify-center">
-                                #{alloc.seq}
+                          {/* 1. Product Header & Mode Toggle */}
+                          <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-200 dark:border-slate-700/60">
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-7 h-7 rounded-lg bg-purple-700 text-white font-mono font-black text-xs flex items-center justify-center shadow-3xs">
+                                #{alloc.seq || (idx + 1)}
                               </span>
                               <div>
-                                <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                                  {alloc.productName}
+                                <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                                  <span>{alloc.productName}</span>
+                                  <span className="font-mono text-[10.5px] px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800">
+                                    {prodUom}
+                                  </span>
                                 </h4>
                                 <span className="font-mono text-[10px] text-slate-400">
-                                  {alloc.productCode} • Unit: <strong className="text-purple-600 dark:text-purple-400 font-bold">{prodUom}</strong>
+                                  {alloc.productCode || 'FP'} • Live UOM: <strong className="text-purple-600 dark:text-purple-400">{prodUom}</strong>
                                 </span>
                               </div>
                             </div>
 
+                            {/* Mould vs Bulk Storage Selector */}
                             <div className="flex items-center gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenMouldPicker(idx)}
-                                className="h-7 px-2.5 text-xs font-bold rounded-lg border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
-                              >
-                                <Box className="w-3 h-3 text-purple-600" />
-                                <span>Choose Mould: {alloc.mouldCode || 'Pick Spec'}</span>
-                              </Button>
+                              <div className="flex items-center bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateAllocation(idx, 'useMould', true)}
+                                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                    isMould 
+                                      ? 'bg-purple-600 text-white shadow-3xs' 
+                                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                  }`}
+                                >
+                                  Mould (Pcs)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateAllocation(idx, 'useMould', false)}
+                                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
+                                    !isMould 
+                                      ? 'bg-emerald-600 text-white shadow-3xs' 
+                                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                  }`}
+                                >
+                                  Bulk Storage (L / Gallon)
+                                </button>
+                              </div>
 
                               <button
                                 type="button"
                                 onClick={() => handleRemoveProductAllocation(idx)}
-                                className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                                 title="Remove allocation line"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -2584,116 +3045,495 @@ export default function ProductionFloorCockpitModal({
                             </div>
                           </div>
 
-                          {/* Allocation Inputs Grid */}
-                          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs items-center">
-                            {/* Mould Capacity ml */}
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                Capacity (ml)
-                              </label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={alloc.capacityMl}
-                                onChange={(e) => handleUpdateAllocation(idx, 'capacityMl', parseFloat(e.target.value) || 0)}
-                                className="h-8 font-mono font-bold text-xs"
-                              />
-                            </div>
-
-                            {/* Cavities per Tray */}
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                Cavities / Tray
-                              </label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={alloc.cavities}
-                                onChange={(e) => handleUpdateAllocation(idx, 'cavities', parseInt(e.target.value, 10) || 1)}
-                                className="h-8 font-mono font-bold text-xs"
-                              />
-                            </div>
-
-                            {/* Trays Input + Fill Max Button */}
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                  Trays
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => handleFillMaxTrays(idx)}
-                                  className="text-[9.5px] font-bold text-purple-600 hover:text-purple-700 cursor-pointer underline"
-                                >
-                                  Fill Max
-                                </button>
+                          {/* 2. Product-Specific Base Mix Allocation & Remaining Indicator */}
+                          <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800/70 space-y-2.5 shadow-3xs">
+                            <div className="flex items-center justify-between text-xs font-bold flex-wrap gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-5 h-5 rounded-md bg-indigo-600 text-white font-mono text-[10px] flex items-center justify-center font-black">
+                                  #{alloc.seq || (idx + 1)}
+                                </span>
+                                <span className="text-slate-800 dark:text-slate-200 font-mono flex items-center gap-1.5">
+                                  <Droplets className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>Base Mix Allocation:</span>
+                                  <strong className="text-indigo-700 dark:text-indigo-300 font-black">
+                                    {formatIndian(baseMl, 2)} / {formatIndian(availableMixMl, 2)} ml ({productSharePct}%)
+                                  </strong>
+                                </span>
+                                {allocations.length > 1 && (
+                                  <span className="text-[10.5px] text-slate-500 font-mono hidden sm:inline">
+                                    • Cumulative: <strong>{formatIndian(cumulativeAllocatedBaseMl, 2)} ml</strong> ({cumulativeSharePct}%)
+                                  </span>
+                                )}
                               </div>
-                              <Input
-                                type="number"
-                                min="0"
-                                value={alloc.trays}
-                                onChange={(e) => {
-                                  const rawVal = e.target.value;
-                                  const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
-                                  handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
+
+                              <div>
+                                <span className={`font-mono text-xs font-black px-2.5 py-0.5 rounded shadow-3xs ${
+                                  remainingAfterThis < 0 
+                                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300' 
+                                    : (remainingAfterThis === 0 
+                                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300' 
+                                        : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-300')
+                                }`}>
+                                  {remainingAfterThis < 0 
+                                    ? `Deficit: ${formatIndian(Math.abs(remainingAfterThis), 2)} ml` 
+                                    : `Remaining to Allocate: ${formatIndian(remainingAfterThis, 2)} ml`}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Visual Multi-Segment Mix Allocation Bar */}
+                            <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative shadow-inner">
+                              {/* Prior Products Segment */}
+                              {idx > 0 && (
+                                <div 
+                                  className="h-full bg-slate-400 dark:bg-slate-500 absolute left-0 top-0 opacity-70"
+                                  style={{
+                                    width: `${availableMixMl > 0 ? Math.min(100, (prevAllocatedBaseMl / availableMixMl) * 100) : 0}%`
+                                  }}
+                                  title={`Prior products: ${formatIndian(prevAllocatedBaseMl, 2)} ml`}
+                                />
+                              )}
+                              {/* Current Product Segment */}
+                              <div 
+                                className={`h-full absolute top-0 transition-all duration-300 ${
+                                  remainingAfterThis < 0 ? 'bg-rose-500' : 'bg-indigo-600'
+                                }`}
+                                style={{
+                                  left: `${availableMixMl > 0 ? Math.min(100, (prevAllocatedBaseMl / availableMixMl) * 100) : 0}%`,
+                                  width: `${availableMixMl > 0 ? Math.min(100 - (prevAllocatedBaseMl / availableMixMl) * 100, (baseMl / availableMixMl) * 100) : 0}%`
                                 }}
-                                className="h-8 font-mono font-black text-xs border-purple-400 dark:border-purple-700 bg-white dark:bg-slate-900"
+                                title={`Product #${idx + 1} (${alloc.productName}): ${formatIndian(baseMl, 2)} ml (${productSharePct}%)`}
                               />
                             </div>
 
-                            {/* Wastage Mode */}
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                Waste Mode
-                              </label>
-                              <select
-                                value={alloc.wasteMode}
-                                onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
-                                className="w-full h-8 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold outline-none focus:border-purple-500"
+                            {/* Input Control Row */}
+                            <div className="pt-1 flex items-center justify-between flex-wrap gap-2">
+                              <div className="text-[11px] text-slate-500 font-mono">
+                                Available before this product: <strong className="text-indigo-600 dark:text-indigo-400">{formatIndian(availableBeforeThis, 2)} ml</strong>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocated Base Mix:</label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="100"
+                                    value={baseMl || ''}
+                                    onChange={(e) => handleUpdateProductBaseMl(idx, parseFloat(e.target.value) || 0)}
+                                    placeholder="0 ml"
+                                    className="h-8 w-28 font-mono font-bold text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
+                                  />
+                                  <span className="font-bold text-xs text-slate-500 font-mono">ml</span>
+                                </div>
+
+                                <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-bold px-2 py-1 bg-white dark:bg-slate-900 rounded border border-indigo-200 dark:border-indigo-800">
+                                  ≈ {(baseMl / 1000).toFixed(2)} L
+                                </span>
+
+                                {/* Allocate Remaining Mix Button */}
+                                {unallocatedRemainingMl > 0 && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleAllocateRemainingMix(idx)}
+                                    className="h-8 px-2.5 text-[11px] font-bold border-emerald-400 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                                    title="Allocate entire remaining available mix to this product"
+                                  >
+                                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                                    <span>⚡ Allocate Remaining ({formatIndian(unallocatedRemainingMl, 2)} ml)</span>
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 3. Product-Specific Raw Materials (Flavours, Essences, Pulps) */}
+                          <div className="p-3.5 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/60 space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div>
+                                <h5 className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                                  <Flame className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Product-Specific Essences, Flavours &amp; Raw Materials:</span>
+                                </h5>
+                                <p className="text-[10.5px] text-slate-500">
+                                  Ingredients &amp; packaging added to this product (e.g. Alphonso mango pulp, Almond essence, poly covers, sticks). Toggle &apos;Add to Mix&apos; to include liquid volume (ml) in the mix; leave unchecked for packing items (0 ml).
+                                </p>
+                              </div>
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setItemSearchMode('RM_MULTI');
+                                  setTargetAllocIndex(idx);
+                                  setItemSearchOpen(true);
+                                }}
+                                className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-amber-400 text-amber-800 dark:text-amber-200 bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer shadow-3xs flex items-center gap-1"
                               >
-                                <option value="PERCENT">Percentage (%)</option>
-                                <option value="FIXED_ML_PER_TRAY">Fixed ml / Tray</option>
-                              </select>
+                                <Plus className="w-3 h-3 text-amber-600" />
+                                <span>+ Add Flavour / Essence / RM</span>
+                              </Button>
                             </div>
 
-                            {/* Waste Value */}
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                {alloc.wasteMode === 'PERCENT' ? 'Waste (%)' : 'Waste ml/Tray'}
-                              </label>
-                              <Input
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                value={alloc.wasteValue}
-                                onChange={(e) => handleUpdateAllocation(idx, 'wasteValue', parseFloat(e.target.value) || 0)}
-                                className="h-8 font-mono font-bold text-xs"
-                              />
-                            </div>
+                            {productRms.length > 0 ? (
+                              <div className="overflow-x-auto border border-amber-200/80 dark:border-amber-800/60 rounded-lg bg-white dark:bg-slate-900">
+                                <table className="w-full text-left text-xs border-collapse font-sans">
+                                  <thead>
+                                    <tr className="bg-amber-50/60 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 font-bold uppercase tracking-wider text-[10px] border-b border-amber-200 dark:border-amber-800">
+                                      <th className="py-2 px-3 text-center w-24" title="Check to add liquid volume into product mix. Uncheck for packaging/stick/poly cover items.">
+                                        Add to Mix
+                                      </th>
+                                      <th className="py-2 px-3">Ingredient</th>
+                                      <th className="py-2 px-3 text-right w-24">Quantity</th>
+                                      <th className="py-2 px-3 text-center w-20">Live UOM</th>
+                                      <th className="py-2 px-3 text-right w-28" title="Liquid volume added to product mix">Added Mix (ml)</th>
+                                      <th className="py-2 px-3 min-w-[170px]">PO Batch / Lot Allocation</th>
+                                      {canViewCost && <th className="py-2 px-3 text-right w-24">PO Rate (₹)</th>}
+                                      {canViewCost && <th className="py-2 px-3 text-right w-24">Amount (₹)</th>}
+                                      <th className="py-2 px-2 text-center w-8">✕</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {productRms.map((prm, prmIdx) => {
+                                      const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
+                                      const prmVolMl = isAddToMix ? toMl(prm.takenQty ?? prm.qty ?? 0, prm.uom, prm.density) : 0;
+                                      const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
+                                      const lineCost = Number((prm.totalCost ?? (Number(prm.takenQty ?? prm.qty ?? 0) * Number(prm.unitRate || 0))).toFixed(2));
 
-                            {/* Mix Needed this line */}
-                            <div className="bg-purple-100/60 dark:bg-purple-950/40 p-2 rounded-lg border border-purple-200 dark:border-purple-800">
-                              <div className="text-[10px] font-bold text-purple-800 dark:text-purple-300 uppercase">
-                                Mix Required
+                                      return (
+                                        <tr key={`prm-${prm.rawMaterialId || prm.rmId || prmIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                          <td className="py-2 px-3 text-center">
+                                            <label className="inline-flex items-center gap-1.5 cursor-pointer select-none" title={isAddToMix ? "Liquid ingredient: Added to product mix volume" : "Packing item: Not added to mix volume"}>
+                                              <input
+                                                type="checkbox"
+                                                checked={isAddToMix}
+                                                onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'addToMix', e.target.checked)}
+                                                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                                              />
+                                              <span className={`text-[10px] font-bold ${isAddToMix ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400'}`}>
+                                                {isAddToMix ? '+Mix' : 'Packing'}
+                                              </span>
+                                            </label>
+                                          </td>
+                                          <td className="py-2 px-3">
+                                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                              <span>{prm.rawMaterialName || prm.rmName || 'Essence'}</span>
+                                              {!isAddToMix && (
+                                                <span className="text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.2 rounded border border-slate-300 dark:border-slate-700">
+                                                  Packing
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="font-mono text-[9.5px] text-slate-400">
+                                              {prm.rawMaterialCode || prm.rmCode || 'RM'}
+                                            </div>
+                                          </td>
+                                          <td className="py-2 px-3 text-right">
+                                            <Input
+                                              type="number"
+                                              step="any"
+                                              value={prm.takenQty ?? prm.qty ?? ''}
+                                              onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'takenQty', parseFloat(e.target.value) || 0)}
+                                              className="h-7 w-20 text-right font-mono text-xs px-1.5 ml-auto border-amber-300 dark:border-amber-700"
+                                            />
+                                          </td>
+                                          <td className="py-2 px-3 text-center">
+                                            <span className="font-mono font-bold bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded text-[10.5px] text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                                              {prm.uom || 'ml'}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-3 text-right font-mono font-black">
+                                            {isAddToMix ? (
+                                              <span className="text-amber-700 dark:text-amber-400">
+                                                +{formatIndian(prmVolMl)} ml
+                                              </span>
+                                            ) : (
+                                              <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 inline-block font-sans" title="Packing item — Not added to liquid mix">
+                                                0 ml (Packing)
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-3">
+                                            {hasBatches ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => openProductRmLotModal(idx, prmIdx)}
+                                                className="px-2 py-0.5 rounded border border-blue-300 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300 font-mono text-[10px] text-left transition-all cursor-pointer shadow-3xs flex items-center gap-1"
+                                                title="Edit allocated lots"
+                                              >
+                                                <Boxes className="w-3 h-3 text-blue-600" />
+                                                <span className="font-bold">
+                                                  {prm.allocatedBatches.length === 1 
+                                                    ? `#${prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo}` 
+                                                    : `${prm.allocatedBatches.length} Lots`}
+                                                </span>
+                                              </button>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => openProductRmLotModal(idx, prmIdx)}
+                                                className="px-2 py-0.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[10px] cursor-pointer flex items-center gap-1"
+                                                title="Allocate lot from warehouse"
+                                              >
+                                                <Plus className="w-2.5 h-2.5 text-amber-600" />
+                                                <span>Allocate Lot</span>
+                                              </button>
+                                            )}
+                                          </td>
+                                          {canViewCost && (
+                                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                                              ₹{prm.unitRate || 0}
+                                            </td>
+                                          )}
+                                          {canViewCost && (
+                                            <td className="py-2 px-3 text-right font-mono font-black text-emerald-600">
+                                              ₹{formatIndian(lineCost)}
+                                            </td>
+                                          )}
+                                          <td className="py-2 px-2 text-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveProductRm(idx, prmIdx)}
+                                              className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                              title="Remove essence"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               </div>
-                              <div className="text-sm font-mono font-black text-purple-950 dark:text-purple-200">
-                                {formatIndian(alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0)} ml
+                            ) : (
+                              <div className="text-center py-2 text-[11px] text-slate-400 italic">
+                                No specific flavour or essence added yet. Base mix will be processed directly.
                               </div>
-                              <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400 font-bold">
-                                Good: {alloc.goodPieces ?? 0} {prodUom}
-                              </div>
+                            )}
+
+                            {/* Net Total Mix Volume for this product */}
+                            <div className="flex items-center justify-between text-xs pt-1 font-bold">
+                              <span className="text-slate-600 dark:text-slate-400">
+                                Product Net Liquid Mix (Base + Essences):
+                              </span>
+                              <span className="font-mono text-purple-700 dark:text-purple-300 font-black text-sm">
+                                {formatIndian(baseMl)} ml + {formatIndian(addedRmVolumeMl)} ml = {formatIndian(productTotalMixMl)} ml ({((productTotalMixMl) / 1000).toFixed(2)} L)
+                              </span>
                             </div>
                           </div>
 
-                          {/* Line Status Tag */}
-                          <div className="flex items-center justify-between text-[11px] pt-1 text-slate-500">
-                            <span>
-                              Mould Spec: <strong className="text-slate-800 dark:text-slate-200">{alloc.mouldName || 'Standard Ice Cream Mould'}</strong>
-                            </span>
-                            <span className="font-mono">
-                              Remaining mix after this product: <strong className={(alloc.mixRemainingAfterMl ?? alloc.mixLeftAfterThisProduct ?? 0) < 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{formatIndian(alloc.mixRemainingAfterMl ?? alloc.mixLeftAfterThisProduct ?? 0)} ml</strong>
-                            </span>
-                          </div>
+                          {/* 4. Output Specification (Mould vs Bulk Storage) */}
+                          {isMould ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                  Ice Cream Mould Specification &amp; Cavity Yield:
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenMouldPicker(idx)}
+                                  className="h-7 px-2.5 text-xs font-bold rounded-lg border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                                >
+                                  <Box className="w-3 h-3 text-purple-600" />
+                                  <span>Choose Mould: {alloc.mouldCode || 'Pick Spec'}</span>
+                                </Button>
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs items-center bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Capacity (ml)
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={alloc.capacityMl}
+                                    onChange={(e) => handleUpdateAllocation(idx, 'capacityMl', parseFloat(e.target.value) || 0)}
+                                    className="h-8 font-mono font-bold text-xs"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Cavities / Tray
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={alloc.cavities}
+                                    onChange={(e) => handleUpdateAllocation(idx, 'cavities', parseInt(e.target.value, 10) || 1)}
+                                    className="h-8 font-mono font-bold text-xs"
+                                  />
+                                </div>
+
+                                <div>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                      Trays
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleFillMaxTrays(idx)}
+                                      className="text-[9.5px] font-bold text-purple-600 hover:text-purple-700 cursor-pointer underline"
+                                    >
+                                      Fill Max
+                                    </button>
+                                  </div>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={alloc.trays}
+                                    onChange={(e) => {
+                                      const rawVal = e.target.value;
+                                      const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
+                                      handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
+                                    }}
+                                    className="h-8 font-mono font-black text-xs border-purple-400 dark:border-purple-700 bg-white dark:bg-slate-900"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Waste Mode
+                                  </label>
+                                  <select
+                                    value={alloc.wasteMode}
+                                    onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
+                                    className="w-full h-8 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold outline-none focus:border-purple-500"
+                                  >
+                                    <option value="PERCENT">Percentage (%)</option>
+                                    <option value="FIXED_ML_PER_TRAY">Fixed ml / Tray</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    {alloc.wasteMode === 'PERCENT' ? 'Waste (%)' : 'Waste ml/Tray'}
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    value={alloc.wasteValue}
+                                    onChange={(e) => handleUpdateAllocation(idx, 'wasteValue', parseFloat(e.target.value) || 0)}
+                                    className="h-8 font-mono font-bold text-xs"
+                                  />
+                                </div>
+
+                                <div className="bg-purple-100/60 dark:bg-purple-950/40 p-2 rounded-lg border border-purple-200 dark:border-purple-800">
+                                  <div className="text-[10px] font-bold text-purple-800 dark:text-purple-300 uppercase">
+                                    Mould Pieces Yield
+                                  </div>
+                                  <div className="text-base font-mono font-black text-purple-950 dark:text-purple-200">
+                                    {alloc.goodPieces ?? 0} {prodUom}
+                                  </div>
+                                  <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400 font-semibold">
+                                    Mix: {formatIndian(alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0)} ml
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-3.5 bg-emerald-50/40 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-2">
+                              <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wider block">
+                                Direct Bulk Storage (Liters, Gallons &amp; Tubs):
+                              </span>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-center bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Select Bulk Storage Unit
+                                  </label>
+                                  <select
+                                    value={bulkUom}
+                                    onChange={(e) => handleUpdateAllocation(idx, 'bulkUom', e.target.value)}
+                                    className="w-full h-8 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-bold outline-none focus:border-emerald-500 cursor-pointer"
+                                  >
+                                    <option value="Liter">Liter (1,000 ml)</option>
+                                    <option value="Gallon">Gallon (3,785 ml)</option>
+                                    <option value="Tub (5L)">Tub (5 Litres)</option>
+                                    <option value="Can (20L)">Can (20 Litres)</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Available Liquid Mix
+                                  </label>
+                                  <div className="font-mono font-bold text-slate-800 dark:text-slate-200 h-8 flex items-center">
+                                    {formatIndian(productTotalMixMl)} ml ({((productTotalMixMl) / 1000).toFixed(2)} L)
+                                  </div>
+                                </div>
+
+                                <div className="bg-emerald-100/60 dark:bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                                  <div className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 uppercase">
+                                    Calculated Bulk Yield
+                                  </div>
+                                  <div className="text-base font-mono font-black text-emerald-950 dark:text-emerald-200">
+                                    {goodUnits} {bulkUom}
+                                  </div>
+                                  <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold">
+                                    Direct to sellable stock
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 5. Role-Protected Consumption-Based Costing Distribution Card (Admin & Supervisor Only) */}
+                          {canViewCost && (
+                            <div className="p-3.5 bg-slate-900 text-white rounded-xl border border-slate-800 space-y-2 select-none">
+                              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
+                                <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                                  <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Consumption-Based Cost Distribution (PO Rate):</span>
+                                </div>
+                                <span className="text-[9.5px] font-mono text-emerald-400 bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded">
+                                  AUDITED UNIT ECONOMICS
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                                <div className="bg-slate-800/80 p-2 rounded-lg border border-slate-700/80">
+                                  <span className="text-[10px] text-slate-400 block">Base Mix Cost:</span>
+                                  <strong className="text-sm font-mono font-black text-indigo-300 block mt-0.5">
+                                    ₹{formatIndian(round2(assignedBaseCost))}
+                                  </strong>
+                                  <span className="text-[9.5px] text-slate-400 font-mono">From PO ({formatIndian(baseMl)} ml)</span>
+                                </div>
+
+                                <div className="bg-slate-800/80 p-2 rounded-lg border border-slate-700/80">
+                                  <span className="text-[10px] text-slate-400 block">Product Essences Cost:</span>
+                                  <strong className="text-sm font-mono font-black text-amber-300 block mt-0.5">
+                                    ₹{formatIndian(round2(productRmCost))}
+                                  </strong>
+                                  <span className="text-[9.5px] text-slate-400 font-mono">{productRms.length} added ingredients</span>
+                                </div>
+
+                                <div className="bg-slate-800/80 p-2 rounded-lg border border-slate-700/80">
+                                  <span className="text-[10px] text-slate-400 block">Total Product Cost:</span>
+                                  <strong className="text-sm font-mono font-black text-emerald-300 block mt-0.5">
+                                    ₹{formatIndian(round2(totalProductCost))}
+                                  </strong>
+                                  <span className="text-[9.5px] text-slate-400 font-mono">Assigned Material Cost</span>
+                                </div>
+
+                                <div className="bg-emerald-950/80 p-2 rounded-lg border border-emerald-700/80">
+                                  <span className="text-[10px] text-emerald-300 block">Cost / Unit:</span>
+                                  <strong className="text-base font-mono font-black text-white block mt-0.5">
+                                    ₹{costPerUnit} / {isMould ? prodUom : bulkUom}
+                                  </strong>
+                                  <span className="text-[9.5px] text-emerald-400 font-mono">Good: {goodUnits} {isMould ? prodUom : bulkUom}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                         </div>
                       );
                     })}
@@ -2705,7 +3545,7 @@ export default function ProductionFloorCockpitModal({
                           No finished products added to mould allocations yet
                         </p>
                         <p className="text-xs">
-                          Click <strong>+ Add Finished Product</strong> to allocate portions of the evaporated mix to specific moulds.
+                          Click <strong>+ Add Finished Product</strong> to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).
                         </p>
                         <Button
                           type="button"
@@ -2743,112 +3583,258 @@ export default function ProductionFloorCockpitModal({
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
                   >
                     {savingAllocations ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                    <span>Proceed to Step 4: Quality, Costing &amp; Yield</span>
+                    <span>Proceed to Step 4: Factory Stages Palette &amp; Timeline</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
-                  STEP 4: QUALITY, FINANCIAL COSTING & YIELD COMPLETION
+                  STEP 4: FACTORY STAGES PALETTE & TIMELINE SEQUENCE
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 4 ? 'block' : 'hidden'} space-y-4`}>
                 
-                {/* 1. Sub-Run Active Header Banner */}
-                <div className="bg-slate-900 text-white rounded-xl p-4 border border-indigo-700/60 shadow-md flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center font-black text-sm text-white shrink-0">
-                      {currentSubRunLetter}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-extrabold text-sm text-white">
-                          Production Batch #{batch?.referenceNo || batch?.batchNo || 'PROD0001'} — Sub-Run {currentSubRunLetter}
-                        </h4>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold">
-                          ACTIVE SUB-RUN
-                        </span>
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-5 space-y-4 shadow-xs">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                        <Layers className="w-4 h-4" />
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Product: <strong className="text-white">{allocations[0]?.productName || 'Finished Goods'}</strong> • Mix Allocated: <strong className="font-mono text-indigo-400">{formatIndian(liveAllocationsResult.totalMixUsedMl)} ml</strong> • Remaining Mix: <strong className="font-mono text-emerald-400">{formatIndian(liveAllocationsResult.remainingMixMl)} ml</strong>
-                      </p>
+                      <div>
+                        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                          Factory stages palette &amp; Timeline sequence
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Click stage chip to add/remove • Click any stage to configure temperature &amp; duration • Drag &amp; drop to reorder
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2">
                     <Button
                       type="button"
                       size="sm"
-                      onClick={handleRecordSubRunAndAddAnother}
-                      className="h-8 px-3 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer shadow-xs flex items-center gap-1.5"
+                      disabled={savingStages}
+                      onClick={handleSaveFactoryStages}
+                      className="h-8 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1.5"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Complete Sub-Run {currentSubRunLetter} &amp; Add Another End Product</span>
+                      {savingStages ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>Save Timeline Sequence</span>
                     </Button>
                   </div>
+
+                  <StandardFactoryStagesPalette
+                    stages={timelineStages}
+                    onChangeStages={setTimelineStages}
+                    isEditable={!isCompleted}
+                    stepNumber={4}
+                  />
                 </div>
 
-                {/* 2. Completed Sub-Batches History Ledger (If Any Completed) */}
-                {completedSubBatches.length > 0 && (
-                  <Card className="border border-emerald-300 dark:border-emerald-800 rounded-xl p-4 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Completed End Product Sub-Runs:</span>
-                      </h4>
-                      <span className="text-[11px] font-mono text-slate-500">
-                        Total Good Pieces: <strong className="text-emerald-600 dark:text-emerald-400 font-black">{completedSubBatches.reduce((s, b) => s + b.pieces, 0) + Number(actualYieldPieces)} pcs</strong>
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
-                      {completedSubBatches.map((sub, sIdx) => (
-                        <div key={`sub-run-${sub.subCode}-${sIdx}`} className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
-                              <span className="w-4 h-4 rounded-full bg-emerald-600 text-white font-mono text-[9px] flex items-center justify-center font-bold">
-                                {sub.subCode}
-                              </span>
-                              <span>{sub.subBatchNumber}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-500">{sub.productName} • {sub.mould}</div>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                              {sub.pieces} pcs
-                            </span>
-                            <div className="text-[9.5px] text-slate-400 font-mono">{formatIndian(sub.mixUsedMl)} ml mix</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                )}
+                {/* Bottom Step 4 Action Ribbon */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setActiveStep(3)}
+                    className="text-xs font-bold h-9 px-3.5 rounded-xl flex items-center gap-1.5"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Step 3 (Products &amp; Allocations)</span>
+                  </Button>
 
-                {/* 3. Remaining Mix Status or Insufficient Mix Notification */}
-                {liveAllocationsResult.remainingMixMl <= 50 ? (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl text-xs flex items-center gap-2 text-amber-900 dark:text-amber-200">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span><strong>Insufficient Mix Remaining:</strong> Remaining mix is {formatIndian(liveAllocationsResult.remainingMixMl)} ml. Raw material volume has been fully converted into products. Click <strong>Finalize Entire Production</strong> below.</span>
-                  </div>
-                ) : (
-                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs flex items-center justify-between text-indigo-900 dark:text-indigo-200">
+                  <Button
+                    type="button"
+                    disabled={savingStages}
+                    onClick={() => handleStepClick(5)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
+                  >
+                    <span>Proceed to Step 5: Quality, Costing &amp; Yield</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* ══════════════════════════════════════════════════════════════════════════
+                  STEP 5: QUALITY, FINANCIAL COSTING & YIELD COMPLETION
+              ══════════════════════════════════════════════════════════════════════════ */}
+              <div className={`${activeStep === 5 ? 'block' : 'hidden'} space-y-4`}>
+                
+                {/* 1. Products Chained From Batch Mix Review Summary */}
+                <Card className="border border-purple-200 dark:border-purple-800/60 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden p-5 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
-                      <span><strong>Mix Remaining in this Production:</strong> <strong className="font-mono text-emerald-600">{formatIndian(liveAllocationsResult.remainingMixMl)} ml</strong> liquid volume available for next product moulding.</span>
+                      <span className="w-7 h-7 rounded-lg bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
+                        5
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                          Multi-Product Output &amp; Yield Summary
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          All finished products chained from base mix ({formatIndian(availableMixMl)} ml)
+                        </p>
+                      </div>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleRecordSubRunAndAddAnother}
-                      className="h-7 px-3 text-[11px] font-bold border-indigo-300 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100"
-                    >
-                      + Add Next Product
-                    </Button>
-                  </div>
-                )}
 
-                {/* 4. QA Lab Testing Requirement Status Card */}
+                    <div className="flex items-center gap-2">
+                      {isCompleted && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setViewMode('REPORT')}
+                          className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>View Clean Report</span>
+                        </Button>
+                      )}
+
+                      {!isCompleted && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleOpenYieldModal}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 rounded-lg"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Record Actual Yield &amp; Finalize Batch</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Summary Table */}
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2.5 px-3">Seq</th>
+                          <th className="py-2.5 px-3">Product Name</th>
+                          <th className="py-2.5 px-3 text-center">Live UOM</th>
+                          <th className="py-2.5 px-3 text-right">Base Mix (ml)</th>
+                          <th className="py-2.5 px-3 text-right">Added RM Mix (ml)</th>
+                          <th className="py-2.5 px-3 text-right">Total Mix (ml)</th>
+                          <th className="py-2.5 px-3 text-right">Good Output</th>
+                          {canViewCost && <th className="py-2.5 px-3 text-right">Base Cost (₹)</th>}
+                          {canViewCost && <th className="py-2.5 px-3 text-right">Added RM Cost (₹)</th>}
+                          {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost (₹)</th>}
+                          {canViewCost && <th className="py-2.5 px-3 text-right text-emerald-600 font-bold">Cost/Unit (₹)</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {liveAllocationsResult.allocations.map((a, aIdx) => {
+                          const productMatch = availableProducts.find(p => p.id === a.productId);
+                          const prodUom = a.productUom || a.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
+                          const isM = a.useMould !== false;
+                          const bUom = a.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
+
+                          const prms = Array.isArray(a.productRms) ? a.productRms : [];
+                          const addedMl = prms.reduce((s, r) => {
+                            const isAddToMix = r.addToMix !== undefined ? Boolean(r.addToMix) : !isPackagingMaterial(r);
+                            if (!isAddToMix) return s;
+                            return s + toMl(r.takenQty ?? r.qty ?? 0, r.uom, r.density);
+                          }, 0);
+                          const bMl = Number(a.allocatedBaseMl || a.mixUsedMl || 0);
+                          const totMl = bMl + addedMl;
+
+                          const assignedBase = bMl * baseCostPerMl;
+                          const assignedRm = prms.reduce((s, r) => s + (Number(r.totalCost) > 0 ? Number(r.totalCost) : (Number(r.takenQty ?? r.qty ?? 0) * Number(r.unitRate || 0))), 0);
+                          const totProdCost = assignedBase + assignedRm;
+
+                          let outQty = 0;
+                          if (isM) {
+                            outQty = a.goodPieces || 0;
+                          } else {
+                            const uLower = bUom.toLowerCase();
+                            let cap = 1000;
+                            if (uLower.includes('gallon')) cap = 3785.41;
+                            else if (uLower.includes('tub')) cap = 5000;
+                            else if (uLower.includes('can')) cap = 20000;
+                            outQty = Number((totMl / cap).toFixed(2));
+                          }
+                          const unitC = outQty > 0 ? Number((totProdCost / outQty).toFixed(2)) : 0;
+
+                          return (
+                            <tr key={`step5-row-${a.seq || aIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                              <td className="py-2 px-3 font-mono text-slate-500">#{a.seq}</td>
+                              <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">
+                                <div>{a.productName}</div>
+                                <div className="font-mono text-[9.5px] text-slate-400">{a.productCode} • {isM ? `Mould: ${a.mouldCode || 'Standard'}` : `Bulk: ${bUom}`}</div>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10.5px]">
+                                  {isM ? prodUom : bUom}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono">{formatIndian(bMl)} ml</td>
+                              <td className="py-2 px-3 text-right font-mono text-amber-600">+{formatIndian(addedMl)} ml</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-purple-700 dark:text-purple-300">{formatIndian(totMl)} ml</td>
+                              <td className="py-2 px-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                {outQty} {isM ? prodUom : bUom}
+                              </td>
+                              {canViewCost && <td className="py-2 px-3 text-right font-mono">₹{formatIndian(round2(assignedBase))}</td>}
+                              {canViewCost && <td className="py-2 px-3 text-right font-mono">₹{formatIndian(round2(assignedRm))}</td>}
+                              {canViewCost && <td className="py-2 px-3 text-right font-mono font-bold">₹{formatIndian(round2(totProdCost))}</td>}
+                              {canViewCost && <td className="py-2 px-3 text-right font-mono font-black text-emerald-600">₹{unitC}</td>}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+
+                {/* 2. Wastage & Loss Accounting Card */}
+                <Card className="border border-rose-200 dark:border-rose-900/60 shadow-xs bg-rose-50/40 dark:bg-rose-950/20 rounded-xl overflow-hidden p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-rose-950 dark:text-rose-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <TrendingDown className="w-4 h-4 text-rose-600" />
+                      <span>Production Wastage &amp; Unallocated Mix Loss Accounting:</span>
+                    </h4>
+                    <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-300 dark:border-rose-800">
+                      WASTAGE EXPENSE
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40">
+                      <span className="text-[10px] text-slate-500 block uppercase font-bold">Process Mould Wastage</span>
+                      <strong className="text-base font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
+                        {formatIndian(totalProcessWasteMl)} ml
+                      </strong>
+                      <span className="text-[9.5px] text-slate-400 font-mono">Spill &amp; tray loss</span>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40">
+                      <span className="text-[10px] text-slate-500 block uppercase font-bold">Unallocated Remaining Mix</span>
+                      <strong className="text-base font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
+                        {formatIndian(unallocatedRemainingMl)} ml
+                      </strong>
+                      <span className="text-[9.5px] text-rose-600 font-medium">Auto-moved to Wastage</span>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40">
+                      <span className="text-[10px] text-slate-500 block uppercase font-bold">Total Wastage Volume</span>
+                      <strong className="text-base font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
+                        {formatIndian(totalWastageMl)} ml
+                      </strong>
+                      <span className="text-[9.5px] text-slate-400 font-mono">≈ {(totalWastageMl / 1000).toFixed(2)} Litres</span>
+                    </div>
+
+                    {canViewCost && (
+                      <div className="bg-rose-900/30 p-3 rounded-lg border border-rose-400 dark:border-rose-800">
+                        <span className="text-[10px] text-rose-700 dark:text-rose-300 block uppercase font-bold">Wastage Financial Loss</span>
+                        <strong className="text-base font-mono font-black text-rose-600 dark:text-rose-400 block mt-0.5">
+                          ₹{formatIndian(round2(totalWastageCost))}
+                        </strong>
+                        <span className="text-[9.5px] text-slate-400 font-mono">At ₹{baseCostPerMl.toFixed(4)}/ml</span>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+
+                {/* 3. QA Lab Testing Requirement Status Card */}
                 <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
                   labTestRequired 
                     ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800' 
@@ -2870,7 +3856,7 @@ export default function ProductionFloorCockpitModal({
                       <p className="text-[11px] text-slate-500 mt-0.5">
                         {labTestRequired 
                           ? 'Finished goods will be routed to QC Quarantine queue for microbiological sampling and clearance.' 
-                          : 'Micro biological clearance is waived: finished goods automatically added to Available Sellable Inventory upon completion.'}
+                          : 'Microbiological clearance is waived: finished goods automatically added to Available Sellable Inventory upon completion.'}
                       </p>
                     </div>
                   </div>
@@ -2886,143 +3872,7 @@ export default function ProductionFloorCockpitModal({
                   </Button>
                 </div>
 
-                {/* 5. Final Yield & Batch Finalization Card */}
-                <Card className="border border-emerald-300 dark:border-emerald-800 shadow-xs bg-emerald-50/40 dark:bg-emerald-950/20 rounded-xl overflow-hidden p-5">
-                  <div className="flex items-center justify-between pb-3 border-b border-emerald-200 dark:border-emerald-800/60 mb-4 flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">
-                        4
-                      </span>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                        Actual Output &amp; Yield Verification (Sub-Run {currentSubRunLetter})
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setViewMode('REPORT')}
-                        className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5"
-                      >
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>View Executive Clean Report</span>
-                      </Button>
-
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => setShowYieldModal(true)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 rounded-lg"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Finalize Entire Production</span>
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Planned Output</div>
-                      <div className="text-lg font-mono font-black text-slate-900 dark:text-white mt-1">
-                        {batch?.quantity || 2000} pcs
-                      </div>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase">Calculated Mould Yield</div>
-                        {liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0) > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setActualYieldPieces(liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0))}
-                            className="text-[9.5px] font-bold text-purple-600 hover:text-purple-700 underline cursor-pointer"
-                            title="Copy mould yield to actual good recorded"
-                          >
-                            Sync to Actual
-                          </button>
-                        )}
-                      </div>
-                      <div className="text-lg font-mono font-black text-purple-600 dark:text-purple-400 mt-1">
-                        {liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0)} pcs
-                      </div>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase">Actual Good Recorded</div>
-                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">Editable</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <Input
-                          type="number"
-                          min="0"
-                          value={actualYieldPieces}
-                          onChange={(e) => setActualYieldPieces(parseFloat(e.target.value) || 0)}
-                          className="h-8 font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/20"
-                        />
-                        <span className="text-xs font-bold text-slate-500">pcs</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase">Yield Efficiency</div>
-                      <div className="text-lg font-mono font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                        {(() => {
-                          const mouldPieces = liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0);
-                          const target = mouldPieces > 0 ? mouldPieces : (batch?.quantity || 2000);
-                          return target > 0 ? `${round2((actualYieldPieces / target) * 100)}%` : '100%';
-                        })()}
-                      </div>
-                      <div className="text-[9.5px] text-slate-400 mt-0.5">
-                        vs Planned: {round2((actualYieldPieces / (batch?.quantity || 2000)) * 100)}%
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Multi-Product Chained Output Breakdown */}
-                  {liveAllocationsResult.allocations?.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-emerald-200/60 dark:border-emerald-800/60 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                          Finished Products Chained From Batch Mix:
-                        </h4>
-                        <span className="text-[10px] text-slate-500 font-medium">
-                          Total mix allocated: {formatIndian(liveAllocationsResult.totalMixUsedMl)} ml
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {liveAllocationsResult.allocations.map((a, aIdx) => (
-                          <div key={`step4-prod-${a.seq || aIdx}`} className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
-                            <div>
-                              <div className="flex items-center gap-1.5 font-extrabold text-slate-900 dark:text-white">
-                                <span className="w-5 h-5 rounded-full bg-purple-700 text-white font-mono text-[10px] flex items-center justify-center font-black">
-                                  #{a.seq}
-                                </span>
-                                <span>{a.productName}</span>
-                              </div>
-                              <div className="text-[10.5px] text-slate-400 mt-0.5">
-                                Mould: {a.mouldCode || 'SG-8112'} • {a.trays} trays ({a.cavities || 42} cav × {a.capacityMl || 50}ml)
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <span className="font-mono font-black text-sm text-purple-600 dark:text-purple-400">
-                                {a.goodPieces} pcs
-                              </span>
-                              <div className="text-[10px] text-slate-400 font-mono">
-                                {formatIndian(a.mixUsedMl)} ml mix
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </Card>
-
-                {/* 2. Role-Protected Batch Costing (Admin & Supervisor Only) */}
+                {/* 4. Role-Protected Batch Costing (Admin & Supervisor Only) */}
                 {canViewCost && costingData && (
                   <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-slate-900 text-white rounded-xl overflow-hidden">
                     <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
@@ -3038,7 +3888,6 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="p-5 space-y-5">
-                      {/* Top Financial KPI Metrics */}
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                         <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
                           <div className="text-[10.5px] font-bold uppercase text-slate-400">Total Material Cost</div>
@@ -3065,63 +3914,26 @@ export default function ProductionFloorCockpitModal({
                           <div className="text-lg font-mono font-black text-emerald-300 mt-0.5">₹{costingData.totalProductionCost}</div>
                         </div>
                       </div>
-
-                      {/* Per-Product Cost Attribution Table */}
-                      {costingData.productCostAttribution?.length > 0 && (
-                        <div className="mt-4 border-t border-slate-800 pt-4">
-                          <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                            Finished Product Cost Attribution (Per-Piece Unit Economics)
-                          </h4>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse font-mono">
-                              <thead>
-                                <tr className="text-slate-400 text-[10px] border-b border-slate-800">
-                                  <th className="py-1.5 px-2">Seq</th>
-                                  <th className="py-1.5 px-2 font-sans font-bold">Product Name</th>
-                                  <th className="py-1.5 px-2 text-right">Good Pieces</th>
-                                  <th className="py-1.5 px-2 text-right">Assigned RM</th>
-                                  <th className="py-1.5 px-2 text-right">Assigned Labour</th>
-                                  <th className="py-1.5 px-2 text-right">Total Assigned</th>
-                                  <th className="py-1.5 px-2 text-right text-emerald-400 font-bold">Cost / Piece</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-800/60">
-                                {costingData.productCostAttribution.map((a, aIdx) => (
-                                  <tr key={`cost-attr-${a.seq || a.productId || 'attr'}-${aIdx}`} className="hover:bg-slate-800/40">
-                                    <td className="py-2 px-2 text-slate-500">#{a.seq}</td>
-                                    <td className="py-2 px-2 font-sans font-bold text-white">{a.productName}</td>
-                                    <td className="py-2 px-2 text-right">{a.goodPieces} pcs</td>
-                                    <td className="py-2 px-2 text-right">₹{a.assignedRmCost}</td>
-                                    <td className="py-2 px-2 text-right">₹{a.assignedLabourCost}</td>
-                                    <td className="py-2 px-2 text-right font-bold">₹{a.totalAssignedCost}</td>
-                                    <td className="py-2 px-2 text-right text-emerald-400 font-black">₹{a.costPerPiece}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </Card>
                 )}
 
-                {/* Bottom Step 4 Action Ribbon */}
+                {/* Bottom Step 5 Action Ribbon */}
                 <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setActiveStep(3)}
+                    onClick={() => setActiveStep(4)}
                     className="text-xs font-bold h-9 px-3.5 rounded-xl flex items-center gap-1.5"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to Step 3 (Mould Allocations)</span>
+                    <span>Back to Step 4 (Factory Stages)</span>
                   </Button>
 
                   <Button
                     type="button"
-                    onClick={() => setShowYieldModal(true)}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm"
+                    onClick={handleOpenYieldModal}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>Record Actual Yield &amp; Finalize Batch</span>
@@ -3162,7 +3974,7 @@ export default function ProductionFloorCockpitModal({
                 <Layers className="w-3.5 h-3.5" />
                 <span>Return to Floor Run Steps</span>
               </Button>
-            ) : (
+            ) : isCompleted ? (
               <Button
                 type="button"
                 variant="outline"
@@ -3173,13 +3985,13 @@ export default function ProductionFloorCockpitModal({
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>View Clean Report</span>
               </Button>
-            )}
+            ) : null}
 
             {!isCompleted && (
               <Button
                 type="button"
                 size="sm"
-                onClick={() => setShowYieldModal(true)}
+                onClick={handleOpenYieldModal}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -3191,301 +4003,315 @@ export default function ProductionFloorCockpitModal({
 
       </div>
 
-      {/* ── COCKPIT LOT ALLOCATION MODAL (Identical to /production/standard/add) ── */}
-      {lotModalOpen && activeLotRowIndex !== null && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh]">
-            
-            {/* Modal Header */}
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">
-                  <Boxes className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-sm text-white">
-                    Allocate Warehouse Batches: {rmRows[activeLotRowIndex]?.rawMaterialName}
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Live UOM: <strong className="text-indigo-400">{rmRows[activeLotRowIndex]?.uom}</strong> • Required: <strong className="font-mono text-white">{rmRows[activeLotRowIndex]?.requiredQty || rmRows[activeLotRowIndex]?.takenQty} {rmRows[activeLotRowIndex]?.uom}</strong>
-                  </p>
-                </div>
-              </div>
+      {/* ── COCKPIT LOT ALLOCATION MODAL (Supports Step 1 Base RMs & Step 3 Product-Specific RMs) ── */}
+      {lotModalOpen && (activeLotRowIndex !== null || activeLotTarget !== null) && (() => {
+        const isProductRm = activeLotTarget?.type === 'PRODUCT_RM';
+        const targetItem = isProductRm
+          ? allocations[activeLotTarget.allocIndex]?.productRms?.[activeLotTarget.prmIndex]
+          : rmRows[activeLotRowIndex];
+        const itemName = targetItem?.rawMaterialName || targetItem?.rmName || targetItem?.name || 'Raw Material';
+        const itemUom = formatCleanUom(targetItem?.uom, 'kg', targetItem);
+        const itemReq = Number(targetItem?.requiredQty ?? targetItem?.takenQty ?? targetItem?.qty ?? 10);
 
-              <button
-                type="button"
-                onClick={() => setLotModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        return (
+          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
+            <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh]">
+              
+              {/* Modal Header */}
+              <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">
+                    <Boxes className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-white">
+                      Allocate Warehouse Batches: {itemName}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Live UOM: <strong className="text-indigo-400">{itemUom}</strong> • Required: <strong className="font-mono text-white">{itemReq} {itemUom}</strong>
+                      {isProductRm && <span className="ml-2 text-amber-400 font-semibold">• Product Flavour Addition</span>}
+                    </p>
+                  </div>
+                </div>
 
-            {/* Sub-header Actions */}
-            <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <Button
+                <button
                   type="button"
-                  size="sm"
-                  onClick={handleAutoAllocateFEFO}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-7 px-3 text-[11px] rounded-lg shadow-xs flex items-center gap-1.5"
+                  onClick={() => setLotModalOpen(false)}
+                  className="text-slate-400 hover:text-white p-1"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Auto-Allocate (FEFO)</span>
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowManualLotForm(prev => !prev)}
-                  className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  <span>{showManualLotForm ? 'Hide Manual Batch' : '+ Add Continuing Batch'}</span>
-                </Button>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-slate-500 font-medium">Search Lots:</span>
-                <Input
-                  type="text"
-                  placeholder="Filter by batch or PO..."
-                  value={lotSearchTerm}
-                  onChange={(e) => setLotSearchTerm(e.target.value)}
-                  className="h-7 w-48 text-xs font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Collapsible Manual Lot Form */}
-            {showManualLotForm && (
-              <div className="p-4 bg-amber-50/60 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800 space-y-3">
-                <div className="font-bold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Continuing / Manual Warehouse Lot</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Batch Number</label>
-                    <Input
-                      value={manualLotForm.internalBatchNo}
-                      onChange={(e) => setManualLotForm(prev => ({ ...prev, internalBatchNo: e.target.value }))}
-                      className="h-7 font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">PO Reference</label>
-                    <Input
-                      value={manualLotForm.poNumber}
-                      onChange={(e) => setManualLotForm(prev => ({ ...prev, poNumber: e.target.value }))}
-                      className="h-7 font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Available Qty</label>
-                    <Input
-                      type="number"
-                      value={manualLotForm.availableQty}
-                      onChange={(e) => setManualLotForm(prev => ({ ...prev, availableQty: parseFloat(e.target.value) || 0 }))}
-                      className="h-7 font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Unit Rate (PO Amount ₹)</label>
-                    <Input
-                      type="number"
-                      value={manualLotForm.unitRate}
-                      onChange={(e) => setManualLotForm(prev => ({ ...prev, unitRate: parseFloat(e.target.value) || 0 }))}
-                      className="h-7 font-mono text-xs"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end">
+              {/* Sub-header Actions */}
+              <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs">
+                <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     size="sm"
-                    onClick={handleAddManualLot}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-7 px-3 text-xs"
+                    onClick={handleAutoAllocateFEFO}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-7 px-3 text-[11px] rounded-lg shadow-xs flex items-center gap-1.5"
                   >
-                    Insert Continuing Lot
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Auto-Allocate (FEFO)</span>
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowManualLotForm(prev => !prev)}
+                    className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    <span>{showManualLotForm ? 'Hide Manual Batch' : '+ Add Continuing Batch'}</span>
                   </Button>
                 </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 font-medium">Search Lots:</span>
+                  <Input
+                    type="text"
+                    placeholder="Filter by batch or PO..."
+                    value={lotSearchTerm}
+                    onChange={(e) => setLotSearchTerm(e.target.value)}
+                    className="h-7 w-48 text-xs font-mono"
+                  />
+                </div>
               </div>
-            )}
 
-            {/* Lots Table */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {loadingLots ? (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                  <RefreshCw className="w-6 h-6 animate-spin mb-2 text-indigo-600" />
-                  <p className="text-xs">Fetching live inventory lots...</p>
-                </div>
-              ) : availableLots.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 space-y-2">
-                  <Boxes className="w-8 h-8 mx-auto text-slate-300" />
-                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No warehouse lots on record for this material</p>
-                  <p className="text-[11px]">Use <strong>+ Add Continuing Batch</strong> above to create an allocation lot.</p>
-                </div>
-              ) : (
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-700">
-                        <th className="py-2 px-3">Batch Number</th>
-                        <th className="py-2 px-3">PO Number</th>
-                        <th className="py-2 px-3">GRN Ref</th>
-                        <th className="py-2 px-3">Supplier Batch</th>
-                        <th className="py-2 px-3 text-right">Available Stock</th>
-                        <th className="py-2 px-3 text-center">Expiry Date</th>
-                        <th className="py-2 px-3 text-right">PO Rate (₹)</th>
-                        <th className="py-2 px-3 text-right w-36">Allocate Qty</th>
-                        <th className="py-2 px-3 text-right">Line Amount (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {availableLots
-                        .filter(l => {
-                          if (!lotSearchTerm.trim()) return true;
-                          const q = lotSearchTerm.toLowerCase();
-                          return (l.internalBatchNo || l.batchNumber || '').toLowerCase().includes(q) ||
-                                 (l.poNumber || '').toLowerCase().includes(q);
-                        })
-                        .map((lot, lIdx) => {
-                          const lotId = lot.id || lot.internalBatchNo || `lot-${lIdx}`;
-                          const avail = Number(lot.availableQty || lot.netQty || 0);
-                          const currentAlloc = Number(lotAllocations[lotId] ?? lotAllocations[lot.internalBatchNo] ?? 0);
-                          const rate = Number(lot.unitCost || lot.rate || lot.unitRate || rmRows[activeLotRowIndex]?.unitRate || 54);
-                          const lineAmt = Number((currentAlloc * rate).toFixed(2));
-
-                          return (
-                            <tr key={`lot-${lotId}-${lIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                              <td className="py-2 px-3 font-mono font-bold text-indigo-700 dark:text-indigo-400">
-                                {lot.internalBatchNo || lot.batchNumber || `#${String(lotId).slice(-4)}`}
-                              </td>
-                              <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-300">
-                                {lot.poNumber || 'PO-MANUAL-OVERRIDE'}
-                              </td>
-                              <td className="py-2 px-3 font-mono text-slate-500">
-                                {lot.grnNumber || lot.grnRef || 'GRN-MANUAL-OVERRIDE'}
-                              </td>
-                              <td className="py-2 px-3 font-mono text-slate-500">
-                                {lot.supplierBatchNo || 'SUP-LOT-01'}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
-                                {avail} {rmRows[activeLotRowIndex]?.uom}
-                              </td>
-                              <td className="py-2 px-3 text-center font-mono text-slate-500">
-                                {formatDateDMY(lot.expiryDate)}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
-                                ₹{rate}
-                              </td>
-                              <td className="py-2 px-3 text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max={avail}
-                                    step="any"
-                                    value={currentAlloc || ''}
-                                    onChange={(e) => handleSetLotQty(lotId, e.target.value, avail)}
-                                    className="h-7 w-20 text-right font-mono font-bold text-xs"
-                                  />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleFillRemainingLot(lotId, avail)}
-                                    className="h-7 px-1.5 text-[10px] font-bold text-indigo-600 border-indigo-200"
-                                    title="Allocate remaining required quantity"
-                                  >
-                                    Fill
-                                  </Button>
-                                </div>
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600">
-                                ₹{lineAmt.toLocaleString()}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                    </tbody>
-                  </table>
+              {/* Collapsible Manual Lot Form */}
+              {showManualLotForm && (
+                <div className="p-4 bg-amber-50/60 dark:bg-amber-950/20 border-b border-amber-200 dark:border-amber-800 space-y-3">
+                  <div className="font-bold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Continuing / Manual Warehouse Lot</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Batch Number</label>
+                      <Input
+                        value={manualLotForm.internalBatchNo}
+                        onChange={(e) => setManualLotForm(prev => ({ ...prev, internalBatchNo: e.target.value }))}
+                        className="h-7 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">PO Reference</label>
+                      <Input
+                        value={manualLotForm.poNumber}
+                        onChange={(e) => setManualLotForm(prev => ({ ...prev, poNumber: e.target.value }))}
+                        className="h-7 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Available Qty</label>
+                      <Input
+                        type="number"
+                        value={manualLotForm.availableQty}
+                        onChange={(e) => setManualLotForm(prev => ({ ...prev, availableQty: parseFloat(e.target.value) || 0 }))}
+                        className="h-7 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">Unit Rate (PO Amount ₹)</label>
+                      <Input
+                        type="number"
+                        value={manualLotForm.unitRate}
+                        onChange={(e) => setManualLotForm(prev => ({ ...prev, unitRate: parseFloat(e.target.value) || 0 }))}
+                        className="h-7 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAddManualLot}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-7 px-3 text-xs"
+                    >
+                      Insert Continuing Lot
+                    </Button>
+                  </div>
                 </div>
               )}
+
+              {/* Lots Table */}
+              <div className="flex-1 overflow-y-auto p-4">
+                {loadingLots ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                    <RefreshCw className="w-6 h-6 animate-spin mb-2 text-indigo-600" />
+                    <p className="text-xs">Fetching live inventory lots...</p>
+                  </div>
+                ) : availableLots.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 space-y-2">
+                    <Boxes className="w-8 h-8 mx-auto text-slate-300" />
+                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No warehouse lots on record for this material</p>
+                    <p className="text-[11px]">Use <strong>+ Add Continuing Batch</strong> above to create an allocation lot.</p>
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-2 px-3">Batch Number</th>
+                          <th className="py-2 px-3">PO Number</th>
+                          <th className="py-2 px-3">GRN Ref</th>
+                          <th className="py-2 px-3">Supplier Batch</th>
+                          <th className="py-2 px-3 text-right">Available Stock</th>
+                          <th className="py-2 px-3 text-center">Expiry Date</th>
+                          <th className="py-2 px-3 text-right">PO Rate (₹)</th>
+                          <th className="py-2 px-3 text-right w-36">Allocate Qty</th>
+                          <th className="py-2 px-3 text-right">Line Amount (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {availableLots
+                          .filter(l => {
+                            if (!lotSearchTerm.trim()) return true;
+                            const q = lotSearchTerm.toLowerCase();
+                            return (l.internalBatchNo || l.batchNumber || '').toLowerCase().includes(q) ||
+                                   (l.poNumber || '').toLowerCase().includes(q);
+                          })
+                          .map((lot, lIdx) => {
+                            const lotId = lot.id || lot.internalBatchNo || `lot-${lIdx}`;
+                            const avail = Number(lot.availableQty || lot.netQty || 0);
+                            const currentAlloc = Number(lotAllocations[lotId] ?? lotAllocations[lot.internalBatchNo] ?? 0);
+                            const rate = Number(lot.unitCost || lot.rate || lot.unitRate || targetItem?.unitRate || 54);
+                            const lineAmt = Number((currentAlloc * rate).toFixed(2));
+
+                            return (
+                              <tr key={`lot-${lotId}-${lIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                <td className="py-2 px-3 font-mono font-bold text-indigo-700 dark:text-indigo-400">
+                                  {lot.internalBatchNo || lot.batchNumber || `#${String(lotId).slice(-4)}`}
+                                </td>
+                                <td className="py-2 px-3 font-mono text-slate-600 dark:text-slate-300">
+                                  {lot.poNumber || 'PO-MANUAL-OVERRIDE'}
+                                </td>
+                                <td className="py-2 px-3 font-mono text-slate-500">
+                                  {lot.grnNumber || lot.grnRef || 'GRN-MANUAL-OVERRIDE'}
+                                </td>
+                                <td className="py-2 px-3 font-mono text-slate-500">
+                                  {lot.supplierBatchNo || 'SUP-LOT-01'}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                                  {avail} {itemUom}
+                                </td>
+                                <td className="py-2 px-3 text-center font-mono text-slate-500">
+                                  {formatDateDMY(lot.expiryDate)}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                                  ₹{rate}
+                                </td>
+                                <td className="py-2 px-3 text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max={avail}
+                                      step="any"
+                                      value={currentAlloc || ''}
+                                      onChange={(e) => handleSetLotQty(lotId, e.target.value, avail)}
+                                      className="h-7 w-20 text-right font-mono font-bold text-xs"
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleFillRemainingLot(lotId, avail)}
+                                      className="h-7 px-1.5 text-[10px] font-bold text-indigo-600 border-indigo-200 cursor-pointer"
+                                      title="Allocate remaining required quantity"
+                                    >
+                                      Fill
+                                    </Button>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600">
+                                  ₹{lineAmt.toLocaleString()}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Summary Footer */}
+              <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3 text-xs select-none">
+                {(() => {
+                  const targetReq = itemReq;
+                  const currentSum = Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0);
+                  const balance = Number((targetReq - currentSum).toFixed(3));
+                  const totalCost = Object.entries(lotAllocations).reduce((acc, [id, val]) => {
+                    const qty = Number(val || 0);
+                    const lot = availableLots.find(l => String(l.id) === String(id));
+                    const r = Number(lot?.unitCost || lot?.rate || targetItem?.unitRate || 100);
+                    return acc + (qty * r);
+                  }, 0);
+                  const blendedRate = currentSum > 0 ? Number((totalCost / currentSum).toFixed(2)) : 0;
+
+                  return (
+                    <>
+                      <div className="flex items-center gap-4 flex-wrap">
+                        <div>
+                          <span className="text-slate-400">Required:</span>{' '}
+                          <strong className="font-mono text-slate-800 dark:text-slate-200">{targetReq} {itemUom}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Allocated:</span>{' '}
+                          <strong className="font-mono text-indigo-600 dark:text-indigo-400">{currentSum} {itemUom}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Balance:</span>{' '}
+                          <strong className={`font-mono ${balance === 0 ? 'text-emerald-600' : balance > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
+                            {balance === 0 ? 'Fully Allocated ✓' : `${balance} ${itemUom}`}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Blended Rate:</span>{' '}
+                          <strong className="font-mono text-emerald-600">₹{blendedRate}/{itemUom}</strong>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setLotModalOpen(false)}
+                          className="text-xs font-bold"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleSaveLotAllocations}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 cursor-pointer"
+                        >
+                          Confirm &amp; Apply Lot Allocations
+                        </Button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
             </div>
-
-            {/* Modal Summary Footer */}
-            <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3 text-xs select-none">
-              {(() => {
-                const targetReq = Number(rmRows[activeLotRowIndex]?.requiredQty || rmRows[activeLotRowIndex]?.takenQty || 0);
-                const currentSum = Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0);
-                const balance = Number((targetReq - currentSum).toFixed(3));
-                const totalCost = Object.entries(lotAllocations).reduce((acc, [id, val]) => {
-                  const qty = Number(val || 0);
-                  const lot = availableLots.find(l => String(l.id) === String(id));
-                  const r = Number(lot?.unitCost || lot?.rate || rmRows[activeLotRowIndex]?.unitRate || 100);
-                  return acc + (qty * r);
-                }, 0);
-                const blendedRate = currentSum > 0 ? Number((totalCost / currentSum).toFixed(2)) : 0;
-
-                return (
-                  <>
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <div>
-                        <span className="text-slate-400">Required:</span>{' '}
-                        <strong className="font-mono text-slate-800 dark:text-slate-200">{targetReq} {rmRows[activeLotRowIndex]?.uom}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Allocated:</span>{' '}
-                        <strong className="font-mono text-indigo-600 dark:text-indigo-400">{currentSum} {rmRows[activeLotRowIndex]?.uom}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Balance:</span>{' '}
-                        <strong className={`font-mono ${balance === 0 ? 'text-emerald-600' : balance > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
-                          {balance === 0 ? 'Fully Allocated ✓' : `${balance} ${rmRows[activeLotRowIndex]?.uom}`}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Blended Rate:</span>{' '}
-                        <strong className="font-mono text-emerald-600">₹{blendedRate}/{rmRows[activeLotRowIndex]?.uom}</strong>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setLotModalOpen(false)}
-                        className="text-xs font-bold"
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={handleSaveLotAllocations}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4"
-                      >
-                        Confirm &amp; Apply Lot Allocations
-                      </Button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── PRODUCTION ITEM SEARCH MODAL (FUZZY, SPACE-IGNORE, LIVE DB UOM & BATCH ALLOCATIONS) ── */}
       {itemSearchOpen && (
         <ProductionItemSearchModal
           isOpen={itemSearchOpen}
-          onClose={() => setItemSearchOpen(false)}
+          onClose={() => {
+            setItemSearchOpen(false);
+            setTargetAllocIndex(null);
+          }}
           mode={itemSearchMode}
           onSelectProduct={handleSelectProductForAlloc}
           onSelectRawMaterials={handleAddSelectedRMsFromModal}
@@ -3506,11 +4332,11 @@ export default function ProductionFloorCockpitModal({
         />
       )}
 
-      {/* ── COMPLETE BATCH & RECORD ACTUAL YIELD MODAL ── */}
+      {/* ── COMPLETE BATCH & RECORD ACTUAL YIELD MODAL (MULTI-PRODUCT & LIVE UOM) ── */}
       {showYieldModal && (
         <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-xs space-y-4 max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
@@ -3520,42 +4346,113 @@ export default function ProductionFloorCockpitModal({
               <button
                 type="button"
                 onClick={() => setShowYieldModal(false)}
-                className="text-slate-400 hover:text-white text-base font-bold"
+                className="text-slate-400 hover:text-white text-base font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                Final Actual Good Output (Pieces / Units) *
-              </label>
-              <Input
-                type="number"
-                min="0"
-                value={actualYieldPieces}
-                onChange={(e) => setActualYieldPieces(parseFloat(e.target.value) || 0)}
-                className="h-9 font-mono font-bold text-sm"
-              />
-              <p className="text-[10px] text-slate-400 mt-1">
-                Planned: {batch?.quantity || 2000} pcs. Calculated mix mould yield: {liveAllocationsResult.allocations.reduce((s, a) => s + (a.goodPieces || 0), 0)} pcs.
-              </p>
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {/* Product Yields List */}
+              <div className="space-y-3">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                  Final Actual Good Output per Finished Product:
+                </label>
+
+                {(Array.isArray(productYields) && productYields.length > 0 ? productYields : [
+                  {
+                    seq: 1,
+                    productName: batch?.product?.name || allocations[0]?.productName || 'Finished Goods',
+                    productCode: batch?.product?.code || allocations[0]?.productCode || 'FP',
+                    uom: formatCleanUom(batch?.product?.consumptionUnit || allocations[0]?.productUom || 'pcs'),
+                    planned: batch?.quantity || 2000,
+                    calculatedYield: Number(actualYieldPieces || 2000),
+                    actualGoodOutput: Number(actualYieldPieces || 2000),
+                    rejectOutput: 0
+                  }
+                ]).map((p, pIdx) => (
+                  <div key={`pyield-${p.productId || pIdx}`} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+                        <span className="w-5 h-5 rounded-full bg-purple-700 text-white font-mono text-[10px] flex items-center justify-center font-bold">
+                          #{p.seq || (pIdx + 1)}
+                        </span>
+                        <span>{p.productName}</span>
+                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                          {p.uom}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10.5px] text-slate-400">
+                        Planned: <strong className="text-slate-700 dark:text-slate-200">{p.planned} {p.uom}</strong> • Calculated mix mould yield: <strong className="text-purple-600 dark:text-purple-400">{p.calculatedYield} {p.uom}</strong>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                          Final Actual Good Output ({p.uom}) *
+                        </label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={p.actualGoodOutput ?? ''}
+                          onChange={(e) => handleUpdateProductYield(pIdx, 'actualGoodOutput', parseFloat(e.target.value) || 0)}
+                          className="h-9 font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                          Reject / Floor Loss ({p.uom})
+                        </label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={p.rejectOutput ?? ''}
+                          onChange={(e) => handleUpdateProductYield(pIdx, 'rejectOutput', parseFloat(e.target.value) || 0)}
+                          className="h-9 font-mono text-sm border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Operator Notes */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Operator Completion Notes / Remarks
+                </label>
+                <textarea
+                  rows={3}
+                  value={completionNotes}
+                  onChange={(e) => setCompletionNotes(e.target.value)}
+                  placeholder="Enter batch completion remarks, packaging line notes, or quality observations..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-2.5 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* QA Lab Testing Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                <div>
+                  <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block">
+                    Route to QA Laboratory Test Queue (Quarantine)
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    If enabled, finished goods will be quarantined pending lab micro clearance.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={labTestRequired}
+                  onChange={(e) => setLabTestRequired(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                Operator Completion Notes / Remarks
-              </label>
-              <textarea
-                rows={3}
-                value={completionNotes}
-                onChange={(e) => setCompletionNotes(e.target.value)}
-                placeholder="Enter batch completion remarks, packaging line notes, or quality observations..."
-                className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-2 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <Button
                 type="button"
                 variant="outline"
@@ -3570,10 +4467,10 @@ export default function ProductionFloorCockpitModal({
                 size="sm"
                 disabled={completing}
                 onClick={handleCompleteBatchSubmit}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 cursor-pointer"
               >
                 {completing ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
-                Confirm &amp; Complete Batch
+                <span>Confirm &amp; Complete Batch</span>
               </Button>
             </div>
           </div>

@@ -1145,17 +1145,6 @@ export default function StandardProductionListPage() {
                               View
                             </Button>
 
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleOpenLabelModal(b)}
-                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                              title="Print GS1 Barcode Label"
-                            >
-                              <Printer className="w-3 h-3 text-slate-500 shrink-0" />
-                              GS1
-                            </Button>
-
                             {(b.status === 'Planned' || b.status === 'Draft') && (
                               <>
                                 <Button
@@ -1192,42 +1181,30 @@ export default function StandardProductionListPage() {
                             )}
 
                             {b.status === 'In Progress' && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleOpenCockpit(b, 'STEPS')}
-                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
-                                  title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
-                                >
-                                  <Sliders className="w-3 h-3 shrink-0" />
-                                  Floor Run
-                                </Button>
-
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleOpenCleanSheet(b)}
-                                  className="rounded-xl border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                                  title="Preview Clean Sheet & Cost Ledger"
-                                >
-                                  <FileText className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                  Clean Sheet
-                                </Button>
-
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleOpenCompleteModal(b)}
-                                  className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
-                                  title="Record actual yield & complete production"
-                                >
-                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                  Yield
-                                </Button>
-                              </>
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenCockpit(b, 'STEPS')}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-3 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
+                                title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
+                              >
+                                <Sliders className="w-3 h-3 shrink-0" />
+                                <span>Floor Run</span>
+                              </Button>
                             )}
 
                             {(b.status === 'Completed' || b.status === 'qc_passed') && (
                               <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenLabelModal(b)}
+                                  className="rounded-xl border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  title="Print GST Compliance & GS1 Product Label"
+                                >
+                                  <Printer className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  GST Label
+                                </Button>
+
                                 <Button
                                   size="sm"
                                   onClick={() => handleOpenCleanSheet(b)}
