@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   Printer, ArrowLeft, Unlock, CheckCircle2, DollarSign, Package, 
   Layers, Factory, Scale, FileSpreadsheet, ShieldCheck, Tag, Boxes,
-  ChevronRight, Calendar, HardHat, AlertCircle, Clock
+  ChevronRight, Calendar, HardHat, AlertCircle, Clock, Flame, Thermometer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -30,12 +30,15 @@ export default function ProductionCleanReportView({
   rmRows = [],
   actualYieldPieces = 0,
   completionNotes = '',
+  timelineStages = [],
+  labTestRequired = true,
   canViewCost = true,
   onReopen,
   onSwitchToSteps,
   onClose
 }) {
-  const isCompleted = batch?.status === 'Completed';
+  const isCompleted = batch?.status === 'Completed' || batch?.status === 'qc_passed';
+  const productUom = batch?.product?.unit?.abbreviation || batch?.product?.uom || 'Nos';
 
   // Planned vs Actual
   const plannedOutput = Number(batch?.quantity || 2000);
@@ -46,13 +49,15 @@ export default function ProductionCleanReportView({
   const totalMixProcessedMl = Number(liveEvaporationResult?.mixAfterEvapMl || batch?.net_post_evap_mix_ml || 85500);
   const evaporationLossMl = Number(liveEvaporationResult?.evaporatedMl || batch?.evaporation_loss_ml || 0);
   const evaporationPct = Number(liveEvaporationResult?.evaporationPct ?? batch?.evaporation_rate_pct ?? 5.0);
+  const mergeStageName = liveEvaporationResult?.mergeStage || batch?.merge_stage || batch?.evaporationData?.mergeStage || 'After heating';
+  const totalBeforeEvapMl = Number(liveEvaporationResult?.totalBeforeEvapMl || (totalMixProcessedMl + evaporationLossMl));
 
   // Financial totals
   const totalCost = Number(costingData?.totalProductionCost || batch?.totalCost || batch?.grandTotal || 0);
   const costPerUnit = actualGood > 0 ? round2(totalCost / actualGood) : (Number(batch?.costPerUnit) || 0);
 
-  // Raw material lines with PO Lot details
-  const rmConsumptionLines = (costingData?.rmCostBreakdown && costingData.rmCostBreakdown.length > 0)
+  // Raw material lines with PO Lot details - filtered to only materials actually used (takenQty > 0)
+  const rawConsumptionLines = (costingData?.rmCostBreakdown && costingData.rmCostBreakdown.length > 0)
     ? costingData.rmCostBreakdown
     : rmRows.map(r => {
         const taken = Number(r.takenQty || r.requiredQty || 0);
@@ -74,6 +79,10 @@ export default function ProductionCleanReportView({
           liquidVolumeMl: liquidMl
         };
       });
+
+  // Display only raw materials actually used in the run
+  const usedRmLines = rawConsumptionLines.filter(l => Number(l.takenQty || 0) > 0);
+  const rmConsumptionLines = usedRmLines.length > 0 ? usedRmLines : rawConsumptionLines;
 
   const totalConsumedCost = rmConsumptionLines.reduce((s, l) => s + Number(l.totalCost || 0), 0);
   const totalLiquidVolumeMl = rmConsumptionLines.reduce((s, l) => s + Number(l.liquidVolumeMl || 0), 0);
@@ -246,9 +255,9 @@ export default function ProductionCleanReportView({
         <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
           {/* Planned Output */}
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Planned Pieces</div>
+            <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Target Planned</div>
             <div className="text-lg font-mono font-black text-slate-900 dark:text-white mt-1">
-              {formatIndian(plannedOutput, 0)} pcs
+              {formatIndian(plannedOutput, 0)} {productUom}
             </div>
             <div className="text-[10px] text-slate-400 mt-0.5">Scheduled target</div>
           </div>
@@ -257,7 +266,7 @@ export default function ProductionCleanReportView({
           <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60">
             <div className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400 tracking-wider">Actual Good Yield</div>
             <div className="text-lg font-mono font-black text-emerald-700 dark:text-emerald-300 mt-1">
-              {formatIndian(actualGood, 0)} pcs
+              {formatIndian(actualGood, 0)} {productUom}
             </div>
             <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">QC Cleared output</div>
           </div>
@@ -315,6 +324,57 @@ export default function ProductionCleanReportView({
               <div className="text-sm font-semibold text-slate-500 mt-2">Restricted</div>
             </div>
           )}
+        </div>
+
+        {/* ── 2B. SECTION: THERMAL EVAPORATION & MERGE STAGE MATH ── */}
+        <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-300/80 dark:border-amber-700/60 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <h3 className="text-xs font-black uppercase text-amber-900 dark:text-amber-200 tracking-wider">
+                Volume Conversion, Evaporation &amp; Mixing Stage Math
+              </h3>
+            </div>
+            <span className="text-[10px] font-bold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700">
+              Stage: {mergeStageName}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono pt-1">
+            <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900/40">
+              <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">Pre-Evap Liquid Volume</span>
+              <span className="text-sm font-black text-slate-800 dark:text-slate-100">
+                {formatIndian(totalBeforeEvapMl)} ml
+              </span>
+              <span className="block text-[9px] text-slate-400 font-sans">≈ {round2(totalBeforeEvapMl / 1000)} Litres</span>
+            </div>
+
+            <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900/40">
+              <span className="block text-[9.5px] uppercase font-bold text-amber-600 dark:text-amber-400 font-sans">Evaporated Thermal Loss</span>
+              <span className="text-sm font-black text-amber-600 dark:text-amber-400">
+                -{formatIndian(evaporationLossMl)} ml
+              </span>
+              <span className="block text-[9px] text-amber-600 font-sans">{evaporationPct}% boiling shrinkage</span>
+            </div>
+
+            <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-900/40">
+              <span className="block text-[9.5px] uppercase font-bold text-emerald-600 dark:text-emerald-400 font-sans">Post-Evap Mix Available</span>
+              <span className="text-sm font-black text-emerald-700 dark:text-emerald-300">
+                {formatIndian(totalMixProcessedMl)} ml
+              </span>
+              <span className="block text-[9px] text-emerald-600 font-sans">≈ {round2(totalMixProcessedMl / 1000)} Litres</span>
+            </div>
+
+            <div className="bg-white/80 dark:bg-slate-900/80 p-2.5 rounded-lg border border-purple-200 dark:border-purple-900/40">
+              <span className="block text-[9.5px] uppercase font-bold text-purple-600 dark:text-purple-400 font-sans">Mould Mix Allocated</span>
+              <span className="text-sm font-black text-purple-700 dark:text-purple-300">
+                {formatIndian(totalAllocMixMl)} ml
+              </span>
+              <span className="block text-[9px] text-purple-600 font-sans">
+                {totalMixProcessedMl > 0 ? `${round2((totalAllocMixMl / totalMixProcessedMl) * 100)}% allocated` : '100%'}
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* ── 3. SECTION: FINISHED PRODUCTS MANUFACTURED LEDGER (SEQUENTIAL MULTI-PRODUCT) ── */}
@@ -624,6 +684,101 @@ export default function ProductionCleanReportView({
             </div>
           </div>
         )}
+
+        {/* ── 5B. SECTION: FACTORY PROCESS TIMELINE SEQUENCE & STAGE PARAMETERS ── */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-md bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
+                4
+              </span>
+              <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                Factory Process Timeline Sequence &amp; Stage Parameters
+              </h3>
+            </div>
+            <span className="text-xs text-slate-500 font-medium">
+              Industrial process stage execution • Temperature &amp; duration controls
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {(timelineStages && timelineStages.length > 0 ? timelineStages : [
+              { id: 'ageing', name: 'Ageing', category: 'Thermal & Mixing', defaultTemp: '4°C', durationHours: 0, durationMinutes: 30, desc: 'Mix aging in refrigerated vats at 4°C' },
+              { id: 'vat', name: 'VAT', category: 'Thermal & Mixing', defaultTemp: '10°C', durationHours: 0, durationMinutes: 45, desc: 'Holding and agitation in process tanks' },
+              { id: 'cf', name: 'CF – Cont. Freezer', category: 'Freezing & Molding', defaultTemp: '-5°C', durationHours: 1, durationMinutes: 0, desc: 'Continuous scraped surface freezing' },
+              { id: 'bf', name: 'BF – Bath Freezer', category: 'Freezing & Molding', defaultTemp: '-20°C', durationHours: 0, durationMinutes: 45, desc: 'Brine tank sub-zero mold immersion' }
+            ]).map((stg, sIdx) => {
+              const durText = `${stg.durationHours || 0}h ${stg.durationMinutes || 0}m`;
+              const tempText = stg.targetTemp || stg.defaultTemp || '—';
+              return (
+                <div key={stg.id || sIdx} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">Step {sIdx + 1}</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      {stg.category || 'Process'}
+                    </span>
+                  </div>
+                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                    {stg.name}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px] font-mono">
+                    <div>
+                      <span className="block text-[8.5px] uppercase font-bold text-slate-400 font-sans">Temp:</span>
+                      <span className="font-bold text-blue-600 dark:text-blue-400">{tempText}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[8.5px] uppercase font-bold text-slate-400 font-sans">Duration:</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{durText}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── 5C. SECTION: PROCESS WASTAGE, SHRINKAGE & OUTPUT LOSS ACCOUNTING ── */}
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Scale className="w-4 h-4 text-purple-600" />
+              <h3 className="text-xs font-black uppercase text-slate-900 dark:text-white tracking-wider">
+                Process Wastage, Shrinkage &amp; Output Yield Statement
+              </h3>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-slate-500">
+              Yield Efficiency: <strong className={yieldEfficiency >= 100 ? 'text-emerald-600' : 'text-amber-600'}>{yieldEfficiency}%</strong>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono pt-1">
+            <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">1. Thermal Evap Loss</span>
+              <span className="text-sm font-black text-amber-600 dark:text-amber-400">-{formatIndian(evaporationLossMl)} ml</span>
+              <span className="block text-[9px] text-slate-400 font-sans">{evaporationPct}% boiling reduction</span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">2. Good Finished Yield</span>
+              <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">{formatIndian(actualGood, 0)} {productUom}</span>
+              <span className="block text-[9px] text-emerald-600 font-sans">Scheduled: {formatIndian(plannedOutput, 0)} {productUom}</span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">3. QC Disposition</span>
+              <span className={`text-xs font-black ${labTestRequired ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {labTestRequired ? 'QUARANTINE (LAB)' : 'DIRECT TO STOCK'}
+              </span>
+              <span className="block text-[9px] text-slate-400 font-sans">{labTestRequired ? 'Pending QC release' : 'Inventory cleared'}</span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+              <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">4. Net Cost Efficiency</span>
+              <span className="text-sm font-black text-slate-900 dark:text-white">₹{formatIndian(costPerUnit)} / {productUom}</span>
+              <span className="block text-[9px] text-slate-400 font-sans">Total: ₹{formatIndian(totalCost)}</span>
+            </div>
+          </div>
+        </div>
 
         {/* ── 6. SECTION: QUALITY ASSURANCE & PROCESS SIGN-OFF ── */}
         <div className="border-t border-slate-200 dark:border-slate-800 pt-5 space-y-4">

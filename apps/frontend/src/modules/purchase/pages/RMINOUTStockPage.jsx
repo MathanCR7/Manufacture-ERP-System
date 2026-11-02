@@ -3006,10 +3006,10 @@ export default function RMINOUTStockPage() {
             <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
               <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
                 <TableRow className="bg-slate-100 dark:bg-black hover:bg-slate-100 dark:hover:bg-black border-b border-slate-200 dark:border-neutral-800 text-[11px]">
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black w-8 text-center border-b border-slate-200 dark:border-neutral-800"></TableHead>
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black w-7 text-center border-b border-slate-200 dark:border-neutral-800 px-1 py-1.5"></TableHead>
 
                   {/* 1. Code Column Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[100px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black w-[80px] min-w-[80px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('code')}
@@ -3022,7 +3022,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 2. Raw Material Name Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[190px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[150px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('name')}
@@ -3035,7 +3035,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 3. Category & UOM Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black min-w-[120px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black w-[105px] min-w-[105px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('category')}
@@ -3048,7 +3048,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 4. TOT STK & WIP Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[140px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right w-[110px] min-w-[110px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('stock')}
@@ -3061,7 +3061,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 5. IN STK Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right w-[85px] min-w-[85px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('in')}
@@ -3074,7 +3074,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 6. OUT STK Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right w-[85px] min-w-[85px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('out')}
@@ -3087,7 +3087,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 7. Net Flow Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[105px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right w-[80px] min-w-[80px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('net')}
@@ -3100,7 +3100,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 8. Valuation Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right min-w-[115px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-right w-[95px] min-w-[95px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('valuation')}
@@ -3113,7 +3113,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 9. QC Status Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center min-w-[100px] border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center w-[85px] min-w-[85px] border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     <button
                       type="button"
                       onClick={() => handleColumnSort('qc')}
@@ -3126,7 +3126,7 @@ export default function RMINOUTStockPage() {
                   </TableHead>
 
                   {/* 10. Actions Header */}
-                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center min-w-[130px] font-semibold text-slate-700 dark:text-white border-b border-slate-200 dark:border-neutral-800">
+                  <TableHead className="sticky top-0 bg-slate-100 dark:bg-black text-center w-[105px] min-w-[105px] font-semibold text-slate-700 dark:text-white border-b border-slate-200 dark:border-neutral-800 px-2 py-1.5">
                     Actions
                   </TableHead>
                 </TableRow>
@@ -4104,7 +4104,7 @@ export default function RMINOUTStockPage() {
                   <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
                     <TableRow className="border-b border-slate-200 dark:border-neutral-800 text-[11px] bg-slate-100 dark:bg-black">
                       {/* 1. Frozen RM Code (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-0 z-50 bg-slate-100 dark:bg-black w-[95px] min-w-[95px] max-w-[95px] font-bold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-2">
+                      <TableHead className="sticky top-0 left-0 z-50 bg-slate-100 dark:bg-black w-[80px] min-w-[80px] max-w-[80px] font-bold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-1.5 py-1.5">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('code')}
@@ -4117,7 +4117,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 2. Frozen Category Name (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-[95px] z-50 bg-slate-100 dark:bg-black w-[130px] min-w-[130px] max-w-[130px] font-semibold text-slate-700 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-2">
+                      <TableHead className="sticky top-0 left-[80px] z-50 bg-slate-100 dark:bg-black w-[110px] min-w-[110px] max-w-[110px] font-semibold text-slate-700 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-1.5 py-1.5">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('category')}
@@ -4130,7 +4130,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 3. Frozen Raw Material Name (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-[225px] z-50 bg-slate-100 dark:bg-black w-[170px] min-w-[170px] max-w-[170px] font-bold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-2">
+                      <TableHead className="sticky top-0 left-[190px] z-50 bg-slate-100 dark:bg-black w-[145px] min-w-[145px] max-w-[145px] font-bold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 shadow-xs px-1.5 py-1.5">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('name')}
@@ -4143,7 +4143,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 4. Frozen UOM (Pinned Top & Left) */}
-                      <TableHead className="sticky top-0 left-[395px] z-50 bg-slate-100 dark:bg-black w-[65px] min-w-[65px] max-w-[65px] font-semibold text-slate-700 dark:text-white border-r-2 border-b border-slate-300 dark:border-neutral-800 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.3)] px-2 py-2">
+                      <TableHead className="sticky top-0 left-[335px] z-50 bg-slate-100 dark:bg-black w-[50px] min-w-[50px] max-w-[50px] font-semibold text-slate-700 dark:text-white border-r-2 border-b border-slate-300 dark:border-neutral-800 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.3)] px-1.5 py-1.5">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('uom')}
@@ -4156,7 +4156,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 5. TOT STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[95px] font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right w-[75px] min-w-[75px] max-w-[75px] font-bold text-slate-900 dark:text-white border-b border-slate-200 dark:border-neutral-800 px-1.5 py-1.5 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('stock')}
@@ -4169,7 +4169,7 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 6. AVL STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[110px] font-bold text-emerald-700 dark:text-emerald-400 border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right w-[75px] min-w-[75px] max-w-[75px] font-bold text-emerald-700 dark:text-emerald-400 border-b border-slate-200 dark:border-neutral-800 px-1.5 py-1.5 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('free')}
@@ -4182,11 +4182,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 7. IN STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[125px] font-bold text-emerald-600 dark:text-emerald-400 border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right w-[85px] min-w-[85px] max-w-[85px] font-bold text-emerald-600 dark:text-emerald-400 border-b border-slate-200 dark:border-neutral-800 px-1.5 py-1.5 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('in')}
-                          className="group inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-0.5 font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer select-none ml-auto text-[10px] leading-tight"
                           title="Sort by IN STK"
                         >
                           <span>IN STK ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
@@ -4195,11 +4195,11 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 8. OUT STK (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[125px] font-bold text-rose-600 dark:text-rose-400 border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right w-[85px] min-w-[85px] max-w-[85px] font-bold text-rose-600 dark:text-rose-400 border-b border-slate-200 dark:border-neutral-800 px-1.5 py-1.5 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('out')}
-                          className="group inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 hover:text-rose-300 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-0.5 font-bold text-rose-600 dark:text-rose-400 hover:text-rose-300 transition-colors cursor-pointer select-none ml-auto text-[10px] leading-tight"
                           title="Sort by OUT STK"
                         >
                           <span>OUT STK ({summary?.periodLabel || periodDisplayText.shortBadge})</span>
@@ -4208,31 +4208,31 @@ export default function RMINOUTStockPage() {
                       </TableHead>
 
                       {/* 9. Total Valuation (Pinned Top) */}
-                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right min-w-[115px] font-semibold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 px-2 py-2 shadow-xs">
+                      <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black text-right w-[95px] min-w-[95px] max-w-[95px] font-semibold text-slate-800 dark:text-white border-r border-b border-slate-200 dark:border-neutral-800 px-1.5 py-1.5 shadow-xs">
                         <button
                           type="button"
                           onClick={() => handleColumnSort('valuation')}
-                          className="group inline-flex items-center gap-1 font-semibold text-slate-800 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto"
+                          className="group inline-flex items-center gap-0.5 font-semibold text-slate-800 dark:text-white hover:text-emerald-400 transition-colors cursor-pointer select-none ml-auto text-[10.5px] leading-tight"
                           title="Sort by Total Valuation"
                         >
-                          <span>Total Valuation (₹)</span>
+                          <span>Valuation (₹)</span>
                           {renderSortIndicator('valuation')}
                         </button>
                       </TableHead>
 
                       {/* Dynamic Chronological Supplier Invoice Date Headers (DD-MM-YYYY) (Pinned Top) */}
                       {matrixDates.length === 0 ? (
-                        <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black min-w-[180px] text-center text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-neutral-800 shadow-xs">
+                        <TableHead className="sticky top-0 z-30 bg-slate-100 dark:bg-black min-w-[140px] text-center text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-neutral-800 shadow-xs px-2 py-1.5">
                           No Movement Dates Found
                         </TableHead>
                       ) : (
                         matrixDates.map((dateStr) => (
                           <TableHead
                             key={dateStr}
-                            className="sticky top-0 z-30 bg-slate-100 dark:bg-black min-w-[105px] max-w-[130px] text-center font-bold font-mono text-slate-800 dark:text-white border-r border-b border-slate-200/80 dark:border-neutral-800 px-2 py-2 shadow-xs"
+                            className="sticky top-0 z-30 bg-slate-100 dark:bg-black w-[86px] min-w-[82px] max-w-[96px] text-center font-bold font-mono text-slate-800 dark:text-white border-r border-b border-slate-200/80 dark:border-neutral-800 px-1 py-1.5 shadow-xs"
                             title={`Supplier Invoice Date: ${dateStr}`}
                           >
-                            <div className="text-[11.5px] font-bold font-mono text-slate-800 dark:text-white tracking-wide">{dateStr}</div>
+                            <div className="text-[11px] font-bold font-mono text-slate-800 dark:text-white tracking-tight">{dateStr}</div>
                           </TableHead>
                         ))
                       )}
@@ -4278,7 +4278,7 @@ export default function RMINOUTStockPage() {
                             className={`${rowBgClass} hover:bg-emerald-50/70 dark:hover:bg-slate-700/60 border-b border-slate-200/80 dark:border-slate-800 text-xs transition-colors group`}
                           >
                             {/* 1. Frozen RM Code */}
-                            <TableCell className={`sticky left-0 z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-2 px-2 shadow-xs w-[95px] min-w-[95px] max-w-[95px] truncate`}>
+                            <TableCell className={`sticky left-0 z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-1.5 px-1.5 shadow-xs w-[80px] min-w-[80px] max-w-[80px] truncate text-[11px]`}>
                               <button
                                 onClick={() => handleOpenHistory(mat.id)}
                                 className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer truncate"
@@ -4289,29 +4289,29 @@ export default function RMINOUTStockPage() {
                             </TableCell>
 
                             {/* 2. Frozen Category Name */}
-                            <TableCell className={`sticky left-[95px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-2 px-2 shadow-xs w-[130px] min-w-[130px] max-w-[130px] truncate`} title={mat.category}>
+                            <TableCell className={`sticky left-[80px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-1.5 px-1.5 shadow-xs w-[110px] min-w-[110px] max-w-[110px] truncate text-[11px]`} title={mat.category}>
                               {mat.category || '—'}
                             </TableCell>
 
                             {/* 3. Frozen Raw Material Name */}
-                            <TableCell className={`sticky left-[225px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-2 px-2 shadow-xs w-[170px] min-w-[170px] max-w-[170px] truncate`} title={mat.name}>
+                            <TableCell className={`sticky left-[190px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-1.5 px-1.5 shadow-xs w-[145px] min-w-[145px] max-w-[145px] truncate text-[11px]`} title={mat.name}>
                               {mat.name}
                             </TableCell>
 
                             {/* 4. Frozen UOM */}
-                            <TableCell className={`sticky left-[395px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-2 px-2 w-[65px] min-w-[65px] max-w-[65px] truncate`}>
+                            <TableCell className={`sticky left-[335px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-1.5 px-1.5 w-[50px] min-w-[50px] max-w-[50px] truncate text-[11px]`}>
                               {formatUOM(mat.uom)}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white py-2">
+                            <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white py-1.5 px-1.5 w-[75px] min-w-[75px] max-w-[75px] text-[11px]">
                               {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 py-2">
+                            <TableCell className="text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 py-1.5 px-1.5 w-[75px] min-w-[75px] max-w-[75px] text-[11px]">
                               {free.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 py-2">
+                            <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 py-1.5 px-1 w-[85px] min-w-[85px] max-w-[85px] text-[11px]">
                               {Number(mat.periodInQty || 0) > 0 ? (
                                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                                   {Number(mat.periodInQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
@@ -4319,7 +4319,7 @@ export default function RMINOUTStockPage() {
                               ) : '0'}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 py-2">
+                            <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 py-1.5 px-1 w-[85px] min-w-[85px] max-w-[85px] text-[11px]">
                               {Number(mat.periodOutQty || 0) > 0 ? (
                                 <span className="text-rose-600 dark:text-rose-400 font-bold">
                                   {Number(mat.periodOutQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
@@ -4328,7 +4328,7 @@ export default function RMINOUTStockPage() {
                             </TableCell>
 
                             <TableCell
-                              className="text-right font-mono font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 py-2 cursor-pointer hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 transition-colors select-none group/val"
+                              className="text-right font-mono font-semibold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-700 py-1.5 px-1.5 w-[95px] min-w-[95px] max-w-[95px] text-[11px] cursor-pointer hover:bg-emerald-50/70 dark:hover:bg-emerald-950/40 transition-colors select-none group/val"
                               onMouseEnter={(e) => handleValuationMouseEnter(e, mat)}
                               onMouseOver={(e) => handleValuationMouseEnter(e, mat)}
                               onMouseLeave={handleValuationMouseLeave}
@@ -4346,7 +4346,7 @@ export default function RMINOUTStockPage() {
 
                             {/* Dynamic Date Columns matching Image 1 */}
                             {matrixDates.length === 0 ? (
-                              <TableCell className="text-center text-slate-400 py-2">
+                              <TableCell className="text-center text-slate-400 py-1.5 px-1.5 text-[11px]">
                                 —
                               </TableCell>
                             ) : (
@@ -4362,7 +4362,7 @@ export default function RMINOUTStockPage() {
                                 return (
                                   <TableCell
                                     key={dateStr}
-                                    className={`text-center font-mono py-1.5 px-1.5 border-r border-slate-100 dark:border-slate-800/80 align-middle select-none transition-colors duration-100 ${
+                                    className={`text-center font-mono py-1 px-0.5 border-r border-slate-100 dark:border-slate-800/80 align-middle select-none transition-colors duration-100 w-[86px] min-w-[82px] max-w-[96px] ${
                                       cell.transactions.length > 0 ? 'cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/70' : ''
                                     }`}
                                     onMouseEnter={(e) => handleCellMouseEnter(e, mat, dateStr, cell)}
@@ -4371,35 +4371,35 @@ export default function RMINOUTStockPage() {
                                   >
                                     {hasIn && hasOut ? (
                                       <div className="flex flex-col items-center gap-0.5">
-                                        <span className="w-full text-center px-1.5 py-0.5 rounded-sm font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 text-[11px] leading-tight border border-emerald-200 dark:border-emerald-800/60">
+                                        <span className="w-full text-center px-1 py-0.5 rounded-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 text-[10px] leading-tight border border-emerald-200 dark:border-emerald-800/60">
                                           +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
-                                        <span className="w-full text-center px-1.5 py-0.5 rounded-sm font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 text-[11px] leading-tight border border-rose-200 dark:border-rose-800/60">
+                                        <span className="w-full text-center px-1 py-0.5 rounded-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 text-[10px] leading-tight border border-rose-200 dark:border-rose-800/60">
                                           -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
                                         {invNo && (
-                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[85px]" title={`Invoice No: ${invNo}`}>
+                                          <span className="text-[8.5px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[76px]" title={`Invoice No: ${invNo}`}>
                                             #{invNo}
                                           </span>
                                         )}
                                       </div>
                                     ) : hasIn ? (
                                       <div className="inline-flex flex-col items-center">
-                                        <span className="px-2 py-0.5 rounded-md font-bold text-emerald-600 dark:text-emerald-400 text-xs">
+                                        <span className="px-1.5 py-0.5 rounded-xs font-bold text-emerald-600 dark:text-emerald-400 text-[10.5px]">
                                           +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                         </span>
                                         {invNo && (
-                                          <span className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[85px]" title={`Invoice No: ${invNo}`}>
+                                          <span className="text-[8.5px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[76px]" title={`Invoice No: ${invNo}`}>
                                             #{invNo}
                                           </span>
                                         )}
                                       </div>
                                     ) : hasOut ? (
-                                      <span className="px-2 py-0.5 rounded-md font-bold text-rose-600 dark:text-rose-400 text-xs">
+                                      <span className="px-1.5 py-0.5 rounded-xs font-bold text-rose-600 dark:text-rose-400 text-[10.5px]">
                                         -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                       </span>
                                     ) : (
-                                      <span className="text-slate-300 dark:text-slate-700 select-none">—</span>
+                                      <span className="text-slate-300 dark:text-slate-700 select-none text-[11px]">—</span>
                                     )}
                                   </TableCell>
                                 );

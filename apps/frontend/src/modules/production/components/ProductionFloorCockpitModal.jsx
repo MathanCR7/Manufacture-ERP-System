@@ -50,7 +50,9 @@ export default function ProductionFloorCockpitModal({
   batchId,
   onBatchUpdated,
   onOpenCompleteModal,
-  initialViewMode = 'STEPS'
+  initialViewMode = 'STEPS',
+  readOnly = false,
+  isViewOnly = false
 }) {
   const currentUser = useAuthStore(s => s.user);
   const userRole = currentUser?.role?.toUpperCase();
@@ -96,7 +98,8 @@ export default function ProductionFloorCockpitModal({
 
   const [batch, setBatch] = useState(null);
   const isPaused = batch?.status === 'Paused';
-  const isCompleted = batch?.status === 'Completed';
+  const isCompleted = batch?.status === 'Completed' || batch?.status === 'qc_passed';
+  const isViewMode = Boolean(readOnly || isViewOnly || initialViewMode === 'VIEW' || isCompleted);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [savingProcess, setSavingProcess] = useState(false);
@@ -105,12 +108,12 @@ export default function ProductionFloorCockpitModal({
   // High-impact Fullscreen default for industrial floor terminal view
   const [isFullscreen, setIsFullscreen] = useState(true);
 
-  // View mode: 'STEPS' (interactive 4-step wizard) vs 'REPORT' (clean executive costing & yield ledger)
-  const [viewMode, setViewMode] = useState(initialViewMode || 'STEPS');
+  // View mode: 'STEPS' (interactive 5-step wizard) vs 'REPORT' (clean executive costing & yield ledger)
+  const [viewMode, setViewMode] = useState(initialViewMode === 'VIEW' ? 'STEPS' : (initialViewMode || 'STEPS'));
 
   useEffect(() => {
     if (isOpen && initialViewMode) {
-      setViewMode(initialViewMode);
+      setViewMode(initialViewMode === 'VIEW' ? 'STEPS' : initialViewMode);
     }
   }, [isOpen, initialViewMode]);
 
@@ -612,6 +615,17 @@ export default function ProductionFloorCockpitModal({
       evaporationApplied
     });
   }, [rmRows, evaporationPct, mergeStage, evaporationApplied]);
+
+  // When in read-only / view mode, filter to only the raw materials that were actually used
+  const displayedRmRows = useMemo(() => {
+    if (!isViewMode) return rmRows;
+    const usedOnly = rmRows.filter(r => {
+      const taken = Number(r.takenQty || 0);
+      const hasLots = Array.isArray(r.allocatedBatches) && r.allocatedBatches.length > 0;
+      return taken > 0 || hasLots;
+    });
+    return usedOnly.length > 0 ? usedOnly : rmRows;
+  }, [isViewMode, rmRows]);
 
   // Available mix for moulding allocation
   const availableMixMl = useMemo(() => {
@@ -2180,8 +2194,14 @@ export default function ProductionFloorCockpitModal({
 
           {/* Header Action Buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {isViewMode && (
+              <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-700">
+                READ-ONLY VIEW
+              </span>
+            )}
+
             {/* Reopen Batch */}
-            {isCompleted && (
+            {isCompleted && !isViewMode && (
               <Button
                 variant="outline"
                 size="sm"
@@ -2195,7 +2215,7 @@ export default function ProductionFloorCockpitModal({
             )}
 
             {/* Pause / Resume */}
-            {!isCompleted && (
+            {!isCompleted && !isViewMode && (
               isPaused ? (
                 <Button
                   size="sm"
@@ -2220,7 +2240,7 @@ export default function ProductionFloorCockpitModal({
             )}
 
             {/* Cancel Run */}
-            {!isCompleted && (
+            {!isCompleted && !isViewMode && (
               <Button
                 variant="outline"
                 size="sm"
@@ -2431,11 +2451,13 @@ export default function ProductionFloorCockpitModal({
               costingData={costingData}
               liveAllocationsResult={liveAllocationsResult}
               liveEvaporationResult={liveEvaporationResult}
-              rmRows={rmRows}
+              rmRows={displayedRmRows}
               actualYieldPieces={actualYieldPieces}
               completionNotes={completionNotes}
+              timelineStages={timelineStages}
+              labTestRequired={labTestRequired}
               canViewCost={canViewCost}
-              onReopen={handleReopenProduction}
+              onReopen={!isViewMode ? handleReopenProduction : null}
               onSwitchToSteps={() => setViewMode('STEPS')}
               onClose={onClose}
             />
@@ -2455,24 +2477,26 @@ export default function ProductionFloorCockpitModal({
                         Base Raw Materials Formulation &amp; Batch Consumption
                       </h3>
                       <span className="text-[10px] text-slate-500 font-normal">
-                        ({rmRows.length} materials queued)
+                        ({isViewMode ? displayedRmRows.length : rmRows.length} materials {isViewMode ? 'used' : 'queued'})
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setItemSearchMode('RM_MULTI');
-                          setItemSearchOpen(true);
-                        }}
-                        className="h-6 px-2 text-[10.5px] font-bold rounded border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3 text-amber-600" />
-                        <span>+ Add Base Raw Materials</span>
-                      </Button>
+                      {!isViewMode && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setItemSearchMode('RM_MULTI');
+                            setItemSearchOpen(true);
+                          }}
+                          className="h-6 px-2 text-[10.5px] font-bold rounded border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3 text-amber-600" />
+                          <span>+ Add Base Raw Materials</span>
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -2490,11 +2514,13 @@ export default function ProductionFloorCockpitModal({
                           <th className="py-1.5 px-2 text-right w-24 bg-amber-500/10">Taken (Used)</th>
                           <th className="py-1.5 px-2 text-right w-24" title="Remaining quantity from allocated batch in this production (Available - Taken)">Rem in Prod</th>
                           <th className="py-1.5 px-2 text-right w-28" title="Remaining stock in warehouse after this batch allocation (Warehouse Stock - Taken)">Rem Warehouse Stock</th>
-                          <th className="py-1.5 px-2 text-center w-8">✕</th>
+                          {!isViewMode && <th className="py-1.5 px-2 text-center w-8">✕</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {liveEvaporationResult.lines.map((line, idx) => {
+                        {liveEvaporationResult.lines
+                          .filter(line => !isViewMode || (Number(line.takenQty || 0) > 0 || (Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0)))
+                          .map((line, idx) => {
                           const hasAllocations = Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0;
                           const allocatedSum = hasAllocations 
                             ? line.allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0)
@@ -2519,8 +2545,9 @@ export default function ProductionFloorCockpitModal({
                                 <input
                                   type="checkbox"
                                   checked={line.evaporates}
+                                  disabled={isViewMode}
                                   onChange={(e) => handleUpdateRmRow(idx, 'evaporates', e.target.checked)}
-                                  className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                                  className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600 disabled:opacity-60"
                                   title="Check if this liquid contributes to thermal evaporation"
                                 />
                               </td>
@@ -2530,8 +2557,9 @@ export default function ProductionFloorCockpitModal({
                                 <input
                                   type="checkbox"
                                   checked={line.merged}
+                                  disabled={isViewMode}
                                   onChange={(e) => handleUpdateRmRow(idx, 'merged', e.target.checked)}
-                                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600"
+                                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 disabled:opacity-60"
                                   title="Check to include in merged base liquid volume"
                                 />
                               </td>
@@ -2552,7 +2580,20 @@ export default function ProductionFloorCockpitModal({
                               {/* Interactive Batch / Lot Allocation Column */}
                               <td className="py-1 px-2">
                                 <div className="flex flex-col gap-0.5 items-start">
-                                  {hasAllocations ? (
+                                  {isViewMode ? (
+                                    hasAllocations ? (
+                                      <div className="px-1.5 py-0.5 rounded border border-blue-300 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 font-mono text-[9.5px] flex items-center gap-1 shadow-3xs">
+                                        <Boxes className="w-3 h-3 text-blue-600 shrink-0" />
+                                        <span className="font-bold">
+                                          {line.allocatedBatches.length === 1 
+                                            ? `#${line.allocatedBatches[0].lotNumber || line.allocatedBatches[0].internalBatchNo}` 
+                                            : `${line.allocatedBatches.length} Lots Allocated`}
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 font-mono italic">Direct Batch</span>
+                                    )
+                                  ) : hasAllocations ? (
                                     <button
                                       type="button"
                                       onClick={() => openLotModal(idx)}
@@ -2619,26 +2660,38 @@ export default function ProductionFloorCockpitModal({
                                 </span>
                               </td>
 
-                              {/* Required Qty (Editable) */}
+                              {/* Required Qty (Editable / Read-only in View Mode) */}
                               <td className="py-1 px-2 text-right">
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  value={line.requiredQty}
-                                  onChange={(e) => handleUpdateRmRow(idx, 'requiredQty', parseFloat(e.target.value) || 0)}
-                                  className="h-6 w-18 text-right font-mono text-[11px] px-1 ml-auto border-slate-200 dark:border-slate-700"
-                                />
+                                {isViewMode ? (
+                                  <span className="font-mono font-bold text-[11px] text-slate-800 dark:text-slate-100">
+                                    {line.requiredQty}
+                                  </span>
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    value={line.requiredQty}
+                                    onChange={(e) => handleUpdateRmRow(idx, 'requiredQty', parseFloat(e.target.value) || 0)}
+                                    className="h-6 w-18 text-right font-mono text-[11px] px-1 ml-auto border-slate-200 dark:border-slate-700"
+                                  />
+                                )}
                               </td>
 
-                              {/* Taken (Used) (Editable) */}
+                              {/* Taken (Used) (Editable / Read-only in View Mode) */}
                               <td className="py-1 px-2 text-right bg-amber-50/40 dark:bg-amber-950/10">
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  value={line.takenQty}
-                                  onChange={(e) => handleUpdateRmRow(idx, 'takenQty', parseFloat(e.target.value) || 0)}
-                                  className="h-6 w-20 text-right font-mono font-bold text-[11px] px-1 ml-auto border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900"
-                                />
+                                {isViewMode ? (
+                                  <span className="font-mono font-black text-[11px] text-amber-700 dark:text-amber-300">
+                                    {line.takenQty}
+                                  </span>
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    value={line.takenQty}
+                                    onChange={(e) => handleUpdateRmRow(idx, 'takenQty', parseFloat(e.target.value) || 0)}
+                                    className="h-6 w-20 text-right font-mono font-bold text-[11px] px-1 ml-auto border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900"
+                                  />
+                                )}
                                 {hasTakenMoreThanAvail && (
                                   <div className="text-[8.5px] font-bold text-rose-600 flex items-center justify-end gap-0.5 mt-0.5">
                                     <AlertCircle className="w-2.5 h-2.5" />
@@ -2662,16 +2715,18 @@ export default function ProductionFloorCockpitModal({
                               </td>
 
                               {/* Remove Row */}
-                              <td className="py-1 px-2 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveRmRow(idx)}
-                                  className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
-                                  title="Remove line"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </td>
+                              {!isViewMode && (
+                                <td className="py-1 px-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveRmRow(idx)}
+                                    className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
+                                    title="Remove line"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </td>
+                              )}
                             </tr>
                           );
                         })}
@@ -2703,10 +2758,11 @@ export default function ProductionFloorCockpitModal({
                         <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
                           Slide to Merge:
                         </span>
-                        <label className="relative inline-flex items-center cursor-pointer">
+                        <label className={`relative inline-flex items-center ${isViewMode ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
                           <input
                             type="checkbox"
                             checked={isSlideMerged}
+                            disabled={isViewMode}
                             onChange={(e) => setIsSlideMerged(e.target.checked)}
                             className="sr-only peer"
                           />
@@ -2730,8 +2786,9 @@ export default function ProductionFloorCockpitModal({
                                 ? mergeStage
                                 : (mergeStage === 'Before heating' ? 'After heating' : (mergeStage === 'Before freezing' ? 'After freezing' : 'After heating'))
                             }
+                            disabled={isViewMode}
                             onChange={(e) => setMergeStage(e.target.value)}
-                            className="w-full h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 cursor-pointer"
+                            className={`w-full h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : 'cursor-pointer'}`}
                           >
                             <option value="After heating">After heating</option>
                             <option value="After freezing">After freezing</option>
@@ -2751,8 +2808,9 @@ export default function ProductionFloorCockpitModal({
                               max="100"
                               step="0.5"
                               value={evaporationPct}
+                              disabled={isViewMode}
                               onChange={(e) => setEvaporationPct(parseFloat(e.target.value) || 0)}
-                              className="h-7 font-mono font-bold text-xs"
+                              className={`h-7 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                             />
                             <span className="font-bold text-xs text-slate-500">%</span>
                           </div>
@@ -2769,41 +2827,49 @@ export default function ProductionFloorCockpitModal({
                               min="0"
                               step="10"
                               value={liveEvaporationResult.mixAfterEvapMl || ''}
+                              disabled={isViewMode}
                               onChange={(e) => handleDirectMixAfterEvapChange(e.target.value)}
                               placeholder="Direct ml"
-                              className="h-7 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700"
+                              className={`h-7 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                             />
                             <span className="font-bold text-xs text-slate-500">ml</span>
                           </div>
                         </div>
 
-                        {/* Apply & Undo Buttons */}
+                        {/* Apply & Undo Buttons / Read-Only Status */}
                         <div className="flex flex-col justify-end">
                           <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                            4. Action
+                            4. {isViewMode ? 'Status' : 'Action'}
                           </label>
-                          <div className="flex items-center gap-1.5">
-                            <Button
-                              type="button"
-                              disabled={!isSlideMerged || evaporationApplied}
-                              onClick={handleApplyEvaporation}
-                              className="flex-1 h-7 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded cursor-pointer disabled:opacity-40"
-                            >
-                              <Flame className="w-3 h-3 mr-1" />
-                              <span>Apply Evap</span>
-                            </Button>
-                            {evaporationApplied && (
+                          {isViewMode ? (
+                            <div className="h-7 px-2 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1 text-[10.5px] font-bold text-emerald-800 dark:text-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span className="truncate">{evaporationApplied ? 'Evaporation Recorded' : 'Direct Base Mix'}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
                               <Button
                                 type="button"
-                                variant="outline"
-                                onClick={handleUndoEvaporation}
-                                className="h-7 px-2 text-xs font-bold rounded border-slate-300 dark:border-slate-700 cursor-pointer"
-                                title="Undo Evaporation"
+                                disabled={!isSlideMerged || evaporationApplied}
+                                onClick={handleApplyEvaporation}
+                                className="flex-1 h-7 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded cursor-pointer disabled:opacity-40"
                               >
-                                <RotateCcw className="w-3 h-3" />
+                                <Flame className="w-3 h-3 mr-1" />
+                                <span>Apply Evap</span>
                               </Button>
-                            )}
-                          </div>
+                              {evaporationApplied && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={handleUndoEvaporation}
+                                  className="h-7 px-2 text-xs font-bold rounded border-slate-300 dark:border-slate-700 cursor-pointer"
+                                  title="Undo Evaporation"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -2861,7 +2927,10 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-2 divide-y divide-slate-100 dark:divide-slate-800">
-                      {liveEvaporationResult.lines.map((line, idx) => {
+                      {(isViewMode 
+                        ? liveEvaporationResult.lines.filter(l => Number(l.takenQty || 0) > 0 || (Array.isArray(l.allocatedBatches) && l.allocatedBatches.length > 0))
+                        : liveEvaporationResult.lines
+                      ).map((line, idx) => {
                         const rawMl = Number(line.takenMl ?? line.requiredMl ?? 0);
                         const isEvap = Boolean(line.evaporates);
                         let postMl = Number(line.takenMlAfterEvap ?? line.postEvapMl ?? 0);
@@ -2970,30 +3039,34 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setItemSearchMode('PRODUCT_SINGLE');
-                          setItemSearchOpen(true);
-                        }}
-                        className="h-6 px-2 text-[10.5px] font-bold rounded-md border-purple-300 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>+ Add Product</span>
-                      </Button>
+                      {!isViewMode && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setItemSearchMode('PRODUCT_SINGLE');
+                              setItemSearchOpen(true);
+                            }}
+                            className="h-6 px-2 text-[10.5px] font-bold rounded-md border-purple-300 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>+ Add Product</span>
+                          </Button>
 
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={savingAllocations}
-                        onClick={handleSaveAllocations}
-                        className="h-6 px-2.5 text-[10.5px] font-bold rounded-md bg-[#0070f2] hover:bg-blue-600 text-white cursor-pointer shadow-3xs flex items-center gap-1"
-                      >
-                        {savingAllocations ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                        <span>Save Allocations</span>
-                      </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={savingAllocations}
+                            onClick={handleSaveAllocations}
+                            className="h-6 px-2.5 text-[10.5px] font-bold rounded-md bg-[#0070f2] hover:bg-blue-600 text-white cursor-pointer shadow-3xs flex items-center gap-1"
+                          >
+                            {savingAllocations ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                            <span>Save Allocations</span>
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -3153,8 +3226,9 @@ export default function ProductionFloorCockpitModal({
                             <div className="flex items-center bg-white dark:bg-slate-900 p-0.5 rounded border border-slate-300 dark:border-slate-700 text-[10px]">
                               <button
                                 type="button"
+                                disabled={isViewMode}
                                 onClick={() => handleUpdateAllocation(idx, 'useMould', true)}
-                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold transition-all ${isViewMode ? 'cursor-default' : 'cursor-pointer'} ${
                                   isMould 
                                     ? 'bg-[#8b47d7] text-white shadow-3xs' 
                                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -3164,8 +3238,9 @@ export default function ProductionFloorCockpitModal({
                               </button>
                               <button
                                 type="button"
+                                disabled={isViewMode}
                                 onClick={() => handleUpdateAllocation(idx, 'useMould', false)}
-                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold transition-all ${isViewMode ? 'cursor-default' : 'cursor-pointer'} ${
                                   !isMould 
                                     ? 'bg-[#30914c] text-white shadow-3xs' 
                                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -3175,14 +3250,16 @@ export default function ProductionFloorCockpitModal({
                               </button>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveProductAllocation(idx)}
-                              className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                              title="Remove line item"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {!isViewMode && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveProductAllocation(idx)}
+                                className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                title="Remove line item"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -3195,15 +3272,21 @@ export default function ProductionFloorCockpitModal({
                                 <span>Base Mix Allocated:</span>
                               </span>
                               <div className="flex items-center gap-1">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="100"
-                                  value={baseMl || ''}
-                                  onChange={(e) => handleUpdateProductBaseMl(idx, parseFloat(e.target.value) || 0)}
-                                  placeholder="0"
-                                  className="h-6 w-20 font-mono font-black text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
-                                />
+                                {isViewMode ? (
+                                  <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 px-1 py-0.5 rounded bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800">
+                                    {formatIndian(baseMl)}
+                                  </span>
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="100"
+                                    value={baseMl || ''}
+                                    onChange={(e) => handleUpdateProductBaseMl(idx, parseFloat(e.target.value) || 0)}
+                                    placeholder="0"
+                                    className="h-6 w-20 font-mono font-black text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
+                                  />
+                                )}
                                 <span className="font-mono font-bold text-[10px] text-slate-500">ml</span>
                               </div>
                               <span className="font-mono text-[10px] font-bold text-slate-700 dark:text-slate-300 px-1 py-0.2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -3228,7 +3311,7 @@ export default function ProductionFloorCockpitModal({
                                 Balance: {formatIndian(remainingAfterThis, 2)} ml
                               </span>
 
-                              {unallocatedRemainingMl > 0 && (
+                              {!isViewMode && unallocatedRemainingMl > 0 && (
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -3252,149 +3335,167 @@ export default function ProductionFloorCockpitModal({
                                 <span>Essences, Flavours &amp; Raw Materials:</span>
                               </span>
 
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setItemSearchMode('RM_MULTI');
-                                  setTargetAllocIndex(idx);
-                                  setItemSearchOpen(true);
-                                }}
-                                className="h-5 px-1.5 text-[9px] font-bold rounded border-amber-300 text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer flex items-center gap-0.5"
-                              >
-                                <Plus className="w-2 h-2 text-amber-600" />
-                                <span>+ Add Material</span>
-                              </Button>
+                              {!isViewMode && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setItemSearchMode('RM_MULTI');
+                                    setTargetAllocIndex(idx);
+                                    setItemSearchOpen(true);
+                                  }}
+                                  className="h-5 px-1.5 text-[9px] font-bold rounded border-amber-300 text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer flex items-center gap-0.5"
+                                >
+                                  <Plus className="w-2 h-2 text-amber-600" />
+                                  <span>+ Add Material</span>
+                                </Button>
+                              )}
                             </div>
 
-                            {productRms.length > 0 ? (
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs border-collapse font-sans">
-                                  <thead>
-                                    <tr className="bg-slate-50/70 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 dark:border-slate-800">
-                                      <th className="py-1 px-2 text-center w-16" title="Check to add liquid volume into product mix. Uncheck for packing/stick/poly cover items.">
-                                        +Mix (ml)
-                                      </th>
-                                      <th className="py-1 px-2">Ingredient / Material</th>
-                                      <th className="py-1 px-2 text-right w-20">Quantity</th>
-                                      <th className="py-1 px-2 text-center w-12">UOM</th>
-                                      <th className="py-1 px-2 text-right w-20">Added Mix</th>
-                                      <th className="py-1 px-2 min-w-[130px]">PO Batch / Lot Allocation</th>
-                                      {canViewCost && <th className="py-1 px-2 text-right w-16">Rate (₹)</th>}
-                                      {canViewCost && <th className="py-1 px-2 text-right w-18">Amount (₹)</th>}
-                                      <th className="py-1 px-1.5 text-center w-6">✕</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                    {productRms.map((prm, prmIdx) => {
-                                      const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
-                                      const prmVolMl = isAddToMix ? toMl(prm.takenQty ?? prm.qty ?? 0, prm.uom, prm.density) : 0;
-                                      const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
-                                      const lineCost = Number((prm.totalCost ?? (Number(prm.takenQty ?? prm.qty ?? 0) * Number(prm.unitRate || 0))).toFixed(2));
+                            {(() => {
+                              const displayedPrms = isViewMode 
+                                ? productRms.filter(prm => Number(prm.takenQty ?? prm.qty ?? 0) > 0 || (Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0))
+                                : productRms;
+                              return displayedPrms.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-xs border-collapse font-sans">
+                                    <thead>
+                                      <tr className="bg-slate-50/70 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 dark:border-slate-800">
+                                        <th className="py-1 px-2 text-center w-16" title="Check to add liquid volume into product mix. Uncheck for packing/stick/poly cover items.">
+                                          +Mix (ml)
+                                        </th>
+                                        <th className="py-1 px-2">Ingredient / Material</th>
+                                        <th className="py-1 px-2 text-right w-20">Quantity</th>
+                                        <th className="py-1 px-2 text-center w-12">UOM</th>
+                                        <th className="py-1 px-2 text-right w-20">Added Mix</th>
+                                        <th className="py-1 px-2 min-w-[130px]">PO Batch / Lot Allocation</th>
+                                        {canViewCost && <th className="py-1 px-2 text-right w-16">Rate (₹)</th>}
+                                        {canViewCost && <th className="py-1 px-2 text-right w-18">Amount (₹)</th>}
+                                        {!isViewMode && <th className="py-1 px-1.5 text-center w-6">✕</th>}
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                      {displayedPrms.map((prm, prmIdx) => {
+                                        const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
+                                        const prmVolMl = isAddToMix ? toMl(prm.takenQty ?? prm.qty ?? 0, prm.uom, prm.density) : 0;
+                                        const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
+                                        const lineCost = Number((prm.totalCost ?? (Number(prm.takenQty ?? prm.qty ?? 0) * Number(prm.unitRate || 0))).toFixed(2));
 
-                                      return (
-                                        <tr key={`prm-${prm.rawMaterialId || prm.rmId || prmIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 text-[10.5px]">
-                                          <td className="py-0.5 px-2 text-center">
-                                            <label className="inline-flex items-center gap-0.5 cursor-pointer select-none">
-                                              <input
-                                                type="checkbox"
-                                                checked={isAddToMix}
-                                                onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'addToMix', e.target.checked)}
-                                                className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
-                                              />
-                                              <span className={`text-[9px] font-bold ${isAddToMix ? 'text-amber-700 dark:text-amber-400' : 'text-slate-400'}`}>
-                                                {isAddToMix ? 'Yes' : 'No'}
-                                              </span>
-                                            </label>
-                                          </td>
-                                          <td className="py-0.5 px-2">
-                                            <span className="font-bold text-slate-800 dark:text-slate-200 mr-1">
-                                              {prm.rawMaterialName || prm.rmName || 'Essence'}
-                                            </span>
-                                            <span className="font-mono text-[8.5px] text-slate-400">
-                                              {prm.rawMaterialCode || prm.rmCode || 'RM'}
-                                            </span>
-                                          </td>
-                                          <td className="py-0.5 px-2 text-right">
-                                            <Input
-                                              type="number"
-                                              step="any"
-                                              value={prm.takenQty ?? prm.qty ?? ''}
-                                              onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'takenQty', parseFloat(e.target.value) || 0)}
-                                              className="h-5 w-16 text-right font-mono text-[10px] px-1 ml-auto border-slate-300 dark:border-slate-700"
-                                            />
-                                          </td>
-                                          <td className="py-0.5 px-2 text-center">
-                                            <span className="font-mono text-[9px] font-bold text-slate-600 dark:text-slate-400">
-                                              {prm.uom || 'ml'}
-                                            </span>
-                                          </td>
-                                          <td className="py-0.5 px-2 text-right font-mono font-bold text-[10px]">
-                                            {isAddToMix ? (
-                                              <span className="text-amber-600 dark:text-amber-400">
-                                                +{formatIndian(prmVolMl)} ml
-                                              </span>
-                                            ) : (
-                                              <span className="text-slate-400 text-[9px]">Packing</span>
-                                            )}
-                                          </td>
-                                          <td className="py-0.5 px-2">
-                                            {hasBatches ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                className="px-1 py-0.2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300 font-mono text-[9px] cursor-pointer flex items-center gap-0.5"
-                                              >
-                                                <Boxes className="w-2 h-2 text-blue-600" />
-                                                <span>
-                                                  {prm.allocatedBatches.length === 1 
-                                                    ? `#${prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo}` 
-                                                    : `${prm.allocatedBatches.length} Lots`}
+                                        return (
+                                          <tr key={`prm-${prm.rawMaterialId || prm.rmId || prmIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 text-[10.5px]">
+                                            <td className="py-0.5 px-2 text-center">
+                                              <label className={`inline-flex items-center gap-0.5 select-none ${isViewMode ? 'cursor-default' : 'cursor-pointer'}`}>
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isAddToMix}
+                                                  disabled={isViewMode}
+                                                  onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'addToMix', e.target.checked)}
+                                                  className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600 disabled:opacity-80"
+                                                />
+                                                <span className={`text-[9px] font-bold ${isAddToMix ? 'text-amber-700 dark:text-amber-400' : 'text-slate-400'}`}>
+                                                  {isAddToMix ? 'Yes' : 'No'}
                                                 </span>
-                                              </button>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                className="px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-0.5"
-                                              >
-                                                <Plus className="w-2 h-2 text-amber-600" />
-                                                <span>Allocate Lot</span>
-                                              </button>
+                                              </label>
+                                            </td>
+                                            <td className="py-0.5 px-2">
+                                              <span className="font-bold text-slate-800 dark:text-slate-200 mr-1">
+                                                {prm.rawMaterialName || prm.rmName || 'Essence'}
+                                              </span>
+                                              <span className="font-mono text-[8.5px] text-slate-400">
+                                                {prm.rawMaterialCode || prm.rmCode || 'RM'}
+                                              </span>
+                                            </td>
+                                            <td className="py-0.5 px-2 text-right">
+                                              {isViewMode ? (
+                                                <span className="font-mono font-bold text-[10.5px] text-slate-800 dark:text-slate-100">
+                                                  {prm.takenQty ?? prm.qty ?? 0}
+                                                </span>
+                                              ) : (
+                                                <Input
+                                                  type="number"
+                                                  step="any"
+                                                  value={prm.takenQty ?? prm.qty ?? ''}
+                                                  onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'takenQty', parseFloat(e.target.value) || 0)}
+                                                  className="h-5 w-16 text-right font-mono text-[10px] px-1 ml-auto border-slate-300 dark:border-slate-700"
+                                                />
+                                              )}
+                                            </td>
+                                            <td className="py-0.5 px-2 text-center">
+                                              <span className="font-mono text-[9px] font-bold text-slate-600 dark:text-slate-400">
+                                                {prm.uom || 'ml'}
+                                              </span>
+                                            </td>
+                                            <td className="py-0.5 px-2 text-right font-mono font-bold text-[10px]">
+                                              {isAddToMix ? (
+                                                <span className="text-amber-600 dark:text-amber-400">
+                                                  +{formatIndian(prmVolMl)} ml
+                                                </span>
+                                              ) : (
+                                                <span className="text-slate-400 text-[9px]">Packing</span>
+                                              )}
+                                            </td>
+                                            <td className="py-0.5 px-2">
+                                              {hasBatches ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openProductRmLotModal(idx, prmIdx)}
+                                                  className="px-1 py-0.2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300 font-mono text-[9px] cursor-pointer flex items-center gap-0.5"
+                                                >
+                                                  <Boxes className="w-2 h-2 text-blue-600" />
+                                                  <span>
+                                                    {prm.allocatedBatches.length === 1 
+                                                      ? `#${prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo}` 
+                                                      : `${prm.allocatedBatches.length} Lots`}
+                                                  </span>
+                                                </button>
+                                              ) : isViewMode ? (
+                                                <span className="text-[9px] text-slate-400 italic">No lots</span>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openProductRmLotModal(idx, prmIdx)}
+                                                  className="px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-0.5"
+                                                >
+                                                  <Plus className="w-2 h-2 text-amber-600" />
+                                                  <span>Allocate Lot</span>
+                                                </button>
+                                              )}
+                                            </td>
+                                            {canViewCost && (
+                                              <td className="py-0.5 px-2 text-right font-mono text-[10px] text-slate-700 dark:text-slate-300">
+                                                ₹{prm.unitRate || 0}
+                                              </td>
                                             )}
-                                          </td>
-                                          {canViewCost && (
-                                            <td className="py-0.5 px-2 text-right font-mono text-[10px] text-slate-700 dark:text-slate-300">
-                                              ₹{prm.unitRate || 0}
-                                            </td>
-                                          )}
-                                          {canViewCost && (
-                                            <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-600 text-[10px]">
-                                              ₹{formatIndian(lineCost)}
-                                            </td>
-                                          )}
-                                          <td className="py-0.5 px-1.5 text-center">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleRemoveProductRm(idx, prmIdx)}
-                                              className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
-                                              title="Remove"
-                                            >
-                                              <Trash2 className="w-2.5 h-2.5" />
-                                            </button>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ) : (
-                              <div className="px-2 py-1 text-center text-[10px] text-slate-400 italic">
-                                No specific flavour or essence added. Base mix processed directly.
-                              </div>
-                            )}
+                                            {canViewCost && (
+                                              <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-600 text-[10px]">
+                                                ₹{formatIndian(lineCost)}
+                                              </td>
+                                            )}
+                                            {!isViewMode && (
+                                              <td className="py-0.5 px-1.5 text-center">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleRemoveProductRm(idx, prmIdx)}
+                                                  className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
+                                                  title="Remove"
+                                                >
+                                                  <Trash2 className="w-2.5 h-2.5" />
+                                                </button>
+                                              </td>
+                                            )}
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <div className="px-2 py-1 text-center text-[10px] text-slate-400 italic">
+                                  No specific flavour or essence added. Base mix processed directly.
+                                </div>
+                              );
+                            })()}
 
                             <div className="px-2 py-0.5 bg-slate-50/60 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] font-mono font-bold">
                               <span className="text-slate-500">Net Liquid Mix (Base + Essences):</span>
@@ -3414,8 +3515,9 @@ export default function ProductionFloorCockpitModal({
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    disabled={isViewMode}
                                     onClick={() => handleOpenMouldPicker(idx)}
-                                    className="h-6 w-full px-1.5 text-[10px] font-bold rounded border-slate-300 dark:border-slate-700 truncate text-left justify-start"
+                                    className={`h-6 w-full px-1.5 text-[10px] font-bold rounded border-slate-300 dark:border-slate-700 truncate text-left justify-start ${isViewMode ? 'cursor-default opacity-85' : ''}`}
                                     title="Click to pick mould specification"
                                   >
                                     <Box className="w-2.5 h-2.5 text-[#8b47d7] mr-1 shrink-0" />
@@ -3429,8 +3531,9 @@ export default function ProductionFloorCockpitModal({
                                     type="number"
                                     min="1"
                                     value={alloc.capacityMl}
+                                    disabled={isViewMode}
                                     onChange={(e) => handleUpdateAllocation(idx, 'capacityMl', parseFloat(e.target.value) || 0)}
-                                    className="h-6 font-mono font-bold text-xs"
+                                    className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
                                 </div>
 
@@ -3440,32 +3543,36 @@ export default function ProductionFloorCockpitModal({
                                     type="number"
                                     min="1"
                                     value={alloc.cavities}
+                                    disabled={isViewMode}
                                     onChange={(e) => handleUpdateAllocation(idx, 'cavities', parseInt(e.target.value, 10) || 1)}
-                                    className="h-6 font-mono font-bold text-xs"
+                                    className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
                                 </div>
 
                                 <div>
                                   <div className="flex items-center justify-between mb-0.5">
                                     <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Trays</label>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleFillMaxTrays(idx)}
-                                      className="text-[8.5px] font-bold text-[#8b47d7] hover:underline cursor-pointer"
-                                    >
-                                      Fill Max
-                                    </button>
+                                    {!isViewMode && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFillMaxTrays(idx)}
+                                        className="text-[8.5px] font-bold text-[#8b47d7] hover:underline cursor-pointer"
+                                      >
+                                        Fill Max
+                                      </button>
+                                    )}
                                   </div>
                                   <Input
                                     type="number"
                                     min="0"
                                     value={alloc.trays}
+                                    disabled={isViewMode}
                                     onChange={(e) => {
                                       const rawVal = e.target.value;
                                       const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
                                       handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
                                     }}
-                                    className="h-6 font-mono font-black text-xs border-purple-300 dark:border-purple-800"
+                                    className={`h-6 font-mono font-black text-xs border-purple-300 dark:border-purple-800 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
                                 </div>
 
@@ -3476,8 +3583,9 @@ export default function ProductionFloorCockpitModal({
                                   <div className="flex items-center gap-1">
                                     <select
                                       value={alloc.wasteMode}
+                                      disabled={isViewMode}
                                       onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
-                                      className="h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-[9.5px] font-semibold outline-none"
+                                      className={`h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-[9.5px] font-semibold outline-none ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                                     >
                                       <option value="PERCENT">%</option>
                                       <option value="FIXED_ML_PER_TRAY">ml</option>
@@ -3487,8 +3595,9 @@ export default function ProductionFloorCockpitModal({
                                       step="0.1"
                                       min="0"
                                       value={alloc.wasteValue}
+                                      disabled={isViewMode}
                                       onChange={(e) => handleUpdateAllocation(idx, 'wasteValue', parseFloat(e.target.value) || 0)}
-                                      className="h-6 font-mono font-bold text-xs"
+                                      className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                     />
                                   </div>
                                 </div>
@@ -3511,8 +3620,9 @@ export default function ProductionFloorCockpitModal({
                                   <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Bulk Storage Unit</label>
                                   <select
                                     value={bulkUom}
+                                    disabled={isViewMode}
                                     onChange={(e) => handleUpdateAllocation(idx, 'bulkUom', e.target.value)}
-                                    className="w-full h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-xs font-bold outline-none cursor-pointer"
+                                    className={`w-full h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-xs font-bold outline-none ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : 'cursor-pointer'}`}
                                   >
                                     <option value="Liter">Liter (1,000 ml)</option>
                                     <option value="Gallon">Gallon (3,785 ml)</option>
@@ -3595,22 +3705,24 @@ export default function ProductionFloorCockpitModal({
                       </div>
                     </div>
 
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={savingStages}
-                      onClick={handleSaveFactoryStages}
-                      className="h-6 px-2.5 text-[10.5px] font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
-                    >
-                      {savingStages ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                      <span>Save Timeline Sequence</span>
-                    </Button>
+                    {!isViewMode && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={savingStages}
+                        onClick={handleSaveFactoryStages}
+                        className="h-6 px-2.5 text-[10.5px] font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
+                      >
+                        {savingStages ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        <span>Save Timeline Sequence</span>
+                      </Button>
+                    )}
                   </div>
 
                   <StandardFactoryStagesPalette
                     stages={timelineStages}
                     onChangeStages={setTimelineStages}
-                    isEditable={!isCompleted}
+                    isEditable={!isCompleted && !isViewMode}
                     stepNumber={4}
                   />
                 </div>
@@ -3639,20 +3751,20 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {isCompleted && (
+                      {(isCompleted || isViewMode) && (
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
                           onClick={() => setViewMode('REPORT')}
-                          className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-6 px-2.5 rounded flex items-center gap-1"
+                          className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-6 px-2.5 rounded flex items-center gap-1 cursor-pointer"
                         >
                           <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                           <span>View Clean Report</span>
                         </Button>
                       )}
 
-                      {!isCompleted && (
+                      {!isCompleted && !isViewMode && (
                         <Button
                           type="button"
                           size="sm"
@@ -3823,15 +3935,17 @@ export default function ProductionFloorCockpitModal({
                     </div>
                   </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setLabTestRequired(prev => !prev)}
-                    className="text-[10.5px] font-bold h-6 px-2.5 cursor-pointer"
-                  >
-                    {labTestRequired ? 'Set: Not Required (Direct to Stock)' : 'Set: Lab Test Required'}
-                  </Button>
+                  {!isViewMode && !isCompleted && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLabTestRequired(prev => !prev)}
+                      className="text-[10.5px] font-bold h-6 px-2.5 cursor-pointer"
+                    >
+                      {labTestRequired ? 'Set: Not Required (Direct to Stock)' : 'Set: Lab Test Required'}
+                    </Button>
+                  )}
                 </div>
 
                 {/* 4. Role-Protected Batch Costing (Admin & Supervisor Only - Light & Dark Themes) */}
@@ -4032,8 +4146,8 @@ export default function ProductionFloorCockpitModal({
               </Button>
             )}
 
-            {/* Finalize Entire Production Button (ONLY displayed on Step 5) */}
-            {!isCompleted && activeStep === 5 && (
+            {/* Finalize Entire Production Button (ONLY displayed on Step 5 when active run) */}
+            {!isCompleted && !isViewMode && activeStep === 5 && (
               <Button
                 type="button"
                 size="sm"

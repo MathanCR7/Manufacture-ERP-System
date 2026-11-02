@@ -33,6 +33,7 @@ export default function StandardProductionListPage() {
   const [cockpitModalOpen, setCockpitModalOpen] = useState(false);
   const [selectedCockpitBatchId, setSelectedCockpitBatchId] = useState(null);
   const [cockpitViewMode, setCockpitViewMode] = useState('STEPS');
+  const [isCockpitReadOnly, setIsCockpitReadOnly] = useState(false);
 
   // GS1 Label Modal State
   const [labelModalOpen, setLabelModalOpen] = useState(false);
@@ -213,10 +214,11 @@ export default function StandardProductionListPage() {
     }
   };
 
-  // Open Floor Execution Cockpit Modal (Interactive 4-Step Floor Run)
-  const handleOpenCockpit = (batch, mode = 'STEPS') => {
+  // Open Floor Execution Cockpit Modal (Interactive 5-Step Floor Run or Read-Only View)
+  const handleOpenCockpit = (batch, mode = 'STEPS', isReadOnly = false) => {
     setSelectedCockpitBatchId(batch.id);
     setCockpitViewMode(mode);
+    setIsCockpitReadOnly(isReadOnly);
     setCockpitModalOpen(true);
   };
 
@@ -224,6 +226,7 @@ export default function StandardProductionListPage() {
   const handleOpenCleanSheet = (batch) => {
     setSelectedCockpitBatchId(batch.id);
     setCockpitViewMode('REPORT');
+    setIsCockpitReadOnly(true);
     setCockpitModalOpen(true);
   };
 
@@ -912,14 +915,14 @@ export default function StandardProductionListPage() {
                     </button>
                   </th>
 
-                  {/* 5. Planned Qty */}
-                  <th className="py-2.5 px-3 w-[110px] text-center whitespace-nowrap">
+                  {/* 5. Planned Qty & Yield */}
+                  <th className="py-2.5 px-3 w-[125px] text-center whitespace-nowrap">
                     <button
                       onClick={handleToggleSortQty}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
                       title="Sort by Planned Quantity"
                     >
-                      <span>Planned Qty</span>
+                      <span>Planned Qty / Yield</span>
                       {sortBy === 'qty_desc' ? (
                         <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
                       ) : sortBy === 'qty_asc' ? (
@@ -1087,14 +1090,29 @@ export default function StandardProductionListPage() {
                           )}
                         </td>
 
-                        {/* 5. Planned Qty */}
+                        {/* 5. Planned Qty & Actual Yield */}
                         <td className="py-2.5 px-3 text-center font-mono whitespace-nowrap">
-                          <span className="font-black text-slate-900 dark:text-white text-xs block">
-                            {b.quantity}
-                          </span>
-                          <span className="text-[10px] text-slate-400 uppercase font-semibold">
-                            {b.product?.unit?.abbreviation || 'Nos'}
-                          </span>
+                          {b.status === 'Completed' || b.status === 'qc_passed' ? (
+                            <div className="flex flex-col items-center gap-0.5 font-mono">
+                              <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                <span className="text-[9px] uppercase font-semibold text-slate-400 mr-1 font-sans">Target:</span>
+                                {b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                              </div>
+                              <div className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] font-black text-emerald-700 dark:text-emerald-300">
+                                <span className="text-[9px] uppercase font-bold text-emerald-600 dark:text-emerald-400 font-sans">Yield:</span>
+                                {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="font-black text-slate-900 dark:text-white text-xs block font-mono">
+                                {b.quantity}
+                              </span>
+                              <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                                {b.product?.unit?.abbreviation || 'Nos'}
+                              </span>
+                            </>
+                          )}
                         </td>
 
                         {/* 6. Status */}
@@ -1134,12 +1152,9 @@ export default function StandardProductionListPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => {
-                                setSelectedViewBatchId(b.id);
-                                setViewModalOpen(true);
-                              }}
+                              onClick={() => handleOpenCockpit(b, 'STEPS', true)}
                               className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                              title="View details, RM formulation, assigned staff & SOP guide"
+                              title="View entered floor cockpit parameters in read-only mode"
                             >
                               <Eye className="w-3 h-3 text-indigo-500 shrink-0" />
                               View
@@ -1149,7 +1164,7 @@ export default function StandardProductionListPage() {
                               <>
                                 <Button
                                   size="sm"
-                                  onClick={() => handleOpenCockpit(b, 'STEPS')}
+                                  onClick={() => handleOpenCockpit(b, 'STEPS', false)}
                                   className="bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
                                   title="Open Floor Cockpit to allocate lots and preview merge math"
                                 >
@@ -1183,7 +1198,7 @@ export default function StandardProductionListPage() {
                             {b.status === 'In Progress' && (
                               <Button
                                 size="sm"
-                                onClick={() => handleOpenCockpit(b, 'STEPS')}
+                                onClick={() => handleOpenCockpit(b, 'STEPS', false)}
                                 className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-3 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
                                 title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
                               >
@@ -1194,17 +1209,6 @@ export default function StandardProductionListPage() {
 
                             {(b.status === 'Completed' || b.status === 'qc_passed') && (
                               <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleOpenLabelModal(b)}
-                                  className="rounded-xl border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                                  title="Print GST Compliance & GS1 Product Label"
-                                >
-                                  <Printer className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  GST Label
-                                </Button>
-
                                 <Button
                                   size="sm"
                                   onClick={() => handleOpenCleanSheet(b)}
@@ -1218,12 +1222,12 @@ export default function StandardProductionListPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => handleOpenCockpit(b, 'STEPS')}
-                                  className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                                  title="Review Floor Steps & Batch Parameters"
+                                  onClick={() => handleOpenLabelModal(b)}
+                                  className="rounded-xl border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  title="Print GST Compliance & GS1 Product Label"
                                 >
-                                  <Sliders className="w-3 h-3 text-slate-500 shrink-0" />
-                                  Steps
+                                  <Printer className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  GST Label
                                 </Button>
 
                                 <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
@@ -1371,9 +1375,11 @@ export default function StandardProductionListPage() {
           onClose={() => {
             setCockpitModalOpen(false);
             setSelectedCockpitBatchId(null);
+            setIsCockpitReadOnly(false);
           }}
           batchId={selectedCockpitBatchId}
           initialViewMode={cockpitViewMode}
+          readOnly={isCockpitReadOnly}
           onBatchUpdated={fetchBatches}
           onOpenCompleteModal={handleOpenCompleteModal}
         />
