@@ -1929,7 +1929,7 @@ export default function ProductionFloorCockpitModal({
           id: `rm-exceed-${idx}`,
           type: 'error',
           step: 1,
-          stepName: 'Step 1: Raw Materials',
+          stepName: 'Step 1: Base Raw Materials',
           title: `Taken exceeds batch available for ${r.rawMaterialName || 'Material'}`,
           desc: `Taken: ${displayTaken} > Available: ${displayAvailable} ${formatCleanUom(r.uom, 'kg', r)}`
         });
@@ -1939,7 +1939,7 @@ export default function ProductionFloorCockpitModal({
           id: `rm-zero-${idx}`,
           type: 'warning',
           step: 1,
-          stepName: 'Step 1: Raw Materials',
+          stepName: 'Step 1: Base Raw Materials',
           title: `Zero quantity taken for ${r.rawMaterialName || 'Material'}`,
           desc: 'Specify taken quantity to consume inventory stock'
         });
@@ -1949,7 +1949,7 @@ export default function ProductionFloorCockpitModal({
           id: `rm-no-lot-${idx}`,
           type: 'warning',
           step: 1,
-          stepName: 'Step 1: Raw Materials',
+          stepName: 'Step 1: Base Raw Materials',
           title: `No warehouse batch lot assigned for ${r.rawMaterialName || 'Material'}`,
           desc: 'Click "+ Allocate Lots" to trace warehouse stock'
         });
@@ -2339,7 +2339,7 @@ export default function ProductionFloorCockpitModal({
           <div className="px-3 py-0.5 bg-white dark:bg-[#0d1b2a] border-b border-slate-200 dark:border-slate-800 overflow-x-auto select-none shrink-0 transition-colors">
             <div className="flex items-center gap-1 min-w-max">
               {[
-                { id: 1, title: 'Raw Materials', desc: 'Warehouse Allocation', icon: Boxes, isDone: step1Ready, badge: `${rmRows.length} RMs` },
+                { id: 1, title: 'Base Raw Materials', desc: 'Warehouse Allocation', icon: Boxes, isDone: step1Ready, badge: `${rmRows.length} RMs` },
                 { id: 2, title: 'Merge & Evaporation', desc: 'Thermal Volume Loss', icon: Flame, isDone: step2Ready, badge: `${formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml` },
                 { id: 3, title: 'Products & Moulds', desc: 'Sequential Chaining', icon: Box, isDone: step3Ready, badge: `${allocations.length} Products` },
                 { id: 4, title: 'Factory Timeline', desc: 'Stage Sequences', icon: Layers, isDone: timelineStages.length > 0, badge: `${timelineStages.length} Stages` },
@@ -2408,7 +2408,7 @@ export default function ProductionFloorCockpitModal({
           <div className="px-3 py-0.5 bg-blue-50/90 dark:bg-blue-950/40 border-b border-blue-200/80 dark:border-blue-900/60 flex items-center gap-1.5 text-blue-900 dark:text-blue-200 select-none shrink-0 transition-colors">
             <Info className="w-3 h-3 text-[#0070f2] shrink-0" />
             <span className="font-semibold text-[10px] truncate leading-tight">
-              {activeStep === 1 && 'Step 1: Allocate warehouse batch lots, reserve inventory stock, and confirm taken quantities for production.'}
+              {activeStep === 1 && 'Step 1: Allocate warehouse batch lots, reserve inventory stock, and confirm taken quantities for base raw materials.'}
               {activeStep === 2 && 'Step 2: Slide to merge raw materials into a single liquid volume (ml), specify process stage, and apply evaporation % mass loss.'}
               {activeStep === 3 && 'Step 3: Assign multiple finished products to the evaporated mix, allocate base mix volume, add product-specific essences/flavours with lots, and configure moulds or bulk storage.'}
               {activeStep === 4 && 'Step 4: Factory stages palette & Timeline sequence. Click stage chip to add/remove • Click any stage to configure temperature & duration • Drag & drop to reorder.'}
@@ -2442,7 +2442,7 @@ export default function ProductionFloorCockpitModal({
           ) : (
             <>
               {/* ══════════════════════════════════════════════════════════════════════════
-                  STEP 1: RAW MATERIALS FORMULATION & WAREHOUSE LOT ALLOCATION
+                  STEP 1: BASE RAW MATERIALS FORMULATION & WAREHOUSE LOT ALLOCATION
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 1 ? 'block' : 'hidden'} space-y-2`}>
                 <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden">
@@ -2452,7 +2452,7 @@ export default function ProductionFloorCockpitModal({
                         1
                       </span>
                       <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
-                        Raw Materials Formulation &amp; Batch Consumption
+                        Base Raw Materials Formulation &amp; Batch Consumption
                       </h3>
                       <span className="text-[10px] text-slate-500 font-normal">
                         ({rmRows.length} materials queued)
@@ -2471,7 +2471,7 @@ export default function ProductionFloorCockpitModal({
                         className="h-6 px-2 text-[10.5px] font-bold rounded border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
                       >
                         <Plus className="w-3 h-3 text-amber-600" />
-                        <span>+ Add Raw Materials (Multi-Select)</span>
+                        <span>+ Add Base Raw Materials</span>
                       </Button>
                     </div>
                   </div>
