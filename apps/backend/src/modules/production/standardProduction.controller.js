@@ -130,7 +130,7 @@ async function ensureStandardProductionSchema(p = prisma) {
       await p.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS production_batch_merge (
           batch_id TEXT PRIMARY KEY REFERENCES production_batches(id) ON DELETE CASCADE,
-          merge_stage VARCHAR(50) NOT NULL DEFAULT 'Before freezing',
+          merge_stage VARCHAR(50) NOT NULL DEFAULT 'After heating',
           merged_total_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (merged_total_ml >= 0),
           evaporation_pct NUMERIC(6,2) NOT NULL DEFAULT 5.00 CHECK (evaporation_pct >= 0 AND evaporation_pct <= 100),
           evaporation_applied BOOLEAN NOT NULL DEFAULT FALSE,
@@ -743,7 +743,7 @@ class StandardProductionController {
               batch_id, merge_stage, merged_total_ml, evaporation_pct,
               evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, updated_at
             ) VALUES (
-              $1, 'Before freezing', 0, 5.00,
+              $1, 'After heating', 0, 5.00,
               false, 0, 0, false, CURRENT_TIMESTAMP
             )
             ON CONFLICT (batch_id) DO NOTHING;
