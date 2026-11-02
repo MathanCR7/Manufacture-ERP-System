@@ -1423,7 +1423,9 @@ export default function RawMaterialListPage() {
                             </span>
                             {item.hasAlternateUom && item.alternateUom && (
                               <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/50 w-fit">
-                                1 {item.unitId} = {Number(item.conversionFactor || (item.alternateUomQty / item.baseUomQty) || 1).toLocaleString()} {item.alternateUom}
+                                {Number(item.baseUomQty) > 1
+                                  ? `${Number(item.baseUomQty).toLocaleString()} ${item.unitId} = ${Number(item.alternateUomQty).toLocaleString()} ${item.alternateUom}`
+                                  : `1 ${item.unitId} = ${Number(item.conversionFactor || (item.alternateUomQty / item.baseUomQty) || 1).toLocaleString()} ${item.alternateUom}`}
                               </span>
                             )}
                           </div>
