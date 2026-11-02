@@ -6,7 +6,7 @@ import {
   Plus, Trash2, ChevronRight, HardHat, FileSpreadsheet, Eye,
   DollarSign, TrendingDown, Package, HelpCircle, ArrowDownRight, Layers2,
   Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, ChevronLeft,
-  Unlock, Lock, FileText, CheckCheck, TrendingUp
+  Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +55,44 @@ export default function ProductionFloorCockpitModal({
   const currentUser = useAuthStore(s => s.user);
   const userRole = currentUser?.role?.toUpperCase();
   const canViewCost = ['MAIN_MASTER', 'ADMIN', 'SUPERVISOR'].includes(userRole);
+
+  // ── THEME SUPPORT (LIGHT & DARK THEMES) ──
+  const [isDark, setIsDark] = useState(() => {
+    return document.documentElement.classList.contains('dark') || localStorage.getItem('darkMode') === 'true';
+  });
+
+  useEffect(() => {
+    const handleThemeChange = (e) => {
+      if (e.detail?.isDark !== undefined) {
+        setIsDark(e.detail.isDark);
+      }
+    };
+    const handleStorageChange = (e) => {
+      if (e.key === 'darkMode') {
+        setIsDark(e.newValue === 'true');
+      }
+    };
+    window.addEventListener('app-theme-toggle', handleThemeChange);
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('app-theme-toggle', handleThemeChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  const toggleThemeMode = () => {
+    const nextDark = !isDark;
+    setIsDark(nextDark);
+    if (nextDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('darkMode', 'true');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('darkMode', 'false');
+    }
+    window.dispatchEvent(new CustomEvent('app-theme-toggle', { detail: { isDark: nextDark } }));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'darkMode', newValue: nextDark ? 'true' : 'false' }));
+  };
 
   const [batch, setBatch] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1874,38 +1912,38 @@ export default function ProductionFloorCockpitModal({
     <div className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-0 sm:p-2 overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]`}>
       <div className={`relative w-full ${isFullscreen ? 'h-full max-h-screen rounded-none' : 'h-full sm:h-[97vh] max-h-screen sm:max-h-[97vh] max-w-[99vw] 2xl:max-w-[1720px] rounded-none sm:rounded-2xl'} bg-slate-50 dark:bg-slate-950 shadow-2xl flex flex-col overflow-hidden border border-slate-300 dark:border-slate-800 transition-all duration-200`}>
         
-        {/* ── TOP ACTION BAR: SAP S/4HANA FIORI HORIZON SHELL HEADER ── */}
-        <div className="sticky top-0 z-30 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-[#0b132b] text-white border-b border-slate-800 select-none shadow-md gap-2 shrink-0">
+        {/* ── TOP ACTION BAR: SAP S/4HANA FIORI HORIZON SHELL HEADER (LIGHT & DARK THEMES) ── */}
+        <div className="sticky top-0 z-30 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-white dark:bg-[#0b132b] text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 select-none shadow-xs gap-2 shrink-0 transition-colors">
           
           {/* Left: Identity, SAP App Code, Batch No & Status */}
           <div className="flex items-center gap-2.5 shrink-0 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/30 text-blue-300 flex items-center justify-center border border-blue-500/40 shadow-xs shrink-0">
-              <Sliders className="w-4 h-4 text-blue-400" />
+            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-600/30 text-blue-600 dark:text-blue-300 flex items-center justify-center border border-blue-200 dark:border-blue-500/40 shadow-3xs shrink-0">
+              <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             </div>
 
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-[9.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 border border-blue-800/80">
+                <span className="font-mono text-[9.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-800/80">
                   SAP PP-SFC
                 </span>
-                <span className="font-extrabold text-xs sm:text-sm text-white tracking-wide truncate">
+                <span className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white tracking-wide truncate">
                   Floor Run Cockpit
                 </span>
                 <span className={`text-[9.5px] font-mono font-black px-2 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${
                   isCompleted
-                    ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700'
                     : isPaused
-                    ? 'bg-amber-950 text-amber-300 border-amber-700'
-                    : 'bg-emerald-950/90 text-emerald-400 border-emerald-700'
+                    ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/90 dark:text-emerald-400 dark:border-emerald-700'
                 }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-emerald-400' : isPaused ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-emerald-500' : isPaused ? 'bg-amber-500' : 'bg-emerald-500 dark:bg-emerald-400 animate-pulse'}`} />
                   {isCompleted ? 'COMPLETED' : isPaused ? 'PAUSED' : 'IN EXECUTION'}
                 </span>
-                <span className="text-[10px] font-mono font-bold text-slate-300 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700 shrink-0">
+                <span className="text-[10px] font-mono font-bold text-slate-700 bg-slate-100 border-slate-200 dark:text-slate-300 dark:bg-slate-800/90 dark:border-slate-700 px-2 py-0.5 rounded border shrink-0">
                   {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
                 </span>
               </div>
-              <div className="text-[10px] text-slate-400 font-medium truncate flex items-center gap-1.5">
+              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate flex items-center gap-1.5">
                 <span>{batch?.templateName || batch?.baseName || 'Standard Formulation'}</span>
                 <span>•</span>
                 <span>{batch?.shift || 'Morning Shift'}</span>
@@ -1922,14 +1960,14 @@ export default function ProductionFloorCockpitModal({
           {/* Center / Right Action Buttons */}
           <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
             {/* View Mode Toggle Switcher */}
-            <div className="flex items-center bg-slate-800/90 p-0.5 rounded-lg border border-slate-700 text-xs">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
               <button
                 type="button"
                 onClick={() => setViewMode('STEPS')}
                 className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                   viewMode === 'STEPS'
                     ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-white'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                 }`}
               >
                 <Layers className="w-3 h-3" />
@@ -1943,7 +1981,7 @@ export default function ProductionFloorCockpitModal({
                   className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                     viewMode === 'REPORT'
                       ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-white'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                   }`}
                 >
                   <FileSpreadsheet className="w-3 h-3" />
@@ -1960,7 +1998,7 @@ export default function ProductionFloorCockpitModal({
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleReopenProduction}
-                className="rounded-lg border-amber-500/70 text-amber-300 hover:bg-amber-950/40 h-7 px-2 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                className="rounded-lg border-amber-400 dark:border-amber-500/70 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 h-7 px-2 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                 title="Unlock completed batch and resume edits in PostgreSQL"
               >
                 <Unlock className="w-3 h-3" />
@@ -1993,21 +2031,17 @@ export default function ProductionFloorCockpitModal({
               )
             )}
 
-            {/* Finalize Entire Production Button (Active only after Step 5) */}
-            {!isCompleted && (
+            {/* Finalize Entire Production Button (Displayed only on Step 5) */}
+            {!isCompleted && activeStep === 5 && (
               <Button
                 size="sm"
-                disabled={activeStep < 5 || actionLoading}
+                disabled={actionLoading}
                 onClick={handleOpenYieldModal}
-                className={`rounded-lg font-bold h-7 px-3 text-[11px] shadow-xs flex items-center gap-1.5 transition-all ${
-                  activeStep === 5 
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400/50 shadow-sm animate-pulse' 
-                    : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-60'
-                }`}
-                title={activeStep === 5 ? "Record Actual Yield & Finalize Entire Production" : "Advance through Step 5 Quality & Costing to finalize entire production"}
+                className="rounded-lg font-bold h-7 px-3 text-[11px] shadow-xs flex items-center gap-1.5 transition-all bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400/50 shadow-sm animate-pulse"
+                title="Record Actual Yield & Finalize Entire Production"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{activeStep === 5 ? 'Finalize Entire Production' : 'Finalize (Step 5)'}</span>
+                <span>Finalize Entire Production</span>
               </Button>
             )}
 
@@ -2018,7 +2052,7 @@ export default function ProductionFloorCockpitModal({
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleCancelRun}
-                className="rounded-lg text-rose-400 border-rose-800/80 hover:bg-rose-950/40 h-7 px-2 text-[11px] font-bold cursor-pointer"
+                className="rounded-lg text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/40 h-7 px-2 text-[11px] font-bold cursor-pointer"
                 title="Cancel Floor Run"
               >
                 Cancel
@@ -2049,20 +2083,31 @@ export default function ProductionFloorCockpitModal({
                     icon: 'success'
                   });
                 }}
-                className="rounded-lg border-blue-500/50 bg-blue-950/40 text-blue-300 hover:text-white hover:bg-blue-900/60 h-7 px-2 text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                className="rounded-lg border-blue-300 dark:border-blue-500/50 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white hover:bg-blue-100 dark:hover:bg-blue-900/60 h-7 px-2 text-[11px] font-bold cursor-pointer flex items-center gap-1"
                 title="Print GST Compliance & GS1 Product Label"
               >
-                <Printer className="w-3 h-3 text-blue-400" />
+                <Printer className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                 <span className="hidden sm:inline">GST Label</span>
               </Button>
             )}
+
+            {/* Theme Toggle Button (Light / Dark) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleThemeMode}
+              className="h-7 w-7 p-0 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+              title={isDark ? "Switch to Light Theme" : "Switch to Dark Theme"}
+            >
+              {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-600" />}
+            </Button>
 
             {/* Fullscreen Toggle */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => setIsFullscreen(prev => !prev)}
-              className="h-7 w-7 p-0 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800"
+              className="h-7 w-7 p-0 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
               title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Cockpit'}
             >
               {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
@@ -2073,7 +2118,7 @@ export default function ProductionFloorCockpitModal({
               variant="outline"
               size="sm"
               onClick={onClose}
-              className="h-7 w-7 p-0 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800"
+              className="h-7 w-7 p-0 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
               title="Close Cockpit"
             >
               <X className="w-3.5 h-3.5" />
@@ -2081,14 +2126,14 @@ export default function ProductionFloorCockpitModal({
           </div>
         </div>
 
-        {/* ── TOP KPI SMART METRIC TILES (SAP FIORI SMART KPI RIBBON) ── */}
+        {/* ── TOP KPI SMART METRIC TILES (SAP FIORI SMART KPI RIBBON - LIGHT & DARK THEMES) ── */}
         {viewMode === 'STEPS' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 px-3 sm:px-5 py-2 bg-slate-900/90 text-white border-b border-slate-800 select-none shrink-0">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 px-3 sm:px-5 py-2 bg-slate-50 dark:bg-slate-900/90 text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-800 select-none shrink-0 transition-colors">
             {/* KPI 1 */}
-            <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
               <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block">Target Planned</span>
-                <strong className="text-sm font-mono font-black text-white tabular-nums block">
+                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Target Planned</span>
+                <strong className="text-sm font-mono font-black text-slate-900 dark:text-white tabular-nums block">
                   {batch?.quantity || 2000} pcs
                 </strong>
               </div>
@@ -2096,54 +2141,54 @@ export default function ProductionFloorCockpitModal({
             </div>
 
             {/* KPI 2 */}
-            <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
               <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block">Pre-Evap Volume</span>
-                <strong className="text-sm font-mono font-black text-blue-400 tabular-nums block">
+                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Pre-Evap Volume</span>
+                <strong className="text-sm font-mono font-black text-blue-600 dark:text-blue-400 tabular-nums block">
                   {formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml
                 </strong>
               </div>
-              <span className="text-[9px] font-mono text-blue-300/70 hidden sm:inline">≈ {round2(liveEvaporationResult.totalBeforeEvapMl / 1000)} L</span>
+              <span className="text-[9px] font-mono text-blue-600/70 dark:text-blue-300/70 hidden sm:inline">≈ {round2(liveEvaporationResult.totalBeforeEvapMl / 1000)} L</span>
             </div>
 
             {/* KPI 3 */}
-            <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
               <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block">Post-Evap Net Mix</span>
-                <strong className="text-sm font-mono font-black text-emerald-400 tabular-nums block">
+                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Post-Evap Net Mix</span>
+                <strong className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400 tabular-nums block">
                   {formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml
                 </strong>
               </div>
-              <span className="text-[9px] font-mono text-emerald-300/70 hidden sm:inline">Available</span>
+              <span className="text-[9px] font-mono text-emerald-600/70 dark:text-emerald-300/70 hidden sm:inline">Available</span>
             </div>
 
             {/* KPI 4 */}
-            <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
               <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block">Base Mix Allocated</span>
-                <strong className="text-sm font-mono font-black text-purple-400 tabular-nums block">
+                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Base Mix Allocated</span>
+                <strong className="text-sm font-mono font-black text-purple-600 dark:text-purple-400 tabular-nums block">
                   {formatIndian(liveAllocationsResult.totalMixUsedMl)} ml
                 </strong>
               </div>
-              <span className="text-[9px] font-mono text-purple-300/70 hidden sm:inline">
+              <span className="text-[9px] font-mono text-purple-600/70 dark:text-purple-300/70 hidden sm:inline">
                 {availableMixMl > 0 ? `${Math.round((liveAllocationsResult.totalMixUsedMl / availableMixMl) * 100)}%` : '0%'}
               </span>
             </div>
 
             {/* KPI 5 */}
-            <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60 col-span-2 sm:col-span-1 flex items-center justify-between">
+            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs col-span-2 sm:col-span-1 flex items-center justify-between">
               <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 block">Unallocated Balance</span>
-                <strong className={`text-sm font-mono font-black tabular-nums block ${liveAllocationsResult.remainingMixMl < 0 ? 'text-rose-400' : (liveAllocationsResult.remainingMixMl === 0 ? 'text-emerald-400' : 'text-amber-400')}`}>
+                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Unallocated Balance</span>
+                <strong className={`text-sm font-mono font-black tabular-nums block ${liveAllocationsResult.remainingMixMl < 0 ? 'text-rose-600 dark:text-rose-400' : (liveAllocationsResult.remainingMixMl === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}`}>
                   {formatIndian(liveAllocationsResult.remainingMixMl)} ml
                 </strong>
               </div>
               <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded border ${
                 liveAllocationsResult.remainingMixMl < 0 
-                  ? 'bg-rose-950 text-rose-300 border-rose-800' 
+                  ? 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800' 
                   : (liveAllocationsResult.remainingMixMl === 0 
-                      ? 'bg-emerald-950 text-emerald-300 border-emerald-800' 
-                      : 'bg-amber-950 text-amber-300 border-amber-800')
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800' 
+                      : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800')
               }`}>
                 {liveAllocationsResult.remainingMixMl < 0 ? 'Deficit' : (liveAllocationsResult.remainingMixMl === 0 ? 'Fully Allocated ✓' : 'To Allocate')}
               </span>
@@ -2151,9 +2196,9 @@ export default function ProductionFloorCockpitModal({
           </div>
         )}
 
-        {/* ── SAP FIORI PROCESS FLOW STEPPER WITH INTEGRATED STEP NAVIGATION ── */}
+        {/* ── SAP FIORI PROCESS FLOW STEPPER WITH INTEGRATED STEP NAVIGATION (LIGHT & DARK THEMES) ── */}
         {viewMode === 'STEPS' && (
-          <div className="flex items-center justify-between px-3 sm:px-5 py-2 bg-[#0d1b2a] border-b border-slate-800 overflow-x-auto gap-2 no-scrollbar select-none shrink-0">
+          <div className="flex items-center justify-between px-3 sm:px-5 py-2 bg-slate-100/90 dark:bg-[#0d1b2a] border-b border-slate-200 dark:border-slate-800 overflow-x-auto gap-2 no-scrollbar select-none shrink-0 transition-colors">
             {/* Step Tabs */}
             <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto no-scrollbar">
               {[
@@ -2172,14 +2217,14 @@ export default function ProductionFloorCockpitModal({
                     onClick={() => handleStepClick(s.id)}
                     className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 border text-left ${
                       isActive 
-                        ? 'bg-blue-600 text-white border-blue-400 shadow-md ring-2 ring-blue-500/30' 
+                        ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20' 
                         : s.isDone 
-                        ? 'bg-slate-800/90 text-emerald-300 border-emerald-700/60 hover:bg-slate-800 hover:text-white' 
-                        : 'bg-slate-800/40 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-800/60'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-slate-800/90 dark:text-emerald-300 dark:border-emerald-700/60 dark:hover:bg-slate-800 dark:hover:text-white' 
+                        : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-50 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-800 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
                     }`}
                   >
                     <span className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-[10px] font-black shrink-0 ${
-                      isActive ? 'bg-white/20 text-white' : s.isDone ? 'bg-emerald-950 text-emerald-400' : 'bg-slate-800 text-slate-400'
+                      isActive ? 'bg-white/20 text-white' : s.isDone ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'
                     }`}>
                       {s.isDone && !isActive ? '✓' : `0${s.id}`}
                     </span>
@@ -2188,7 +2233,7 @@ export default function ProductionFloorCockpitModal({
                       <div className="font-extrabold text-[11px] leading-tight flex items-center gap-1.5">
                         <span className="truncate">{s.title}</span>
                         <span className={`text-[9px] font-mono px-1 py-0.2 rounded shrink-0 ${
-                          isActive ? 'bg-blue-700 text-white' : s.isDone ? 'bg-emerald-950 text-emerald-300' : 'bg-slate-800 text-slate-400'
+                          isActive ? 'bg-blue-700 text-white' : s.isDone ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
                         }`}>
                           {s.badge}
                         </span>
@@ -2200,14 +2245,14 @@ export default function ProductionFloorCockpitModal({
             </div>
 
             {/* Quick Prev / Next Step Buttons integrated in Stepper bar */}
-            <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-800">
+            <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-300 dark:border-slate-800">
               {activeStep > 1 && (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setActiveStep(prev => prev - 1)}
-                  className="h-7 px-2 text-[11px] font-bold border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1"
+                  className="h-7 px-2 text-[11px] font-bold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center gap-1"
                 >
                   <ChevronLeft className="w-3 h-3" />
                   <span className="hidden sm:inline">Prev</span>
@@ -2574,16 +2619,17 @@ export default function ProductionFloorCockpitModal({
                             1. Merge Stage
                           </label>
                           <select
-                            value={mergeStage}
+                            value={
+                              ['After heating', 'After freezing', 'Other Method'].includes(mergeStage)
+                                ? mergeStage
+                                : (mergeStage === 'Before heating' ? 'After heating' : (mergeStage === 'Before freezing' ? 'After freezing' : 'After heating'))
+                            }
                             onChange={(e) => setMergeStage(e.target.value)}
                             className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 cursor-pointer"
                           >
                             <option value="After heating">After heating</option>
                             <option value="After freezing">After freezing</option>
                             <option value="Other Method">Other Method</option>
-                            {mergeStage && !['After heating', 'After freezing', 'Other Method'].includes(mergeStage) && (
-                              <option value={mergeStage}>{mergeStage}</option>
-                            )}
                           </select>
                         </div>
 
@@ -3498,50 +3544,50 @@ export default function ProductionFloorCockpitModal({
                             </div>
                           )}
 
-                          {/* 5. Role-Protected Consumption-Based Costing Distribution Card (Admin & Supervisor Only) */}
+                          {/* 5. Role-Protected Consumption-Based Costing Distribution Card (Admin & Supervisor Only - Light & Dark Themes) */}
                           {canViewCost && (
-                            <div className="p-3.5 bg-slate-900 text-white rounded-xl border border-slate-800 space-y-2 select-none">
-                              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800">
-                                <div className="flex items-center gap-1.5 font-bold text-slate-200">
-                                  <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                            <div className="p-3.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 select-none shadow-3xs">
+                              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-200 dark:border-slate-800">
+                                <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+                                  <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                                   <span>Consumption-Based Cost Distribution (PO Rate):</span>
                                 </div>
-                                <span className="text-[9.5px] font-mono text-emerald-400 bg-emerald-950 border border-emerald-800 px-2 py-0.5 rounded">
+                                <span className="text-[9.5px] font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 rounded">
                                   AUDITED UNIT ECONOMICS
                                 </span>
                               </div>
 
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                                <div className="bg-slate-800/80 p-2 rounded-lg border border-slate-700/80">
-                                  <span className="text-[10px] text-slate-400 block">Base Mix Cost:</span>
-                                  <strong className="text-sm font-mono font-black text-indigo-300 block mt-0.5">
+                                <div className="bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/80 shadow-3xs">
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Base Mix Cost:</span>
+                                  <strong className="text-sm font-mono font-black text-indigo-600 dark:text-indigo-300 block mt-0.5">
                                     ₹{formatIndian(round2(assignedBaseCost))}
                                   </strong>
                                   <span className="text-[9.5px] text-slate-400 font-mono">From PO ({formatIndian(baseMl)} ml)</span>
                                 </div>
 
-                                <div className="bg-slate-800/80 p-2 rounded-lg border border-slate-700/80">
-                                  <span className="text-[10px] text-slate-400 block">Product Essences Cost:</span>
-                                  <strong className="text-sm font-mono font-black text-amber-300 block mt-0.5">
+                                <div className="bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/80 shadow-3xs">
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Product Essences Cost:</span>
+                                  <strong className="text-sm font-mono font-black text-amber-600 dark:text-amber-300 block mt-0.5">
                                     ₹{formatIndian(round2(productRmCost))}
                                   </strong>
                                   <span className="text-[9.5px] text-slate-400 font-mono">{productRms.length} added ingredients</span>
                                 </div>
 
-                                <div className="bg-slate-800/80 p-2 rounded-lg border border-slate-700/80">
-                                  <span className="text-[10px] text-slate-400 block">Total Product Cost:</span>
-                                  <strong className="text-sm font-mono font-black text-emerald-300 block mt-0.5">
+                                <div className="bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/80 shadow-3xs">
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Total Product Cost:</span>
+                                  <strong className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-300 block mt-0.5">
                                     ₹{formatIndian(round2(totalProductCost))}
                                   </strong>
                                   <span className="text-[9.5px] text-slate-400 font-mono">Assigned Material Cost</span>
                                 </div>
 
-                                <div className="bg-emerald-950/80 p-2 rounded-lg border border-emerald-700/80">
-                                  <span className="text-[10px] text-emerald-300 block">Cost / Unit:</span>
-                                  <strong className="text-base font-mono font-black text-white block mt-0.5">
+                                <div className="bg-emerald-50 dark:bg-emerald-950/80 p-2 rounded-lg border border-emerald-300 dark:border-emerald-700/80 shadow-3xs">
+                                  <span className="text-[10px] text-emerald-800 dark:text-emerald-300 block">Cost / Unit:</span>
+                                  <strong className="text-base font-mono font-black text-emerald-950 dark:text-white block mt-0.5">
                                     ₹{costPerUnit} / {isMould ? prodUom : bulkUom}
                                   </strong>
-                                  <span className="text-[9.5px] text-emerald-400 font-mono">Good: {goodUnits} {isMould ? prodUom : bulkUom}</span>
+                                  <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-mono">Good: {goodUnits} {isMould ? prodUom : bulkUom}</span>
                                 </div>
                               </div>
                             </div>
@@ -3885,46 +3931,46 @@ export default function ProductionFloorCockpitModal({
                   </Button>
                 </div>
 
-                {/* 4. Role-Protected Batch Costing (Admin & Supervisor Only) */}
+                {/* 4. Role-Protected Batch Costing (Admin & Supervisor Only - Light & Dark Themes) */}
                 {canViewCost && costingData && (
-                  <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-slate-900 text-white rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                  <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-xl overflow-hidden">
+                    <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4 text-emerald-400" />
-                        <h3 className="text-sm font-bold text-white">
+                        <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                           Financial Costing &amp; Live PO Rate Breakdown (Supervisor / Admin Audit)
                         </h3>
                       </div>
-                      <span className="text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-700 px-2.5 py-0.5 rounded-full">
+                      <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700 px-2.5 py-0.5 rounded-full border">
                         LIVE PO COST AUDIT
                       </span>
                     </div>
 
                     <div className="p-5 space-y-5">
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                        <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-400">Total Material Cost</div>
-                          <div className="text-base font-mono font-black text-white mt-1">₹{costingData.totalMaterialCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Total Material Cost</div>
+                          <div className="text-base font-mono font-black text-slate-900 dark:text-white mt-1">₹{costingData.totalMaterialCost}</div>
                         </div>
 
-                        <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-400">Wastage Loss Cost</div>
-                          <div className="text-base font-mono font-black text-rose-400 mt-1">₹{costingData.totalWastageCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Wastage Loss Cost</div>
+                          <div className="text-base font-mono font-black text-rose-600 dark:text-rose-400 mt-1">₹{costingData.totalWastageCost}</div>
                         </div>
 
-                        <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-400">Labour Cost</div>
-                          <div className="text-base font-mono font-black text-amber-300 mt-1">₹{costingData.labourCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Labour Cost</div>
+                          <div className="text-base font-mono font-black text-amber-600 dark:text-amber-300 mt-1">₹{costingData.labourCost}</div>
                         </div>
 
-                        <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-400">Utility / EB Cost</div>
-                          <div className="text-base font-mono font-black text-blue-300 mt-1">₹{costingData.utilityCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Utility / EB Cost</div>
+                          <div className="text-base font-mono font-black text-blue-600 dark:text-blue-300 mt-1">₹{costingData.utilityCost}</div>
                         </div>
 
-                        <div className="bg-emerald-950/80 p-3 rounded-lg border border-emerald-700">
-                          <div className="text-[10.5px] font-bold uppercase text-emerald-400">Total Production Cost</div>
-                          <div className="text-lg font-mono font-black text-emerald-300 mt-0.5">₹{costingData.totalProductionCost}</div>
+                        <div className="bg-emerald-50 dark:bg-emerald-950/80 p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 shadow-3xs">
+                          <div className="text-[10.5px] font-bold uppercase text-emerald-800 dark:text-emerald-400">Total Production Cost</div>
+                          <div className="text-lg font-mono font-black text-emerald-950 dark:text-emerald-300 mt-0.5">₹{costingData.totalProductionCost}</div>
                         </div>
                       </div>
                     </div>
@@ -4000,12 +4046,12 @@ export default function ProductionFloorCockpitModal({
               </Button>
             ) : null}
 
-            {!isCompleted && (
+            {!isCompleted && activeStep === 5 && (
               <Button
                 type="button"
                 size="sm"
                 onClick={handleOpenYieldModal}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Finalize Entire Production</span>
@@ -4031,18 +4077,18 @@ export default function ProductionFloorCockpitModal({
             <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh]">
               
               {/* Modal Header */}
-              <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+              <div className="px-6 py-4 bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-white flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold">
                     <Boxes className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="font-extrabold text-sm text-white">
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
                       Allocate Warehouse Batches: {itemName}
                     </h3>
-                    <p className="text-[11px] text-slate-400">
-                      Live UOM: <strong className="text-indigo-400">{itemUom}</strong> • Required: <strong className="font-mono text-white">{itemReq} {itemUom}</strong>
-                      {isProductRm && <span className="ml-2 text-amber-400 font-semibold">• Product Flavour Addition</span>}
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Live UOM: <strong className="text-indigo-600 dark:text-indigo-400">{itemUom}</strong> • Required: <strong className="font-mono text-slate-900 dark:text-white">{itemReq} {itemUom}</strong>
+                      {isProductRm && <span className="ml-2 text-amber-600 dark:text-amber-400 font-semibold">• Product Flavour Addition</span>}
                     </p>
                   </div>
                 </div>
@@ -4050,7 +4096,7 @@ export default function ProductionFloorCockpitModal({
                 <button
                   type="button"
                   onClick={() => setLotModalOpen(false)}
-                  className="text-slate-400 hover:text-white p-1"
+                  className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white p-1"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -4359,7 +4405,7 @@ export default function ProductionFloorCockpitModal({
               <button
                 type="button"
                 onClick={() => setShowYieldModal(false)}
-                className="text-slate-400 hover:text-white text-base font-bold cursor-pointer"
+                className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white text-base font-bold cursor-pointer"
               >
                 ✕
               </button>
