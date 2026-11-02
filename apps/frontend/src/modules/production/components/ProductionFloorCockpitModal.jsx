@@ -168,8 +168,8 @@ export default function ProductionFloorCockpitModal({
   const [timelineStages, setTimelineStages] = useState(DEFAULT_FACTORY_STAGES);
   const [savingStages, setSavingStages] = useState(false);
 
-  // Lab Testing Requirement State (Defaults to true, can be toggled)
-  const [labTestRequired, setLabTestRequired] = useState(true);
+  // Lab Testing Requirement State (Defaults to false - direct to stock, can be toggled if QC needed)
+  const [labTestRequired, setLabTestRequired] = useState(false);
 
   // Sub-Run / Multi End Product Sub-Batches Tracking (Run A, Run B, etc.)
   const [completedSubBatches, setCompletedSubBatches] = useState([]);
@@ -569,11 +569,13 @@ export default function ProductionFloorCockpitModal({
         setTimelineStages(DEFAULT_FACTORY_STAGES);
       }
 
-      // QC Lab Test Requirement (true = quarantine, false = direct to stock)
+      // QC Lab Test Requirement (false = direct to stock, true = quarantine hold)
       if (b.qc_required !== undefined) {
         setLabTestRequired(Boolean(b.qc_required));
       } else if (b.labTestRequired !== undefined) {
         setLabTestRequired(Boolean(b.labTestRequired));
+      } else {
+        setLabTestRequired(false);
       }
 
       // Saved Product Yields from Step 5
@@ -2169,11 +2171,11 @@ export default function ProductionFloorCockpitModal({
               {isCompleted ? 'COMPLETED' : isPaused ? 'PAUSED' : 'IN EXECUTION'}
             </span>
 
-            {/* QC Routing Status Chip */}
+            {/* QC / Stock Routing Status Chip */}
             <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border shrink-0 ${
               labTestRequired 
                 ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700' 
-                : 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-700'
             }`}>
               {labTestRequired ? 'QC QUARANTINE HOLD' : 'DIRECT TO STOCK'}
             </span>

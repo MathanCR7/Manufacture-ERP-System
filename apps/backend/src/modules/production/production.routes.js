@@ -230,7 +230,8 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
       await tx.productionBatchNew.update({
         where: { id },
         data: {
-          status: 'qc_passed',
+          status: 'Completed',
+          approvalStatus: 'QC_PASSED',
           expiryDate: expDate
         }
       });

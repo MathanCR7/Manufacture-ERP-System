@@ -1130,7 +1130,13 @@ export default function StandardProductionListPage() {
                               ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
                               : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
                           }`}>
-                            {b.status === 'Lab Test In Progress' ? '🔬 In QC Queue' : b.status}
+                            {b.status === 'Lab Test In Progress'
+                              ? '🔬 In QC Queue'
+                              : b.status === 'qc_passed'
+                              ? 'Completed'
+                              : b.status === 'qc_failed'
+                              ? 'QC Failed'
+                              : b.status}
                           </span>
                         </td>
 
