@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Factory, X, Check, Play, Pause, Save, RefreshCw, AlertTriangle,
   Layers, Sliders, Box, ShieldCheck, Sparkles, Scale, Info, ArrowRight, ArrowLeft,
@@ -95,6 +95,8 @@ export default function ProductionFloorCockpitModal({
   };
 
   const [batch, setBatch] = useState(null);
+  const isPaused = batch?.status === 'Paused';
+  const isCompleted = batch?.status === 'Completed';
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [savingProcess, setSavingProcess] = useState(false);
@@ -1897,10 +1899,148 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
-  if (!isOpen) return null;
+  // ── SAP FIORI HORIZON MESSAGE POPOVER VALIDATION ISSUES ──
+  const [showMessagesPopover, setShowMessagesPopover] = useState(false);
+  const messagesPopoverRef = useRef(null);
 
-  const isPaused = batch?.status === 'Paused';
-  const isCompleted = batch?.status === 'Completed';
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (messagesPopoverRef.current && !messagesPopoverRef.current.contains(e.target)) {
+        setShowMessagesPopover(false);
+      }
+    };
+    if (showMessagesPopover) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showMessagesPopover]);
+
+  const validationMessages = useMemo(() => {
+    const list = [];
+    
+    // Step 1 RM Checks
+    rmRows.forEach((r, idx) => {
+      const displayAvailable = Array.isArray(r.allocatedBatches) && r.allocatedBatches.length > 0
+        ? r.allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0)
+        : Number(r.availableQty || 0);
+      const displayTaken = Number(r.takenQty || 0);
+      if (displayTaken > displayAvailable && displayAvailable > 0) {
+        list.push({
+          id: `rm-exceed-${idx}`,
+          type: 'error',
+          step: 1,
+          stepName: 'Step 1: Raw Materials',
+          title: `Taken exceeds batch available for ${r.rawMaterialName || 'Material'}`,
+          desc: `Taken: ${displayTaken} > Available: ${displayAvailable} ${formatCleanUom(r.uom, 'kg', r)}`
+        });
+      }
+      if (displayTaken <= 0) {
+        list.push({
+          id: `rm-zero-${idx}`,
+          type: 'warning',
+          step: 1,
+          stepName: 'Step 1: Raw Materials',
+          title: `Zero quantity taken for ${r.rawMaterialName || 'Material'}`,
+          desc: 'Specify taken quantity to consume inventory stock'
+        });
+      }
+      if (!Array.isArray(r.allocatedBatches) || r.allocatedBatches.length === 0) {
+        list.push({
+          id: `rm-no-lot-${idx}`,
+          type: 'warning',
+          step: 1,
+          stepName: 'Step 1: Raw Materials',
+          title: `No warehouse batch lot assigned for ${r.rawMaterialName || 'Material'}`,
+          desc: 'Click "+ Allocate Lots" to trace warehouse stock'
+        });
+      }
+    });
+
+    // Step 2 Merge Checks
+    if (!isSlideMerged) {
+      list.push({
+        id: 'merge-not-merged',
+        type: 'warning',
+        step: 2,
+        stepName: 'Step 2: Merge & Evap',
+        title: 'Raw materials not yet merged',
+        desc: 'Slide to merge liquid raw materials into unified mix'
+      });
+    }
+    if (liveEvaporationResult.mixAfterEvapMl <= 0) {
+      list.push({
+        id: 'merge-zero-mix',
+        type: 'error',
+        step: 2,
+        stepName: 'Step 2: Merge & Evap',
+        title: 'Net post-evaporation mix volume is 0 ml',
+        desc: 'Review raw materials formulation taken quantities'
+      });
+    }
+
+    // Step 3 Allocations Checks
+    if (allocations.length === 0) {
+      list.push({
+        id: 'alloc-empty',
+        type: 'error',
+        step: 3,
+        stepName: 'Step 3: Products & Moulds',
+        title: 'No finished products added',
+        desc: 'Add at least one finished product to allocate mix'
+      });
+    }
+    if (liveAllocationsResult.remainingMixMl < 0) {
+      list.push({
+        id: 'alloc-deficit',
+        type: 'error',
+        step: 3,
+        stepName: 'Step 3: Products & Moulds',
+        title: `Mix deficit: ${formatIndian(Math.abs(liveAllocationsResult.remainingMixMl))} ml over-allocated`,
+        desc: 'Reduce product base mix allocations to match available volume'
+      });
+    } else if (liveAllocationsResult.remainingMixMl > 50) {
+      list.push({
+        id: 'alloc-remaining',
+        type: 'warning',
+        step: 3,
+        stepName: 'Step 3: Products & Moulds',
+        title: `${formatIndian(liveAllocationsResult.remainingMixMl)} ml mix unallocated`,
+        desc: 'Unallocated mix will be accounted as floor wastage in Step 5'
+      });
+    }
+
+    // Step 4 Timeline Checks
+    if (timelineStages.length === 0) {
+      list.push({
+        id: 'timeline-empty',
+        type: 'warning',
+        step: 4,
+        stepName: 'Step 4: Factory Timeline',
+        title: 'No factory timeline stages defined',
+        desc: 'Configure process stages for batch audit history'
+      });
+    }
+
+    // Step 5 Completion Status
+    if (!isCompleted) {
+      list.push({
+        id: 'status-incomplete',
+        type: 'info',
+        step: 5,
+        stepName: 'Step 5: Quality & Yield',
+        title: 'Production order active on shop floor',
+        desc: 'Record actual yield pieces to complete batch'
+      });
+    }
+
+    return list;
+  }, [rmRows, isSlideMerged, liveEvaporationResult.mixAfterEvapMl, allocations.length, liveAllocationsResult.remainingMixMl, timelineStages.length, isCompleted]);
+
+  const errorCount = useMemo(() => validationMessages.filter(m => m.type === 'error').length, [validationMessages]);
+  const warningCount = useMemo(() => validationMessages.filter(m => m.type === 'warning').length, [validationMessages]);
+  const stepHasError = useCallback((stepId) => validationMessages.some(m => m.step === stepId && m.type === 'error'), [validationMessages]);
+
+  if (!isOpen) return null;
 
   // Derived readiness flags for stepper indicators
   const step1Ready = rmRows.length > 0 && rmRows.every(r => r.takenQty > 0);
@@ -1912,62 +2052,31 @@ export default function ProductionFloorCockpitModal({
     <div className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-0 sm:p-2 overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]`}>
       <div className={`relative w-full ${isFullscreen ? 'h-full max-h-screen rounded-none' : 'h-full sm:h-[97vh] max-h-screen sm:max-h-[97vh] max-w-[99vw] 2xl:max-w-[1720px] rounded-none sm:rounded-2xl'} bg-slate-50 dark:bg-slate-950 shadow-2xl flex flex-col overflow-hidden border border-slate-300 dark:border-slate-800 transition-all duration-200`}>
         
-        {/* ── TOP ACTION BAR: SAP S/4HANA FIORI HORIZON SHELL HEADER (LIGHT & DARK THEMES) ── */}
-        <div className="sticky top-0 z-30 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-white dark:bg-[#0b132b] text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 select-none shadow-xs gap-2 shrink-0 transition-colors">
-          
-          {/* Left: Identity, SAP App Code, Batch No & Status */}
-          <div className="flex items-center gap-2.5 shrink-0 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-600/30 text-blue-600 dark:text-blue-300 flex items-center justify-center border border-blue-200 dark:border-blue-500/40 shadow-3xs shrink-0">
-              <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        {/* ── 1. SHELL BAR (44px, SAP Dark Navy #1d2d3e) ── */}
+        <div className="h-11 px-3 sm:px-4 bg-[#1d2d3e] text-white flex items-center justify-between select-none shrink-0 border-b border-slate-700/80 z-30">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-md bg-[#0070f2] text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+              <Factory className="w-4 h-4" />
             </div>
-
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-[9.5px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-800/80">
-                  SAP PP-SFC
-                </span>
-                <span className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white tracking-wide truncate">
-                  Floor Run Cockpit
-                </span>
-                <span className={`text-[9.5px] font-mono font-black px-2 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${
-                  isCompleted
-                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700'
-                    : isPaused
-                    ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700'
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/90 dark:text-emerald-400 dark:border-emerald-700'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-emerald-500' : isPaused ? 'bg-amber-500' : 'bg-emerald-500 dark:bg-emerald-400 animate-pulse'}`} />
-                  {isCompleted ? 'COMPLETED' : isPaused ? 'PAUSED' : 'IN EXECUTION'}
-                </span>
-                <span className="text-[10px] font-mono font-bold text-slate-700 bg-slate-100 border-slate-200 dark:text-slate-300 dark:bg-slate-800/90 dark:border-slate-700 px-2 py-0.5 rounded border shrink-0">
-                  {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
-                </span>
-              </div>
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate flex items-center gap-1.5">
-                <span>{batch?.templateName || batch?.baseName || 'Standard Formulation'}</span>
-                <span>•</span>
-                <span>{batch?.shift || 'Morning Shift'}</span>
-                {batch?.startDate && (
-                  <>
-                    <span>•</span>
-                    <span className="font-mono">{new Date(batch.startDate).toLocaleDateString()}</span>
-                  </>
-                )}
-              </div>
-            </div>
+            <span className="font-bold text-xs tracking-wide text-white truncate">
+              Floor Run Cockpit
+            </span>
+            <span className="font-mono text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-700/80 shrink-0">
+              PP-SFC
+            </span>
+            <span className="text-[10px] font-mono font-bold text-slate-300 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700 shrink-0 hidden sm:inline">
+              {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
+            </span>
           </div>
 
-          {/* Center / Right Action Buttons */}
-          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* View Mode Toggle Switcher */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs">
+            <div className="flex items-center bg-slate-800/90 p-0.5 rounded-lg border border-slate-700 text-xs">
               <button
                 type="button"
                 onClick={() => setViewMode('STEPS')}
                 className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                  viewMode === 'STEPS'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                  viewMode === 'STEPS' ? 'bg-[#0070f2] text-white shadow-xs' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 <Layers className="w-3 h-3" />
@@ -1979,9 +2088,7 @@ export default function ProductionFloorCockpitModal({
                   type="button"
                   onClick={() => setViewMode('REPORT')}
                   className={`px-2 py-1 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
-                    viewMode === 'REPORT'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                    viewMode === 'REPORT' ? 'bg-[#30914c] text-white shadow-xs' : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   <FileSpreadsheet className="w-3 h-3" />
@@ -1991,75 +2098,140 @@ export default function ProductionFloorCockpitModal({
               )}
             </div>
 
-            {/* Reopen Batch Button (when Completed) */}
+            {/* Theme Toggle Button (Light / Dark) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleThemeMode}
+              className="h-7 w-7 p-0 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800"
+              title={isDark ? "Switch to Light Theme" : "Switch to Dark Theme"}
+            >
+              {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-400" />}
+            </Button>
+
+            {/* Fullscreen Toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFullscreen(prev => !prev)}
+              className="h-7 w-7 p-0 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Cockpit'}
+            >
+              {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+            </Button>
+
+            {/* Close Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              className="h-7 w-7 p-0 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800"
+              title="Close Cockpit"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* ── 2. OBJECT PAGE HEADER (S/4HANA FIORI HORIZON OBJECT HEADER) ── */}
+        <div className="px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3 shrink-0 transition-colors">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                <span>Production Order</span>
+                <span className="font-mono text-[#0070f2] dark:text-blue-400 font-bold">
+                  {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
+                </span>
+              </h1>
+
+              {/* Status Chip */}
+              <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
+                isCompleted
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700'
+                  : isPaused
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/90 dark:text-emerald-400 dark:border-emerald-700'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${isCompleted ? 'bg-[#30914c]' : isPaused ? 'bg-[#e9730c]' : 'bg-[#30914c] animate-pulse'}`} />
+                {isCompleted ? 'COMPLETED' : isPaused ? 'PAUSED' : 'IN EXECUTION'}
+              </span>
+
+              {/* QC Routing Status Chip */}
+              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                labTestRequired 
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700' 
+                  : 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700'
+              }`}>
+                {labTestRequired ? 'QC QUARANTINE HOLD' : 'DIRECT TO STOCK'}
+              </span>
+            </div>
+
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate flex items-center gap-2 mt-1">
+              <span>Formulation: <strong className="text-slate-700 dark:text-slate-300">{batch?.templateName || batch?.baseName || 'Standard Formulation'}</strong></span>
+              <span>•</span>
+              <span>Shift: <strong className="text-slate-700 dark:text-slate-300">{batch?.shift || 'Morning Shift'}</strong></span>
+              <span>•</span>
+              <span>Date: <strong className="font-mono text-slate-700 dark:text-slate-300">{batch?.startDate ? formatDateDMY(batch.startDate) : formatDateDMY(new Date())}</strong></span>
+              <span>•</span>
+              <span>Operator: <strong className="text-slate-700 dark:text-slate-300">{currentUser?.name || 'Floor Supervisor'}</strong></span>
+            </div>
+          </div>
+
+          {/* Header Action Buttons */}
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {/* Reopen Batch */}
             {isCompleted && (
               <Button
                 variant="outline"
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleReopenProduction}
-                className="rounded-lg border-amber-400 dark:border-amber-500/70 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 h-7 px-2 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
-                title="Unlock completed batch and resume edits in PostgreSQL"
+                className="h-8 px-2.5 text-xs font-bold rounded-lg border-amber-400 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-1.5 cursor-pointer shadow-3xs"
               >
-                <Unlock className="w-3 h-3" />
-                <span className="hidden md:inline">Reopen</span>
+                <Unlock className="w-3.5 h-3.5" />
+                <span>Reopen Order</span>
               </Button>
             )}
 
-            {/* Pause / Resume Button */}
+            {/* Pause / Resume */}
             {!isCompleted && (
               isPaused ? (
                 <Button
                   size="sm"
                   disabled={actionLoading}
                   onClick={handleResume}
-                  className="rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold h-7 px-2.5 text-[11px] shadow-xs cursor-pointer flex items-center gap-1"
+                  className="h-8 px-3 text-xs font-bold rounded-lg bg-[#0070f2] hover:bg-blue-600 text-white flex items-center gap-1.5 shadow-3xs cursor-pointer"
                 >
-                  <Play className="w-3 h-3 fill-current" />
-                  <span>Resume</span>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Resume Order</span>
                 </Button>
               ) : (
                 <Button
                   size="sm"
                   disabled={actionLoading}
                   onClick={handlePause}
-                  className="rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold h-7 px-2.5 text-[11px] shadow-xs cursor-pointer flex items-center gap-1"
+                  className="h-8 px-3 text-xs font-bold rounded-lg bg-[#e9730c] hover:bg-amber-600 text-white flex items-center gap-1.5 shadow-3xs cursor-pointer"
                 >
-                  <Pause className="w-3 h-3 fill-current" />
-                  <span>Pause</span>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>Pause Order</span>
                 </Button>
               )
             )}
 
-            {/* Finalize Entire Production Button (Displayed only on Step 5) */}
-            {!isCompleted && activeStep === 5 && (
-              <Button
-                size="sm"
-                disabled={actionLoading}
-                onClick={handleOpenYieldModal}
-                className="rounded-lg font-bold h-7 px-3 text-[11px] shadow-xs flex items-center gap-1.5 transition-all bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer ring-2 ring-emerald-400/50 shadow-sm animate-pulse"
-                title="Record Actual Yield & Finalize Entire Production"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Finalize Entire Production</span>
-              </Button>
-            )}
-
-            {/* Cancel Run Button */}
+            {/* Cancel Run */}
             {!isCompleted && (
               <Button
                 variant="outline"
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleCancelRun}
-                className="rounded-lg text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/40 h-7 px-2 text-[11px] font-bold cursor-pointer"
-                title="Cancel Floor Run"
+                className="h-8 px-2.5 text-xs font-bold rounded-lg text-[#d20a0a] border-red-300 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer shadow-3xs"
               >
-                Cancel
+                Cancel Order
               </Button>
             )}
 
-            {/* GST / GS1 Barcode Button */}
+            {/* GST Label */}
             {isCompleted && (
               <Button
                 variant="outline"
@@ -2072,10 +2244,10 @@ export default function ProductionFloorCockpitModal({
                     title: 'GST Compliance & GS1 Barcode Ready',
                     html: `
                       <div style="text-align: left; font-size: 13px; line-height: 1.6;">
-                        <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
+                        <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #0070f2;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
                         <p><strong>Product:</strong> ${primaryProduct?.name || primaryProduct?.productName || 'Ice Cream Goods'}</p>
                         <p><strong>MFD (Production Date):</strong> <span style="font-family: monospace; font-weight: bold;">${mfdDisplay}</span></p>
-                        <p><strong>MRP / Selling Price:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">₹${sellingPrice > 0 ? sellingPrice.toFixed(2) : '150.00'}</span></p>
+                        <p><strong>MRP / Selling Price:</strong> <span style="font-family: monospace; font-weight: bold; color: #30914c;">₹${sellingPrice > 0 ? sellingPrice.toFixed(2) : '150.00'}</span></p>
                         <p><strong>GS1 (01) GTIN:</strong> 08901234567890</p>
                         <p><strong>GS1 (10) Batch:</strong> ${batch?.referenceNo || batch?.batchNo || 'LOT-2026'}</p>
                       </div>
@@ -2083,107 +2255,74 @@ export default function ProductionFloorCockpitModal({
                     icon: 'success'
                   });
                 }}
-                className="rounded-lg border-blue-300 dark:border-blue-500/50 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white hover:bg-blue-100 dark:hover:bg-blue-900/60 h-7 px-2 text-[11px] font-bold cursor-pointer flex items-center gap-1"
-                title="Print GST Compliance & GS1 Product Label"
+                className="h-8 px-2.5 text-xs font-bold rounded-lg border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 flex items-center gap-1.5 cursor-pointer shadow-3xs"
               >
-                <Printer className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                <span className="hidden sm:inline">GST Label</span>
+                <Printer className="w-3.5 h-3.5 text-[#0070f2]" />
+                <span>GST / GS1 Label</span>
               </Button>
             )}
-
-            {/* Theme Toggle Button (Light / Dark) */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleThemeMode}
-              className="h-7 w-7 p-0 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-              title={isDark ? "Switch to Light Theme" : "Switch to Dark Theme"}
-            >
-              {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-600" />}
-            </Button>
-
-            {/* Fullscreen Toggle */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsFullscreen(prev => !prev)}
-              className="h-7 w-7 p-0 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Cockpit'}
-            >
-              {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
-            </Button>
-
-            {/* Close Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClose}
-              className="h-7 w-7 p-0 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
-              title="Close Cockpit"
-            >
-              <X className="w-3.5 h-3.5" />
-            </Button>
           </div>
         </div>
 
-        {/* ── TOP KPI SMART METRIC TILES (SAP FIORI SMART KPI RIBBON - LIGHT & DARK THEMES) ── */}
+        {/* ── 3. HEADER FACETS (KPI STRIP, 6 CELLS DIVIDED BY HAIRLINES) ── */}
         {viewMode === 'STEPS' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 px-3 sm:px-5 py-2 bg-slate-50 dark:bg-slate-900/90 text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-800 select-none shrink-0 transition-colors">
-            {/* KPI 1 */}
-            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
-              <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Target Planned</span>
-                <strong className="text-sm font-mono font-black text-slate-900 dark:text-white tabular-nums block">
-                  {batch?.quantity || 2000} pcs
-                </strong>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800 bg-[#f5f6f7] dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 py-2 select-none shrink-0 transition-colors">
+            {/* Facet 1: Target Planned */}
+            <div className="py-1 px-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Target Planned</span>
+              <div className="text-sm sm:text-base font-mono font-black text-slate-900 dark:text-white tabular-nums mt-0.5">
+                {formatIndian(batch?.quantity || 2000)} pcs
               </div>
-              <span className="text-[9px] font-mono text-slate-400 hidden sm:inline">Standard Order</span>
+              <span className="text-[9.5px] font-mono text-slate-400">Standard Order</span>
             </div>
 
-            {/* KPI 2 */}
-            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
-              <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Pre-Evap Volume</span>
-                <strong className="text-sm font-mono font-black text-blue-600 dark:text-blue-400 tabular-nums block">
-                  {formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml
-                </strong>
+            {/* Facet 2: Pre-Evap Volume */}
+            <div className="py-1 px-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Pre-Evap Volume</span>
+              <div className="text-sm sm:text-base font-mono font-black text-[#0070f2] dark:text-blue-400 tabular-nums mt-0.5">
+                {formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml
               </div>
-              <span className="text-[9px] font-mono text-blue-600/70 dark:text-blue-300/70 hidden sm:inline">≈ {round2(liveEvaporationResult.totalBeforeEvapMl / 1000)} L</span>
+              <span className="text-[9.5px] font-mono text-blue-600/70 dark:text-blue-300/70">≈ {round2(liveEvaporationResult.totalBeforeEvapMl / 1000)} L</span>
             </div>
 
-            {/* KPI 3 */}
-            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
-              <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Post-Evap Net Mix</span>
-                <strong className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-400 tabular-nums block">
-                  {formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml
-                </strong>
+            {/* Facet 3: Evaporated Loss */}
+            <div className="py-1 px-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Evaporated Loss</span>
+              <div className="text-sm sm:text-base font-mono font-black text-[#e9730c] dark:text-amber-400 tabular-nums mt-0.5">
+                -{formatIndian(liveEvaporationResult.evaporatedMl)} ml
               </div>
-              <span className="text-[9px] font-mono text-emerald-600/70 dark:text-emerald-300/70 hidden sm:inline">Available</span>
+              <span className="text-[9.5px] font-mono text-amber-600/70 dark:text-amber-400/70">{evaporationPct}% thermal loss</span>
             </div>
 
-            {/* KPI 4 */}
-            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs flex items-center justify-between">
-              <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Base Mix Allocated</span>
-                <strong className="text-sm font-mono font-black text-purple-600 dark:text-purple-400 tabular-nums block">
-                  {formatIndian(liveAllocationsResult.totalMixUsedMl)} ml
-                </strong>
+            {/* Facet 4: Post-Evap Net Mix */}
+            <div className="py-1 px-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Post-Evap Net Mix</span>
+              <div className="text-sm sm:text-base font-mono font-black text-[#30914c] dark:text-emerald-400 tabular-nums mt-0.5">
+                {formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml
               </div>
-              <span className="text-[9px] font-mono text-purple-600/70 dark:text-purple-300/70 hidden sm:inline">
-                {availableMixMl > 0 ? `${Math.round((liveAllocationsResult.totalMixUsedMl / availableMixMl) * 100)}%` : '0%'}
+              <span className="text-[9.5px] font-mono text-emerald-600/70 dark:text-emerald-300/70">Available Liquid</span>
+            </div>
+
+            {/* Facet 5: Base Mix Allocated */}
+            <div className="py-1 px-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Base Mix Allocated</span>
+              <div className="text-sm sm:text-base font-mono font-black text-[#8b47d7] dark:text-purple-400 tabular-nums mt-0.5">
+                {formatIndian(liveAllocationsResult.totalMixUsedMl)} ml
+              </div>
+              <span className="text-[9.5px] font-mono text-purple-600/70 dark:text-purple-300/70">
+                {availableMixMl > 0 ? `${Math.round((liveAllocationsResult.totalMixUsedMl / availableMixMl) * 100)}%` : '0%'} Allocated
               </span>
             </div>
 
-            {/* KPI 5 */}
-            <div className="p-2 rounded-lg bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-3xs col-span-2 sm:col-span-1 flex items-center justify-between">
-              <div>
-                <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Unallocated Balance</span>
-                <strong className={`text-sm font-mono font-black tabular-nums block ${liveAllocationsResult.remainingMixMl < 0 ? 'text-rose-600 dark:text-rose-400' : (liveAllocationsResult.remainingMixMl === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}`}>
-                  {formatIndian(liveAllocationsResult.remainingMixMl)} ml
-                </strong>
+            {/* Facet 6: Unallocated Balance */}
+            <div className="py-1 px-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Unallocated Balance</span>
+              <div className={`text-sm sm:text-base font-mono font-black tabular-nums mt-0.5 ${
+                liveAllocationsResult.remainingMixMl < 0 ? 'text-[#d20a0a]' : (liveAllocationsResult.remainingMixMl === 0 ? 'text-[#30914c]' : 'text-[#e9730c]')
+              }`}>
+                {formatIndian(liveAllocationsResult.remainingMixMl)} ml
               </div>
-              <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded border ${
+              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border inline-block ${
                 liveAllocationsResult.remainingMixMl < 0 
                   ? 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800' 
                   : (liveAllocationsResult.remainingMixMl === 0 
@@ -2196,103 +2335,86 @@ export default function ProductionFloorCockpitModal({
           </div>
         )}
 
-        {/* ── SAP FIORI PROCESS FLOW STEPPER WITH INTEGRATED STEP NAVIGATION (LIGHT & DARK THEMES) ── */}
+        {/* ── 4. ICON TAB BAR / PROCESS STEPPER (5 STEPS WITH CONNECTOR LINES) ── */}
         {viewMode === 'STEPS' && (
-          <div className="flex items-center justify-between px-3 sm:px-5 py-2 bg-slate-100/90 dark:bg-[#0d1b2a] border-b border-slate-200 dark:border-slate-800 overflow-x-auto gap-2 no-scrollbar select-none shrink-0 transition-colors">
-            {/* Step Tabs */}
-            <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto no-scrollbar">
+          <div className="px-4 sm:px-6 py-2 bg-white dark:bg-[#0d1b2a] border-b border-slate-200 dark:border-slate-800 overflow-x-auto select-none shrink-0 transition-colors">
+            <div className="flex items-center gap-1 sm:gap-2 min-w-max">
               {[
-                { id: 1, title: 'Raw Materials & Lots', desc: 'Warehouse Allocation', icon: Boxes, isDone: step1Ready, badge: `${rmRows.length} RMs` },
+                { id: 1, title: 'Raw Materials', desc: 'Warehouse Allocation', icon: Boxes, isDone: step1Ready, badge: `${rmRows.length} RMs` },
                 { id: 2, title: 'Merge & Evaporation', desc: 'Thermal Volume Loss', icon: Flame, isDone: step2Ready, badge: `${formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml` },
                 { id: 3, title: 'Products & Moulds', desc: 'Sequential Chaining', icon: Box, isDone: step3Ready, badge: `${allocations.length} Products` },
                 { id: 4, title: 'Factory Timeline', desc: 'Stage Sequences', icon: Layers, isDone: timelineStages.length > 0, badge: `${timelineStages.length} Stages` },
-                { id: 5, title: 'Quality & Costing', desc: 'Yield & Finalization', icon: ShieldCheck, isDone: isCompleted, badge: `${actualYieldPieces} pcs` }
-              ].map((s) => {
+                { id: 5, title: 'Quality & Yield', desc: 'Yield & Finalization', icon: ShieldCheck, isDone: isCompleted, badge: `${actualYieldPieces} pcs` }
+              ].map((s, idx) => {
                 const isActive = activeStep === s.id;
-                const StepIcon = s.icon;
+                const hasErr = stepHasError(s.id);
                 return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => handleStepClick(s.id)}
-                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 border text-left ${
-                      isActive 
-                        ? 'bg-blue-600 text-white border-blue-500 shadow-md ring-2 ring-blue-500/20' 
-                        : s.isDone 
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-slate-800/90 dark:text-emerald-300 dark:border-emerald-700/60 dark:hover:bg-slate-800 dark:hover:text-white' 
-                        : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-50 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-800 dark:hover:text-slate-200 dark:hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <span className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-[10px] font-black shrink-0 ${
-                      isActive ? 'bg-white/20 text-white' : s.isDone ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'
-                    }`}>
-                      {s.isDone && !isActive ? '✓' : `0${s.id}`}
-                    </span>
+                  <React.Fragment key={s.id}>
+                    {idx > 0 && (
+                      <div className={`h-0.5 w-4 sm:w-8 shrink-0 transition-colors ${
+                        s.isDone ? 'bg-[#30914c]' : 'bg-slate-300 dark:bg-slate-700'
+                      }`} />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleStepClick(s.id)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 border relative text-left ${
+                        isActive 
+                          ? 'border-[#0070f2] bg-blue-50/80 dark:bg-blue-950/60 text-[#0070f2] dark:text-blue-300 shadow-3xs ring-1 ring-[#0070f2]/30' 
+                          : hasErr
+                          ? 'border-[#d20a0a] bg-rose-50 text-[#d20a0a] dark:bg-rose-950/60 dark:text-rose-300'
+                          : s.isDone 
+                          ? 'border-emerald-300 bg-emerald-50/70 text-emerald-800 dark:border-emerald-800 dark:bg-slate-800/80 dark:text-emerald-300' 
+                          : 'border-slate-200 bg-[#f5f6f7] text-slate-600 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400 hover:bg-slate-100'
+                      }`}
+                    >
+                      {/* Step Circle Indicator */}
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-black shrink-0 ${
+                        isActive 
+                          ? 'bg-[#0070f2] text-white' 
+                          : hasErr
+                          ? 'bg-[#d20a0a] text-white'
+                          : s.isDone 
+                          ? 'bg-[#30914c] text-white' 
+                          : 'bg-slate-300 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                      }`}>
+                        {hasErr ? '!' : (s.isDone && !isActive ? '✓' : `0${s.id}`)}
+                      </span>
 
-                    <div className="min-w-0">
-                      <div className="font-extrabold text-[11px] leading-tight flex items-center gap-1.5">
-                        <span className="truncate">{s.title}</span>
-                        <span className={`text-[9px] font-mono px-1 py-0.2 rounded shrink-0 ${
-                          isActive ? 'bg-blue-700 text-white' : s.isDone ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200/80 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
-                        }`}>
-                          {s.badge}
-                        </span>
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-[11px] leading-tight flex items-center gap-1.5">
+                          <span>{s.title}</span>
+                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded shrink-0 ${
+                            isActive ? 'bg-[#0070f2] text-white' : s.isDone ? 'bg-emerald-200 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                          }`}>
+                            {s.badge}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
+
+                      {/* SAP Horizon Active Underline */}
+                      {isActive && (
+                        <span className="absolute bottom-[-1px] left-2 right-2 h-[2px] bg-[#0070f2] rounded-full" />
+                      )}
+                    </button>
+                  </React.Fragment>
                 );
               })}
-            </div>
-
-            {/* Quick Prev / Next Step Buttons integrated in Stepper bar */}
-            <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-300 dark:border-slate-800">
-              {activeStep > 1 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setActiveStep(prev => prev - 1)}
-                  className="h-7 px-2 text-[11px] font-bold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center gap-1"
-                >
-                  <ChevronLeft className="w-3 h-3" />
-                  <span className="hidden sm:inline">Prev</span>
-                </Button>
-              )}
-
-              {activeStep < 5 && (
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={savingProcess || savingAllocations || savingStages}
-                  onClick={() => handleStepClick(activeStep + 1)}
-                  className="h-7 px-2.5 text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1 shadow-xs disabled:opacity-60 cursor-pointer"
-                >
-                  {(savingProcess || savingAllocations || savingStages) ? (
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                  ) : null}
-                  <span>Next: Step {activeStep + 1}</span>
-                  <ChevronRight className="w-3 h-3" />
-                </Button>
-              )}
             </div>
           </div>
         )}
 
-        {/* ── STEP GUIDANCE SUB-BAR (CONTEXTUAL DIRECTIVE) ── */}
+        {/* ── 5. MESSAGE STRIP (BLUE SAP INSTRUCTION STRIP) ── */}
         {viewMode === 'STEPS' && (
-          <div className="px-3 sm:px-5 py-1.5 bg-blue-50/70 dark:bg-slate-900/60 border-b border-blue-100 dark:border-slate-800 flex items-center justify-between text-xs text-blue-900 dark:text-blue-200 select-none shrink-0">
-            <div className="flex items-center gap-2 truncate">
-              <span className="w-4 h-4 rounded-full bg-blue-600 text-white font-black text-[9px] flex items-center justify-center shrink-0">
-                {activeStep}
-              </span>
-              <span className="font-semibold text-[11px] truncate">
-                {activeStep === 1 && 'Step 1: Allocate warehouse batch lots, reserve inventory stock, and confirm taken quantities for production.'}
-                {activeStep === 2 && 'Step 2: Slide to merge raw materials into a single liquid volume (ml), specify process stage, and apply evaporation % mass loss.'}
-                {activeStep === 3 && 'Step 3: Assign multiple finished products to the evaporated mix, allocate base mix volume, add product-specific essences/flavours with lots, and configure moulds or bulk storage.'}
-                {activeStep === 4 && 'Step 4: Factory stages palette & Timeline sequence. Click stage chip to add/remove • Click any stage to configure temperature & duration • Drag & drop to reorder.'}
-                {activeStep === 5 && 'Step 5: Review multi-product allocation economics, calculate wastage costs, record actual completed pieces per product, and finalize floor run.'}
-              </span>
-            </div>
+          <div className="px-4 sm:px-6 py-2 bg-blue-50/90 dark:bg-blue-950/40 border-b border-blue-200/80 dark:border-blue-900/60 flex items-center gap-2 text-xs text-blue-900 dark:text-blue-200 select-none shrink-0 transition-colors">
+            <Info className="w-4 h-4 text-[#0070f2] shrink-0" />
+            <span className="font-semibold text-[11.5px] truncate">
+              {activeStep === 1 && 'Step 1: Allocate warehouse batch lots, reserve inventory stock, and confirm taken quantities for production.'}
+              {activeStep === 2 && 'Step 2: Slide to merge raw materials into a single liquid volume (ml), specify process stage, and apply evaporation % mass loss.'}
+              {activeStep === 3 && 'Step 3: Assign multiple finished products to the evaporated mix, allocate base mix volume, add product-specific essences/flavours with lots, and configure moulds or bulk storage.'}
+              {activeStep === 4 && 'Step 4: Factory stages palette & Timeline sequence. Click stage chip to add/remove • Click any stage to configure temperature & duration • Drag & drop to reorder.'}
+              {activeStep === 5 && 'Step 5: Review multi-product allocation economics, calculate wastage costs, record actual completed pieces per product, and finalize floor run.'}
+            </span>
           </div>
         )}
 
@@ -2556,23 +2678,6 @@ export default function ProductionFloorCockpitModal({
                     </table>
                   </div>
                 </Card>
-
-                {/* Bottom Step 1 Action Ribbon */}
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <span className="text-xs text-slate-500 font-medium">
-                    Allocated lots are verified against real warehouse stock before heating/freezing.
-                  </span>
-                  <Button
-                    type="button"
-                    disabled={savingProcess}
-                    onClick={() => handleStepClick(2)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
-                  >
-                    {savingProcess ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                    <span>Proceed to Step 2: Volume Merge &amp; Evaporation</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
@@ -2830,31 +2935,6 @@ export default function ProductionFloorCockpitModal({
                       })}
                     </div>
                   </Card>
-
-                </div>
-
-                {/* Bottom Step 2 Action Ribbon */}
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setActiveStep(1)}
-                    className="text-xs font-bold h-9 px-3.5 rounded-xl flex items-center gap-1.5"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to Step 1 (Raw Materials)</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    disabled={savingProcess}
-                    onClick={() => handleStepClick(3)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
-                  >
-                    {savingProcess ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                    <span>Proceed to Step 3: Mould &amp; Product Allocation</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
                 </div>
               </div>
 
@@ -3622,30 +3702,6 @@ export default function ProductionFloorCockpitModal({
                     )}
                   </div>
                 </Card>
-
-                {/* Bottom Step 3 Action Ribbon */}
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setActiveStep(2)}
-                    className="text-xs font-bold h-9 px-3.5 rounded-xl flex items-center gap-1.5"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to Step 2 (Merge &amp; Evap)</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    disabled={savingAllocations}
-                    onClick={() => handleStepClick(4)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
-                  >
-                    {savingAllocations ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                    <span>Proceed to Step 4: Factory Stages Palette &amp; Timeline</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
@@ -3687,29 +3743,6 @@ export default function ProductionFloorCockpitModal({
                     isEditable={!isCompleted}
                     stepNumber={4}
                   />
-                </div>
-
-                {/* Bottom Step 4 Action Ribbon */}
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setActiveStep(3)}
-                    className="text-xs font-bold h-9 px-3.5 rounded-xl flex items-center gap-1.5"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to Step 3 (Products &amp; Allocations)</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    disabled={savingStages}
-                    onClick={() => handleStepClick(5)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-60 cursor-pointer"
-                  >
-                    <span>Proceed to Step 5: Quality, Costing &amp; Yield</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
                 </div>
               </div>
 
@@ -3976,28 +4009,6 @@ export default function ProductionFloorCockpitModal({
                     </div>
                   </Card>
                 )}
-
-                {/* Bottom Step 5 Action Ribbon */}
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setActiveStep(4)}
-                    className="text-xs font-bold h-9 px-3.5 rounded-xl flex items-center gap-1.5"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back to Step 4 (Factory Stages)</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    onClick={handleOpenYieldModal}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-9 px-4 rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Record Actual Yield &amp; Finalize Batch</span>
-                  </Button>
-                </div>
               </div>
 
             </>
@@ -4005,30 +4016,104 @@ export default function ProductionFloorCockpitModal({
 
         </div>
 
-        {/* ── FOOTER ACTIONS ── */}
-        <div className="sticky bottom-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs select-none flex-wrap gap-2">
-          <div className="text-slate-500">
-            Batch: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{batch?.referenceNo || batch?.batchNo || batchId}</span> • {viewMode === 'REPORT' ? 'Executive Cost & Yield Ledger' : 'Real-time floor execution active'}
+        {/* ── 7. FOOTER TOOLBAR: SAP HORIZON STATUS, MESSAGE POPOVER & STEP NAVIGATION ── */}
+        <div className="sticky bottom-0 z-30 flex items-center justify-between px-4 sm:px-6 py-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs select-none gap-2 shrink-0 transition-colors">
+          {/* Left: SAP Message Popover Trigger */}
+          <div className="relative" ref={messagesPopoverRef}>
+            <button
+              type="button"
+              onClick={() => setShowMessagesPopover(prev => !prev)}
+              className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-3xs ${
+                errorCount > 0
+                  ? 'bg-rose-50 text-[#d20a0a] border-red-300 dark:bg-rose-950/60 dark:border-red-800'
+                  : warningCount > 0
+                  ? 'bg-amber-50 text-[#e9730c] border-amber-300 dark:bg-amber-950/60 dark:border-amber-800'
+                  : 'bg-emerald-50 text-[#30914c] border-emerald-300 dark:bg-emerald-950/60 dark:border-emerald-800'
+              }`}
+            >
+              {errorCount > 0 ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-[#d20a0a]" />
+              ) : warningCount > 0 ? (
+                <AlertCircle className="w-3.5 h-3.5 text-[#e9730c]" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#30914c]" />
+              )}
+              <span>
+                {errorCount > 0 ? `${errorCount} Issues` : warningCount > 0 ? `${warningCount} Warnings` : 'No Issues ✓'}
+              </span>
+            </button>
+
+            {/* Popover Card */}
+            {showMessagesPopover && (
+              <div className="absolute bottom-11 left-0 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95 space-y-2">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                  <span className="font-extrabold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+                    Message Log ({validationMessages.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMessagesPopover(false)}
+                    className="text-slate-400 hover:text-slate-600 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                  {validationMessages.map(msg => (
+                    <div
+                      key={msg.id}
+                      onClick={() => {
+                        setActiveStep(msg.step);
+                        setShowMessagesPopover(false);
+                      }}
+                      className="py-2 px-1 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer rounded transition-colors space-y-0.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 font-bold text-xs">
+                          <span className={`w-2 h-2 rounded-full ${
+                            msg.type === 'error' ? 'bg-[#d20a0a]' : msg.type === 'warning' ? 'bg-[#e9730c]' : 'bg-[#0070f2]'
+                          }`} />
+                          <span className={msg.type === 'error' ? 'text-[#d20a0a]' : msg.type === 'warning' ? 'text-[#e9730c]' : 'text-[#0070f2]'}>
+                            {msg.stepName}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">Jump →</span>
+                      </div>
+                      <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                        {msg.title}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {msg.desc}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* Right: Step Navigation & Finalize Button */}
           <div className="flex items-center gap-2">
+            {/* Exit Cockpit */}
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={onClose}
-              className="text-xs font-bold h-8 px-3"
+              className="text-xs font-bold h-8 px-3 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               Exit Cockpit
             </Button>
 
+            {/* View Mode Switching when in Report */}
             {viewMode === 'REPORT' ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setViewMode('STEPS')}
-                className="h-8 px-3 text-xs font-bold rounded-lg border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center gap-1.5"
+                className="h-8 px-3 text-xs font-bold rounded-lg border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center gap-1.5 cursor-pointer"
               >
                 <Layers className="w-3.5 h-3.5" />
                 <span>Return to Floor Run Steps</span>
@@ -4039,19 +4124,51 @@ export default function ProductionFloorCockpitModal({
                 variant="outline"
                 size="sm"
                 onClick={() => setViewMode('REPORT')}
-                className="h-8 px-3 text-xs font-bold rounded-lg border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1.5"
+                className="h-8 px-3 text-xs font-bold rounded-lg border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1.5 cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>View Clean Report</span>
               </Button>
             ) : null}
 
+            {/* Previous Step */}
+            {viewMode === 'STEPS' && activeStep > 1 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveStep(prev => prev - 1)}
+                className="h-8 px-3 text-xs font-bold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </Button>
+            )}
+
+            {/* Next Step */}
+            {viewMode === 'STEPS' && activeStep < 5 && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={savingProcess || savingAllocations || savingStages}
+                onClick={() => handleStepClick(activeStep + 1)}
+                className="h-8 px-3 text-xs font-bold bg-[#0070f2] hover:bg-blue-600 text-white flex items-center gap-1 shadow-3xs disabled:opacity-60 cursor-pointer"
+              >
+                {(savingProcess || savingAllocations || savingStages) ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : null}
+                <span>Next: Step {activeStep + 1}</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            )}
+
+            {/* Finalize Entire Production Button (ONLY displayed on Step 5) */}
             {!isCompleted && activeStep === 5 && (
               <Button
                 type="button"
                 size="sm"
                 onClick={handleOpenYieldModal}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
+                className="bg-[#30914c] hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Finalize Entire Production</span>
