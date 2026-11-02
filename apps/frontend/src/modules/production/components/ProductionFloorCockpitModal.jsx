@@ -2133,52 +2133,53 @@ export default function ProductionFloorCockpitModal({
           </div>
         </div>
 
-        {/* ── 2. OBJECT PAGE HEADER (S/4HANA FIORI HORIZON OBJECT HEADER) ── */}
-        <div className="px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-3 shrink-0 transition-colors">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                <span>Production Order</span>
-                <span className="font-mono text-[#0070f2] dark:text-blue-400 font-bold">
-                  {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
-                </span>
-              </h1>
-
-              {/* Status Chip */}
-              <span className={`text-[10px] font-mono font-black px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
-                isCompleted
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700'
-                  : isPaused
-                  ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/90 dark:text-emerald-400 dark:border-emerald-700'
-              }`}>
-                <span className={`w-2 h-2 rounded-full ${isCompleted ? 'bg-[#30914c]' : isPaused ? 'bg-[#e9730c]' : 'bg-[#30914c] animate-pulse'}`} />
-                {isCompleted ? 'COMPLETED' : isPaused ? 'PAUSED' : 'IN EXECUTION'}
+        {/* ── 2. OBJECT PAGE HEADER (S/4HANA FIORI HORIZON OBJECT HEADER - ULTRA COMPACT) ── */}
+        <div className="px-3 py-1 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0 transition-colors">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <h1 className="text-xs sm:text-[13px] font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-1 shrink-0">
+              <span>Production Order</span>
+              <span className="font-mono text-[#0070f2] dark:text-blue-400 font-bold">
+                {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
               </span>
+            </h1>
 
-              {/* QC Routing Status Chip */}
-              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                labTestRequired 
-                  ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700' 
-                  : 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700'
-              }`}>
-                {labTestRequired ? 'QC QUARANTINE HOLD' : 'DIRECT TO STOCK'}
-              </span>
-            </div>
+            {/* Status Chip */}
+            <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-full border flex items-center gap-1 shrink-0 ${
+              isCompleted
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700'
+                : isPaused
+                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/90 dark:text-emerald-400 dark:border-emerald-700'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-[#30914c]' : isPaused ? 'bg-[#e9730c]' : 'bg-[#30914c] animate-pulse'}`} />
+              {isCompleted ? 'COMPLETED' : isPaused ? 'PAUSED' : 'IN EXECUTION'}
+            </span>
 
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate flex items-center gap-2 mt-1">
+            {/* QC Routing Status Chip */}
+            <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border shrink-0 ${
+              labTestRequired 
+                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-700' 
+                : 'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-700'
+            }`}>
+              {labTestRequired ? 'QC QUARANTINE HOLD' : 'DIRECT TO STOCK'}
+            </span>
+
+            <span className="text-slate-300 dark:text-slate-700 hidden lg:inline">•</span>
+
+            {/* Compact Metadata Inline */}
+            <div className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium truncate hidden md:flex items-center gap-1.5">
               <span>Formulation: <strong className="text-slate-700 dark:text-slate-300">{batch?.templateName || batch?.baseName || 'Standard Formulation'}</strong></span>
               <span>•</span>
-              <span>Shift: <strong className="text-slate-700 dark:text-slate-300">{batch?.shift || 'Morning Shift'}</strong></span>
+              <span>Shift: <strong className="text-slate-700 dark:text-slate-300">{batch?.shift || 'Morning'}</strong></span>
               <span>•</span>
               <span>Date: <strong className="font-mono text-slate-700 dark:text-slate-300">{batch?.startDate ? formatDateDMY(batch.startDate) : formatDateDMY(new Date())}</strong></span>
               <span>•</span>
-              <span>Operator: <strong className="text-slate-700 dark:text-slate-300">{currentUser?.name || 'Floor Supervisor'}</strong></span>
+              <span>Operator: <strong className="text-slate-700 dark:text-slate-300">{currentUser?.name || 'Supervisor'}</strong></span>
             </div>
           </div>
 
           {/* Header Action Buttons */}
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Reopen Batch */}
             {isCompleted && (
               <Button
@@ -2186,10 +2187,10 @@ export default function ProductionFloorCockpitModal({
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleReopenProduction}
-                className="h-8 px-2.5 text-xs font-bold rounded-lg border-amber-400 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-1.5 cursor-pointer shadow-3xs"
+                className="h-5.5 px-2 text-[10px] font-bold rounded border-amber-400 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-1 cursor-pointer shadow-3xs"
               >
-                <Unlock className="w-3.5 h-3.5" />
-                <span>Reopen Order</span>
+                <Unlock className="w-2.5 h-2.5" />
+                <span>Reopen</span>
               </Button>
             )}
 
@@ -2200,19 +2201,19 @@ export default function ProductionFloorCockpitModal({
                   size="sm"
                   disabled={actionLoading}
                   onClick={handleResume}
-                  className="h-8 px-3 text-xs font-bold rounded-lg bg-[#0070f2] hover:bg-blue-600 text-white flex items-center gap-1.5 shadow-3xs cursor-pointer"
+                  className="h-5.5 px-2 text-[10px] font-bold rounded bg-[#0070f2] hover:bg-blue-600 text-white flex items-center gap-1 shadow-3xs cursor-pointer"
                 >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Resume Order</span>
+                  <Play className="w-2.5 h-2.5 fill-current" />
+                  <span>Resume</span>
                 </Button>
               ) : (
                 <Button
                   size="sm"
                   disabled={actionLoading}
                   onClick={handlePause}
-                  className="h-8 px-3 text-xs font-bold rounded-lg bg-[#e9730c] hover:bg-amber-600 text-white flex items-center gap-1.5 shadow-3xs cursor-pointer"
+                  className="h-5.5 px-2 text-[10px] font-bold rounded bg-[#e9730c] hover:bg-amber-600 text-white flex items-center gap-1 shadow-3xs cursor-pointer"
                 >
-                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <Pause className="w-2.5 h-2.5 fill-current" />
                   <span>Pause Order</span>
                 </Button>
               )
@@ -2225,7 +2226,7 @@ export default function ProductionFloorCockpitModal({
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleCancelRun}
-                className="h-8 px-2.5 text-xs font-bold rounded-lg text-[#d20a0a] border-red-300 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer shadow-3xs"
+                className="h-5.5 px-2 text-[10px] font-bold rounded text-[#d20a0a] border-red-300 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer shadow-3xs"
               >
                 Cancel Order
               </Button>
@@ -2255,90 +2256,88 @@ export default function ProductionFloorCockpitModal({
                     icon: 'success'
                   });
                 }}
-                className="h-8 px-2.5 text-xs font-bold rounded-lg border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 flex items-center gap-1.5 cursor-pointer shadow-3xs"
+                className="h-5.5 px-2 text-[10px] font-bold rounded border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 flex items-center gap-1 cursor-pointer shadow-3xs"
               >
-                <Printer className="w-3.5 h-3.5 text-[#0070f2]" />
-                <span>GST / GS1 Label</span>
+                <Printer className="w-2.5 h-2.5 text-[#0070f2]" />
+                <span>GST Label</span>
               </Button>
             )}
           </div>
         </div>
 
-        {/* ── 3. HEADER FACETS (KPI STRIP, 6 CELLS DIVIDED BY HAIRLINES) ── */}
+        {/* ── 3. HEADER FACETS (KPI STRIP, ULTRA COMPACT 2-LINE CELLS DIVIDED BY HAIRLINES) ── */}
         {viewMode === 'STEPS' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800 bg-[#f5f6f7] dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 py-2 select-none shrink-0 transition-colors">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800 bg-[#f5f6f7] dark:bg-slate-900/90 border-b border-slate-200 dark:border-slate-800 px-2 sm:px-3 py-0.5 select-none shrink-0 transition-colors">
             {/* Facet 1: Target Planned */}
-            <div className="py-1 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Target Planned</span>
-              <div className="text-sm sm:text-base font-mono font-black text-slate-900 dark:text-white tabular-nums mt-0.5">
+            <div className="py-0.5 px-2 flex flex-col justify-center">
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block leading-none">Target Planned</span>
+              <div className="text-[11.5px] font-mono font-black text-slate-900 dark:text-white tabular-nums leading-tight mt-0.5">
                 {formatIndian(batch?.quantity || 2000)} pcs
               </div>
-              <span className="text-[9.5px] font-mono text-slate-400">Standard Order</span>
             </div>
 
             {/* Facet 2: Pre-Evap Volume */}
-            <div className="py-1 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Pre-Evap Volume</span>
-              <div className="text-sm sm:text-base font-mono font-black text-[#0070f2] dark:text-blue-400 tabular-nums mt-0.5">
-                {formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml
+            <div className="py-0.5 px-2 flex flex-col justify-center">
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block leading-none">Pre-Evap Volume</span>
+              <div className="text-[11.5px] font-mono font-black text-[#0070f2] dark:text-blue-400 tabular-nums leading-tight mt-0.5 flex items-baseline gap-1">
+                <span>{formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml</span>
+                <span className="text-[8.5px] font-mono text-slate-400 font-normal">({round2(liveEvaporationResult.totalBeforeEvapMl / 1000)} L)</span>
               </div>
-              <span className="text-[9.5px] font-mono text-blue-600/70 dark:text-blue-300/70">≈ {round2(liveEvaporationResult.totalBeforeEvapMl / 1000)} L</span>
             </div>
 
             {/* Facet 3: Evaporated Loss */}
-            <div className="py-1 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Evaporated Loss</span>
-              <div className="text-sm sm:text-base font-mono font-black text-[#e9730c] dark:text-amber-400 tabular-nums mt-0.5">
-                -{formatIndian(liveEvaporationResult.evaporatedMl)} ml
+            <div className="py-0.5 px-2 flex flex-col justify-center">
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block leading-none">Evaporated Loss</span>
+              <div className="text-[11.5px] font-mono font-black text-[#e9730c] dark:text-amber-400 tabular-nums leading-tight mt-0.5 flex items-baseline gap-1">
+                <span>-{formatIndian(liveEvaporationResult.evaporatedMl)} ml</span>
+                <span className="text-[8.5px] font-mono text-amber-600/70 dark:text-amber-400/70 font-normal">({evaporationPct}%)</span>
               </div>
-              <span className="text-[9.5px] font-mono text-amber-600/70 dark:text-amber-400/70">{evaporationPct}% thermal loss</span>
             </div>
 
             {/* Facet 4: Post-Evap Net Mix */}
-            <div className="py-1 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Post-Evap Net Mix</span>
-              <div className="text-sm sm:text-base font-mono font-black text-[#30914c] dark:text-emerald-400 tabular-nums mt-0.5">
+            <div className="py-0.5 px-2 flex flex-col justify-center">
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block leading-none">Post-Evap Net Mix</span>
+              <div className="text-[11.5px] font-mono font-black text-[#30914c] dark:text-emerald-400 tabular-nums leading-tight mt-0.5">
                 {formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml
               </div>
-              <span className="text-[9.5px] font-mono text-emerald-600/70 dark:text-emerald-300/70">Available Liquid</span>
             </div>
 
             {/* Facet 5: Base Mix Allocated */}
-            <div className="py-1 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Base Mix Allocated</span>
-              <div className="text-sm sm:text-base font-mono font-black text-[#8b47d7] dark:text-purple-400 tabular-nums mt-0.5">
-                {formatIndian(liveAllocationsResult.totalMixUsedMl)} ml
+            <div className="py-0.5 px-2 flex flex-col justify-center">
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block leading-none">Base Mix Allocated</span>
+              <div className="text-[11.5px] font-mono font-black text-[#8b47d7] dark:text-purple-400 tabular-nums leading-tight mt-0.5 flex items-baseline gap-1">
+                <span>{formatIndian(liveAllocationsResult.totalMixUsedMl)} ml</span>
+                <span className="text-[8.5px] font-mono text-purple-600/70 dark:text-purple-300/70 font-normal">
+                  ({availableMixMl > 0 ? `${Math.round((liveAllocationsResult.totalMixUsedMl / availableMixMl) * 100)}%` : '0%'})
+                </span>
               </div>
-              <span className="text-[9.5px] font-mono text-purple-600/70 dark:text-purple-300/70">
-                {availableMixMl > 0 ? `${Math.round((liveAllocationsResult.totalMixUsedMl / availableMixMl) * 100)}%` : '0%'} Allocated
-              </span>
             </div>
 
             {/* Facet 6: Unallocated Balance */}
-            <div className="py-1 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Unallocated Balance</span>
-              <div className={`text-sm sm:text-base font-mono font-black tabular-nums mt-0.5 ${
-                liveAllocationsResult.remainingMixMl < 0 ? 'text-[#d20a0a]' : (liveAllocationsResult.remainingMixMl === 0 ? 'text-[#30914c]' : 'text-[#e9730c]')
-              }`}>
-                {formatIndian(liveAllocationsResult.remainingMixMl)} ml
+            <div className="py-0.5 px-2 flex flex-col justify-center">
+              <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block leading-none">Unallocated Balance</span>
+              <div className="text-[11.5px] font-mono font-black tabular-nums leading-tight mt-0.5 flex items-center gap-1.5">
+                <span className={liveAllocationsResult.remainingMixMl < 0 ? 'text-[#d20a0a]' : (liveAllocationsResult.remainingMixMl === 0 ? 'text-[#30914c]' : 'text-[#e9730c]')}>
+                  {formatIndian(liveAllocationsResult.remainingMixMl)} ml
+                </span>
+                <span className={`text-[8px] font-mono font-bold px-1 py-0.2 rounded border ${
+                  liveAllocationsResult.remainingMixMl < 0 
+                    ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300' 
+                    : (liveAllocationsResult.remainingMixMl === 0 
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300' 
+                        : 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300')
+                }`}>
+                  {liveAllocationsResult.remainingMixMl < 0 ? 'Deficit' : (liveAllocationsResult.remainingMixMl === 0 ? 'Allocated ✓' : 'To Allocate')}
+                </span>
               </div>
-              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border inline-block ${
-                liveAllocationsResult.remainingMixMl < 0 
-                  ? 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950 dark:text-rose-300 dark:border-rose-800' 
-                  : (liveAllocationsResult.remainingMixMl === 0 
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800' 
-                      : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800')
-              }`}>
-                {liveAllocationsResult.remainingMixMl < 0 ? 'Deficit' : (liveAllocationsResult.remainingMixMl === 0 ? 'Fully Allocated ✓' : 'To Allocate')}
-              </span>
             </div>
           </div>
         )}
 
-        {/* ── 4. ICON TAB BAR / PROCESS STEPPER (5 STEPS WITH CONNECTOR LINES) ── */}
+        {/* ── 4. ICON TAB BAR / PROCESS STEPPER (5 ULTRA-COMPACT STEPS WITH CONNECTOR LINES) ── */}
         {viewMode === 'STEPS' && (
-          <div className="px-4 sm:px-6 py-2 bg-white dark:bg-[#0d1b2a] border-b border-slate-200 dark:border-slate-800 overflow-x-auto select-none shrink-0 transition-colors">
-            <div className="flex items-center gap-1 sm:gap-2 min-w-max">
+          <div className="px-3 py-0.5 bg-white dark:bg-[#0d1b2a] border-b border-slate-200 dark:border-slate-800 overflow-x-auto select-none shrink-0 transition-colors">
+            <div className="flex items-center gap-1 min-w-max">
               {[
                 { id: 1, title: 'Raw Materials', desc: 'Warehouse Allocation', icon: Boxes, isDone: step1Ready, badge: `${rmRows.length} RMs` },
                 { id: 2, title: 'Merge & Evaporation', desc: 'Thermal Volume Loss', icon: Flame, isDone: step2Ready, badge: `${formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml` },
@@ -2351,14 +2350,14 @@ export default function ProductionFloorCockpitModal({
                 return (
                   <React.Fragment key={s.id}>
                     {idx > 0 && (
-                      <div className={`h-0.5 w-4 sm:w-8 shrink-0 transition-colors ${
+                      <div className={`h-0.5 w-2 sm:w-3 shrink-0 transition-colors ${
                         s.isDone ? 'bg-[#30914c]' : 'bg-slate-300 dark:bg-slate-700'
                       }`} />
                     )}
                     <button
                       type="button"
                       onClick={() => handleStepClick(s.id)}
-                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 border relative text-left ${
+                      className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10.5px] font-bold transition-all cursor-pointer shrink-0 border relative text-left ${
                         isActive 
                           ? 'border-[#0070f2] bg-blue-50/80 dark:bg-blue-950/60 text-[#0070f2] dark:text-blue-300 shadow-3xs ring-1 ring-[#0070f2]/30' 
                           : hasErr
@@ -2369,7 +2368,7 @@ export default function ProductionFloorCockpitModal({
                       }`}
                     >
                       {/* Step Circle Indicator */}
-                      <span className={`w-5 h-5 rounded-full flex items-center justify-center font-mono text-[10px] font-black shrink-0 ${
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center font-mono text-[8.5px] font-black shrink-0 ${
                         isActive 
                           ? 'bg-[#0070f2] text-white' 
                           : hasErr
@@ -2382,9 +2381,9 @@ export default function ProductionFloorCockpitModal({
                       </span>
 
                       <div className="min-w-0">
-                        <div className="font-extrabold text-[11px] leading-tight flex items-center gap-1.5">
+                        <div className="font-extrabold text-[10px] leading-tight flex items-center gap-1">
                           <span>{s.title}</span>
-                          <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded shrink-0 ${
+                          <span className={`text-[8px] font-mono px-1 py-0 rounded shrink-0 ${
                             isActive ? 'bg-[#0070f2] text-white' : s.isDone ? 'bg-emerald-200 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
                           }`}>
                             {s.badge}
@@ -2394,7 +2393,7 @@ export default function ProductionFloorCockpitModal({
 
                       {/* SAP Horizon Active Underline */}
                       {isActive && (
-                        <span className="absolute bottom-[-1px] left-2 right-2 h-[2px] bg-[#0070f2] rounded-full" />
+                        <span className="absolute bottom-[-1px] left-1 right-1 h-[2px] bg-[#0070f2] rounded-full" />
                       )}
                     </button>
                   </React.Fragment>
@@ -2404,11 +2403,11 @@ export default function ProductionFloorCockpitModal({
           </div>
         )}
 
-        {/* ── 5. MESSAGE STRIP (BLUE SAP INSTRUCTION STRIP) ── */}
+        {/* ── 5. MESSAGE STRIP (BLUE SAP INSTRUCTION STRIP - ULTRA SLIM) ── */}
         {viewMode === 'STEPS' && (
-          <div className="px-4 sm:px-6 py-2 bg-blue-50/90 dark:bg-blue-950/40 border-b border-blue-200/80 dark:border-blue-900/60 flex items-center gap-2 text-xs text-blue-900 dark:text-blue-200 select-none shrink-0 transition-colors">
-            <Info className="w-4 h-4 text-[#0070f2] shrink-0" />
-            <span className="font-semibold text-[11.5px] truncate">
+          <div className="px-3 py-0.5 bg-blue-50/90 dark:bg-blue-950/40 border-b border-blue-200/80 dark:border-blue-900/60 flex items-center gap-1.5 text-blue-900 dark:text-blue-200 select-none shrink-0 transition-colors">
+            <Info className="w-3 h-3 text-[#0070f2] shrink-0" />
+            <span className="font-semibold text-[10px] truncate leading-tight">
               {activeStep === 1 && 'Step 1: Allocate warehouse batch lots, reserve inventory stock, and confirm taken quantities for production.'}
               {activeStep === 2 && 'Step 2: Slide to merge raw materials into a single liquid volume (ml), specify process stage, and apply evaporation % mass loss.'}
               {activeStep === 3 && 'Step 3: Assign multiple finished products to the evaporated mix, allocate base mix volume, add product-specific essences/flavours with lots, and configure moulds or bulk storage.'}
@@ -2419,7 +2418,7 @@ export default function ProductionFloorCockpitModal({
         )}
 
         {/* ── BODY (Scrollable Step Sections or Clean Executive Report) ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 space-y-2.5">
           
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 text-slate-400">
@@ -2445,17 +2444,17 @@ export default function ProductionFloorCockpitModal({
               {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 1: RAW MATERIALS FORMULATION & WAREHOUSE LOT ALLOCATION
               ══════════════════════════════════════════════════════════════════════════ */}
-              <div className={`${activeStep === 1 ? 'block' : 'hidden'} space-y-4`}>
-                <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden">
-                  <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+              <div className={`${activeStep === 1 ? 'block' : 'hidden'} space-y-2`}>
+                <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden">
+                  <div className="px-3.5 py-1.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">
+                      <span className="w-5 h-5 rounded bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">
                         1
                       </span>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
                         Raw Materials Formulation &amp; Batch Consumption
                       </h3>
-                      <span className="text-xs text-slate-500 font-normal">
+                      <span className="text-[10px] text-slate-500 font-normal">
                         ({rmRows.length} materials queued)
                       </span>
                     </div>
@@ -2469,29 +2468,29 @@ export default function ProductionFloorCockpitModal({
                           setItemSearchMode('RM_MULTI');
                           setItemSearchOpen(true);
                         }}
-                        className="h-8 px-3 text-xs font-bold rounded-lg border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1.5"
+                        className="h-6 px-2 text-[10.5px] font-bold rounded border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Plus className="w-3 h-3 text-amber-600" />
                         <span>+ Add Raw Materials (Multi-Select)</span>
                       </Button>
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto max-h-[calc(100vh-300px)] overflow-y-auto">
+                  <div className="overflow-x-auto max-h-[calc(100vh-270px)] overflow-y-auto">
                     <table className="w-full text-left text-xs border-collapse font-sans">
                       <thead className="sticky top-0 z-10 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs shadow-xs">
-                        <tr className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200 dark:border-slate-700">
-                          <th className="py-2.5 px-3 text-center w-12" title="Flag material for evaporation mass loss">For Evap</th>
-                          <th className="py-2.5 px-3 text-center w-12" title="Include material in combined mix">Merge</th>
-                          <th className="py-2.5 px-3 min-w-[160px]">Raw Material</th>
-                          <th className="py-2.5 px-3 min-w-[200px]" title="Allocated Batch No from warehouse stock">Batch / Lot Allocation</th>
-                          <th className="py-2.5 px-3 text-center w-28">Live UOM</th>
-                          <th className="py-2.5 px-3 text-right w-24" title="Allocated batch quantity available in production">Available in Batch</th>
-                          <th className="py-2.5 px-3 text-right w-24">Required</th>
-                          <th className="py-2.5 px-3 text-right w-28 bg-amber-500/10">Taken (Used)</th>
-                          <th className="py-2.5 px-3 text-right w-28" title="Remaining quantity from allocated batch in this production (Available - Taken)">Remaining in Production</th>
-                          <th className="py-2.5 px-3 text-right w-32" title="Remaining stock in warehouse after this batch allocation (Warehouse Stock - Taken)">Remaining Warehouse Stock</th>
-                          <th className="py-2.5 px-3 text-center w-10">✕</th>
+                        <tr className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-1.5 px-2 text-center w-10" title="Flag material for evaporation mass loss">Evap</th>
+                          <th className="py-1.5 px-2 text-center w-10" title="Include material in combined mix">Merge</th>
+                          <th className="py-1.5 px-2 min-w-[150px]">Raw Material</th>
+                          <th className="py-1.5 px-2 min-w-[180px]" title="Allocated Batch No from warehouse stock">Batch / Lot Allocation</th>
+                          <th className="py-1.5 px-2 text-center w-20">Live UOM</th>
+                          <th className="py-1.5 px-2 text-right w-20" title="Allocated batch quantity available in production">Avail in Batch</th>
+                          <th className="py-1.5 px-2 text-right w-20">Required</th>
+                          <th className="py-1.5 px-2 text-right w-24 bg-amber-500/10">Taken (Used)</th>
+                          <th className="py-1.5 px-2 text-right w-24" title="Remaining quantity from allocated batch in this production (Available - Taken)">Rem in Prod</th>
+                          <th className="py-1.5 px-2 text-right w-28" title="Remaining stock in warehouse after this batch allocation (Warehouse Stock - Taken)">Rem Warehouse Stock</th>
+                          <th className="py-1.5 px-2 text-center w-8">✕</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2511,60 +2510,62 @@ export default function ProductionFloorCockpitModal({
                           return (
                             <tr 
                               key={`line-rm-${line.rawMaterialId || 'rm'}-${idx}`}
-                              className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/50 transition-colors ${
+                              className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/50 transition-colors text-[11px] ${
                                 hasTakenMoreThanAvail || hasNegative ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''
                               }`}
                             >
                               {/* For Evaporation Checkbox */}
-                              <td className="py-2.5 px-3 text-center">
+                              <td className="py-1 px-2 text-center">
                                 <input
                                   type="checkbox"
                                   checked={line.evaporates}
                                   onChange={(e) => handleUpdateRmRow(idx, 'evaporates', e.target.checked)}
-                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                  className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                                  title="Check if this liquid contributes to thermal evaporation"
                                 />
                               </td>
 
                               {/* Merge Checkbox */}
-                              <td className="py-2.5 px-3 text-center">
+                              <td className="py-1 px-2 text-center">
                                 <input
                                   type="checkbox"
                                   checked={line.merged}
                                   onChange={(e) => handleUpdateRmRow(idx, 'merged', e.target.checked)}
-                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600"
+                                  title="Check to include in merged base liquid volume"
                                 />
                               </td>
 
                               {/* Material Name & Code */}
-                              <td className="py-2.5 px-3">
-                                <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                              <td className="py-1 px-2">
+                                <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
                                   <span>{line.rawMaterialName}</span>
                                   {line.evaporates && (
-                                    <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0" title="Evaporating material" />
+                                    <Flame className="w-3 h-3 text-amber-500 shrink-0" title="Evaporating material" />
                                   )}
                                 </div>
-                                <div className="font-mono text-[10px] text-slate-400">
+                                <div className="font-mono text-[9px] text-slate-400">
                                   {line.rawMaterialCode || 'RM'}
                                 </div>
                               </td>
 
                               {/* Interactive Batch / Lot Allocation Column */}
-                              <td className="py-2.5 px-3">
-                                <div className="flex flex-col gap-1 items-start">
+                              <td className="py-1 px-2">
+                                <div className="flex flex-col gap-0.5 items-start">
                                   {hasAllocations ? (
                                     <button
                                       type="button"
                                       onClick={() => openLotModal(idx)}
-                                      className="px-2 py-1 rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/60 hover:bg-blue-100 hover:border-blue-400 text-blue-900 dark:text-blue-300 font-mono text-[10px] text-left transition-all cursor-pointer shadow-3xs flex items-center gap-1.5 group"
+                                      className="px-1.5 py-0.5 rounded border border-blue-300 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/60 hover:bg-blue-100 hover:border-blue-400 text-blue-900 dark:text-blue-300 font-mono text-[9.5px] text-left transition-all cursor-pointer shadow-3xs flex items-center gap-1 group"
                                       title="Click to view & edit allocated lots"
                                     >
-                                      <Boxes className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                      <Boxes className="w-3 h-3 text-blue-600 shrink-0" />
                                       <span className="font-bold">
                                         {line.allocatedBatches.length === 1 
                                           ? `#${line.allocatedBatches[0].lotNumber || line.allocatedBatches[0].internalBatchNo}` 
                                           : `${line.allocatedBatches.length} Lots Allocated`}
                                       </span>
-                                      <span className="text-[9px] text-blue-600 dark:text-blue-400 underline ml-0.5 group-hover:text-blue-800">
+                                      <span className="text-[8.5px] text-blue-600 dark:text-blue-400 underline ml-0.5 group-hover:text-blue-800">
                                         Edit
                                       </span>
                                     </button>
@@ -2574,20 +2575,20 @@ export default function ProductionFloorCockpitModal({
                                       variant="outline"
                                       size="sm"
                                       onClick={() => openLotModal(idx)}
-                                      className="h-7 px-2.5 rounded-lg border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-800 dark:text-amber-300 font-bold text-[10.5px] cursor-pointer shadow-3xs flex items-center gap-1.5"
+                                      className="h-6 px-2 rounded border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-800 dark:text-amber-300 font-bold text-[9.5px] cursor-pointer shadow-3xs flex items-center gap-1"
                                       title="Allocate batch lots from warehouse stock"
                                     >
-                                      <Plus className="w-3 h-3 text-amber-600" />
+                                      <Plus className="w-2.5 h-2.5 text-amber-600" />
                                       <span>Allocate Lots</span>
                                     </Button>
                                   )}
 
                                   {/* Batch details summary tag */}
                                   {hasAllocations && (
-                                    <div className="text-[9.5px] font-mono text-slate-500 flex items-center gap-1 flex-wrap">
+                                    <div className="text-[9px] font-mono text-slate-500 flex items-center gap-1 flex-wrap">
                                       <span>Allocated: <strong className="text-emerald-600">{displayAvailable} {formatCleanUom(line.uom, 'kg', line)}</strong></span>
                                       {line.allocatedBatches[0]?.poNumber && (
-                                        <span className="text-slate-400 truncate max-w-[120px]" title={line.allocatedBatches[0].poNumber}>
+                                        <span className="text-slate-400 truncate max-w-[100px]" title={line.allocatedBatches[0].poNumber}>
                                           • {line.allocatedBatches[0].poNumber}
                                         </span>
                                       )}
@@ -2597,49 +2598,49 @@ export default function ProductionFloorCockpitModal({
                               </td>
 
                               {/* Live UOM & Alternate UOM */}
-                              <td className="py-2.5 px-3 text-center">
-                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[11px] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                              <td className="py-1 px-2 text-center">
+                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded text-[10px] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
                                   {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                                 {line.hasAlternateUom && line.alternateUom && (
-                                  <div className="text-[9.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-1 bg-indigo-50 dark:bg-indigo-950/50 px-1 py-0.5 rounded border border-indigo-200/50 dark:border-indigo-800/50">
+                                  <div className="text-[8.5px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5 bg-indigo-50 dark:bg-indigo-950/50 px-1 py-0.2 rounded border border-indigo-200/50 dark:border-indigo-800/50">
                                     1 {formatCleanUom(line.uom, 'kg', line)} = {line.conversionFactor || 1} {line.alternateUom}
                                   </div>
                                 )}
                               </td>
 
                               {/* Available in Batch (Allocated Qty) */}
-                              <td className="py-2.5 px-3 text-right">
-                                <div className="font-mono font-black text-xs text-slate-800 dark:text-slate-100">
+                              <td className="py-1 px-2 text-right">
+                                <div className="font-mono font-black text-[11px] text-slate-800 dark:text-slate-100">
                                   {formatIndian(displayAvailable)}
                                 </div>
-                                <span className="text-[9px] text-slate-400 block font-mono">
+                                <span className="text-[8.5px] text-slate-400 block font-mono">
                                   {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </td>
 
                               {/* Required Qty (Editable) */}
-                              <td className="py-2.5 px-3 text-right">
+                              <td className="py-1 px-2 text-right">
                                 <Input
                                   type="number"
                                   step="any"
                                   value={line.requiredQty}
                                   onChange={(e) => handleUpdateRmRow(idx, 'requiredQty', parseFloat(e.target.value) || 0)}
-                                  className="h-7 w-20 text-right font-mono text-xs px-1.5 ml-auto border-slate-200 dark:border-slate-700"
+                                  className="h-6 w-18 text-right font-mono text-[11px] px-1 ml-auto border-slate-200 dark:border-slate-700"
                                 />
                               </td>
 
                               {/* Taken (Used) (Editable) */}
-                              <td className="py-2.5 px-3 text-right bg-amber-50/40 dark:bg-amber-950/10">
+                              <td className="py-1 px-2 text-right bg-amber-50/40 dark:bg-amber-950/10">
                                 <Input
                                   type="number"
                                   step="any"
                                   value={line.takenQty}
                                   onChange={(e) => handleUpdateRmRow(idx, 'takenQty', parseFloat(e.target.value) || 0)}
-                                  className="h-7 w-24 text-right font-mono font-bold text-xs px-1.5 ml-auto border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900"
+                                  className="h-6 w-20 text-right font-mono font-bold text-[11px] px-1 ml-auto border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900"
                                 />
                                 {hasTakenMoreThanAvail && (
-                                  <div className="text-[9.5px] font-bold text-rose-600 flex items-center justify-end gap-0.5 mt-0.5">
+                                  <div className="text-[8.5px] font-bold text-rose-600 flex items-center justify-end gap-0.5 mt-0.5">
                                     <AlertCircle className="w-2.5 h-2.5" />
                                     <span>Exceeds Avail</span>
                                   </div>
@@ -2647,28 +2648,28 @@ export default function ProductionFloorCockpitModal({
                               </td>
 
                               {/* Remaining in Current Production (Available in Batch - Taken) */}
-                              <td className="py-2.5 px-3 text-right font-mono font-bold">
+                              <td className="py-1 px-2 text-right font-mono font-bold text-[11px]">
                                 <span className={remInProduction < 0 ? 'text-rose-600 font-black' : 'text-amber-600 dark:text-amber-400'}>
                                   {formatIndian(remInProduction)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </td>
 
                               {/* Remaining Stock in Warehouse after reducing batch taken */}
-                              <td className="py-2.5 px-3 text-right font-mono font-bold">
+                              <td className="py-1 px-2 text-right font-mono font-bold text-[11px]">
                                 <span className={remWarehouseStock < 0 ? 'text-rose-600 font-black' : 'text-emerald-600 dark:text-emerald-400'}>
                                   {formatIndian(remWarehouseStock)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </td>
 
                               {/* Remove Row */}
-                              <td className="py-2.5 px-3 text-center">
+                              <td className="py-1 px-2 text-center">
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveRmRow(idx)}
-                                  className="text-slate-400 hover:text-rose-600 transition-colors p-1 cursor-pointer"
+                                  className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
                                   title="Remove line"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3 h-3" />
                                 </button>
                               </td>
                             </tr>
@@ -2683,23 +2684,23 @@ export default function ProductionFloorCockpitModal({
               {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 2: VOLUME MERGE AND EVAPORATION COCKPIT
               ══════════════════════════════════════════════════════════════════════════ */}
-              <div className={`${activeStep === 2 ? 'block' : 'hidden'} space-y-4`}>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className={`${activeStep === 2 ? 'block' : 'hidden'} space-y-2`}>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
                   
                   {/* Left (2 cols): Controls & Mix Evaporation Results */}
-                  <Card className="lg:col-span-2 border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                  <Card className="lg:col-span-2 border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden">
+                    <div className="px-3.5 py-1.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-amber-500 text-slate-950 text-xs font-bold flex items-center justify-center">
+                        <span className="w-5 h-5 rounded bg-amber-500 text-slate-950 text-[11px] font-bold flex items-center justify-center">
                           2
                         </span>
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
                           UOM Volume Conversion, Merge &amp; Evaporation Control
                         </h3>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
                           Slide to Merge:
                         </span>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -2709,18 +2710,18 @@ export default function ProductionFloorCockpitModal({
                             onChange={(e) => setIsSlideMerged(e.target.checked)}
                             className="sr-only peer"
                           />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
                         </label>
                       </div>
                     </div>
 
-                    <div className="p-5 space-y-5">
+                    <div className="p-2.5 space-y-2">
                       
                       {/* Controls Row */}
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60">
                         {/* Merge Stage */}
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                          <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                             1. Merge Stage
                           </label>
                           <select
@@ -2730,7 +2731,7 @@ export default function ProductionFloorCockpitModal({
                                 : (mergeStage === 'Before heating' ? 'After heating' : (mergeStage === 'Before freezing' ? 'After freezing' : 'After heating'))
                             }
                             onChange={(e) => setMergeStage(e.target.value)}
-                            className="w-full h-9 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 cursor-pointer"
+                            className="w-full h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 cursor-pointer"
                           >
                             <option value="After heating">After heating</option>
                             <option value="After freezing">After freezing</option>
@@ -2740,10 +2741,10 @@ export default function ProductionFloorCockpitModal({
 
                         {/* Evaporation % */}
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                          <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                             2. Evaporation (%)
                           </label>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1">
                             <Input
                               type="number"
                               min="0"
@@ -2751,7 +2752,7 @@ export default function ProductionFloorCockpitModal({
                               step="0.5"
                               value={evaporationPct}
                               onChange={(e) => setEvaporationPct(parseFloat(e.target.value) || 0)}
-                              className="h-9 font-mono font-bold text-xs"
+                              className="h-7 font-mono font-bold text-xs"
                             />
                             <span className="font-bold text-xs text-slate-500">%</span>
                           </div>
@@ -2759,10 +2760,10 @@ export default function ProductionFloorCockpitModal({
 
                         {/* Direct Mix After Evaporation (Auto-Calculates %) */}
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                          <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                             3. Mix After Evap (ml)
                           </label>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1">
                             <Input
                               type="number"
                               min="0"
@@ -2770,7 +2771,7 @@ export default function ProductionFloorCockpitModal({
                               value={liveEvaporationResult.mixAfterEvapMl || ''}
                               onChange={(e) => handleDirectMixAfterEvapChange(e.target.value)}
                               placeholder="Direct ml"
-                              className="h-9 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700"
+                              className="h-7 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700"
                             />
                             <span className="font-bold text-xs text-slate-500">ml</span>
                           </div>
@@ -2778,17 +2779,17 @@ export default function ProductionFloorCockpitModal({
 
                         {/* Apply & Undo Buttons */}
                         <div className="flex flex-col justify-end">
-                          <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                          <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                             4. Action
                           </label>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <Button
                               type="button"
                               disabled={!isSlideMerged || evaporationApplied}
                               onClick={handleApplyEvaporation}
-                              className="flex-1 h-9 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-lg cursor-pointer disabled:opacity-40"
+                              className="flex-1 h-7 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded cursor-pointer disabled:opacity-40"
                             >
-                              <Flame className="w-3.5 h-3.5 mr-1" />
+                              <Flame className="w-3 h-3 mr-1" />
                               <span>Apply Evap</span>
                             </Button>
                             {evaporationApplied && (
@@ -2796,10 +2797,10 @@ export default function ProductionFloorCockpitModal({
                                 type="button"
                                 variant="outline"
                                 onClick={handleUndoEvaporation}
-                                className="h-9 px-2.5 text-xs font-bold rounded-lg border-slate-300 dark:border-slate-700 cursor-pointer"
+                                className="h-7 px-2 text-xs font-bold rounded border-slate-300 dark:border-slate-700 cursor-pointer"
                                 title="Undo Evaporation"
                               >
-                                <RotateCcw className="w-3.5 h-3.5" />
+                                <RotateCcw className="w-3 h-3" />
                               </Button>
                             )}
                           </div>
@@ -2807,39 +2808,39 @@ export default function ProductionFloorCockpitModal({
                       </div>
 
                       {/* Evaporation Math Results Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/60">
-                          <div className="text-[10.5px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800/60">
+                          <div className="text-[9.5px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                             Total Before Evaporation
                           </div>
-                          <div className="text-lg font-mono font-black text-indigo-950 dark:text-indigo-200 mt-1">
+                          <div className="text-sm sm:text-base font-mono font-black text-indigo-950 dark:text-indigo-200 mt-0.5">
                             {formatIndian(liveEvaporationResult.totalBeforeEvapMl)} ml
                           </div>
-                          <div className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300">
+                          <div className="text-[10px] font-mono text-indigo-700 dark:text-indigo-300">
                             ≈ {formatIndian(liveEvaporationResult.totalBeforeEvapL ?? round2(liveEvaporationResult.totalBeforeEvapMl / 1000))} Litres
                           </div>
                         </div>
 
-                        <div className="p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-800/60">
-                          <div className="text-[10.5px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                        <div className="p-2.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-800/60">
+                          <div className="text-[9.5px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
                             Evaporated Mass Loss ({evaporationPct}%)
                           </div>
-                          <div className="text-lg font-mono font-black text-amber-950 dark:text-amber-200 mt-1">
+                          <div className="text-sm sm:text-base font-mono font-black text-amber-950 dark:text-amber-200 mt-0.5">
                             {evaporationApplied ? `-${formatIndian(liveEvaporationResult.evaporatedMl)}` : '0'} ml
                           </div>
-                          <div className="text-[11px] font-mono text-amber-700 dark:text-amber-300">
+                          <div className="text-[10px] font-mono text-amber-700 dark:text-amber-300">
                             Base: {formatIndian(liveEvaporationResult.evaporationBaseMl)} ml eligible
                           </div>
                         </div>
 
-                        <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60">
-                          <div className="text-[10.5px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                        <div className="p-2.5 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60">
+                          <div className="text-[9.5px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
                             Mix After Evaporation
                           </div>
-                          <div className="text-lg font-mono font-black text-emerald-950 dark:text-emerald-200 mt-1">
+                          <div className="text-sm sm:text-base font-mono font-black text-emerald-950 dark:text-emerald-200 mt-0.5">
                             {formatIndian(liveEvaporationResult.mixAfterEvapMl)} ml
                           </div>
-                          <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300">
+                          <div className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300">
                             ≈ {formatIndian(liveEvaporationResult.mixAfterEvapL ?? round2(liveEvaporationResult.mixAfterEvapMl / 1000))} Litres available
                           </div>
                         </div>
@@ -2849,17 +2850,17 @@ export default function ProductionFloorCockpitModal({
                   </Card>
 
                   {/* Right (1 col): Side Panel "Material Status" */}
-                  <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden flex flex-col">
-                    <div className="px-4 py-3 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800">
-                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                  <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden flex flex-col">
+                    <div className="px-3 py-1.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800">
+                      <h4 className="text-[11px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
                         Side Panel: Material Status
                       </h4>
-                      <p className="text-[10px] text-slate-400">
+                      <p className="text-[9.5px] text-slate-400">
                         Post-evaporation volume vs Remaining warehouse stock
                       </p>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-3 divide-y divide-slate-100 dark:divide-slate-800">
+                    <div className="flex-1 overflow-y-auto p-2 divide-y divide-slate-100 dark:divide-slate-800">
                       {liveEvaporationResult.lines.map((line, idx) => {
                         const rawMl = Number(line.takenMl ?? line.requiredMl ?? 0);
                         const isEvap = Boolean(line.evaporates);
@@ -2879,30 +2880,30 @@ export default function ProductionFloorCockpitModal({
                         const remStock = Number((warehouseTotalStock - taken).toFixed(3));
 
                         return (
-                          <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-2.5 first:pt-1 last:pb-1 text-xs space-y-1.5 border-b last:border-b-0 border-slate-100 dark:border-slate-800">
-                            <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
-                              <span className="truncate max-w-[150px] font-semibold">{line.rawMaterialName}</span>
+                          <div key={`merge-rm-${line.rawMaterialId || 'rm'}-${idx}`} className="py-1.5 first:pt-0.5 last:pb-0.5 text-xs space-y-1 border-b last:border-b-0 border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200 text-[11px]">
+                              <span className="truncate max-w-[130px] font-semibold">{line.rawMaterialName}</span>
                               <div className="text-right">
                                 <span className="font-mono text-emerald-600 dark:text-emerald-400 font-black text-xs">
                                   {formatIndian(displayMl)} ml
                                 </span>
                                 {isEvap && evaporationApplied && (
-                                  <span className="block text-[9px] text-amber-600 dark:text-amber-400 font-semibold">
+                                  <span className="block text-[8.5px] text-amber-600 dark:text-amber-400 font-semibold">
                                     (-{evaporationPct}% evap)
                                   </span>
                                 )}
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-lg">
+                            <div className="grid grid-cols-2 gap-1 text-[10px] text-slate-500 bg-slate-50 dark:bg-slate-800/40 p-1 rounded">
                               <div>
-                                <span className="text-[9.5px] text-slate-400 block">Warehouse Stock:</span>
+                                <span className="text-[9px] text-slate-400 block">Warehouse Stock:</span>
                                 <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
                                   {formatIndian(warehouseTotalStock)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </div>
                               <div className="text-right">
-                                <span className="text-[9.5px] text-slate-400 block">Batch Taken:</span>
+                                <span className="text-[9px] text-slate-400 block">Batch Taken:</span>
                                 <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
                                   {formatIndian(taken)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
@@ -2910,24 +2911,24 @@ export default function ProductionFloorCockpitModal({
                             </div>
 
                             {/* Remaining in Current Production directly above Remaining in Warehouse Stock */}
-                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-slate-800">
-                              <span className="text-slate-500 font-medium">Remaining in Current Production:</span>
+                            <div className="flex items-center justify-between text-[10px] pt-0.5 border-t border-slate-100 dark:border-slate-800">
+                              <span className="text-slate-500 font-medium">Rem in Current Production:</span>
                               <span className="font-mono font-black text-amber-600 dark:text-amber-400">
                                 {formatIndian(remInProd)} {formatCleanUom(line.uom, 'kg', line)}
                               </span>
                             </div>
 
-                            <div className="flex items-center justify-between text-[11px] pt-0.5">
-                              <span className="text-slate-500 font-medium">Remaining Warehouse Stock:</span>
+                            <div className="flex items-center justify-between text-[10px] pt-0.5">
+                              <span className="text-slate-500 font-medium">Rem Warehouse Stock:</span>
                               <span className={`font-mono font-black ${remStock < 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                 {formatIndian(remStock)} {formatCleanUom(line.uom, 'kg', line)}
                               </span>
                             </div>
 
                             {line.lotBatchNo && (
-                              <div className="text-[10px] font-mono text-slate-400 truncate flex items-center justify-between">
+                              <div className="text-[9px] font-mono text-slate-400 truncate flex items-center justify-between">
                                 <span>PO Lot:</span>
-                                <span className="text-indigo-600 dark:text-indigo-400 font-bold truncate max-w-[130px]">{line.lotBatchNo}</span>
+                                <span className="text-indigo-600 dark:text-indigo-400 font-bold truncate max-w-[120px]">{line.lotBatchNo}</span>
                               </div>
                             )}
                           </div>
@@ -2941,27 +2942,34 @@ export default function ProductionFloorCockpitModal({
               {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 3: FINISHED PRODUCTS & MOULD ALLOCATIONS (SEQUENTIAL CHAINING)
               ══════════════════════════════════════════════════════════════════════════ */}
-              <div className={`${activeStep === 3 ? 'block' : 'hidden'} space-y-4`}>
+              <div className={`${activeStep === 3 ? 'block' : 'hidden'} space-y-2`}>
                 
-                {/* Section Header & Mix Available Summary KPIs */}
+                {/* SAP Horizon Header & KPI Facets Card (Ultra-Compact, Reduced Space) */}
                 <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden">
-                  <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-7 h-7 rounded-lg bg-purple-600 text-white text-xs font-bold flex items-center justify-center shadow-xs">
-                        3
-                      </span>
-                      <div>
-                        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                          Finished Products &amp; Mould Allocations (Sequential Chaining)
-                        </h3>
-                        <p className="text-[11.5px] text-slate-500">
-                          Total mix available: <strong className="font-mono text-purple-600 dark:text-purple-400 font-extrabold">{formatIndian(availableMixMl)} ml</strong>
-                          <span className="text-slate-400 font-normal"> ≈ {formatIndian(round2(availableMixMl / 1000))} Litres (Mix After Evaporation)</span>
+                  
+                  {/* Compact Header Bar */}
+                  <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-5 h-5 rounded-md bg-[#8b47d7] text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+                        <Boxes className="w-3 h-3" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">
+                            Finished Products &amp; Mould Allocations
+                          </h3>
+                          <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
+                            Sequential Chaining
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          Total mix available: <strong className="font-mono text-purple-600 dark:text-purple-400 font-bold">{formatIndian(availableMixMl)} ml</strong>
+                          <span className="text-slate-400"> (≈ {formatIndian(round2(availableMixMl / 1000))} L after evaporation)</span>
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <Button
                         type="button"
                         variant="outline"
@@ -2970,10 +2978,10 @@ export default function ProductionFloorCockpitModal({
                           setItemSearchMode('PRODUCT_SINGLE');
                           setItemSearchOpen(true);
                         }}
-                        className="h-8 px-3 text-xs font-bold rounded-lg border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer shadow-3xs flex items-center gap-1.5"
+                        className="h-6 px-2 text-[10.5px] font-bold rounded-md border-purple-300 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>+ Add Finished Product</span>
+                        <Plus className="w-3 h-3" />
+                        <span>+ Add Product</span>
                       </Button>
 
                       <Button
@@ -2981,7 +2989,7 @@ export default function ProductionFloorCockpitModal({
                         size="sm"
                         disabled={savingAllocations}
                         onClick={handleSaveAllocations}
-                        className="h-8 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1"
+                        className="h-6 px-2.5 text-[10.5px] font-bold rounded-md bg-[#0070f2] hover:bg-blue-600 text-white cursor-pointer shadow-3xs flex items-center gap-1"
                       >
                         {savingAllocations ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                         <span>Save Allocations</span>
@@ -2989,317 +2997,260 @@ export default function ProductionFloorCockpitModal({
                     </div>
                   </div>
 
-                  {/* Top KPI Metrics Tiles */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50/50 dark:bg-slate-800/20 border-b border-slate-200 dark:border-slate-800">
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Mix Available</span>
-                      <strong className="text-base font-mono font-black text-purple-600 dark:text-purple-400 block mt-0.5">
-                        {formatIndian(availableMixMl, 2)} ml
-                      </strong>
-                      <span className="text-[10px] text-slate-500 font-mono">≈ {(availableMixMl / 1000).toFixed(2)} Litres</span>
+                  {/* SAP Horizon 4-Facet KPI Strip (Hairline Divided, Ultra-Compact) */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-slate-200 dark:divide-slate-800 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/60">
+                    <div className="p-1.5 px-3 flex flex-col justify-center">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Total Mix Available</span>
+                      <div className="flex items-baseline gap-1.5 mt-0.5">
+                        <strong className="text-xs sm:text-[13px] font-mono font-black text-purple-700 dark:text-purple-300 leading-tight">
+                          {formatIndian(availableMixMl, 2)} ml
+                        </strong>
+                        <span className="text-[9.5px] text-slate-400 font-mono">≈ {(availableMixMl / 1000).toFixed(2)} L</span>
+                      </div>
                     </div>
 
                     {canViewCost ? (
-                      <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Base Mix Cost (Spent)</span>
-                        <strong className="text-base font-mono font-black text-slate-900 dark:text-white block mt-0.5">
-                          ₹{formatIndian(round2(totalBaseMixCost))}
-                        </strong>
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-semibold">₹{baseCostPerMl.toFixed(4)} / ml</span>
+                      <div className="p-1.5 px-3 flex flex-col justify-center">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Base Mix Cost (Spent)</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <strong className="text-xs sm:text-[13px] font-mono font-black text-slate-900 dark:text-white leading-tight">
+                            ₹{formatIndian(round2(totalBaseMixCost))}
+                          </strong>
+                          <span className="text-[9.5px] text-emerald-600 dark:text-emerald-400 font-mono font-bold">₹{baseCostPerMl.toFixed(4)}/ml</span>
+                        </div>
                       </div>
                     ) : (
-                      <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Allocated Products</span>
-                        <strong className="text-base font-mono font-black text-slate-900 dark:text-white block mt-0.5">
-                          {allocations.length} Products
-                        </strong>
-                        <span className="text-[10px] text-slate-500 font-mono">Sequential Chaining</span>
+                      <div className="p-1.5 px-3 flex flex-col justify-center">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Chained Products</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <strong className="text-xs sm:text-[13px] font-mono font-black text-slate-900 dark:text-white leading-tight">
+                            {allocations.length} Products
+                          </strong>
+                          <span className="text-[9.5px] text-slate-400 font-mono">Sequential Allocation</span>
+                        </div>
                       </div>
                     )}
 
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Base Mix Allocated</span>
-                      <strong className="text-base font-mono font-black text-indigo-600 dark:text-indigo-400 block mt-0.5">
-                        {formatIndian(totalAllocatedBaseMl, 2)} ml
-                      </strong>
-                      <span className="text-[10px] text-slate-500 font-mono">≈ {(totalAllocatedBaseMl / 1000).toFixed(2)} Litres</span>
-                    </div>
-
-                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Remaining to Allocate</span>
-                      <strong className={`text-base font-mono font-black block mt-0.5 ${unallocatedRemainingMl > 0 ? 'text-indigo-600 dark:text-indigo-400' : (unallocatedRemainingMl < 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400')}`}>
-                        {formatIndian(unallocatedRemainingMl, 2)} ml
-                      </strong>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {unallocatedRemainingMl > 0 ? 'Available for remaining products' : (unallocatedRemainingMl < 0 ? 'Exceeds available mix!' : 'Fully allocated (0.00 ml) ✓')}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Global Base Mix Allocation Progress Ribbon */}
-                  <div className="px-5 py-3 bg-slate-100/70 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center justify-between text-xs font-bold mb-1.5 flex-wrap gap-2">
-                      <span className="text-slate-800 dark:text-slate-200 flex items-center gap-1.5 font-mono">
-                        <Droplets className="w-4 h-4 text-purple-600" />
-                        <span>Base Mix Allocation:</span>
-                        <strong className="text-purple-700 dark:text-purple-300 font-black">
-                          {formatIndian(totalAllocatedBaseMl, 2)} / {formatIndian(availableMixMl, 2)} ml ({availableMixMl > 0 ? Math.round((totalAllocatedBaseMl / availableMixMl) * 100) : 0}%)
+                    <div className="p-1.5 px-3 flex flex-col justify-center">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Base Mix Allocated</span>
+                      <div className="flex items-baseline gap-1.5 mt-0.5">
+                        <strong className="text-xs sm:text-[13px] font-mono font-black text-[#0070f2] dark:text-blue-400 leading-tight">
+                          {formatIndian(totalAllocatedBaseMl, 2)} ml
                         </strong>
-                      </span>
-                      <span className={`font-mono text-xs font-black px-2.5 py-0.5 rounded shadow-3xs ${
-                        unallocatedRemainingMl < 0 
-                          ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300' 
-                          : (unallocatedRemainingMl === 0 
-                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300' 
-                              : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-200 border border-indigo-300')
-                      }`}>
-                        {unallocatedRemainingMl < 0 
-                          ? `Deficit: ${formatIndian(Math.abs(unallocatedRemainingMl), 2)} ml` 
-                          : `Remaining to Allocate: ${formatIndian(unallocatedRemainingMl, 2)} ml`}
-                      </span>
+                        <span className="text-[9.5px] text-slate-400 font-mono">
+                          ({availableMixMl > 0 ? ((totalAllocatedBaseMl / availableMixMl) * 100).toFixed(1) : 0}%)
+                        </span>
+                      </div>
                     </div>
-                    <div className="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-inner">
-                      <div 
-                        className={`h-full transition-all duration-300 ${
+
+                    <div className="p-1.5 px-3 flex flex-col justify-center">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-tight">Unallocated Balance</span>
+                      <div className="flex items-baseline gap-1.5 mt-0.5">
+                        <strong className={`text-xs sm:text-[13px] font-mono font-black leading-tight ${
+                          unallocatedRemainingMl < 0 ? 'text-[#d20a0a]' : (unallocatedRemainingMl === 0 ? 'text-[#30914c]' : 'text-purple-600 dark:text-purple-400')
+                        }`}>
+                          {formatIndian(unallocatedRemainingMl, 2)} ml
+                        </strong>
+                        <span className={`text-[8.5px] font-mono font-bold px-1 py-0.2 rounded border ${
                           unallocatedRemainingMl < 0 
-                            ? 'bg-rose-500' 
-                            : (unallocatedRemainingMl === 0 ? 'bg-emerald-500' : 'bg-purple-600')
-                        }`}
-                        style={{
-                          width: `${availableMixMl > 0 ? Math.min(100, (totalAllocatedBaseMl / availableMixMl) * 100) : 0}%`
-                        }}
-                      />
+                            ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300' 
+                            : (unallocatedRemainingMl === 0 
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300' 
+                                : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-300')
+                        }`}>
+                          {unallocatedRemainingMl < 0 ? 'Deficit' : (unallocatedRemainingMl === 0 ? 'Fully Allocated ✓' : 'To Allocate')}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Product Cards List */}
-                  <div className="p-4 space-y-5">
-                    {allocations.map((alloc, idx) => {
-                      const productMatch = availableProducts.find(p => p.id === alloc.productId);
-                      const prodUom = alloc.productUom || alloc.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
-                      const isMould = alloc.useMould !== false;
-                      const bulkUom = alloc.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
+                  {/* Micro Progress Line (Sleek Hairline Bar) */}
+                  <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-300 ${
+                        unallocatedRemainingMl < 0 ? 'bg-[#d20a0a]' : (unallocatedRemainingMl === 0 ? 'bg-[#30914c]' : 'bg-[#0070f2]')
+                      }`}
+                      style={{
+                        width: `${availableMixMl > 0 ? Math.min(100, (totalAllocatedBaseMl / availableMixMl) * 100) : 0}%`
+                      }}
+                    />
+                  </div>
+                </Card>
 
-                      // Product RMs volume calculation (only items marked addToMix contribute to mix volume)
-                      const productRms = Array.isArray(alloc.productRms) ? alloc.productRms : [];
-                      const addedRmVolumeMl = productRms.reduce((sum, prm) => {
-                        const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
-                        if (!isAddToMix) return sum;
-                        const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
-                        return sum + toMl(qty, prm.uom, prm.density);
-                      }, 0);
+                {/* Product Line Items (Compact SAP Horizon Cards) */}
+                <div className="space-y-2">
+                  {allocations.map((alloc, idx) => {
+                    const productMatch = availableProducts.find(p => p.id === alloc.productId);
+                    const prodUom = alloc.productUom || alloc.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
+                    const isMould = alloc.useMould !== false;
+                    const bulkUom = alloc.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
 
-                      const prevAllocatedBaseMl = allocations.slice(0, idx).reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
-                      const baseMl = Number(alloc.allocatedBaseMl || alloc.mixUsedMl || 0);
-                      const cumulativeAllocatedBaseMl = prevAllocatedBaseMl + baseMl;
-                      const availableBeforeThis = Math.max(0, availableMixMl - prevAllocatedBaseMl);
-                      const remainingAfterThis = availableMixMl - cumulativeAllocatedBaseMl;
-                      const productSharePct = availableMixMl > 0 ? ((baseMl / availableMixMl) * 100).toFixed(1) : '0.0';
-                      const cumulativeSharePct = availableMixMl > 0 ? ((cumulativeAllocatedBaseMl / availableMixMl) * 100).toFixed(1) : '0.0';
-                      const productTotalMixMl = baseMl + addedRmVolumeMl;
+                    // Product RMs volume calculation (only items marked addToMix contribute to mix volume)
+                    const productRms = Array.isArray(alloc.productRms) ? alloc.productRms : [];
+                    const addedRmVolumeMl = productRms.reduce((sum, prm) => {
+                      const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
+                      if (!isAddToMix) return sum;
+                      const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+                      return sum + toMl(qty, prm.uom, prm.density);
+                    }, 0);
 
-                      // Costing distribution based on consumption level
-                      const assignedBaseCost = baseMl * baseCostPerMl;
-                      const productRmCost = productRms.reduce((sum, prm) => {
-                        const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
-                        const rate = Number(prm.unitRate || 0);
-                        return sum + (Number(prm.totalCost) > 0 ? Number(prm.totalCost) : (qty * rate));
-                      }, 0);
-                      const totalProductCost = assignedBaseCost + productRmCost;
+                    const prevAllocatedBaseMl = allocations.slice(0, idx).reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
+                    const baseMl = Number(alloc.allocatedBaseMl || alloc.mixUsedMl || 0);
+                    const cumulativeAllocatedBaseMl = prevAllocatedBaseMl + baseMl;
+                    const availableBeforeThis = Math.max(0, availableMixMl - prevAllocatedBaseMl);
+                    const remainingAfterThis = availableMixMl - cumulativeAllocatedBaseMl;
+                    const productSharePct = availableMixMl > 0 ? ((baseMl / availableMixMl) * 100).toFixed(1) : '0.0';
+                    const productTotalMixMl = baseMl + addedRmVolumeMl;
 
-                      // Calculated Good Units
-                      let goodUnits = 0;
-                      if (isMould) {
-                        goodUnits = Number(alloc.goodPieces || 0);
-                      } else {
-                        const uomLower = bulkUom.toLowerCase();
-                        let unitMl = 1000;
-                        if (uomLower.includes('gallon')) unitMl = 3785.41;
-                        else if (uomLower.includes('tub')) unitMl = 5000;
-                        else if (uomLower.includes('can')) unitMl = 20000;
-                        goodUnits = Number((productTotalMixMl / unitMl).toFixed(2));
-                      }
+                    // Costing distribution based on consumption level
+                    const assignedBaseCost = baseMl * baseCostPerMl;
+                    const productRmCost = productRms.reduce((sum, prm) => {
+                      const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+                      const rate = Number(prm.unitRate || 0);
+                      return sum + (Number(prm.totalCost) > 0 ? Number(prm.totalCost) : (qty * rate));
+                    }, 0);
+                    const totalProductCost = assignedBaseCost + productRmCost;
 
-                      const costPerUnit = goodUnits > 0 ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
+                    // Calculated Good Units
+                    let goodUnits = 0;
+                    if (isMould) {
+                      goodUnits = Number(alloc.goodPieces || 0);
+                    } else {
+                      const uomLower = bulkUom.toLowerCase();
+                      let unitMl = 1000;
+                      if (uomLower.includes('gallon')) unitMl = 3785.41;
+                      else if (uomLower.includes('tub')) unitMl = 5000;
+                      else if (uomLower.includes('can')) unitMl = 20000;
+                      goodUnits = Number((productTotalMixMl / unitMl).toFixed(2));
+                    }
 
-                      return (
-                        <div 
-                          key={`alloc-card-${alloc.productId || 'alloc'}-${idx}`}
-                          className="border border-slate-200 dark:border-slate-700/80 rounded-xl p-4 bg-slate-50/60 dark:bg-slate-800/40 space-y-4 shadow-3xs"
-                        >
-                          {/* 1. Product Header & Mode Toggle */}
-                          <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-200 dark:border-slate-700/60">
-                            <div className="flex items-center gap-2.5">
-                              <span className="w-7 h-7 rounded-lg bg-purple-700 text-white font-mono font-black text-xs flex items-center justify-center shadow-3xs">
-                                #{alloc.seq || (idx + 1)}
-                              </span>
-                              <div>
-                                <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-                                  <span>{alloc.productName}</span>
-                                  <span className="font-mono text-[10.5px] px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800">
-                                    {prodUom}
-                                  </span>
-                                </h4>
-                                <span className="font-mono text-[10px] text-slate-400">
-                                  {alloc.productCode || 'FP'} • Live UOM: <strong className="text-purple-600 dark:text-purple-400">{prodUom}</strong>
-                                </span>
-                              </div>
-                            </div>
+                    const costPerUnit = goodUnits > 0 ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
 
+                    return (
+                      <Card 
+                        key={`alloc-card-${alloc.productId || 'alloc'}-${idx}`}
+                        className="border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 shadow-2xs overflow-hidden"
+                      >
+                        {/* 1. SAP Horizon Line Item Header */}
+                        <div className="px-2.5 py-1 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="w-4 h-4 rounded bg-[#8b47d7] text-white font-mono font-black text-[10px] flex items-center justify-center shadow-3xs shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
+                              {alloc.productName}
+                            </span>
+                            <span className="font-mono text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
+                              {alloc.productCode || 'FP'}
+                            </span>
+                            <span className="font-mono text-[9px] font-bold px-1 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
+                              {prodUom}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
                             {/* Mould vs Bulk Storage Selector */}
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateAllocation(idx, 'useMould', true)}
-                                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
-                                    isMould 
-                                      ? 'bg-purple-600 text-white shadow-3xs' 
-                                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                                  }`}
-                                >
-                                  Mould (Pcs)
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateAllocation(idx, 'useMould', false)}
-                                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer transition-all ${
-                                    !isMould 
-                                      ? 'bg-emerald-600 text-white shadow-3xs' 
-                                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                                  }`}
-                                >
-                                  Bulk Storage (L / Gallon)
-                                </button>
-                              </div>
-
+                            <div className="flex items-center bg-white dark:bg-slate-900 p-0.5 rounded border border-slate-300 dark:border-slate-700 text-[10px]">
                               <button
                                 type="button"
-                                onClick={() => handleRemoveProductAllocation(idx)}
-                                className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                                title="Remove allocation line"
+                                onClick={() => handleUpdateAllocation(idx, 'useMould', true)}
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                                  isMould 
+                                    ? 'bg-[#8b47d7] text-white shadow-3xs' 
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                }`}
                               >
-                                <Trash2 className="w-4 h-4" />
+                                Mould (Pcs)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateAllocation(idx, 'useMould', false)}
+                                className={`px-1.5 py-0.2 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                                  !isMould 
+                                    ? 'bg-[#30914c] text-white shadow-3xs' 
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                }`}
+                              >
+                                Bulk (L / Gal)
                               </button>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveProductAllocation(idx)}
+                              className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                              title="Remove line item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
+                        </div>
 
-                          {/* 2. Product-Specific Base Mix Allocation & Remaining Indicator */}
-                          <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800/70 space-y-2.5 shadow-3xs">
-                            <div className="flex items-center justify-between text-xs font-bold flex-wrap gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-md bg-indigo-600 text-white font-mono text-[10px] flex items-center justify-center font-black">
-                                  #{alloc.seq || (idx + 1)}
-                                </span>
-                                <span className="text-slate-800 dark:text-slate-200 font-mono flex items-center gap-1.5">
-                                  <Droplets className="w-3.5 h-3.5 text-indigo-600" />
-                                  <span>Base Mix Allocation:</span>
-                                  <strong className="text-indigo-700 dark:text-indigo-300 font-black">
-                                    {formatIndian(baseMl, 2)} / {formatIndian(availableMixMl, 2)} ml ({productSharePct}%)
-                                  </strong>
-                                </span>
-                                {allocations.length > 1 && (
-                                  <span className="text-[10.5px] text-slate-500 font-mono hidden sm:inline">
-                                    • Cumulative: <strong>{formatIndian(cumulativeAllocatedBaseMl, 2)} ml</strong> ({cumulativeSharePct}%)
-                                  </span>
-                                )}
-                              </div>
-
-                              <div>
-                                <span className={`font-mono text-xs font-black px-2.5 py-0.5 rounded shadow-3xs ${
-                                  remainingAfterThis < 0 
-                                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300' 
-                                    : (remainingAfterThis === 0 
-                                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300' 
-                                        : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-300')
-                                }`}>
-                                  {remainingAfterThis < 0 
-                                    ? `Deficit: ${formatIndian(Math.abs(remainingAfterThis), 2)} ml` 
-                                    : `Remaining to Allocate: ${formatIndian(remainingAfterThis, 2)} ml`}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Visual Multi-Segment Mix Allocation Bar */}
-                            <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden relative shadow-inner">
-                              {/* Prior Products Segment */}
-                              {idx > 0 && (
-                                <div 
-                                  className="h-full bg-slate-400 dark:bg-slate-500 absolute left-0 top-0 opacity-70"
-                                  style={{
-                                    width: `${availableMixMl > 0 ? Math.min(100, (prevAllocatedBaseMl / availableMixMl) * 100) : 0}%`
-                                  }}
-                                  title={`Prior products: ${formatIndian(prevAllocatedBaseMl, 2)} ml`}
+                        <div className="p-2 space-y-1.5">
+                          {/* 2. Base Mix Allocation Row (Compact SAP Horizon Bar) */}
+                          <div className="p-1 px-2 rounded bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between flex-wrap gap-1.5 text-xs">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                <Droplets className="w-3 h-3 text-[#0070f2]" />
+                                <span>Base Mix Allocated:</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="100"
+                                  value={baseMl || ''}
+                                  onChange={(e) => handleUpdateProductBaseMl(idx, parseFloat(e.target.value) || 0)}
+                                  placeholder="0"
+                                  className="h-6 w-20 font-mono font-black text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
                                 />
-                              )}
-                              {/* Current Product Segment */}
-                              <div 
-                                className={`h-full absolute top-0 transition-all duration-300 ${
-                                  remainingAfterThis < 0 ? 'bg-rose-500' : 'bg-indigo-600'
-                                }`}
-                                style={{
-                                  left: `${availableMixMl > 0 ? Math.min(100, (prevAllocatedBaseMl / availableMixMl) * 100) : 0}%`,
-                                  width: `${availableMixMl > 0 ? Math.min(100 - (prevAllocatedBaseMl / availableMixMl) * 100, (baseMl / availableMixMl) * 100) : 0}%`
-                                }}
-                                title={`Product #${idx + 1} (${alloc.productName}): ${formatIndian(baseMl, 2)} ml (${productSharePct}%)`}
-                              />
+                                <span className="font-mono font-bold text-[10px] text-slate-500">ml</span>
+                              </div>
+                              <span className="font-mono text-[10px] font-bold text-slate-700 dark:text-slate-300 px-1 py-0.2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                                ≈ {(baseMl / 1000).toFixed(2)} L
+                              </span>
+                              <span className="font-mono text-[10px] font-bold text-[#8b47d7] px-1 py-0.2 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800">
+                                {productSharePct}% of batch
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
+                                • Avail before: <strong className="text-slate-700 dark:text-slate-300">{formatIndian(availableBeforeThis)} ml</strong>
+                              </span>
                             </div>
 
-                            {/* Input Control Row */}
-                            <div className="pt-1 flex items-center justify-between flex-wrap gap-2">
-                              <div className="text-[11px] text-slate-500 font-mono">
-                                Available before this product: <strong className="text-indigo-600 dark:text-indigo-400">{formatIndian(availableBeforeThis, 2)} ml</strong>
-                              </div>
+                            <div className="flex items-center gap-1.5 ml-auto">
+                              <span className={`font-mono text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                                remainingAfterThis < 0 
+                                  ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950 dark:text-rose-300' 
+                                  : (remainingAfterThis === 0 
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300' 
+                                      : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300')
+                              }`}>
+                                Balance: {formatIndian(remainingAfterThis, 2)} ml
+                              </span>
 
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1.5">
-                                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Allocated Base Mix:</label>
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    step="100"
-                                    value={baseMl || ''}
-                                    onChange={(e) => handleUpdateProductBaseMl(idx, parseFloat(e.target.value) || 0)}
-                                    placeholder="0 ml"
-                                    className="h-8 w-28 font-mono font-bold text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
-                                  />
-                                  <span className="font-bold text-xs text-slate-500 font-mono">ml</span>
-                                </div>
-
-                                <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-bold px-2 py-1 bg-white dark:bg-slate-900 rounded border border-indigo-200 dark:border-indigo-800">
-                                  ≈ {(baseMl / 1000).toFixed(2)} L
-                                </span>
-
-                                {/* Allocate Remaining Mix Button */}
-                                {unallocatedRemainingMl > 0 && (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleAllocateRemainingMix(idx)}
-                                    className="h-8 px-2.5 text-[11px] font-bold border-emerald-400 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
-                                    title="Allocate entire remaining available mix to this product"
-                                  >
-                                    <Sparkles className="w-3 h-3 text-emerald-600" />
-                                    <span>⚡ Allocate Remaining ({formatIndian(unallocatedRemainingMl, 2)} ml)</span>
-                                  </Button>
-                                )}
-                              </div>
+                              {unallocatedRemainingMl > 0 && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleAllocateRemainingMix(idx)}
+                                  className="h-6 px-1.5 text-[9.5px] font-bold border-emerald-400 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                                  title="Allocate entire remaining available mix to this product"
+                                >
+                                  <Sparkles className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>Allocate Balance ({formatIndian(unallocatedRemainingMl)} ml)</span>
+                                </Button>
+                              )}
                             </div>
                           </div>
 
-                          {/* 3. Product-Specific Raw Materials (Flavours, Essences, Pulps) */}
-                          <div className="p-3.5 bg-amber-50/40 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-800/60 space-y-3">
-                            <div className="flex items-center justify-between flex-wrap gap-2">
-                              <div>
-                                <h5 className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                                  <Flame className="w-3.5 h-3.5 text-amber-600" />
-                                  <span>Product-Specific Essences, Flavours &amp; Raw Materials:</span>
-                                </h5>
-                                <p className="text-[10.5px] text-slate-500">
-                                  Ingredients &amp; packaging added to this product (e.g. Alphonso mango pulp, Almond essence, poly covers, sticks). Toggle &apos;Add to Mix&apos; to include liquid volume (ml) in the mix; leave unchecked for packing items (0 ml).
-                                </p>
-                              </div>
+                          {/* 3. Product-Specific Essences & Packaging Table */}
+                          <div className="border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden bg-white dark:bg-slate-900">
+                            <div className="px-2 py-0.5 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-1">
+                              <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                                <Flame className="w-2.5 h-2.5 text-amber-500" />
+                                <span>Essences, Flavours &amp; Raw Materials:</span>
+                              </span>
 
                               <Button
                                 type="button"
@@ -3310,29 +3261,29 @@ export default function ProductionFloorCockpitModal({
                                   setTargetAllocIndex(idx);
                                   setItemSearchOpen(true);
                                 }}
-                                className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-amber-400 text-amber-800 dark:text-amber-200 bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                                className="h-5 px-1.5 text-[9px] font-bold rounded border-amber-300 text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer flex items-center gap-0.5"
                               >
-                                <Plus className="w-3 h-3 text-amber-600" />
-                                <span>+ Add Flavour / Essence / RM</span>
+                                <Plus className="w-2 h-2 text-amber-600" />
+                                <span>+ Add Material</span>
                               </Button>
                             </div>
 
                             {productRms.length > 0 ? (
-                              <div className="overflow-x-auto border border-amber-200/80 dark:border-amber-800/60 rounded-lg bg-white dark:bg-slate-900">
+                              <div className="overflow-x-auto">
                                 <table className="w-full text-left text-xs border-collapse font-sans">
                                   <thead>
-                                    <tr className="bg-amber-50/60 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 font-bold uppercase tracking-wider text-[10px] border-b border-amber-200 dark:border-amber-800">
-                                      <th className="py-2 px-3 text-center w-24" title="Check to add liquid volume into product mix. Uncheck for packaging/stick/poly cover items.">
-                                        Add to Mix
+                                    <tr className="bg-slate-50/70 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 dark:border-slate-800">
+                                      <th className="py-1 px-2 text-center w-16" title="Check to add liquid volume into product mix. Uncheck for packing/stick/poly cover items.">
+                                        +Mix (ml)
                                       </th>
-                                      <th className="py-2 px-3">Ingredient</th>
-                                      <th className="py-2 px-3 text-right w-24">Quantity</th>
-                                      <th className="py-2 px-3 text-center w-20">Live UOM</th>
-                                      <th className="py-2 px-3 text-right w-28" title="Liquid volume added to product mix">Added Mix (ml)</th>
-                                      <th className="py-2 px-3 min-w-[170px]">PO Batch / Lot Allocation</th>
-                                      {canViewCost && <th className="py-2 px-3 text-right w-24">PO Rate (₹)</th>}
-                                      {canViewCost && <th className="py-2 px-3 text-right w-24">Amount (₹)</th>}
-                                      <th className="py-2 px-2 text-center w-8">✕</th>
+                                      <th className="py-1 px-2">Ingredient / Material</th>
+                                      <th className="py-1 px-2 text-right w-20">Quantity</th>
+                                      <th className="py-1 px-2 text-center w-12">UOM</th>
+                                      <th className="py-1 px-2 text-right w-20">Added Mix</th>
+                                      <th className="py-1 px-2 min-w-[130px]">PO Batch / Lot Allocation</th>
+                                      {canViewCost && <th className="py-1 px-2 text-right w-16">Rate (₹)</th>}
+                                      {canViewCost && <th className="py-1 px-2 text-right w-18">Amount (₹)</th>}
+                                      <th className="py-1 px-1.5 text-center w-6">✕</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3343,68 +3294,60 @@ export default function ProductionFloorCockpitModal({
                                       const lineCost = Number((prm.totalCost ?? (Number(prm.takenQty ?? prm.qty ?? 0) * Number(prm.unitRate || 0))).toFixed(2));
 
                                       return (
-                                        <tr key={`prm-${prm.rawMaterialId || prm.rmId || prmIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                                          <td className="py-2 px-3 text-center">
-                                            <label className="inline-flex items-center gap-1.5 cursor-pointer select-none" title={isAddToMix ? "Liquid ingredient: Added to product mix volume" : "Packing item: Not added to mix volume"}>
+                                        <tr key={`prm-${prm.rawMaterialId || prm.rmId || prmIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 text-[10.5px]">
+                                          <td className="py-0.5 px-2 text-center">
+                                            <label className="inline-flex items-center gap-0.5 cursor-pointer select-none">
                                               <input
                                                 type="checkbox"
                                                 checked={isAddToMix}
                                                 onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'addToMix', e.target.checked)}
-                                                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                                                className="w-3 h-3 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
                                               />
-                                              <span className={`text-[10px] font-bold ${isAddToMix ? 'text-amber-800 dark:text-amber-300' : 'text-slate-400'}`}>
-                                                {isAddToMix ? '+Mix' : 'Packing'}
+                                              <span className={`text-[9px] font-bold ${isAddToMix ? 'text-amber-700 dark:text-amber-400' : 'text-slate-400'}`}>
+                                                {isAddToMix ? 'Yes' : 'No'}
                                               </span>
                                             </label>
                                           </td>
-                                          <td className="py-2 px-3">
-                                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                                              <span>{prm.rawMaterialName || prm.rmName || 'Essence'}</span>
-                                              {!isAddToMix && (
-                                                <span className="text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.2 rounded border border-slate-300 dark:border-slate-700">
-                                                  Packing
-                                                </span>
-                                              )}
-                                            </div>
-                                            <div className="font-mono text-[9.5px] text-slate-400">
+                                          <td className="py-0.5 px-2">
+                                            <span className="font-bold text-slate-800 dark:text-slate-200 mr-1">
+                                              {prm.rawMaterialName || prm.rmName || 'Essence'}
+                                            </span>
+                                            <span className="font-mono text-[8.5px] text-slate-400">
                                               {prm.rawMaterialCode || prm.rmCode || 'RM'}
-                                            </div>
+                                            </span>
                                           </td>
-                                          <td className="py-2 px-3 text-right">
+                                          <td className="py-0.5 px-2 text-right">
                                             <Input
                                               type="number"
                                               step="any"
                                               value={prm.takenQty ?? prm.qty ?? ''}
                                               onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'takenQty', parseFloat(e.target.value) || 0)}
-                                              className="h-7 w-20 text-right font-mono text-xs px-1.5 ml-auto border-amber-300 dark:border-amber-700"
+                                              className="h-5 w-16 text-right font-mono text-[10px] px-1 ml-auto border-slate-300 dark:border-slate-700"
                                             />
                                           </td>
-                                          <td className="py-2 px-3 text-center">
-                                            <span className="font-mono font-bold bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded text-[10.5px] text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+                                          <td className="py-0.5 px-2 text-center">
+                                            <span className="font-mono text-[9px] font-bold text-slate-600 dark:text-slate-400">
                                               {prm.uom || 'ml'}
                                             </span>
                                           </td>
-                                          <td className="py-2 px-3 text-right font-mono font-black">
+                                          <td className="py-0.5 px-2 text-right font-mono font-bold text-[10px]">
                                             {isAddToMix ? (
-                                              <span className="text-amber-700 dark:text-amber-400">
+                                              <span className="text-amber-600 dark:text-amber-400">
                                                 +{formatIndian(prmVolMl)} ml
                                               </span>
                                             ) : (
-                                              <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 inline-block font-sans" title="Packing item — Not added to liquid mix">
-                                                0 ml (Packing)
-                                              </span>
+                                              <span className="text-slate-400 text-[9px]">Packing</span>
                                             )}
                                           </td>
-                                          <td className="py-2 px-3">
+                                          <td className="py-0.5 px-2">
                                             {hasBatches ? (
                                               <button
                                                 type="button"
                                                 onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                className="px-2 py-0.5 rounded border border-blue-300 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300 font-mono text-[10px] text-left transition-all cursor-pointer shadow-3xs flex items-center gap-1"
-                                                title="Edit allocated lots"
+                                                className="px-1 py-0.2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300 font-mono text-[9px] cursor-pointer flex items-center gap-0.5"
                                               >
-                                                <Boxes className="w-3 h-3 text-blue-600" />
-                                                <span className="font-bold">
+                                                <Boxes className="w-2 h-2 text-blue-600" />
+                                                <span>
                                                   {prm.allocatedBatches.length === 1 
                                                     ? `#${prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo}` 
                                                     : `${prm.allocatedBatches.length} Lots`}
@@ -3414,32 +3357,31 @@ export default function ProductionFloorCockpitModal({
                                               <button
                                                 type="button"
                                                 onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                className="px-2 py-0.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[10px] cursor-pointer flex items-center gap-1"
-                                                title="Allocate lot from warehouse"
+                                                className="px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-0.5"
                                               >
-                                                <Plus className="w-2.5 h-2.5 text-amber-600" />
+                                                <Plus className="w-2 h-2 text-amber-600" />
                                                 <span>Allocate Lot</span>
                                               </button>
                                             )}
                                           </td>
                                           {canViewCost && (
-                                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
+                                            <td className="py-0.5 px-2 text-right font-mono text-[10px] text-slate-700 dark:text-slate-300">
                                               ₹{prm.unitRate || 0}
                                             </td>
                                           )}
                                           {canViewCost && (
-                                            <td className="py-2 px-3 text-right font-mono font-black text-emerald-600">
+                                            <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-600 text-[10px]">
                                               ₹{formatIndian(lineCost)}
                                             </td>
                                           )}
-                                          <td className="py-2 px-2 text-center">
+                                          <td className="py-0.5 px-1.5 text-center">
                                             <button
                                               type="button"
                                               onClick={() => handleRemoveProductRm(idx, prmIdx)}
-                                              className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
-                                              title="Remove essence"
+                                              className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
+                                              title="Remove"
                                             >
-                                              <Trash2 className="w-3 h-3" />
+                                              <Trash2 className="w-2.5 h-2.5" />
                                             </button>
                                           </td>
                                         </tr>
@@ -3449,77 +3391,67 @@ export default function ProductionFloorCockpitModal({
                                 </table>
                               </div>
                             ) : (
-                              <div className="text-center py-2 text-[11px] text-slate-400 italic">
-                                No specific flavour or essence added yet. Base mix will be processed directly.
+                              <div className="px-2 py-1 text-center text-[10px] text-slate-400 italic">
+                                No specific flavour or essence added. Base mix processed directly.
                               </div>
                             )}
 
-                            {/* Net Total Mix Volume for this product */}
-                            <div className="flex items-center justify-between text-xs pt-1 font-bold">
-                              <span className="text-slate-600 dark:text-slate-400">
-                                Product Net Liquid Mix (Base + Essences):
-                              </span>
-                              <span className="font-mono text-purple-700 dark:text-purple-300 font-black text-sm">
-                                {formatIndian(baseMl)} ml + {formatIndian(addedRmVolumeMl)} ml = {formatIndian(productTotalMixMl)} ml ({((productTotalMixMl) / 1000).toFixed(2)} L)
+                            <div className="px-2 py-0.5 bg-slate-50/60 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] font-mono font-bold">
+                              <span className="text-slate-500">Net Liquid Mix (Base + Essences):</span>
+                              <span className="text-purple-700 dark:text-purple-300">
+                                {formatIndian(baseMl)} ml + {formatIndian(addedRmVolumeMl)} ml = <strong className="text-xs font-black">{formatIndian(productTotalMixMl)} ml</strong> ({((productTotalMixMl) / 1000).toFixed(2)} L)
                               </span>
                             </div>
                           </div>
 
-                          {/* 4. Output Specification (Mould vs Bulk Storage) */}
+                          {/* 4. Output Specification & Yield (Compact 6-Col Grid) */}
                           {isMould ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                                  Ice Cream Mould Specification &amp; Cavity Yield:
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleOpenMouldPicker(idx)}
-                                  className="h-7 px-2.5 text-xs font-bold rounded-lg border-purple-300 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
-                                >
-                                  <Box className="w-3 h-3 text-purple-600" />
-                                  <span>Choose Mould: {alloc.mouldCode || 'Pick Spec'}</span>
-                                </Button>
-                              </div>
-
-                              <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs items-center bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div className="p-1.5 rounded-md bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
+                              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5 text-xs items-center">
                                 <div>
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Capacity (ml)
-                                  </label>
+                                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Mould Spec</label>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleOpenMouldPicker(idx)}
+                                    className="h-6 w-full px-1.5 text-[10px] font-bold rounded border-slate-300 dark:border-slate-700 truncate text-left justify-start"
+                                    title="Click to pick mould specification"
+                                  >
+                                    <Box className="w-2.5 h-2.5 text-[#8b47d7] mr-1 shrink-0" />
+                                    <span className="truncate">{alloc.mouldCode || 'Pick Spec'}</span>
+                                  </Button>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Capacity (ml)</label>
                                   <Input
                                     type="number"
                                     min="1"
                                     value={alloc.capacityMl}
                                     onChange={(e) => handleUpdateAllocation(idx, 'capacityMl', parseFloat(e.target.value) || 0)}
-                                    className="h-8 font-mono font-bold text-xs"
+                                    className="h-6 font-mono font-bold text-xs"
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Cavities / Tray
-                                  </label>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cavities/Tray</label>
                                   <Input
                                     type="number"
                                     min="1"
                                     value={alloc.cavities}
                                     onChange={(e) => handleUpdateAllocation(idx, 'cavities', parseInt(e.target.value, 10) || 1)}
-                                    className="h-8 font-mono font-bold text-xs"
+                                    className="h-6 font-mono font-bold text-xs"
                                   />
                                 </div>
 
                                 <div>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                      Trays
-                                    </label>
+                                  <div className="flex items-center justify-between mb-0.5">
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Trays</label>
                                     <button
                                       type="button"
                                       onClick={() => handleFillMaxTrays(idx)}
-                                      className="text-[9.5px] font-bold text-purple-600 hover:text-purple-700 cursor-pointer underline"
+                                      className="text-[8.5px] font-bold text-[#8b47d7] hover:underline cursor-pointer"
                                     >
                                       Fill Max
                                     </button>
@@ -3533,65 +3465,54 @@ export default function ProductionFloorCockpitModal({
                                       const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
                                       handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
                                     }}
-                                    className="h-8 font-mono font-black text-xs border-purple-400 dark:border-purple-700 bg-white dark:bg-slate-900"
+                                    className="h-6 font-mono font-black text-xs border-purple-300 dark:border-purple-800"
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Waste Mode
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">
+                                    Waste ({alloc.wasteMode === 'PERCENT' ? '%' : 'ml'})
                                   </label>
-                                  <select
-                                    value={alloc.wasteMode}
-                                    onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
-                                    className="w-full h-8 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold outline-none focus:border-purple-500"
-                                  >
-                                    <option value="PERCENT">Percentage (%)</option>
-                                    <option value="FIXED_ML_PER_TRAY">Fixed ml / Tray</option>
-                                  </select>
-                                </div>
-
-                                <div>
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    {alloc.wasteMode === 'PERCENT' ? 'Waste (%)' : 'Waste ml/Tray'}
-                                  </label>
-                                  <Input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={alloc.wasteValue}
-                                    onChange={(e) => handleUpdateAllocation(idx, 'wasteValue', parseFloat(e.target.value) || 0)}
-                                    className="h-8 font-mono font-bold text-xs"
-                                  />
-                                </div>
-
-                                <div className="bg-purple-100/60 dark:bg-purple-950/40 p-2 rounded-lg border border-purple-200 dark:border-purple-800">
-                                  <div className="text-[10px] font-bold text-purple-800 dark:text-purple-300 uppercase">
-                                    Mould Pieces Yield
+                                  <div className="flex items-center gap-1">
+                                    <select
+                                      value={alloc.wasteMode}
+                                      onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
+                                      className="h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-[9.5px] font-semibold outline-none"
+                                    >
+                                      <option value="PERCENT">%</option>
+                                      <option value="FIXED_ML_PER_TRAY">ml</option>
+                                    </select>
+                                    <Input
+                                      type="number"
+                                      step="0.1"
+                                      min="0"
+                                      value={alloc.wasteValue}
+                                      onChange={(e) => handleUpdateAllocation(idx, 'wasteValue', parseFloat(e.target.value) || 0)}
+                                      className="h-6 font-mono font-bold text-xs"
+                                    />
                                   </div>
-                                  <div className="text-base font-mono font-black text-purple-950 dark:text-purple-200">
+                                </div>
+
+                                <div className="bg-purple-50 dark:bg-purple-950/60 p-1 px-2 rounded border border-purple-200 dark:border-purple-800 flex flex-col justify-center">
+                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">Pieces Yield</span>
+                                  <div className="text-xs font-mono font-black text-purple-900 dark:text-purple-200">
                                     {alloc.goodPieces ?? 0} {prodUom}
                                   </div>
-                                  <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400 font-semibold">
+                                  <span className="text-[8.5px] font-mono text-purple-600 dark:text-purple-400">
                                     Mix: {formatIndian(alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0)} ml
-                                  </div>
+                                  </span>
                                 </div>
                               </div>
                             </div>
                           ) : (
-                            <div className="p-3.5 bg-emerald-50/40 dark:bg-emerald-950/20 rounded-xl border border-emerald-200 dark:border-emerald-800/60 space-y-2">
-                              <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wider block">
-                                Direct Bulk Storage (Liters, Gallons &amp; Tubs):
-                              </span>
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-center bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div className="p-1.5 rounded-md bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-xs items-center">
                                 <div>
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Select Bulk Storage Unit
-                                  </label>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Bulk Storage Unit</label>
                                   <select
                                     value={bulkUom}
                                     onChange={(e) => handleUpdateAllocation(idx, 'bulkUom', e.target.value)}
-                                    className="w-full h-8 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-bold outline-none focus:border-emerald-500 cursor-pointer"
+                                    className="w-full h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-xs font-bold outline-none cursor-pointer"
                                   >
                                     <option value="Liter">Liter (1,000 ml)</option>
                                     <option value="Gallon">Gallon (3,785 ml)</option>
@@ -3601,125 +3522,74 @@ export default function ProductionFloorCockpitModal({
                                 </div>
 
                                 <div>
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Available Liquid Mix
-                                  </label>
-                                  <div className="font-mono font-bold text-slate-800 dark:text-slate-200 h-8 flex items-center">
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Available Mix</label>
+                                  <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 h-6 flex items-center">
                                     {formatIndian(productTotalMixMl)} ml ({((productTotalMixMl) / 1000).toFixed(2)} L)
                                   </div>
                                 </div>
 
-                                <div className="bg-emerald-100/60 dark:bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                                  <div className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 uppercase">
-                                    Calculated Bulk Yield
-                                  </div>
-                                  <div className="text-base font-mono font-black text-emerald-950 dark:text-emerald-200">
+                                <div className="bg-emerald-50 dark:bg-emerald-950/60 p-1 px-2 rounded border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center">
+                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Bulk Yield</span>
+                                  <div className="text-xs font-mono font-black text-emerald-950 dark:text-emerald-200">
                                     {goodUnits} {bulkUom}
                                   </div>
-                                  <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold">
-                                    Direct to sellable stock
-                                  </div>
+                                  <span className="text-[8.5px] text-emerald-600 dark:text-emerald-400">Direct to sellable stock</span>
                                 </div>
                               </div>
                             </div>
                           )}
 
-                          {/* 5. Role-Protected Consumption-Based Costing Distribution Card (Admin & Supervisor Only - Light & Dark Themes) */}
+                          {/* 5. Role-Protected Consumption Costing Strip */}
                           {canViewCost && (
-                            <div className="p-3.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 select-none shadow-3xs">
-                              <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-200 dark:border-slate-800">
-                                <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
-                                  <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                  <span>Consumption-Based Cost Distribution (PO Rate):</span>
-                                </div>
-                                <span className="text-[9.5px] font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 rounded">
-                                  AUDITED UNIT ECONOMICS
-                                </span>
+                            <div className="px-2 py-1 rounded bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-1 text-[10px] font-mono select-none">
+                              <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 flex-wrap">
+                                <DollarSign className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>Base: <strong className="text-slate-900 dark:text-white">₹{formatIndian(round2(assignedBaseCost))}</strong></span>
+                                <span>•</span>
+                                <span>Essences: <strong className="text-amber-600 dark:text-amber-400">₹{formatIndian(round2(productRmCost))}</strong></span>
+                                <span>•</span>
+                                <span>Total: <strong className="text-emerald-600 dark:text-emerald-400">₹{formatIndian(round2(totalProductCost))}</strong></span>
                               </div>
 
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                                <div className="bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/80 shadow-3xs">
-                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Base Mix Cost:</span>
-                                  <strong className="text-sm font-mono font-black text-indigo-600 dark:text-indigo-300 block mt-0.5">
-                                    ₹{formatIndian(round2(assignedBaseCost))}
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-400 font-mono">From PO ({formatIndian(baseMl)} ml)</span>
-                                </div>
-
-                                <div className="bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/80 shadow-3xs">
-                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Product Essences Cost:</span>
-                                  <strong className="text-sm font-mono font-black text-amber-600 dark:text-amber-300 block mt-0.5">
-                                    ₹{formatIndian(round2(productRmCost))}
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-400 font-mono">{productRms.length} added ingredients</span>
-                                </div>
-
-                                <div className="bg-white dark:bg-slate-800/80 p-2 rounded-lg border border-slate-200 dark:border-slate-700/80 shadow-3xs">
-                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Total Product Cost:</span>
-                                  <strong className="text-sm font-mono font-black text-emerald-600 dark:text-emerald-300 block mt-0.5">
-                                    ₹{formatIndian(round2(totalProductCost))}
-                                  </strong>
-                                  <span className="text-[9.5px] text-slate-400 font-mono">Assigned Material Cost</span>
-                                </div>
-
-                                <div className="bg-emerald-50 dark:bg-emerald-950/80 p-2 rounded-lg border border-emerald-300 dark:border-emerald-700/80 shadow-3xs">
-                                  <span className="text-[10px] text-emerald-800 dark:text-emerald-300 block">Cost / Unit:</span>
-                                  <strong className="text-base font-mono font-black text-emerald-950 dark:text-white block mt-0.5">
-                                    ₹{costPerUnit} / {isMould ? prodUom : bulkUom}
-                                  </strong>
-                                  <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-mono">Good: {goodUnits} {isMould ? prodUom : bulkUom}</span>
-                                </div>
+                              <div className="text-slate-900 dark:text-white font-black text-[10px]">
+                                Unit Cost: <span className="text-emerald-600 dark:text-emerald-400 font-bold">₹{costPerUnit}</span> / {isMould ? prodUom : bulkUom}
                               </div>
                             </div>
                           )}
-
                         </div>
-                      );
-                    })}
+                      </Card>
+                    );
+                  })}
 
-                    {allocations.length === 0 && (
-                      <div className="p-8 text-center text-slate-400 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl space-y-2">
-                        <Box className="w-8 h-8 mx-auto text-slate-400" />
-                        <p className="font-bold text-sm text-slate-700 dark:text-slate-300">
-                          No finished products added to mould allocations yet
-                        </p>
-                        <p className="text-xs">
-                          Click <strong>+ Add Finished Product</strong> to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setItemSearchMode('PRODUCT_SINGLE');
-                            setItemSearchOpen(true);
-                          }}
-                          className="text-xs font-bold"
-                        >
-                          + Add First Finished Product
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </Card>
+                  {allocations.length === 0 && (
+                    <div className="p-6 text-center text-slate-400 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl space-y-1.5 bg-white dark:bg-slate-900">
+                      <Box className="w-7 h-7 mx-auto text-slate-400" />
+                      <p className="font-bold text-xs text-slate-700 dark:text-slate-300">
+                        No finished products added to mould allocations yet
+                      </p>
+                      <p className="text-[11px]">
+                        Click <strong>+ Add Product</strong> above to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 4: FACTORY STAGES PALETTE & TIMELINE SEQUENCE
               ══════════════════════════════════════════════════════════════════════════ */}
-              <div className={`${activeStep === 4 ? 'block' : 'hidden'} space-y-4`}>
-                
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-5 space-y-4 shadow-xs">
-                  <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                        <Layers className="w-4 h-4" />
+              <div className={`${activeStep === 4 ? 'block' : 'hidden'} space-y-2`}>
+                <div className="border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 p-3 space-y-2.5 shadow-2xs">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-3xs">
+                        <Layers className="w-3 h-3" />
                       </div>
                       <div>
-                        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                        <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
                           Factory stages palette &amp; Timeline sequence
                         </h3>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-[10px] text-slate-500">
                           Click stage chip to add/remove • Click any stage to configure temperature &amp; duration • Drag &amp; drop to reorder
                         </p>
                       </div>
@@ -3730,9 +3600,9 @@ export default function ProductionFloorCockpitModal({
                       size="sm"
                       disabled={savingStages}
                       onClick={handleSaveFactoryStages}
-                      className="h-8 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1.5"
+                      className="h-6 px-2.5 text-[10.5px] font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
                     >
-                      {savingStages ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      {savingStages ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                       <span>Save Timeline Sequence</span>
                     </Button>
                   </div>
@@ -3749,20 +3619,20 @@ export default function ProductionFloorCockpitModal({
               {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 5: QUALITY, FINANCIAL COSTING & YIELD COMPLETION
               ══════════════════════════════════════════════════════════════════════════ */}
-              <div className={`${activeStep === 5 ? 'block' : 'hidden'} space-y-4`}>
+              <div className={`${activeStep === 5 ? 'block' : 'hidden'} space-y-2`}>
                 
                 {/* 1. Products Chained From Batch Mix Review Summary */}
-                <Card className="border border-purple-200 dark:border-purple-800/60 shadow-xs bg-white dark:bg-slate-900 rounded-xl overflow-hidden p-5 space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
+                <Card className="border border-purple-200 dark:border-purple-800/60 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden p-3 space-y-2">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="w-7 h-7 rounded-lg bg-purple-600 text-white text-xs font-bold flex items-center justify-center">
+                      <span className="w-5 h-5 rounded bg-purple-600 text-white text-[11px] font-bold flex items-center justify-center">
                         5
                       </span>
                       <div>
-                        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                        <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
                           Multi-Product Output &amp; Yield Summary
                         </h3>
-                        <p className="text-[11px] text-slate-500">
+                        <p className="text-[10px] text-slate-500">
                           All finished products chained from base mix ({formatIndian(availableMixMl)} ml)
                         </p>
                       </div>
@@ -3775,9 +3645,9 @@ export default function ProductionFloorCockpitModal({
                           variant="outline"
                           size="sm"
                           onClick={() => setViewMode('REPORT')}
-                          className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5"
+                          className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs h-6 px-2.5 rounded flex items-center gap-1"
                         >
-                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                          <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                           <span>View Clean Report</span>
                         </Button>
                       )}
@@ -3787,9 +3657,9 @@ export default function ProductionFloorCockpitModal({
                           type="button"
                           size="sm"
                           onClick={handleOpenYieldModal}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 rounded-lg"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] h-6 px-3 cursor-pointer shadow-3xs flex items-center gap-1 rounded"
                         >
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="w-3 h-3" />
                           <span>Record Actual Yield &amp; Finalize Batch</span>
                         </Button>
                       )}
@@ -3797,21 +3667,21 @@ export default function ProductionFloorCockpitModal({
                   </div>
 
                   {/* Summary Table */}
-                  <div className="overflow-x-auto max-h-[360px] overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                  <div className="overflow-x-auto max-h-[300px] overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-md">
                     <table className="w-full text-left text-xs border-collapse font-sans">
                       <thead className="sticky top-0 z-10 bg-slate-100/95 dark:bg-slate-800/95 backdrop-blur-xs shadow-xs">
-                        <tr className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200 dark:border-slate-700">
-                          <th className="py-2.5 px-3">Seq</th>
-                          <th className="py-2.5 px-3">Product Name</th>
-                          <th className="py-2.5 px-3 text-center">Live UOM</th>
-                          <th className="py-2.5 px-3 text-right">Base Mix (ml)</th>
-                          <th className="py-2.5 px-3 text-right">Added RM Mix (ml)</th>
-                          <th className="py-2.5 px-3 text-right">Total Mix (ml)</th>
-                          <th className="py-2.5 px-3 text-right">Good Output</th>
-                          {canViewCost && <th className="py-2.5 px-3 text-right">Base Cost (₹)</th>}
-                          {canViewCost && <th className="py-2.5 px-3 text-right">Added RM Cost (₹)</th>}
-                          {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost (₹)</th>}
-                          {canViewCost && <th className="py-2.5 px-3 text-right text-emerald-600 font-bold">Cost/Unit (₹)</th>}
+                        <tr className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 dark:border-slate-700">
+                          <th className="py-1.5 px-2">Seq</th>
+                          <th className="py-1.5 px-2">Product Name</th>
+                          <th className="py-1.5 px-2 text-center">Live UOM</th>
+                          <th className="py-1.5 px-2 text-right">Base Mix (ml)</th>
+                          <th className="py-1.5 px-2 text-right">Added RM Mix (ml)</th>
+                          <th className="py-1.5 px-2 text-right">Total Mix (ml)</th>
+                          <th className="py-1.5 px-2 text-right">Good Output</th>
+                          {canViewCost && <th className="py-1.5 px-2 text-right">Base Cost (₹)</th>}
+                          {canViewCost && <th className="py-1.5 px-2 text-right">Added RM Cost (₹)</th>}
+                          {canViewCost && <th className="py-1.5 px-2 text-right">Total Cost (₹)</th>}
+                          {canViewCost && <th className="py-1.5 px-2 text-right text-emerald-600 font-bold">Cost/Unit (₹)</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3848,27 +3718,27 @@ export default function ProductionFloorCockpitModal({
                           const unitC = outQty > 0 ? Number((totProdCost / outQty).toFixed(2)) : 0;
 
                           return (
-                            <tr key={`step5-row-${a.seq || aIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                              <td className="py-2 px-3 font-mono text-slate-500">#{a.seq}</td>
-                              <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">
+                            <tr key={`step5-row-${a.seq || aIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 text-[10.5px]">
+                              <td className="py-1 px-2 font-mono text-slate-500">#{a.seq}</td>
+                              <td className="py-1 px-2 font-bold text-slate-900 dark:text-white">
                                 <div>{a.productName}</div>
-                                <div className="font-mono text-[9.5px] text-slate-400">{a.productCode} • {isM ? `Mould: ${a.mouldCode || 'Standard'}` : `Bulk: ${bUom}`}</div>
+                                <div className="font-mono text-[9px] text-slate-400">{a.productCode} • {isM ? `Mould: ${a.mouldCode || 'Standard'}` : `Bulk: ${bUom}`}</div>
                               </td>
-                              <td className="py-2 px-3 text-center">
-                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10.5px]">
+                              <td className="py-1 px-2 text-center">
+                                <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded text-[10px]">
                                   {isM ? prodUom : bUom}
                                 </span>
                               </td>
-                              <td className="py-2 px-3 text-right font-mono">{formatIndian(bMl)} ml</td>
-                              <td className="py-2 px-3 text-right font-mono text-amber-600">+{formatIndian(addedMl)} ml</td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-purple-700 dark:text-purple-300">{formatIndian(totMl)} ml</td>
-                              <td className="py-2 px-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                              <td className="py-1 px-2 text-right font-mono">{formatIndian(bMl)} ml</td>
+                              <td className="py-1 px-2 text-right font-mono text-amber-600">+{formatIndian(addedMl)} ml</td>
+                              <td className="py-1 px-2 text-right font-mono font-bold text-purple-700 dark:text-purple-300">{formatIndian(totMl)} ml</td>
+                              <td className="py-1 px-2 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
                                 {outQty} {isM ? prodUom : bUom}
                               </td>
-                              {canViewCost && <td className="py-2 px-3 text-right font-mono">₹{formatIndian(round2(assignedBase))}</td>}
-                              {canViewCost && <td className="py-2 px-3 text-right font-mono">₹{formatIndian(round2(assignedRm))}</td>}
-                              {canViewCost && <td className="py-2 px-3 text-right font-mono font-bold">₹{formatIndian(round2(totProdCost))}</td>}
-                              {canViewCost && <td className="py-2 px-3 text-right font-mono font-black text-emerald-600">₹{unitC}</td>}
+                              {canViewCost && <td className="py-1 px-2 text-right font-mono">₹{formatIndian(round2(assignedBase))}</td>}
+                              {canViewCost && <td className="py-1 px-2 text-right font-mono">₹{formatIndian(round2(assignedRm))}</td>}
+                              {canViewCost && <td className="py-1 px-2 text-right font-mono font-bold">₹{formatIndian(round2(totProdCost))}</td>}
+                              {canViewCost && <td className="py-1 px-2 text-right font-mono font-black text-emerald-600">₹{unitC}</td>}
                             </tr>
                           );
                         })}
@@ -3878,74 +3748,74 @@ export default function ProductionFloorCockpitModal({
                 </Card>
 
                 {/* 2. Wastage & Loss Accounting Card */}
-                <Card className="border border-rose-200 dark:border-rose-900/60 shadow-xs bg-rose-50/40 dark:bg-rose-950/20 rounded-xl overflow-hidden p-4 space-y-3">
+                <Card className="border border-rose-200 dark:border-rose-900/60 shadow-xs bg-rose-50/40 dark:bg-rose-950/20 rounded-lg overflow-hidden p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-rose-950 dark:text-rose-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <TrendingDown className="w-4 h-4 text-rose-600" />
+                    <h4 className="text-[11px] font-bold text-rose-950 dark:text-rose-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
                       <span>Production Wastage &amp; Unallocated Mix Loss Accounting:</span>
                     </h4>
-                    <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold bg-rose-100 dark:bg-rose-900/40 px-2 py-0.5 rounded border border-rose-300 dark:border-rose-800">
+                    <span className="text-[9px] font-mono text-rose-600 dark:text-rose-400 font-bold bg-rose-100 dark:bg-rose-900/40 px-1.5 py-0.2 rounded border border-rose-300 dark:border-rose-800">
                       WASTAGE EXPENSE
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40">
-                      <span className="text-[10px] text-slate-500 block uppercase font-bold">Process Mould Wastage</span>
-                      <strong className="text-base font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="bg-white dark:bg-slate-900 p-2 rounded border border-rose-200 dark:border-rose-900/40">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Process Mould Wastage</span>
+                      <strong className="text-sm font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
                         {formatIndian(totalProcessWasteMl)} ml
                       </strong>
-                      <span className="text-[9.5px] text-slate-400 font-mono">Spill &amp; tray loss</span>
+                      <span className="text-[8.5px] text-slate-400 font-mono">Spill &amp; tray loss</span>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40">
-                      <span className="text-[10px] text-slate-500 block uppercase font-bold">Unallocated Remaining Mix</span>
-                      <strong className="text-base font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
+                    <div className="bg-white dark:bg-slate-900 p-2 rounded border border-rose-200 dark:border-rose-900/40">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Unallocated Remaining Mix</span>
+                      <strong className="text-sm font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
                         {formatIndian(unallocatedRemainingMl)} ml
                       </strong>
-                      <span className="text-[9.5px] text-rose-600 font-medium">Auto-moved to Wastage</span>
+                      <span className="text-[8.5px] text-rose-600 font-medium">Auto-moved to Wastage</span>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-rose-200 dark:border-rose-900/40">
-                      <span className="text-[10px] text-slate-500 block uppercase font-bold">Total Wastage Volume</span>
-                      <strong className="text-base font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
+                    <div className="bg-white dark:bg-slate-900 p-2 rounded border border-rose-200 dark:border-rose-900/40">
+                      <span className="text-[9px] text-slate-500 block uppercase font-bold">Total Wastage Volume</span>
+                      <strong className="text-sm font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
                         {formatIndian(totalWastageMl)} ml
                       </strong>
-                      <span className="text-[9.5px] text-slate-400 font-mono">≈ {(totalWastageMl / 1000).toFixed(2)} Litres</span>
+                      <span className="text-[8.5px] text-slate-400 font-mono">≈ {(totalWastageMl / 1000).toFixed(2)} Litres</span>
                     </div>
 
                     {canViewCost && (
-                      <div className="bg-rose-900/30 p-3 rounded-lg border border-rose-400 dark:border-rose-800">
-                        <span className="text-[10px] text-rose-700 dark:text-rose-300 block uppercase font-bold">Wastage Financial Loss</span>
-                        <strong className="text-base font-mono font-black text-rose-600 dark:text-rose-400 block mt-0.5">
+                      <div className="bg-rose-900/30 p-2 rounded border border-rose-400 dark:border-rose-800">
+                        <span className="text-[9px] text-rose-700 dark:text-rose-300 block uppercase font-bold">Wastage Financial Loss</span>
+                        <strong className="text-sm font-mono font-black text-rose-600 dark:text-rose-400 block mt-0.5">
                           ₹{formatIndian(round2(totalWastageCost))}
                         </strong>
-                        <span className="text-[9.5px] text-slate-400 font-mono">At ₹{baseCostPerMl.toFixed(4)}/ml</span>
+                        <span className="text-[8.5px] text-slate-400 font-mono">At ₹{baseCostPerMl.toFixed(4)}/ml</span>
                       </div>
                     )}
                   </div>
                 </Card>
 
                 {/* 3. QA Lab Testing Requirement Status Card */}
-                <div className={`p-4 rounded-xl border flex items-center justify-between flex-wrap gap-3 ${
+                <div className={`p-2.5 px-3 rounded-lg border flex items-center justify-between flex-wrap gap-2 ${
                   labTestRequired 
                     ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800' 
                     : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800'
                 }`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white shrink-0 ${labTestRequired ? 'bg-amber-500' : 'bg-emerald-600'}`}>
-                      <ShieldCheck className="w-4 h-4" />
+                  <div className="flex items-center gap-2">
+                    <div className={`w-6 h-6 rounded flex items-center justify-center font-bold text-white shrink-0 ${labTestRequired ? 'bg-amber-500' : 'bg-emerald-600'}`}>
+                      <ShieldCheck className="w-3.5 h-3.5" />
                     </div>
                     <div>
-                      <div className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>QA / Quality Control Testing:</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                        <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-black ${
                           labTestRequired ? 'bg-amber-200 text-amber-900' : 'bg-emerald-200 text-emerald-900'
                         }`}>
                           {labTestRequired ? 'LAB TEST REQUIRED (QUARANTINE QUEUE)' : 'NO LAB TEST REQUIRED (DIRECT TO SELLABLE STOCK)'}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
+                      <p className="text-[10px] text-slate-500 mt-0.5">
                         {labTestRequired 
                           ? 'Finished goods will be routed to QC Quarantine queue for microbiological sampling and clearance.' 
                           : 'Microbiological clearance is waived: finished goods automatically added to Available Sellable Inventory upon completion.'}
@@ -3958,7 +3828,7 @@ export default function ProductionFloorCockpitModal({
                     variant="outline"
                     size="sm"
                     onClick={() => setLabTestRequired(prev => !prev)}
-                    className="text-xs font-bold h-8 px-3 cursor-pointer"
+                    className="text-[10.5px] font-bold h-6 px-2.5 cursor-pointer"
                   >
                     {labTestRequired ? 'Set: Not Required (Direct to Stock)' : 'Set: Lab Test Required'}
                   </Button>
@@ -3966,44 +3836,44 @@ export default function ProductionFloorCockpitModal({
 
                 {/* 4. Role-Protected Batch Costing (Admin & Supervisor Only - Light & Dark Themes) */}
                 {canViewCost && costingData && (
-                  <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-xl overflow-hidden">
-                    <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-lg overflow-hidden">
+                    <div className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <h3 className="text-xs font-bold text-slate-900 dark:text-white">
                           Financial Costing &amp; Live PO Rate Breakdown (Supervisor / Admin Audit)
                         </h3>
                       </div>
-                      <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700 px-2.5 py-0.5 rounded-full border">
+                      <span className="text-[9px] font-bold bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700 px-2 py-0.2 rounded-full border">
                         LIVE PO COST AUDIT
                       </span>
                     </div>
 
-                    <div className="p-5 space-y-5">
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Total Material Cost</div>
-                          <div className="text-base font-mono font-black text-slate-900 dark:text-white mt-1">₹{costingData.totalMaterialCost}</div>
+                    <div className="p-2.5 space-y-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Total Material Cost</div>
+                          <div className="text-sm font-mono font-black text-slate-900 dark:text-white mt-0.5">₹{costingData.totalMaterialCost}</div>
                         </div>
 
-                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Wastage Loss Cost</div>
-                          <div className="text-base font-mono font-black text-rose-600 dark:text-rose-400 mt-1">₹{costingData.totalWastageCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Wastage Loss Cost</div>
+                          <div className="text-sm font-mono font-black text-rose-600 dark:text-rose-400 mt-0.5">₹{costingData.totalWastageCost}</div>
                         </div>
 
-                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Labour Cost</div>
-                          <div className="text-base font-mono font-black text-amber-600 dark:text-amber-300 mt-1">₹{costingData.labourCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Labour Cost</div>
+                          <div className="text-sm font-mono font-black text-amber-600 dark:text-amber-300 mt-0.5">₹{costingData.labourCost}</div>
                         </div>
 
-                        <div className="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
-                          <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Utility / EB Cost</div>
-                          <div className="text-base font-mono font-black text-blue-600 dark:text-blue-300 mt-1">₹{costingData.utilityCost}</div>
+                        <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
+                          <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Utility / EB Cost</div>
+                          <div className="text-sm font-mono font-black text-blue-600 dark:text-blue-300 mt-0.5">₹{costingData.utilityCost}</div>
                         </div>
 
-                        <div className="bg-emerald-50 dark:bg-emerald-950/80 p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 shadow-3xs">
-                          <div className="text-[10.5px] font-bold uppercase text-emerald-800 dark:text-emerald-400">Total Production Cost</div>
-                          <div className="text-lg font-mono font-black text-emerald-950 dark:text-emerald-300 mt-0.5">₹{costingData.totalProductionCost}</div>
+                        <div className="bg-emerald-50 dark:bg-emerald-950/80 p-2 rounded border border-emerald-300 dark:border-emerald-700 shadow-3xs">
+                          <div className="text-[9.5px] font-bold uppercase text-emerald-800 dark:text-emerald-400">Total Production Cost</div>
+                          <div className="text-base font-mono font-black text-emerald-950 dark:text-emerald-300 mt-0.5">₹{costingData.totalProductionCost}</div>
                         </div>
                       </div>
                     </div>
@@ -4017,13 +3887,13 @@ export default function ProductionFloorCockpitModal({
         </div>
 
         {/* ── 7. FOOTER TOOLBAR: SAP HORIZON STATUS, MESSAGE POPOVER & STEP NAVIGATION ── */}
-        <div className="sticky bottom-0 z-30 flex items-center justify-between px-4 sm:px-6 py-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs select-none gap-2 shrink-0 transition-colors">
+        <div className="sticky bottom-0 z-30 flex items-center justify-between px-3 sm:px-4 py-1.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs select-none gap-2 shrink-0 transition-colors">
           {/* Left: SAP Message Popover Trigger */}
           <div className="relative" ref={messagesPopoverRef}>
             <button
               type="button"
               onClick={() => setShowMessagesPopover(prev => !prev)}
-              className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-3xs ${
+              className={`h-7 px-2.5 rounded border text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-3xs ${
                 errorCount > 0
                   ? 'bg-rose-50 text-[#d20a0a] border-red-300 dark:bg-rose-950/60 dark:border-red-800'
                   : warningCount > 0
@@ -4045,9 +3915,9 @@ export default function ProductionFloorCockpitModal({
 
             {/* Popover Card */}
             {showMessagesPopover && (
-              <div className="absolute bottom-11 left-0 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95 space-y-2">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <span className="font-extrabold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+              <div className="absolute bottom-10 left-0 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-2xl p-2.5 z-50 animate-in fade-in zoom-in-95 space-y-1.5">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-slate-800">
+                  <span className="font-extrabold text-[11px] text-slate-900 dark:text-white uppercase tracking-wider">
                     Message Log ({validationMessages.length})
                   </span>
                   <button
@@ -4055,11 +3925,11 @@ export default function ProductionFloorCockpitModal({
                     onClick={() => setShowMessagesPopover(false)}
                     className="text-slate-400 hover:text-slate-600 p-0.5"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-3 h-3" />
                   </button>
                 </div>
 
-                <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                   {validationMessages.map(msg => (
                     <div
                       key={msg.id}
@@ -4067,23 +3937,23 @@ export default function ProductionFloorCockpitModal({
                         setActiveStep(msg.step);
                         setShowMessagesPopover(false);
                       }}
-                      className="py-2 px-1 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer rounded transition-colors space-y-0.5"
+                      className="py-1.5 px-1 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer rounded transition-colors space-y-0.5"
                     >
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 font-bold text-xs">
-                          <span className={`w-2 h-2 rounded-full ${
+                        <div className="flex items-center gap-1 font-bold text-[11px]">
+                          <span className={`w-1.5 h-1.5 rounded-full ${
                             msg.type === 'error' ? 'bg-[#d20a0a]' : msg.type === 'warning' ? 'bg-[#e9730c]' : 'bg-[#0070f2]'
                           }`} />
                           <span className={msg.type === 'error' ? 'text-[#d20a0a]' : msg.type === 'warning' ? 'text-[#e9730c]' : 'text-[#0070f2]'}>
                             {msg.stepName}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono">Jump →</span>
+                        <span className="text-[9.5px] text-slate-400 font-mono">Jump →</span>
                       </div>
-                      <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+                      <div className="text-[10.5px] font-semibold text-slate-800 dark:text-slate-200">
                         {msg.title}
                       </div>
-                      <div className="text-[10px] text-slate-500">
+                      <div className="text-[9.5px] text-slate-500">
                         {msg.desc}
                       </div>
                     </div>
@@ -4094,14 +3964,14 @@ export default function ProductionFloorCockpitModal({
           </div>
 
           {/* Right: Step Navigation & Finalize Button */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {/* Exit Cockpit */}
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={onClose}
-              className="text-xs font-bold h-8 px-3 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              className="text-xs font-bold h-7 px-3 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               Exit Cockpit
             </Button>
@@ -4113,9 +3983,9 @@ export default function ProductionFloorCockpitModal({
                 variant="outline"
                 size="sm"
                 onClick={() => setViewMode('STEPS')}
-                className="h-8 px-3 text-xs font-bold rounded-lg border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center gap-1.5 cursor-pointer"
+                className="h-7 px-2.5 text-xs font-bold rounded border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 flex items-center gap-1 cursor-pointer"
               >
-                <Layers className="w-3.5 h-3.5" />
+                <Layers className="w-3 h-3" />
                 <span>Return to Floor Run Steps</span>
               </Button>
             ) : isCompleted ? (
@@ -4124,9 +3994,9 @@ export default function ProductionFloorCockpitModal({
                 variant="outline"
                 size="sm"
                 onClick={() => setViewMode('REPORT')}
-                className="h-8 px-3 text-xs font-bold rounded-lg border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1.5 cursor-pointer"
+                className="h-7 px-2.5 text-xs font-bold rounded border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1 cursor-pointer"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>View Clean Report</span>
               </Button>
             ) : null}
@@ -4138,9 +4008,9 @@ export default function ProductionFloorCockpitModal({
                 variant="outline"
                 size="sm"
                 onClick={() => setActiveStep(prev => prev - 1)}
-                className="h-8 px-3 text-xs font-bold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+                className="h-7 px-2.5 text-xs font-bold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-3 h-3" />
                 <span>Previous</span>
               </Button>
             )}
@@ -4152,13 +4022,13 @@ export default function ProductionFloorCockpitModal({
                 size="sm"
                 disabled={savingProcess || savingAllocations || savingStages}
                 onClick={() => handleStepClick(activeStep + 1)}
-                className="h-8 px-3 text-xs font-bold bg-[#0070f2] hover:bg-blue-600 text-white flex items-center gap-1 shadow-3xs disabled:opacity-60 cursor-pointer"
+                className="h-7 px-3 text-xs font-bold bg-[#0070f2] hover:bg-blue-600 text-white flex items-center gap-1 shadow-3xs disabled:opacity-60 cursor-pointer"
               >
                 {(savingProcess || savingAllocations || savingStages) ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCw className="w-3 h-3 animate-spin" />
                 ) : null}
                 <span>Next: Step {activeStep + 1}</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ChevronRight className="w-3 h-3" />
               </Button>
             )}
 
@@ -4168,7 +4038,7 @@ export default function ProductionFloorCockpitModal({
                 type="button"
                 size="sm"
                 onClick={handleOpenYieldModal}
-                className="bg-[#30914c] hover:bg-emerald-700 text-white font-extrabold text-xs h-8 px-4 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
+                className="bg-[#30914c] hover:bg-emerald-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Finalize Entire Production</span>
