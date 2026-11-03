@@ -88,8 +88,18 @@ cd /var/www/manufacture-erp/apps/frontend
 npm install
 npm run build
 
-echo "🌐 [5/5] Reloading Nginx Web Server..."
-sudo systemctl reload nginx
+echo "📁 Ensuring uploads directory permissions..."
+mkdir -p /var/www/manufacture-erp/apps/backend/uploads/employees
+mkdir -p /var/www/manufacture-erp/apps/backend/uploads/invoices
+mkdir -p /var/www/manufacture-erp/apps/backend/uploads/payments
+chmod -R 777 /var/www/manufacture-erp/apps/backend/uploads || true
+
+echo "🌐 [5/5] Updating & Reloading Nginx Web Server..."
+if [ -f /etc/nginx/sites-available/erp.leonex.net ]; then
+    sudo cp /var/www/manufacture-erp/deploy/nginx/erp.leonex.net.conf /etc/nginx/sites-available/erp.leonex.net
+    sudo ln -sf /etc/nginx/sites-available/erp.leonex.net /etc/nginx/sites-enabled/ || true
+fi
+sudo nginx -t && sudo systemctl reload nginx
 
 echo "=========================================================="
 echo "🎉 SUCCESS: Production has been updated to $CURRENT_COMMIT!"

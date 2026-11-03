@@ -65,12 +65,24 @@ const ChangeProfilePage = () => {
             <div className="relative">
               <div className="w-28 h-28 rounded-2xl border-4 border-white dark:border-slate-800 shadow-xl overflow-hidden bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center">
                 {preview ? (
-                  <img src={preview} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-3xl font-bold text-indigo-600 dark:text-indigo-300">
-                    {form.name?.substring(0, 2).toUpperCase() || 'U'}
-                  </span>
-                )}
+                  <img 
+                    src={preview} 
+                    alt="Profile" 
+                    className="w-full h-full object-cover" 
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      if (e.currentTarget.nextElementSibling) {
+                        e.currentTarget.nextElementSibling.style.display = 'flex';
+                      }
+                    }}
+                  />
+                ) : null}
+                <span 
+                  className="text-3xl font-bold text-indigo-600 dark:text-indigo-300 w-full h-full flex items-center justify-center"
+                  style={{ display: preview ? 'none' : 'flex' }}
+                >
+                  {form.name?.substring(0, 2).toUpperCase() || 'U'}
+                </span>
               </div>
               <button
                 type="button"

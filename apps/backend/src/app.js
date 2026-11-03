@@ -79,8 +79,28 @@ app.use(['/uploads', '/api/uploads'], (req, res, next) => {
       return res.sendFile(directPath);
     }
 
+    const cleanRelPath = reqPath.replace(/^\/uploads\/?/, '');
+    const cleanDirectPath = path.join(uploadsDir, cleanRelPath);
+    if (fs.existsSync(cleanDirectPath) && fs.statSync(cleanDirectPath).isFile()) {
+      return res.sendFile(cleanDirectPath);
+    }
+
     const filename = path.basename(reqPath);
     if (!filename) return next();
+
+    // Check employee photo/document subfolders by filename
+    const employeesDir = path.join(uploadsDir, 'employees');
+    if (fs.existsSync(employeesDir)) {
+      const empDirs = fs.readdirSync(employeesDir, { withFileTypes: true });
+      for (const ed of empDirs) {
+        if (ed.isDirectory()) {
+          const empFilePath = path.join(employeesDir, ed.name, filename);
+          if (fs.existsSync(empFilePath) && fs.statSync(empFilePath).isFile()) {
+            return res.sendFile(empFilePath);
+          }
+        }
+      }
+    }
 
     // 2. Extract clean PO reference number (e.g. PO-000019)
     const poMatch = filename.match(/(PO-\d+)/i) || reqPath.match(/(PO-\d+)/i) || filename.match(/(PO-[A-Za-z0-9]+)/i);

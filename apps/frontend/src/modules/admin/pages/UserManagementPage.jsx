@@ -469,17 +469,6 @@ export default function UserManagementPage() {
       });
     }
   });
-        title: 'Delete Failed',
-        text: err.response?.data?.message || 'Error deleting employee record',
-        icon: 'error',
-        background: isDark ? '#0f172a' : '#ffffff',
-        color: isDark ? '#f8fafc' : '#0f172a',
-        customClass: {
-          popup: 'rounded-xl border border-slate-200 dark:border-slate-800 shadow-lg'
-        }
-      });
-    }
-  });
 
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, isActive }) => {

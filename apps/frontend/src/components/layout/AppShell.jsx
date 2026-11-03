@@ -2195,10 +2195,24 @@ const AppShell = () => {
               >
                 <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-650 dark:text-indigo-305 flex items-center justify-center font-bold text-sm overflow-hidden border border-indigo-200 dark:border-indigo-700">
                   {user?.profilePhoto ? (
-                    <img src={user.profilePhoto} alt={user?.name} className="w-full h-full object-cover" />
-                  ) : (
-                    user?.name?.substring(0, 2).toUpperCase() || 'U'
-                  )}
+                    <img 
+                      src={user.profilePhoto} 
+                      alt={user?.name} 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        if (e.currentTarget.nextElementSibling) {
+                          e.currentTarget.nextElementSibling.style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <span 
+                    className="w-full h-full flex items-center justify-center" 
+                    style={{ display: user?.profilePhoto ? 'none' : 'flex' }}
+                  >
+                    {user?.name?.substring(0, 2).toUpperCase() || 'U'}
+                  </span>
                 </div>
               </button>
 
