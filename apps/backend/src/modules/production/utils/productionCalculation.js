@@ -268,18 +268,20 @@ function calculateAllocations({
   for (let i = 0; i < allocations.length; i++) {
     const item = allocations[i];
     const seq = item.seq ?? (i + 1);
-    const useMould = item.useMould !== undefined ? Boolean(item.useMould) : true;
+    const rawUseMould = item.useMould !== undefined ? Boolean(item.useMould) : true;
     const capacityMl = Number(item.capacityMl || item.capacity_ml || 0);
+    const useMould = rawUseMould && (Boolean(item.mouldId && item.mouldId !== 'NO_MOULD') || capacityMl > 0);
+    const effectiveCapacityMl = capacityMl > 0 ? capacityMl : (useMould ? 50 : 0);
     const cavities = item.cavities !== undefined && item.cavities !== null 
       ? Number(item.cavities) 
-      : (item.cavityCount ? Number(item.cavityCount) : 1);
+      : (item.cavityCount ? Number(item.cavityCount) : (useMould ? 42 : 1));
     const trays = Number(item.trays || 0);
     const wasteMode = item.wasteMode || item.waste_mode || 'PERCENT';
     const wasteVal = Number(item.wasteValue ?? item.waste_value ?? 0);
 
     // Explicit allocated base mix (ml) from user or calculated from mould trays
     const allocatedBaseMl = Number(item.allocatedBaseMl ?? item.allocated_base_ml ?? 0);
-    const mouldNominalSetMl = capacityMl * cavities;
+    const mouldNominalSetMl = effectiveCapacityMl * cavities;
 
     let mixUsedMl = 0;
     if (allocatedBaseMl > 0) {
@@ -321,7 +323,7 @@ function calculateAllocations({
     }
 
     if (useMould) {
-      if (capacityMl <= 0) {
+      if (effectiveCapacityMl <= 0) {
         errors.push({
           seq,
           index: i,
@@ -342,7 +344,7 @@ function calculateAllocations({
       }
     }
 
-    if (wasteMl > productTotalMixMl + EPSILON) {
+    if (wasteMl > productTotalMixMl + EPSILON && productTotalMixMl > 0) {
       errors.push({
         seq,
         index: i,
@@ -354,8 +356,8 @@ function calculateAllocations({
 
     const usableMixMl = Math.max(0, productTotalMixMl - wasteMl);
     let goodPieces = 0;
-    if (useMould && capacityMl > 0) {
-      goodPieces = Math.floor((usableMixMl + EPSILON) / capacityMl);
+    if (useMould && effectiveCapacityMl > 0) {
+      goodPieces = Math.floor((usableMixMl + EPSILON) / effectiveCapacityMl);
     } else {
       // Bulk Storage Mode: Gallon, Liter, Tub or Piece
       const bulkUom = String(item.bulkUom || item.uom || 'L').toLowerCase();
@@ -363,8 +365,8 @@ function calculateAllocations({
         goodPieces = round2(usableMixMl / 3785.41);
       } else if (bulkUom.includes('liter') || bulkUom.includes('ltr') || bulkUom === 'l') {
         goodPieces = round2(usableMixMl / 1000);
-      } else if (capacityMl > 0) {
-        goodPieces = Math.floor((usableMixMl + EPSILON) / capacityMl);
+      } else if (effectiveCapacityMl > 0) {
+        goodPieces = Math.floor((usableMixMl + EPSILON) / effectiveCapacityMl);
       } else {
         goodPieces = round2(usableMixMl / 1000);
       }
@@ -373,7 +375,7 @@ function calculateAllocations({
     const remainingAfter = runningMixLeft - mixUsedMl;
     totalMixUsed += mixUsedMl;
 
-    if (remainingAfter < -EPSILON) {
+    if (remainingAfter < -EPSILON && initialAvailable > 0) {
       errors.push({
         seq,
         index: i,

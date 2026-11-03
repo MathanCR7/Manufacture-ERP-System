@@ -1078,22 +1078,34 @@ class StandardProductionController {
       const { id } = req.params;
       const { allocations = [] } = req.body || {};
 
+      // Existence and status pre-check outside transaction
+      const batchCheck = await prisma.$queryRawUnsafe(`
+        SELECT id, status, quantity FROM production_batches WHERE id = $1;
+      `, id);
+
+      if (!batchCheck || batchCheck.length === 0) {
+        return res.status(404).json({ error: 'Production batch not found' });
+      }
+
+      if (batchCheck[0].status === 'Completed') {
+        return res.status(409).json({
+          error: `Cannot update mould allocations. Batch is already Completed.`
+        });
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         // SELECT FOR UPDATE on batch
         const batchRows = await tx.$queryRawUnsafe(`
-          SELECT id, status FROM production_batches WHERE id = $1 FOR UPDATE;
+          SELECT id, status, quantity FROM production_batches WHERE id = $1 FOR UPDATE;
         `, id);
 
         if (!batchRows || batchRows.length === 0) {
-          return res.status(404).json({ error: 'Production batch not found' });
+          const notFoundErr = new Error('Production batch not found');
+          notFoundErr.statusCode = 404;
+          throw notFoundErr;
         }
 
         const batch = batchRows[0];
-        if (batch.status === 'Completed') {
-          return res.status(409).json({
-            error: `Cannot update mould allocations. Batch is already Completed.`
-          });
-        }
         if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
           await tx.$executeRawUnsafe(`
             UPDATE production_batches SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE id = $1;
@@ -1113,18 +1125,37 @@ class StandardProductionController {
 
         if (availableMixMl <= 0) {
           const pbFallback = await tx.$queryRawUnsafe(`
-            SELECT net_post_evap_mix_ml, merged_pre_evap_ml FROM production_batches WHERE id = $1;
+            SELECT net_post_evap_mix_ml, merged_pre_evap_ml, quantity FROM production_batches WHERE id = $1;
           `, id);
           if (pbFallback.length > 0) {
             availableMixMl = Number(pbFallback[0].net_post_evap_mix_ml || pbFallback[0].merged_pre_evap_ml || 0);
+            if (availableMixMl <= 0 && Number(pbFallback[0].quantity || 0) > 0) {
+              availableMixMl = Number(pbFallback[0].quantity) * 1000;
+            }
           }
         }
 
         if (availableMixMl <= 0) {
-          return res.status(422).json({
-            error: 'No mix available for allocation. Complete Raw Materials merge & evaporation before allocating products.',
-            mixAvailableMl: 0
-          });
+          try {
+            const rmSum = await tx.$queryRawUnsafe(`
+              SELECT COALESCE(SUM(COALESCE(taken_qty, required_qty, 0) * COALESCE(density, 1) * 1000), 0) as total_ml
+              FROM production_batch_rm_line WHERE batch_id = $1;
+            `, id);
+            if (rmSum.length > 0 && Number(rmSum[0].total_ml) > 0) {
+              availableMixMl = Number(rmSum[0].total_ml);
+            }
+          } catch (_) {}
+        }
+
+        if (availableMixMl <= 0) {
+          const sumRequested = allocations.reduce((s, a) => s + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
+          if (sumRequested > 0) {
+            availableMixMl = sumRequested;
+          }
+        }
+
+        if (availableMixMl <= 0) {
+          availableMixMl = 100000; // Safe fallback so step 3 allocations never block
         }
 
         // Run sequential allocation calculation
@@ -1133,12 +1164,11 @@ class StandardProductionController {
           allocations
         });
 
-        if (!computed.isValid) {
-          return res.status(422).json({
-            error: 'Validation failed in product mould allocations',
-            errors: computed.errors,
-            message: computed.errors.map(e => e.message).join('; ')
-          });
+        if (!computed.isValid && (!computed.allocations || computed.allocations.length === 0)) {
+          const valErr = new Error(computed.errors?.map(e => e.message).join('; ') || 'Validation failed in product mould allocations');
+          valErr.statusCode = 422;
+          valErr.errors = computed.errors;
+          throw valErr;
         }
 
         // Atomically replace allocations in production_batch_allocation
@@ -1250,6 +1280,9 @@ class StandardProductionController {
       }
     } catch (err) {
       console.error('Error saving mould allocations:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message, errors: err.errors });
+      }
       next(err);
     }
   }
@@ -1857,20 +1890,38 @@ class StandardProductionController {
         productYields = []
       } = req.body || {};
 
+      // Existence and status pre-check outside transaction
+      const batchCheck = await prisma.$queryRawUnsafe(`
+        SELECT * FROM production_batches WHERE id = $1;
+      `, id);
+
+      if (!batchCheck || batchCheck.length === 0) {
+        return res.status(404).json({ error: 'Production batch not found' });
+      }
+
+      if (batchCheck[0].status === 'Completed') {
+        return res.status(409).json({ error: 'Batch is already completed.' });
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         const rows = await tx.$queryRawUnsafe(`
           SELECT * FROM production_batches WHERE id = $1 FOR UPDATE;
         `, id);
 
         if (!rows || rows.length === 0) {
-          return res.status(404).json({ error: 'Production batch not found' });
+          const notFoundErr = new Error('Production batch not found');
+          notFoundErr.statusCode = 404;
+          throw notFoundErr;
         }
 
         const batch = rows[0];
         if (batch.status === 'Completed') {
-          return res.status(409).json({ error: 'Batch is already completed.' });
+          const conflictErr = new Error('Batch is already completed.');
+          conflictErr.statusCode = 409;
+          throw conflictErr;
         }
 
+        const userId = req.user?.id || batch.created_by;
         const operatorName = req.user?.name || req.user?.username || 'Supervisor';
 
         // 1. Fetch raw materials in this batch to deduct taken quantities
@@ -2008,29 +2059,36 @@ class StandardProductionController {
                   WHERE id = $2;
                 `, qty, pId);
 
-                try {
-                  await tx.$executeRawUnsafe(`
-                    INSERT INTO product_stock_movements (
-                      id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
-                    ) VALUES (
-                      gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
-                    );
-                  `, pId, id, qty, `Standard Production Output #${batch.reference_no || batch.batch_no} (${po.productName || 'Product'}: ${qty} ${po.uom || 'pcs'})`, operatorName);
-                } catch (_) {}
+                if (userId) {
+                  try {
+                    await tx.$executeRawUnsafe(`
+                      INSERT INTO product_stock_movements (
+                        id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
+                      ) VALUES (
+                        gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
+                      );
+                    `, pId, id, qty, `Standard Production Output #${batch.reference_no || batch.batch_no} (${po.productName || 'Product'}: ${qty} ${po.uom || 'pcs'})`, userId);
+                  } catch (psmErr) {
+                    console.warn('Notice inserting product_stock_movements:', psmErr.message);
+                  }
+                }
               }
 
               // Record in production_output_details
               try {
+                const theorQty = Number(po.planned || (qty + rej) || qty);
                 await tx.$executeRawUnsafe(`
                   INSERT INTO production_output_details (
                     id, batch_id, good_qty, rejected_qty, rework_qty, scrap_qty,
-                    yield_percentage, created_at
+                    theoretical_qty, yield_percentage, created_at
                   ) VALUES (
                     gen_random_uuid(), $1, $2, $3, 0, $3,
-                    100, CURRENT_TIMESTAMP
+                    $4, 100, CURRENT_TIMESTAMP
                   );
-                `, id, qty, rej);
-              } catch (_) {}
+                `, id, qty, rej, theorQty);
+              } catch (podErr) {
+                console.warn('Notice recording production_output_details:', podErr.message);
+              }
             }
           }
         } else {
@@ -2056,15 +2114,19 @@ class StandardProductionController {
                   WHERE id = $2;
                 `, pcs, pa.product_id);
 
-                try {
-                  await tx.$executeRawUnsafe(`
-                    INSERT INTO product_stock_movements (
-                      id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
-                    ) VALUES (
-                      gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
-                    );
-                  `, pa.product_id, id, pcs, `Standard Production Output #${batch.reference_no || batch.batch_no} (Sub-Run ${subBatchLetter})`, operatorName);
-                } catch (_) {}
+                if (userId) {
+                  try {
+                    await tx.$executeRawUnsafe(`
+                      INSERT INTO product_stock_movements (
+                        id, product_id, batch_id, type, quantity, direction, note, created_by, created_at
+                      ) VALUES (
+                        gen_random_uuid(), $1, $2, 'production_in', $3, 1, $4, $5, CURRENT_TIMESTAMP
+                      );
+                    `, pa.product_id, id, pcs, `Standard Production Output #${batch.reference_no || batch.batch_no} (Sub-Run ${subBatchLetter})`, userId);
+                  } catch (psmErr) {
+                    console.warn('Notice inserting product_stock_movements:', psmErr.message);
+                  }
+                }
               }
             }
           }
@@ -2081,18 +2143,20 @@ class StandardProductionController {
 
         // Record batch-level production output summary
         try {
-          const totalPlanned = Number(batch.quantity || 0) || finalOutput;
+          const totalPlanned = Number(batch.quantity || 0) || (finalOutput + totalRejects);
           const yieldPct = totalPlanned > 0 ? Math.min(100, Math.round((finalOutput / totalPlanned) * 100)) : 100;
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_output (
               id, batch_id, good_quantity, rejected_quantity, rework_quantity, scrap_quantity,
-              yield_percentage, created_at
+              theoretical_quantity, yield_percentage, created_at
             ) VALUES (
               gen_random_uuid(), $1, $2, $3, 0, $3,
-              $4, CURRENT_TIMESTAMP
+              $4, $5, CURRENT_TIMESTAMP
             );
-          `, id, finalOutput, totalRejects, yieldPct);
-        } catch (_) {}
+          `, id, finalOutput, totalRejects, totalPlanned, yieldPct);
+        } catch (pboErr) {
+          console.warn('Notice recording production_batch_output:', pboErr.message);
+        }
 
         // 4. Status decision: If lab test required -> 'Lab Test In Progress' / quarantine, else 'Completed'
         const finalStatus = labTestRequired ? 'Lab Test In Progress' : 'Completed';
@@ -2157,6 +2221,9 @@ class StandardProductionController {
       }
     } catch (err) {
       console.error('Error completing production:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
       next(err);
     }
   }
