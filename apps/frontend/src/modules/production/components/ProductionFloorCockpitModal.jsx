@@ -2065,7 +2065,7 @@ export default function ProductionFloorCockpitModal({
   const step4Ready = isCompleted;
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-0 sm:p-2 overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]`}>
+    <div className={`fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-0 sm:p-2 overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]`}>
       <div className={`relative w-full ${isFullscreen ? 'h-full max-h-screen rounded-none' : 'h-full sm:h-[97vh] max-h-screen sm:max-h-[97vh] max-w-[99vw] 2xl:max-w-[1720px] rounded-none sm:rounded-2xl'} bg-slate-50 dark:bg-slate-950 shadow-2xl flex flex-col overflow-hidden border border-slate-300 dark:border-slate-800 transition-all duration-200`}>
         
         {/* ── 1. SHELL BAR (44px, SAP Dark Navy #1d2d3e) ── */}
@@ -4176,7 +4176,7 @@ export default function ProductionFloorCockpitModal({
         const itemReq = Number(targetItem?.requiredQty ?? targetItem?.takenQty ?? targetItem?.qty ?? 10);
 
         return (
-          <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto">
             <div className="relative w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh]">
               
               {/* Modal Header */}
@@ -4315,16 +4315,16 @@ export default function ProductionFloorCockpitModal({
                   <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
-                        <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-700">
-                          <th className="py-2 px-3">Batch Number</th>
-                          <th className="py-2 px-3">PO Number</th>
-                          <th className="py-2 px-3">GRN Ref</th>
-                          <th className="py-2 px-3">Supplier Batch</th>
-                          <th className="py-2 px-3 text-right">Available Stock</th>
-                          <th className="py-2 px-3 text-center">Expiry Date</th>
-                          <th className="py-2 px-3 text-right">PO Rate (₹)</th>
-                          <th className="py-2 px-3 text-right w-36">Allocate Qty</th>
-                          <th className="py-2 px-3 text-right">Line Amount (₹)</th>
+                        <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                          <th className="py-2 px-3 whitespace-nowrap">Batch Number</th>
+                          <th className="py-2 px-3 whitespace-nowrap">PO Number</th>
+                          <th className="py-2 px-3 whitespace-nowrap">GRN Ref</th>
+                          <th className="py-2 px-3 whitespace-nowrap">Supplier Batch</th>
+                          <th className="py-2 px-3 text-right whitespace-nowrap">Available Stock</th>
+                          <th className="py-2 px-3 text-center whitespace-nowrap">Expiry Date</th>
+                          <th className="py-2 px-3 text-right whitespace-nowrap">PO Rate (₹)</th>
+                          <th className="py-2 px-3 text-right w-36 whitespace-nowrap">Allocate Qty</th>
+                          <th className="py-2 px-3 text-right whitespace-nowrap">Line Amount (₹)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -4496,7 +4496,7 @@ export default function ProductionFloorCockpitModal({
 
       {/* ── COMPLETE BATCH & RECORD ACTUAL YIELD MODAL (MULTI-PRODUCT & LIVE UOM) ── */}
       {showYieldModal && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-xs space-y-4 max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
               <div className="flex items-center gap-2">

@@ -62,6 +62,13 @@ export default {
       animation: {
         shimmer: 'shimmer 1.5s infinite',
       },
+      zIndex: {
+        '60': '60',
+        '70': '70',
+        '80': '80',
+        '90': '90',
+        '100': '100',
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],
