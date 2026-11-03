@@ -934,10 +934,16 @@ export default function ProductionFloorCockpitModal({
     if (isNaN(num) || num < 0) num = 0;
     if (num > maxAvail) num = maxAvail;
 
-    setLotAllocations(prev => ({
-      ...prev,
-      [lotId]: num
-    }));
+    setLotAllocations(prev => {
+      const next = { ...prev };
+      const foundLot = availableLots.find(l => String(l.id) === String(lotId) || String(l.internalBatchNo) === String(lotId));
+      if (foundLot) {
+        if (foundLot.id) delete next[foundLot.id];
+        if (foundLot.internalBatchNo) delete next[foundLot.internalBatchNo];
+      }
+      next[lotId] = num;
+      return next;
+    });
   };
 
   const handleFillRemainingLot = (lotId, maxAvail) => {
@@ -946,7 +952,11 @@ export default function ProductionFloorCockpitModal({
     const targetQty = Number(row.takenQty ?? row.requiredQty ?? row.qty ?? 0);
 
     const currentOtherTotal = Object.entries(lotAllocations).reduce((sum, [id, val]) => {
-      return id === lotId ? sum : sum + Number(val || 0);
+      const foundLot = availableLots.find(l => String(l.id) === String(lotId) || String(l.internalBatchNo) === String(lotId));
+      if (id === lotId || (foundLot && (id === String(foundLot.id) || id === String(foundLot.internalBatchNo)))) {
+        return sum;
+      }
+      return sum + Number(val || 0);
     }, 0);
 
     const remainingNeeded = Math.max(0, targetQty - currentOtherTotal);
@@ -4855,7 +4865,7 @@ export default function ProductionFloorCockpitModal({
                           .map((lot, lIdx) => {
                             const lotId = lot.id || lot.internalBatchNo || `lot-${lIdx}`;
                             const avail = Number(lot.availableQty || lot.netQty || 0);
-                            const currentAlloc = Number(lotAllocations[lotId] ?? lotAllocations[lot.internalBatchNo] ?? 0);
+                            const currentAlloc = Number(lotAllocations[lotId] ?? (lot.id ? lotAllocations[lot.id] : undefined) ?? (lot.internalBatchNo ? lotAllocations[lot.internalBatchNo] : undefined) ?? 0);
                             const rate = Number(lot.unitCost || lot.rate || lot.unitRate || targetItem?.unitRate || 54);
                             const lineAmt = Number((currentAlloc * rate).toFixed(2));
 

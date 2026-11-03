@@ -29,6 +29,18 @@ class UserController {
     } catch (error) { next(error); }
   }
 
+  async deleteUser(req, res, next) {
+    try {
+      const { permanent } = req.query;
+      if (permanent === 'true' || permanent === true) {
+        const result = await userService.hardDeleteUser(req.params.id);
+        return res.json({ success: true, message: 'User permanently deleted.', result });
+      }
+      const result = await userService.deactivateUser(req.params.id);
+      res.json(result);
+    } catch (error) { next(error); }
+  }
+
   async deactivateUser(req, res, next) {
     try {
       const result = await userService.deactivateUser(req.params.id);

@@ -336,6 +336,13 @@ class UserRepository {
       select: { id: true, isActive: true }
     });
   }
+
+  async hardDelete(id) {
+    return prisma.user.delete({
+      where: { id },
+      select: { id: true, empId: true, name: true, email: true }
+    });
+  }
 }
 
 module.exports = new UserRepository();

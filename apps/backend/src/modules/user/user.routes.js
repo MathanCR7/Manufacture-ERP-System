@@ -14,6 +14,6 @@ router.get('/next-empid', authMiddleware, roleMiddleware(['MAIN_MASTER', 'SUPERV
 router.get('/', authMiddleware, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), userController.getAllUsers);
 router.post('/', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.createUser);
 router.patch('/:id', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.updateUser);
-router.delete('/:id', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.deactivateUser);
+router.delete('/:id', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.deleteUser);
 
 module.exports = router;

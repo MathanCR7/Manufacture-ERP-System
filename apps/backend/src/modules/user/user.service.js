@@ -362,6 +362,10 @@ class UserService {
     return userRepository.delete(id);
   }
 
+  async hardDeleteUser(id) {
+    return userRepository.hardDelete(id);
+  }
+
   async getProfile(id) {
     const user = await userRepository.findById(id);
     if (!user) throw { status: 404, message: 'User not found.' };

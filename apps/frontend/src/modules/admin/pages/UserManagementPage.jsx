@@ -434,15 +434,15 @@ export default function UserManagementPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
-      const response = await api.delete(`/users/${id}`);
+      const response = await api.delete(`/users/${id}?permanent=true`);
       return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
-        title: 'Employee Deactivated!',
-        text: 'The employee account has been deactivated.',
+        title: 'Employee Deleted!',
+        text: 'The employee record has been permanently removed.',
         icon: 'success',
         toast: true,
         position: 'top-end',
@@ -458,6 +458,17 @@ export default function UserManagementPage() {
     onError: (err) => {
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
+        title: 'Delete Failed',
+        text: err.response?.data?.message || err.message || 'Could not delete employee record.',
+        icon: 'error',
+        background: isDark ? '#0f172a' : '#ffffff',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        customClass: {
+          popup: 'rounded-xl border border-slate-200 dark:border-slate-800 shadow-lg'
+        }
+      });
+    }
+  });
         title: 'Delete Failed',
         text: err.response?.data?.message || 'Error deleting employee record',
         icon: 'error',
@@ -1023,7 +1034,7 @@ export default function UserManagementPage() {
             Employee Master & User Configuration
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Running ID sequence (<strong className="text-indigo-600 dark:text-indigo-400 font-mono">VTE0001</strong>), mandatory validations (Man: x), per-field document proofs (Attac: X / XX), multi-contacts (++), and GPS-tagged selfie verification.
+            Running ID sequence (<strong className="text-indigo-600 dark:text-indigo-400 font-mono">VTE000001</strong>), mandatory validations (Man: x), per-field document proofs (Attac: X / XX), multi-contacts (++), and GPS-tagged selfie verification.
           </p>
         </div>
         {!isCreating && !editingUser && (
@@ -1110,7 +1121,7 @@ export default function UserManagementPage() {
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   {editingUser ? `Edit Employee Master: ${editingUser.name}` : 'New Employee Master Registration'}
                   <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white shadow-xs">
-                    {formData.empId || 'VTE0001'}
+                    {formData.empId || 'VTE000001'}
                   </span>
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2199,7 +2210,7 @@ export default function UserManagementPage() {
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-6 border-t border-slate-100 dark:border-slate-800/80">
               <div className="text-xs text-slate-400 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Files saved under employee directory <code className="text-indigo-500 font-mono">uploads/employees/{formData.empId || 'VTE0001'}</code></span>
+                <span>Files saved under employee directory <code className="text-indigo-500 font-mono">uploads/employees/{formData.empId || 'VTE000001'}</code></span>
               </div>
 
               <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -2237,7 +2248,7 @@ export default function UserManagementPage() {
               setSearchTerm(e.target.value);
               setCurrentPage(1);
             }} 
-            placeholder="Search Arun, VTE0001, phone, role..." 
+            placeholder="Search Arun, VTE000001, phone, role..." 
             className="pl-10 pr-8 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 rounded-xl h-10 w-full text-xs"
           />
           {searchTerm && (
@@ -2514,6 +2525,37 @@ export default function UserManagementPage() {
                                 className="rounded-xl bg-indigo-600 text-white"
                               >
                                 Confirm
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+
+                        {/* Permanent Hard Delete Button */}
+                        <AlertDialog>
+                          <AlertDialogTrigger
+                            className="rounded-xl h-9 px-2.5 border transition-all font-medium inline-flex items-center justify-center cursor-pointer text-xs text-rose-600 hover:bg-rose-50 border-rose-200 dark:border-rose-900/40"
+                            title="Permanently Delete Employee"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1 text-rose-500" />
+                            Delete
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle className="text-lg font-bold text-rose-600 flex items-center gap-2">
+                                <Trash2 className="w-5 h-5 text-rose-600" />
+                                Permanently Delete Employee?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription className="text-xs text-slate-500 dark:text-slate-400">
+                                Are you sure you want to permanently delete <strong>{user.name}</strong> ({user.empId || 'No ID'})? This will completely erase this employee record from the system and release the ID. This cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={() => deleteMutation.mutate(user.id)}
+                                className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+                              >
+                                Permanently Delete
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
