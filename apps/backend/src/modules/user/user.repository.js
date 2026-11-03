@@ -133,10 +133,23 @@ class UserRepository {
   }
 
   async findByEmail(email) {
-    return prisma.user.findUnique({ where: { email } });
+    if (!email) return null;
+    try {
+      return await prisma.user.findUnique({
+        where: { email },
+        select: USER_SAFE_SELECT
+      });
+    } catch (_) {
+      const basic = await prisma.user.findUnique({
+        where: { email },
+        select: USER_BASIC_SELECT
+      });
+      return enrichWithDefaultEmployeeFields(basic);
+    }
   }
 
   async findById(id) {
+    if (!id) return null;
     try {
       return await prisma.user.findUnique({
         where: { id },
@@ -153,7 +166,18 @@ class UserRepository {
 
   async findByEmpId(empId) {
     if (!empId) return null;
-    return prisma.user.findUnique({ where: { empId } });
+    try {
+      return await prisma.user.findUnique({
+        where: { empId },
+        select: USER_SAFE_SELECT
+      });
+    } catch (_) {
+      const basic = await prisma.user.findUnique({
+        where: { empId },
+        select: USER_BASIC_SELECT
+      });
+      return enrichWithDefaultEmployeeFields(basic);
+    }
   }
 
   async getNextEmpId() {

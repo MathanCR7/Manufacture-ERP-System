@@ -25,14 +25,18 @@ class AuthService {
       { expiresIn: '7d' }
     );
 
-    const prisma = require('../../database/prisma');
-    await prisma.userSessionLog.create({
-      data: {
-        userId: user.id,
-        loginAt: new Date(),
-        ip: ip || '127.0.0.1'
-      }
-    });
+    try {
+      const prisma = require('../../database/prisma');
+      await prisma.userSessionLog.create({
+        data: {
+          userId: user.id,
+          loginAt: new Date(),
+          ip: ip || '127.0.0.1'
+        }
+      });
+    } catch (logErr) {
+      console.warn('Notice: Failed to record user session log:', logErr.message);
+    }
 
     return {
       token,
