@@ -701,40 +701,104 @@ export default function ProductionCleanReportView({
             </span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {(timelineStages && timelineStages.length > 0 ? timelineStages : [
-              { id: 'ageing', name: 'Ageing', category: 'Thermal & Mixing', defaultTemp: '4°C', durationHours: 0, durationMinutes: 30, desc: 'Mix aging in refrigerated vats at 4°C' },
-              { id: 'vat', name: 'VAT', category: 'Thermal & Mixing', defaultTemp: '10°C', durationHours: 0, durationMinutes: 45, desc: 'Holding and agitation in process tanks' },
-              { id: 'cf', name: 'CF – Cont. Freezer', category: 'Freezing & Molding', defaultTemp: '-5°C', durationHours: 1, durationMinutes: 0, desc: 'Continuous scraped surface freezing' },
-              { id: 'bf', name: 'BF – Bath Freezer', category: 'Freezing & Molding', defaultTemp: '-20°C', durationHours: 0, durationMinutes: 45, desc: 'Brine tank sub-zero mold immersion' }
-            ]).map((stg, sIdx) => {
-              const durText = `${stg.durationHours || 0}h ${stg.durationMinutes || 0}m`;
-              const tempText = stg.targetTemp || stg.defaultTemp || '—';
-              return (
-                <div key={stg.id || sIdx} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">Step {sIdx + 1}</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                      {stg.category || 'Process'}
-                    </span>
-                  </div>
-                  <div className="font-extrabold text-xs text-slate-900 dark:text-white">
-                    {stg.name}
-                  </div>
-                  <div className="grid grid-cols-2 gap-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px] font-mono">
-                    <div>
-                      <span className="block text-[8.5px] uppercase font-bold text-slate-400 font-sans">Temp:</span>
-                      <span className="font-bold text-blue-600 dark:text-blue-400">{tempText}</span>
+          {allocations && allocations.length > 1 ? (
+            <div className="space-y-4">
+              {allocations.map((a, aIdx) => {
+                const pQty = Number(a.goodPieces || a.goodUnits || a.plannedQty || 0);
+                const pUom = a.productUom || a.bulkUom || 'pcs';
+                const stagesToRender = (timelineStages && timelineStages.length > 0) ? timelineStages : [
+                  { id: 'ageing', name: 'Ageing', category: 'Thermal & Mixing', defaultTemp: '4°C', durationHours: 0, durationMinutes: 30, desc: 'Mix aging in refrigerated vats at 4°C' },
+                  { id: 'vat', name: 'VAT', category: 'Thermal & Mixing', defaultTemp: '10°C', durationHours: 0, durationMinutes: 45, desc: 'Holding and agitation in process tanks' },
+                  { id: 'cf', name: 'CF – Cont. Freezer', category: 'Freezing & Molding', defaultTemp: '-5°C', durationHours: 1, durationMinutes: 0, desc: 'Continuous scraped surface freezing' },
+                  { id: 'bf', name: 'BF – Bath Freezer', category: 'Freezing & Molding', defaultTemp: '-20°C', durationHours: 0, durationMinutes: 45, desc: 'Brine tank sub-zero mold immersion' }
+                ];
+
+                return (
+                  <div key={`report-proc-${a.seq || aIdx}`} className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/20 dark:bg-indigo-950/20 space-y-2">
+                    <div className="flex items-center justify-between pb-2 border-b border-indigo-100 dark:border-indigo-900/50 flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-md bg-indigo-600 text-white font-mono text-[10px] font-bold flex items-center justify-center">
+                          #{a.seq || (aIdx + 1)}
+                        </span>
+                        <div className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
+                          <span>{a.productName}</span>
+                          <span className="font-mono text-[10px] text-slate-400 font-normal ml-1.5">({a.productCode || 'FP'})</span>
+                        </div>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                        Product Quantity: {formatIndian(pQty)} {pUom}
+                      </span>
                     </div>
-                    <div>
-                      <span className="block text-[8.5px] uppercase font-bold text-slate-400 font-sans">Duration:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{durText}</span>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {stagesToRender.map((stg, sIdx) => {
+                        const durText = `${stg.durationHours || 0}h ${stg.durationMinutes || 0}m`;
+                        const tempText = stg.targetTemp || stg.defaultTemp || '—';
+                        return (
+                          <div key={stg.id || sIdx} className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9.5px] font-mono font-bold text-indigo-600 dark:text-indigo-400">Stage {sIdx + 1}</span>
+                              <span className="text-[8.5px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                {stg.category || 'Process'}
+                              </span>
+                            </div>
+                            <div className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                              {stg.name}
+                            </div>
+                            <div className="grid grid-cols-2 gap-1 pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] font-mono">
+                              <div>
+                                <span className="block text-[8px] uppercase font-bold text-slate-400 font-sans">Temp:</span>
+                                <span className="font-bold text-blue-600 dark:text-blue-400">{tempText}</span>
+                              </div>
+                              <div>
+                                <span className="block text-[8px] uppercase font-bold text-slate-400 font-sans">Duration:</span>
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{durText}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {(timelineStages && timelineStages.length > 0 ? timelineStages : [
+                { id: 'ageing', name: 'Ageing', category: 'Thermal & Mixing', defaultTemp: '4°C', durationHours: 0, durationMinutes: 30, desc: 'Mix aging in refrigerated vats at 4°C' },
+                { id: 'vat', name: 'VAT', category: 'Thermal & Mixing', defaultTemp: '10°C', durationHours: 0, durationMinutes: 45, desc: 'Holding and agitation in process tanks' },
+                { id: 'cf', name: 'CF – Cont. Freezer', category: 'Freezing & Molding', defaultTemp: '-5°C', durationHours: 1, durationMinutes: 0, desc: 'Continuous scraped surface freezing' },
+                { id: 'bf', name: 'BF – Bath Freezer', category: 'Freezing & Molding', defaultTemp: '-20°C', durationHours: 0, durationMinutes: 45, desc: 'Brine tank sub-zero mold immersion' }
+              ]).map((stg, sIdx) => {
+                const durText = `${stg.durationHours || 0}h ${stg.durationMinutes || 0}m`;
+                const tempText = stg.targetTemp || stg.defaultTemp || '—';
+                return (
+                  <div key={stg.id || sIdx} className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">Step {sIdx + 1}</span>
+                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        {stg.category || 'Process'}
+                      </span>
+                    </div>
+                    <div className="font-extrabold text-xs text-slate-900 dark:text-white">
+                      {stg.name}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px] font-mono">
+                      <div>
+                        <span className="block text-[8.5px] uppercase font-bold text-slate-400 font-sans">Temp:</span>
+                        <span className="font-bold text-blue-600 dark:text-blue-400">{tempText}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[8.5px] uppercase font-bold text-slate-400 font-sans">Duration:</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{durText}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* ── 5C. SECTION: PROCESS WASTAGE, SHRINKAGE & OUTPUT LOSS ACCOUNTING ── */}

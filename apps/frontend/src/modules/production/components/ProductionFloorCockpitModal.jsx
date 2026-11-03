@@ -6,7 +6,7 @@ import {
   Plus, Trash2, ChevronRight, HardHat, FileSpreadsheet, Eye,
   DollarSign, TrendingDown, Package, HelpCircle, ArrowDownRight, Layers2,
   Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, ChevronLeft,
-  Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon
+  Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon, Zap, Users
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -209,6 +209,16 @@ export default function ProductionFloorCockpitModal({
 
   // Costing data (from server)
   const [costingData, setCostingData] = useState(null);
+
+  // Operational Costing & Multi-Product Factory Timeline States
+  const [labourCost, setLabourCost] = useState(0);
+  const [electricityCost, setElectricityCost] = useState(0);
+  const [ebStartReading, setEbStartReading] = useState('');
+  const [ebEndReading, setEbEndReading] = useState('');
+  const [ebRatePerUnit, setEbRatePerUnit] = useState(8.5);
+  const [productLabourMap, setProductLabourMap] = useState({}); // { [productId]: number }
+  const [selectedProductStageTab, setSelectedProductStageTab] = useState('ALL');
+  const [productStagesMap, setProductStagesMap] = useState({}); // { [productId]: stages[] }
 
   // Multi-Product Yield Recording Modal State
   const [showYieldModal, setShowYieldModal] = useState(false);
@@ -668,6 +678,12 @@ export default function ProductionFloorCockpitModal({
       if (detailRes.data.costingSummary) {
         setCostingData(detailRes.data.costingSummary);
       }
+      const rawLabour = Number(b.labour_total_cost ?? detailRes.data.costingSummary?.labourCost ?? 0);
+      setLabourCost(rawLabour);
+      const rawEb = Number(b.eb_total_cost ?? detailRes.data.costingSummary?.utilityCost ?? 0);
+      setElectricityCost(rawEb);
+      if (b.eb_units_kwh) setEbEndReading(String(b.eb_units_kwh));
+      if (b.eb_rate_per_unit) setEbRatePerUnit(Number(b.eb_rate_per_unit));
 
       // Factory Timeline Stages
       const stagesFromBatch = b.timeline_stages || b.timelineStages || detailRes.data.timelineStages;
@@ -756,6 +772,97 @@ export default function ProductionFloorCockpitModal({
       allocations
     });
   }, [availableMixMl, allocations]);
+
+  // Active Finished End Products in Floor Cockpit
+  const activeAllocs = useMemo(() => {
+    if (liveAllocationsResult.allocations && liveAllocationsResult.allocations.length > 0) {
+      return liveAllocationsResult.allocations;
+    }
+    const filtered = (allocations || []).filter(a => a.productId || a.productName);
+    if (filtered.length > 0) return filtered;
+    if (batch?.product) {
+      return [{
+        seq: 1,
+        productId: batch.product.id || batch.productId,
+        productName: batch.product.name,
+        productCode: batch.product.code || batch.product.sku || 'FP',
+        productUom: formatCleanUom(batch.product.consumptionUnit || batch.product.unit || 'pcs', 'pcs', batch.product),
+        goodPieces: Number(batch.quantity || 2000),
+        allocatedBaseMl: Number(availableMixMl || 0)
+      }];
+    }
+    return [];
+  }, [liveAllocationsResult.allocations, allocations, batch?.product, batch?.productId, batch?.quantity, availableMixMl]);
+
+  // Synchronize product labour map when total labourCost or activeAllocs change
+  useEffect(() => {
+    if (!activeAllocs || activeAllocs.length === 0) return;
+    setProductLabourMap(prev => {
+      const keys = Object.keys(prev);
+      const totalAllocated = Object.values(prev).reduce((s, v) => s + (Number(v) || 0), 0);
+      if (keys.length > 0 && totalAllocated > 0 && Math.abs(totalAllocated - labourCost) < 0.01) {
+        return prev;
+      }
+      const totalPieces = activeAllocs.reduce((s, a) => s + Number(a.goodPieces || a.goodUnits || a.plannedQty || 1), 0);
+      const nextMap = {};
+      let remaining = labourCost;
+      activeAllocs.forEach((a, idx) => {
+        const pId = a.productId || `p_${a.seq || idx}`;
+        const pcs = Number(a.goodPieces || a.goodUnits || a.plannedQty || 1);
+        if (idx === activeAllocs.length - 1) {
+          nextMap[pId] = Math.max(0, Math.round(remaining * 100) / 100);
+        } else {
+          const share = totalPieces > 0 ? (pcs / totalPieces) : (1 / activeAllocs.length);
+          const pVal = Math.round((labourCost * share) * 100) / 100;
+          nextMap[pId] = pVal;
+          remaining -= pVal;
+        }
+      });
+      return nextMap;
+    });
+  }, [labourCost, activeAllocs]);
+
+  const handleProductLabourChange = (productId, val) => {
+    const num = Math.max(0, Number(val) || 0);
+    setProductLabourMap(prev => {
+      const next = { ...prev, [productId]: num };
+      const newTotal = Object.values(next).reduce((s, v) => s + (Number(v) || 0), 0);
+      setLabourCost(Math.round(newTotal * 100) / 100);
+      return next;
+    });
+  };
+
+  const handleTotalLabourChange = (val) => {
+    const num = Math.max(0, Number(val) || 0);
+    setLabourCost(num);
+    if (activeAllocs && activeAllocs.length > 0) {
+      const totalPieces = activeAllocs.reduce((s, a) => s + Number(a.goodPieces || a.goodUnits || a.plannedQty || 1), 0);
+      const nextMap = {};
+      let remaining = num;
+      activeAllocs.forEach((a, idx) => {
+        const pId = a.productId || `p_${a.seq || idx}`;
+        const pcs = Number(a.goodPieces || a.goodUnits || a.plannedQty || 1);
+        if (idx === activeAllocs.length - 1) {
+          nextMap[pId] = Math.max(0, Math.round(remaining * 100) / 100);
+        } else {
+          const share = totalPieces > 0 ? (pcs / totalPieces) : (1 / activeAllocs.length);
+          const pVal = Math.round((num * share) * 100) / 100;
+          nextMap[pId] = pVal;
+          remaining -= pVal;
+        }
+      });
+      setProductLabourMap(nextMap);
+    }
+  };
+
+  const handleEbCalc = (start, end, rate) => {
+    const s = Number(start) || 0;
+    const e = Number(end) || 0;
+    const r = Number(rate) || 8.5;
+    const units = Math.max(0, Number((e - s).toFixed(2)));
+    const cost = Math.round((units * r) * 100) / 100;
+    setElectricityCost(cost);
+  };
 
   // Total Base Mix Cost from Step 1 raw materials (takenQty * unitRate)
   const totalBaseMixCost = useMemo(() => {
@@ -1493,13 +1600,21 @@ export default function ProductionFloorCockpitModal({
   const handleSaveFactoryStages = async () => {
     try {
       setSavingStages(true);
-      await api.put(`/production/standard/${batchId}/stages`, { timelineStages });
-      Swal.fire({
-        title: 'Factory Stages Saved!',
-        text: `Persisted ${timelineStages.length} factory stages sequence to database.`,
-        icon: 'success',
-        timer: 1600
+      const ebKwh = ebEndReading && ebStartReading ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2))) : (Number(ebEndReading) || 0);
+      await api.put(`/production/standard/${batchId}/stages`, { 
+        timelineStages,
+        labourTotalCost: labourCost,
+        ebTotalCost: electricityCost,
+        ebUnitsKwh: ebKwh,
+        ebRatePerUnit
       });
+      Swal.fire({
+        title: 'Factory Stages & Costs Saved!',
+        text: `Persisted factory stages, labour cost (₹${labourCost.toLocaleString('en-IN')}) and power cost (₹${electricityCost.toLocaleString('en-IN')}) to database.`,
+        icon: 'success',
+        timer: 1800
+      });
+      if (onBatchUpdated) onBatchUpdated();
     } catch (err) {
       console.error('Failed to save stages:', err);
       Swal.fire({ title: 'Error', text: 'Failed to persist factory stages sequence.', icon: 'error' });
@@ -1550,7 +1665,14 @@ export default function ProductionFloorCockpitModal({
         });
       } else if (stepToSave === 4) {
         setSavingStages(true);
-        await api.put(`/production/standard/${batchId}/stages`, { timelineStages });
+        const ebKwh = ebEndReading && ebStartReading ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2))) : (Number(ebEndReading) || 0);
+        await api.put(`/production/standard/${batchId}/stages`, {
+          timelineStages,
+          labourTotalCost: labourCost,
+          ebTotalCost: electricityCost,
+          ebUnitsKwh: ebKwh,
+          ebRatePerUnit
+        });
       }
       if (onBatchUpdated) onBatchUpdated();
     } catch (saveErr) {
@@ -2255,6 +2377,7 @@ export default function ProductionFloorCockpitModal({
 
     try {
       setCompleting(true);
+      const ebKwh = ebEndReading && ebStartReading ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2))) : (Number(ebEndReading) || 0);
       const res = await api.post(`/production/standard/${batchId}/complete`, {
         actualOutput: totalActual,
         productOutputs: yieldsList.map(p => ({
@@ -2263,7 +2386,8 @@ export default function ProductionFloorCockpitModal({
           actualOutput: Number(p.actualGoodOutput || 0),
           actualGoodOutput: Number(p.actualGoodOutput || 0),
           rejectOutput: Number(p.rejectOutput || 0),
-          uom: p.uom
+          uom: p.uom,
+          labourCost: Number(productLabourMap[p.productId] || 0)
         })),
         productYields: yieldsList.map(p => ({
           seq: p.seq,
@@ -2274,8 +2398,13 @@ export default function ProductionFloorCockpitModal({
           planned: Number(p.planned || 0),
           calculatedYield: Number(p.calculatedYield || 0),
           actualGoodOutput: Number(p.actualGoodOutput || 0),
-          rejectOutput: Number(p.rejectOutput || 0)
+          rejectOutput: Number(p.rejectOutput || 0),
+          labourCost: Number(productLabourMap[p.productId] || 0)
         })),
+        labourTotalCost: labourCost,
+        ebTotalCost: electricityCost,
+        ebUnitsKwh: ebKwh,
+        ebRatePerUnit,
         notes: completionNotes,
         labTestRequired,
         subBatches: completedSubBatches
@@ -2854,7 +2983,12 @@ export default function ProductionFloorCockpitModal({
           ) : viewMode === 'REPORT' ? (
             <ProductionCleanReportView
               batch={batch}
-              costingData={costingData}
+              costingData={{
+                ...costingData,
+                labourCost: labourCost || costingData?.labourCost || 0,
+                utilityCost: electricityCost || costingData?.utilityCost || 0
+              }}
+              allocations={activeAllocs}
               liveAllocationsResult={liveAllocationsResult}
               liveEvaporationResult={liveEvaporationResult}
               rmRows={displayedRmRows}
@@ -4215,21 +4349,27 @@ export default function ProductionFloorCockpitModal({
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
-                  STEP 4: FACTORY STAGES PALETTE & TIMELINE SEQUENCE
+                  STEP 4: FACTORY PROCESS TIMELINE SEQUENCE & STAGE PARAMETERS
               ══════════════════════════════════════════════════════════════════════════ */}
-              <div className={`${activeStep === 4 ? 'block' : 'hidden'} space-y-2`}>
-                <div className="border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 p-3 space-y-2.5 shadow-2xs">
-                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-3xs">
-                        <Layers className="w-3 h-3" />
+              <div className={`${activeStep === 4 ? 'block' : 'hidden'} space-y-4`}>
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 p-4 space-y-4 shadow-xs">
+                  {/* Step Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-3xs">
+                        <Layers className="w-3.5 h-3.5" />
                       </div>
                       <div>
-                        <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
-                          Factory stages palette &amp; Timeline sequence
+                        <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>Factory Process Timeline Sequence &amp; Stage Parameters</span>
+                          {activeAllocs.length > 1 && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
+                              {activeAllocs.length} End Products Added
+                            </span>
+                          )}
                         </h3>
-                        <p className="text-[10px] text-slate-500">
-                          Click stage chip to add/remove • Click any stage to configure temperature &amp; duration • Drag &amp; drop to reorder
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Configure thermal &amp; freezing stages, temperature &amp; duration controls per finished product quantity
                         </p>
                       </div>
                     </div>
@@ -4240,20 +4380,349 @@ export default function ProductionFloorCockpitModal({
                         size="sm"
                         disabled={savingStages}
                         onClick={handleSaveFactoryStages}
-                        className="h-6 px-2.5 text-[10.5px] font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
+                        className="h-7 px-3 text-xs font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1.5"
                       >
-                        {savingStages ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                        <span>Save Timeline Sequence</span>
+                        {savingStages ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        <span>Save Timeline &amp; Cost Parameters</span>
                       </Button>
                     )}
                   </div>
 
-                  <StandardFactoryStagesPalette
-                    stages={timelineStages}
-                    onChangeStages={setTimelineStages}
-                    isEditable={!isCompleted && !isViewMode}
-                    stepNumber={4}
-                  />
+                  {/* Multi-Product Process Navigation (When 2 or more end products exist) */}
+                  {activeAllocs.length > 1 && (
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <Package className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>End Products Process View ({activeAllocs.length} Finished Products):</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Displaying factory process for each end product quantity
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProductStageTab('ALL')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            selectedProductStageTab === 'ALL'
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-750 hover:border-indigo-400'
+                          }`}
+                        >
+                          <Boxes className="w-3.5 h-3.5" />
+                          <span>All {activeAllocs.length} Products (Side-by-Side Processes)</span>
+                        </button>
+
+                        {activeAllocs.map((a, idx) => {
+                          const pId = a.productId || `p_${a.seq || idx}`;
+                          const isSel = selectedProductStageTab === pId;
+                          const pUom = a.productUom || a.bulkUom || 'pcs';
+                          const pQty = a.goodPieces || a.goodUnits || a.plannedQty || 0;
+                          return (
+                            <button
+                              key={`prod-stage-tab-${pId}`}
+                              type="button"
+                              onClick={() => setSelectedProductStageTab(pId)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                isSel
+                                  ? 'bg-purple-600 text-white shadow-xs'
+                                  : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-750 hover:border-purple-400'
+                              }`}
+                            >
+                              <span className="w-4 h-4 rounded-full bg-black/20 text-white text-[9.5px] flex items-center justify-center font-bold">
+                                #{a.seq || (idx + 1)}
+                              </span>
+                              <span>{a.productName}</span>
+                              <span className="text-[10px] opacity-80 font-mono">
+                                ({formatIndian(pQty)} {pUom})
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2 End Products / Multi-Product Display */}
+                  {activeAllocs.length > 1 && selectedProductStageTab === 'ALL' ? (
+                    <div className="space-y-4">
+                      {activeAllocs.map((a, idx) => {
+                        const pId = a.productId || `p_${a.seq || idx}`;
+                        const pStages = productStagesMap[pId] || timelineStages;
+                        const pUom = a.productUom || a.bulkUom || 'pcs';
+                        const pQty = a.goodPieces || a.goodUnits || a.plannedQty || 0;
+                        const pMix = Number(a.allocatedBaseMl || a.mixUsedMl || 0);
+
+                        return (
+                          <div key={`multi-proc-view-${pId}`} className="border-2 border-indigo-100 dark:border-indigo-950/80 rounded-xl p-3.5 bg-indigo-50/20 dark:bg-indigo-950/10 space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-indigo-100 dark:border-indigo-900/50">
+                              <div className="flex items-center gap-2">
+                                <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-mono font-bold text-xs flex items-center justify-center shadow-3xs">
+                                  #{a.seq || (idx + 1)}
+                                </span>
+                                <div>
+                                  <h4 className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                                    <span>{a.productName}</span>
+                                    <span className="font-mono text-[10px] text-slate-400 font-normal">({a.productCode || 'FP'})</span>
+                                  </h4>
+                                  <div className="flex items-center gap-3 text-[11px] font-mono text-slate-500 mt-0.5">
+                                    <span>Target Product Quantity: <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{formatIndian(pQty)} {pUom}</strong></span>
+                                    {pMix > 0 && <span>Mix Volume: <strong className="text-purple-600 dark:text-purple-400 font-bold">{formatIndian(pMix)} ml</strong></span>}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                                  {pStages.length} Factory Process Stages
+                                </span>
+                              </div>
+                            </div>
+
+                            <StandardFactoryStagesPalette
+                              stages={pStages}
+                              onChangeStages={(newStages) => {
+                                setProductStagesMap(prev => ({ ...prev, [pId]: newStages }));
+                                setTimelineStages(newStages);
+                              }}
+                              isEditable={!isCompleted && !isViewMode}
+                              stepNumber={4}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Individual Selected Product View or Single Product View */}
+                      {(() => {
+                        const targetAlloc = (activeAllocs.find(a => (a.productId || `p_${a.seq}`) === selectedProductStageTab)) || activeAllocs[0];
+                        const prodName = targetAlloc?.productName || batch?.product?.name || 'Finished Product';
+                        const prodCode = targetAlloc?.productCode || batch?.product?.code || 'FP';
+                        const prodQty = targetAlloc?.goodPieces || targetAlloc?.goodUnits || targetAlloc?.plannedQty || batch?.quantity || 2000;
+                        const prodUom = targetAlloc?.productUom || targetAlloc?.bulkUom || 'pcs';
+                        const targetId = targetAlloc?.productId || 'default';
+                        const targetStages = productStagesMap[targetId] || timelineStages;
+
+                        return (
+                          <div className="space-y-3">
+                            <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-2.5">
+                                <Package className="w-5 h-5 text-indigo-600 shrink-0" />
+                                <div>
+                                  <div className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                                    <span>Factory Process for: <strong className="text-indigo-700 dark:text-indigo-300">{prodName}</strong></span>
+                                    <span className="font-mono text-[10px] text-slate-400">({prodCode})</span>
+                                  </div>
+                                  <div className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
+                                    Target Product Quantity: <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{formatIndian(prodQty)} {prodUom}</strong>
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                                {targetStages.length} Stages Configured
+                              </span>
+                            </div>
+
+                            <StandardFactoryStagesPalette
+                              stages={targetStages}
+                              onChangeStages={(newStages) => {
+                                setProductStagesMap(prev => ({ ...prev, [targetId]: newStages }));
+                                setTimelineStages(newStages);
+                              }}
+                              isEditable={!isCompleted && !isViewMode}
+                              stepNumber={4}
+                            />
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* ── OPERATIONAL COSTS: ELECTRICITY AMOUNT & LABOUR AMOUNT ── */}
+                  <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-500" />
+                        <h4 className="text-xs font-black uppercase text-slate-900 dark:text-white tracking-wider">
+                          Operational Costs: Electricity Amount &amp; Labour Amount
+                        </h4>
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        Enter operational charges to dynamically recalculate each product unit cost
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Card 1: Electricity / Power Amount */}
+                      <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/20 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-amber-600" />
+                            <span>1. Electricity / Power Amount (₹)</span>
+                          </span>
+                          <span className="font-mono font-black text-xs text-amber-700 dark:text-amber-300">
+                            Total: ₹{electricityCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                              Electricity Amount (₹) *
+                            </label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              disabled={isCompleted || isViewMode}
+                              value={electricityCost || ''}
+                              onChange={(e) => setElectricityCost(Math.max(0, parseFloat(e.target.value) || 0))}
+                              placeholder="e.g. 750"
+                              className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                              Rate per Unit (₹/kWh)
+                            </label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              disabled={isCompleted || isViewMode}
+                              value={ebRatePerUnit || ''}
+                              onChange={(e) => {
+                                const r = parseFloat(e.target.value) || 8.5;
+                                setEbRatePerUnit(r);
+                                if (ebEndReading && ebStartReading) {
+                                  handleEbCalc(ebStartReading, ebEndReading, r);
+                                }
+                              }}
+                              placeholder="8.50"
+                              className="h-8 font-mono text-xs bg-white dark:bg-slate-900"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Optional EB Meter Input */}
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                          <div>
+                            <label className="text-[9px] text-slate-400 uppercase block">Start Reading (kWh)</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              disabled={isCompleted || isViewMode}
+                              value={ebStartReading}
+                              onChange={(e) => {
+                                setEbStartReading(e.target.value);
+                                if (ebEndReading) handleEbCalc(e.target.value, ebEndReading, ebRatePerUnit);
+                              }}
+                              placeholder="0"
+                              className="h-7 text-[11px] font-mono bg-white dark:bg-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] text-slate-400 uppercase block">End Reading (kWh)</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              disabled={isCompleted || isViewMode}
+                              value={ebEndReading}
+                              onChange={(e) => {
+                                setEbEndReading(e.target.value);
+                                handleEbCalc(ebStartReading, e.target.value, ebRatePerUnit);
+                              }}
+                              placeholder="0"
+                              className="h-7 text-[11px] font-mono bg-white dark:bg-slate-900"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 2: Labour Amount (with Multi-Product Allocation) */}
+                      <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>2. Direct Labour Amount (₹)</span>
+                          </span>
+                          <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300">
+                            Total: ₹{labourCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                            Total Labour Amount (₹) *
+                          </label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="any"
+                            disabled={isCompleted || isViewMode}
+                            value={labourCost || ''}
+                            onChange={(e) => handleTotalLabourChange(parseFloat(e.target.value) || 0)}
+                            placeholder="e.g. 1500"
+                            className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
+                          />
+                        </div>
+
+                        {/* Each Product's Labour Amount */}
+                        {activeAllocs.length > 1 && (
+                          <div className="space-y-1.5 pt-1 border-t border-indigo-200/60 dark:border-indigo-900/40">
+                            <span className="text-[9.5px] font-bold text-slate-500 uppercase block">
+                              Labour Amount per End Product (Live Update):
+                            </span>
+
+                            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                              {activeAllocs.map((a, idx) => {
+                                const pId = a.productId || `p_${a.seq || idx}`;
+                                const pVal = productLabourMap[pId] ?? 0;
+                                const pQty = Number(a.goodPieces || a.goodUnits || a.plannedQty || 1);
+                                const pUom = a.productUom || a.bulkUom || 'pcs';
+                                const unitRate = pQty > 0 ? (pVal / pQty) : 0;
+                                const pct = labourCost > 0 ? Math.round((pVal / labourCost) * 100) : 0;
+
+                                return (
+                                  <div key={`p-labour-${pId}`} className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-800 flex items-center justify-between gap-2 text-xs">
+                                    <div className="min-w-0">
+                                      <div className="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1 text-[11px]">
+                                        <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[9px] flex items-center justify-center font-bold">
+                                          #{a.seq || (idx + 1)}
+                                        </span>
+                                        <span className="truncate">{a.productName}</span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 font-mono">
+                                        {formatIndian(pQty)} {pUom} • <strong className="text-indigo-600 dark:text-indigo-400">₹{unitRate.toFixed(2)} / {pUom}</strong> ({pct}%)
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <span className="text-[11px] font-bold font-mono text-slate-500">₹</span>
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        disabled={isCompleted || isViewMode}
+                                        value={pVal || ''}
+                                        onChange={(e) => handleProductLabourChange(pId, parseFloat(e.target.value) || 0)}
+                                        className="h-7 w-20 text-right font-mono font-bold text-xs bg-slate-50 dark:bg-slate-800"
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -4343,7 +4812,9 @@ export default function ProductionFloorCockpitModal({
 
                           const assignedBase = bMl * baseCostPerMl;
                           const assignedRm = prms.reduce((s, r) => s + (Number(r.totalCost) > 0 ? Number(r.totalCost) : (Number(r.takenQty ?? r.qty ?? 0) * Number(r.unitRate || 0))), 0);
-                          const totProdCost = assignedBase + assignedRm;
+                          const pLabour = Number(productLabourMap[a.productId] ?? (labourCost * (totMl > 0 ? (totMl / (availableMixMl || 1)) : (1 / (activeAllocs.length || 1)))) ?? 0);
+                          const pElectricity = Number(electricityCost * (totMl > 0 ? (totMl / (availableMixMl || 1)) : (1 / (activeAllocs.length || 1))) || 0);
+                          const totProdCost = assignedBase + assignedRm + pLabour + pElectricity;
 
                           let outQty = 0;
                           if (isM) {
@@ -4496,27 +4967,35 @@ export default function ProductionFloorCockpitModal({
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                         <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
                           <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Total Material Cost</div>
-                          <div className="text-sm font-mono font-black text-slate-900 dark:text-white mt-0.5">₹{costingData.totalMaterialCost}</div>
+                          <div className="text-sm font-mono font-black text-slate-900 dark:text-white mt-0.5">₹{formatIndian(costingData?.totalMaterialCost ?? totalBaseMixCost)}</div>
                         </div>
 
                         <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
                           <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Wastage Loss Cost</div>
-                          <div className="text-sm font-mono font-black text-rose-600 dark:text-rose-400 mt-0.5">₹{costingData.totalWastageCost}</div>
+                          <div className="text-sm font-mono font-black text-rose-600 dark:text-rose-400 mt-0.5">₹{formatIndian(costingData?.totalWastageCost ?? totalWastageCost)}</div>
                         </div>
 
                         <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
                           <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Labour Cost</div>
-                          <div className="text-sm font-mono font-black text-amber-600 dark:text-amber-300 mt-0.5">₹{costingData.labourCost}</div>
+                          <div className="text-sm font-mono font-black text-amber-600 dark:text-amber-300 mt-0.5">₹{formatIndian(labourCost || costingData?.labourCost || 0)}</div>
                         </div>
 
                         <div className="bg-slate-50 dark:bg-slate-800/80 p-2 rounded border border-slate-200 dark:border-slate-700 shadow-3xs">
                           <div className="text-[9.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Utility / EB Cost</div>
-                          <div className="text-sm font-mono font-black text-blue-600 dark:text-blue-300 mt-0.5">₹{costingData.utilityCost}</div>
+                          <div className="text-sm font-mono font-black text-blue-600 dark:text-blue-300 mt-0.5">₹{formatIndian(electricityCost || costingData?.utilityCost || 0)}</div>
                         </div>
 
                         <div className="bg-emerald-50 dark:bg-emerald-950/80 p-2 rounded border border-emerald-300 dark:border-emerald-700 shadow-3xs">
                           <div className="text-[9.5px] font-bold uppercase text-emerald-800 dark:text-emerald-400">Total Production Cost</div>
-                          <div className="text-base font-mono font-black text-emerald-950 dark:text-emerald-300 mt-0.5">₹{costingData.totalProductionCost}</div>
+                          <div className="text-base font-mono font-black text-emerald-950 dark:text-emerald-300 mt-0.5">
+                            ₹{formatIndian(
+                              (costingData?.totalMaterialCost ?? totalBaseMixCost) +
+                              (costingData?.totalWastageCost ?? totalWastageCost) +
+                              (labourCost || costingData?.labourCost || 0) +
+                              (electricityCost || costingData?.utilityCost || 0) +
+                              Number(costingData?.overheadCost ?? batch?.overheadAmt ?? 0)
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -5121,6 +5600,41 @@ export default function ProductionFloorCockpitModal({
                   placeholder="Enter batch completion remarks, packaging line notes, or quality observations..."
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-2.5 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
                 />
+              </div>
+
+              {/* Confirmed Operational Costs: Labour & Electricity */}
+              <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
+                <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
+                  Operational Costs for Final Batch Costing:
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                      Direct Labour Amount (₹)
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={labourCost || ''}
+                      onChange={(e) => handleTotalLabourChange(parseFloat(e.target.value) || 0)}
+                      className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                      Electricity Amount (₹)
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={electricityCost || ''}
+                      onChange={(e) => setElectricityCost(Math.max(0, parseFloat(e.target.value) || 0))}
+                      className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* QA Lab Testing Toggle */}

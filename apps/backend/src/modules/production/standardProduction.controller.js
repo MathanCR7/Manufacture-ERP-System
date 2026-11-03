@@ -1932,7 +1932,13 @@ class StandardProductionController {
         subBatchLetter = 'A',
         isFinalize = true,
         productOutputs = [],
-        productYields = []
+        productYields = [],
+        labourTotalCost,
+        labourCost,
+        ebTotalCost,
+        utilityCost,
+        ebUnitsKwh,
+        ebRatePerUnit
       } = req.body || {};
 
       // Existence and status pre-check outside transaction
@@ -2207,6 +2213,11 @@ class StandardProductionController {
         const finalStatus = labTestRequired ? 'Lab Test In Progress' : 'Completed';
         const qcStatus = labTestRequired ? 'PENDING' : 'EXEMPT';
 
+        const finalLabour = labourTotalCost !== undefined && labourTotalCost !== null ? Number(labourTotalCost) : (labourCost !== undefined && labourCost !== null ? Number(labourCost) : null);
+        const finalEb = ebTotalCost !== undefined && ebTotalCost !== null ? Number(ebTotalCost) : (utilityCost !== undefined && utilityCost !== null ? Number(utilityCost) : null);
+        const finalUnits = ebUnitsKwh !== undefined && ebUnitsKwh !== null ? Number(ebUnitsKwh) : null;
+        const finalRate = ebRatePerUnit !== undefined && ebRatePerUnit !== null ? Number(ebRatePerUnit) : null;
+
         await tx.$executeRawUnsafe(`
           UPDATE production_batches
           SET 
@@ -2220,6 +2231,10 @@ class StandardProductionController {
             note = COALESCE(note, '') || ' ' || $8,
             completed_at = CURRENT_TIMESTAMP,
             completed_by = $9,
+            labour_total_cost = COALESCE($10, labour_total_cost),
+            eb_total_cost = COALESCE($11, eb_total_cost),
+            eb_units_kwh = COALESCE($12, eb_units_kwh),
+            eb_rate_per_unit = COALESCE($13, eb_rate_per_unit),
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
         `, id, finalStatus, qcStatus, 
@@ -2228,7 +2243,11 @@ class StandardProductionController {
            totalRejects,
            JSON.stringify(yieldsList),
            notes ? `[Sub-Run ${subBatchLetter}]: ${notes}` : `[Sub-Run ${subBatchLetter}] Completed`, 
-           operatorName);
+           operatorName,
+           finalLabour,
+           finalEb,
+           finalUnits,
+           finalRate);
 
         // Update RM usages status to CONSUMED upon batch completion
         try {
@@ -2324,17 +2343,47 @@ class StandardProductionController {
   async updateStages(req, res, next) {
     try {
       const { id } = req.params;
-      const { timelineStages = [] } = req.body || {};
+      const { 
+        timelineStages = [],
+        labourCost,
+        labourTotalCost,
+        utilityCost,
+        ebTotalCost,
+        ebUnitsKwh,
+        ebRatePerUnit,
+        productYields
+      } = req.body || {};
+
+      const finalLabour = labourTotalCost !== undefined && labourTotalCost !== null ? Number(labourTotalCost) : (labourCost !== undefined && labourCost !== null ? Number(labourCost) : null);
+      const finalEb = ebTotalCost !== undefined && ebTotalCost !== null ? Number(ebTotalCost) : (utilityCost !== undefined && utilityCost !== null ? Number(utilityCost) : null);
+      const finalUnits = ebUnitsKwh !== undefined && ebUnitsKwh !== null ? Number(ebUnitsKwh) : null;
+      const finalRate = ebRatePerUnit !== undefined && ebRatePerUnit !== null ? Number(ebRatePerUnit) : null;
+
       await prisma.$executeRawUnsafe(`
         UPDATE production_batches
-        SET timeline_stages = $2::jsonb, updated_at = CURRENT_TIMESTAMP
+        SET timeline_stages = $2::jsonb,
+            labour_total_cost = COALESCE($3, labour_total_cost),
+            eb_total_cost = COALESCE($4, eb_total_cost),
+            eb_units_kwh = COALESCE($5, eb_units_kwh),
+            eb_rate_per_unit = COALESCE($6, eb_rate_per_unit),
+            product_yields = COALESCE($7::jsonb, product_yields),
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = $1;
-      `, id, JSON.stringify(timelineStages));
+      `, id, 
+         JSON.stringify(timelineStages),
+         finalLabour,
+         finalEb,
+         finalUnits,
+         finalRate,
+         productYields ? JSON.stringify(productYields) : null
+      );
 
       res.json({
         success: true,
-        message: 'Factory stages and timeline sequence updated successfully',
-        timelineStages
+        message: 'Factory stages, labour cost and utilities updated successfully',
+        timelineStages,
+        labourCost: finalLabour,
+        ebTotalCost: finalEb
       });
     } catch (err) {
       console.error('Error updating factory stages:', err);
