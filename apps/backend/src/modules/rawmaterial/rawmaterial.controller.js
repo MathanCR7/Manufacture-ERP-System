@@ -2294,153 +2294,52 @@ exports.getStock = async (req, res, next) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    const [rms, pos] = await Promise.all([
-      prisma.rawMaterial.findMany({
-        include: { category: true },
-        orderBy: { name: 'asc' },
-      }),
-      prisma.rawMaterialPO.findMany({
-        where: { status: { not: 'DELETED' } },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          referenceNo: true,
-          rmId: true,
-          name: true,
-          quantity: true,
-          amount: true,
-          subtotal: true,
-          grandTotal: true,
-          items: true,
-          createdAt: true,
-          status: true,
-        }
-      })
-    ]);
+    const result = await computeRmStockCore({ period: 'all' });
+    const stock = result.materials.map(m => ({
+      id: m.id,
+      code: m.code,
+      name: m.name,
+      category: m.category,
+      categoryId: m.categoryId,
+      createdAt: m.createdAt,
+      currentStock: m.currentStock,
+      stock: m.currentStock,
+      availableQuantity: m.availableStock,
+      floatingStock: 0,
+      unit: m.uom,
+      alertLevel: m.alertLevel,
+      hasAlternateUom: Boolean(m.hasAlternateUom),
+      alternateUom: m.alternateUom || null,
+      conversionFactor: Number(m.conversionFactor || 1),
+      consumptionUnit: m.consumptionUnit || null,
+      baseUomQty: Number(m.baseUomQty || 1),
+      alternateUomQty: Number(m.alternateUomQty || 1),
 
-    const stock = rms.map(rm => {
-      let matchedPo = null;
-      let matchedItem = null;
+      // PO Derived Line Rate Per Quantity
+      hasPo: m.hasPo,
+      rateWithoutTax: m.rateWithoutTax,
+      rateWithTax: m.rateWithTax,
+      ratePerUnit: m.rateWithTax,
+      baseRate: m.rateWithoutTax,
+      gstPercentage: m.gstPercentage,
+      gstApplicable: m.gstApplicable,
 
-      for (const po of pos) {
-        if (Array.isArray(po.items)) {
-          const it = po.items.find(i => {
-            if (i.id === rm.id || i.rmId === rm.code || i.rmId === rm.id || i.id === rm.code) {
-              return true;
-            }
-            // Only legacy items without id and rmId: require both matching name AND matching category
-            if (!i.id && !i.rmId && i.name && i.name.trim().toLowerCase() === rm.name.trim().toLowerCase()) {
-              const itemCat = (i.category || i.categoryName || '').trim().toLowerCase();
-              const rmCat = (rm.category?.name || '').trim().toLowerCase();
-              return !itemCat || !rmCat || itemCat === rmCat;
-            }
-            return false;
-          });
-          if (it) {
-            matchedPo = po;
-            matchedItem = it;
-            break;
-          }
-        } else if (
-          po.rmId === rm.code ||
-          po.rmId === rm.id
-        ) {
-          matchedPo = po;
-          break;
-        }
-      }
+      // Stock Valuation
+      valueWithoutTax: m.valueWithoutTax,
+      valueWithTax: m.valueWithTax,
+      value: m.valueWithTax,
+      taxValue: m.taxValue,
 
-      let rateWithoutTax = 0;
-      let rateWithTax = 0;
-      let gstPercentage = 0;
-      let gstApplicable = false;
-      let poRef = null;
-      let poDate = null;
-      let poLineQty = null;
-      let poLineSubtotal = null;
-      let poLineTotalWithTax = null;
+      // PO Line Details
+      poReferenceNo: m.poReferenceNo,
+      poDate: m.poDate,
+      poLineQty: m.poLineQty || null,
+      poLineSubtotal: m.poLineSubtotal || null,
+      poLineTotalWithTax: m.poLineTotalWithTax || null,
 
-      if (matchedPo) {
-        poRef = matchedPo.referenceNo;
-        poDate = matchedPo.createdAt;
-        if (matchedItem) {
-          poLineQty = Number(matchedItem.quantity || 0);
-          const unitPrice = Number(matchedItem.unitPrice || 0);
-          gstApplicable = matchedItem.gstApplicable !== false;
-          gstPercentage = gstApplicable ? Number(matchedItem.gstPercentage || 0) : 0;
-          
-          poLineSubtotal = poLineQty > 0 ? (poLineQty * unitPrice) : (Number(matchedItem.total) || unitPrice);
-          const lineTax = gstApplicable ? (poLineSubtotal * (gstPercentage / 100)) : 0;
-          poLineTotalWithTax = poLineSubtotal + lineTax;
-
-          rateWithoutTax = poLineQty > 0 ? (poLineSubtotal / poLineQty) : unitPrice;
-          rateWithTax = poLineQty > 0 ? (poLineTotalWithTax / poLineQty) : (unitPrice * (1 + gstPercentage / 100));
-        } else {
-          poLineQty = Number(matchedPo.quantity || 1);
-          poLineSubtotal = Number(matchedPo.subtotal) || Number(matchedPo.amount || 0);
-          poLineTotalWithTax = Number(matchedPo.grandTotal) || Number(matchedPo.amount || 0);
-          rateWithoutTax = poLineQty > 0 ? poLineSubtotal / poLineQty : poLineSubtotal;
-          rateWithTax = poLineQty > 0 ? poLineTotalWithTax / poLineQty : poLineTotalWithTax;
-          gstApplicable = poLineTotalWithTax > poLineSubtotal;
-          gstPercentage = rateWithoutTax > 0 ? Math.round(((rateWithTax - rateWithoutTax) / rateWithoutTax) * 100) : 0;
-        }
-      }
-
-      const qty = Number(rm.currentStock) || 0;
-      const hasPo = !!matchedPo && rateWithoutTax > 0;
-
-      const roundedRateWithoutTax = hasPo ? Math.round(rateWithoutTax * 100) / 100 : 0;
-      const roundedRateWithTax = hasPo ? Math.round(rateWithTax * 100) / 100 : 0;
-      const valueWithoutTax = hasPo ? Math.round((qty * roundedRateWithoutTax) * 100) / 100 : 0;
-      const valueWithTax = hasPo ? Math.round((qty * roundedRateWithTax) * 100) / 100 : 0;
-      const taxValue = Math.round((valueWithTax - valueWithoutTax) * 100) / 100;
-
-      return {
-        id: rm.id,
-        code: rm.code,
-        name: rm.name,
-        category: rm.category?.name || 'Uncategorised',
-        categoryId: rm.categoryId,
-        createdAt: rm.createdAt,
-        currentStock: qty,
-        stock: qty,
-        availableQuantity: qty,
-        floatingStock: 0,
-        unit: rm.unitId,
-        alertLevel: rm.alertLevel,
-        hasAlternateUom: Boolean(rm.hasAlternateUom),
-        alternateUom: rm.alternateUom || null,
-        conversionFactor: Number(rm.conversionFactor || 1),
-        consumptionUnit: rm.consumptionUnit || null,
-        baseUomQty: Number(rm.baseUomQty || 1),
-        alternateUomQty: Number(rm.alternateUomQty || 1),
-
-        // PO Derived Line Rate Per Quantity
-        hasPo,
-        rateWithoutTax: roundedRateWithoutTax,
-        rateWithTax: roundedRateWithTax,
-        ratePerUnit: roundedRateWithTax, // default rate per unit is with tax
-        baseRate: roundedRateWithoutTax,
-        gstPercentage,
-        gstApplicable,
-
-        // Stock Valuation
-        valueWithoutTax,
-        valueWithTax,
-        value: valueWithTax, // default stock value is with tax
-        taxValue,
-
-        // PO Line Details
-        poReferenceNo: poRef,
-        poDate,
-        poLineQty,
-        poLineSubtotal,
-        poLineTotalWithTax,
-
-        // Master Standard Rate (reference only, not considered for stock valuation)
-        masterStandardRate: Number(rm.ratePerUnit || 0)
-      };
-    });
+      // Master Standard Rate (reference only, not considered for stock valuation)
+      masterStandardRate: m.masterStandardRate || 0
+    }));
 
     res.json(stock);
   } catch (error) {
@@ -3723,19 +3622,14 @@ exports.updatePOSupplierInvoice = async (req, res, next) => {
   }
 };
 
-exports.getRmInOutStock = async (req, res, next) => {
-  try {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-
-    const {
-      period = 'all',
-      startDate,
-      endDate,
-      categoryId,
-      search
-    } = req.query;
+async function computeRmStockCore(queryParams = {}) {
+  const {
+    period = 'all',
+    startDate,
+    endDate,
+    categoryId,
+    search
+  } = queryParams;
 
     const now = new Date();
     let rangeStart = null;
@@ -4030,7 +3924,10 @@ exports.getRmInOutStock = async (req, res, next) => {
                 poRef: po.referenceNo,
                 poId: po.id,
                 poDate: po.createdAt,
-                supplierName: po.supplier?.name || ''
+                supplierName: po.supplier?.name || '',
+                poLineQty,
+                poLineSubtotal,
+                poLineTotalWithTax
               });
             }
 
@@ -4079,7 +3976,10 @@ exports.getRmInOutStock = async (req, res, next) => {
               poRef: po.referenceNo,
               poId: po.id,
               poDate: po.createdAt,
-              supplierName: po.supplier?.name || ''
+              supplierName: po.supplier?.name || '',
+              poLineQty: qty,
+              poLineSubtotal: poSubtotal,
+              poLineTotalWithTax: poGrandTotal
             });
           }
 
@@ -4717,15 +4617,17 @@ exports.getRmInOutStock = async (req, res, next) => {
       const hasMovementInPeriod = (periodIn > 0 || periodOut > 0);
 
       // Period Stock Balance:
-      // When a specific period filter (e.g. Today, This Year, This Week, This Month, or Custom) is active,
-      // stock reflects the net receipts / movements in that timeframe: periodIn - periodOut.
-      // If there was no activity in this timeframe, period stock is 0.
-      // When reviewing lifetime ('all'), curStock reflects physical warehouse stock (liveStock).
+      // When reviewing lifetime ('all'), curStock reflects physical warehouse stock:
+      // Reconciled from total inward receipts minus all completed outward deductions (adjustments, production, waste, returns)
       let curStock = liveStock;
+      if (txData.lifetimeIn > 0 || txData.lifetimeOut > 0) {
+        const netMovementStock = Math.max(0, Math.round(((Number(rm.openingStock || 0) + txData.lifetimeIn) - txData.lifetimeOut) * 1000) / 1000);
+        curStock = netMovementStock;
+      }
       if (isPeriodFiltered) {
         curStock = Math.max(0, Math.round((periodIn - periodOut) * 1000) / 1000);
       } else if (isHistorical) {
-        curStock = Math.max(0, Math.round((liveStock - txData.postPeriodIn + txData.postPeriodOut) * 1000) / 1000);
+        curStock = Math.max(0, Math.round((curStock - txData.postPeriodIn + txData.postPeriodOut) * 1000) / 1000);
       }
 
       const alert = Number(rm.alertLevel || 0);
@@ -4859,6 +4761,13 @@ exports.getRmInOutStock = async (req, res, next) => {
         category: rm.category?.name || 'Uncategorised',
         categoryId: rm.categoryId,
         uom: rm.unitId,
+        createdAt: rm.createdAt,
+        hasAlternateUom: Boolean(rm.hasAlternateUom),
+        alternateUom: rm.alternateUom || null,
+        conversionFactor: Number(rm.conversionFactor || 1),
+        consumptionUnit: rm.consumptionUnit || null,
+        baseUomQty: Number(rm.baseUomQty || 1),
+        alternateUomQty: Number(rm.alternateUomQty || 1),
         currentStock: curStock,
         liveStock,
         isHistorical,
@@ -4884,6 +4793,9 @@ exports.getRmInOutStock = async (req, res, next) => {
         poReferenceNo: hasPo ? poRateInfo?.poRef : null,
         latestPoId: hasPo ? poRateInfo?.poId : null,
         poDate: hasPo ? poRateInfo?.poDate : null,
+        poLineQty: poRateInfo?.poLineQty || null,
+        poLineSubtotal: poRateInfo?.poLineSubtotal || null,
+        poLineTotalWithTax: poRateInfo?.poLineTotalWithTax || null,
         masterStandardRate: Number(rm.ratePerUnit || 0),
         periodInQty: periodIn,
         periodOutQty: periodOut,
@@ -4901,8 +4813,7 @@ exports.getRmInOutStock = async (req, res, next) => {
       ? materials.filter(m => (m.periodInQty > 0 || m.periodOutQty > 0))
       : materials;
 
-    res.json({
-      success: true,
+    return {
       period,
       periodLabel,
       periodDateRange,
@@ -4932,6 +4843,21 @@ exports.getRmInOutStock = async (req, res, next) => {
       },
       materials: returnedMaterials,
       allTransactions
+    };
+}
+
+exports.computeRmStockCore = computeRmStockCore;
+
+exports.getRmInOutStock = async (req, res, next) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const result = await computeRmStockCore(req.query || {});
+    res.json({
+      success: true,
+      ...result
     });
   } catch (error) {
     next(error);

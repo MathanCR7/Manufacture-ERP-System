@@ -24,6 +24,7 @@ class ItemSetupRepository {
       createdAt, 
       updatedAt, 
       id: _, 
+      currentStock: _cs,
       stockAdjustments, 
       wasteItems, 
       productBOMs, 

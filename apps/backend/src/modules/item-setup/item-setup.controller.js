@@ -98,6 +98,7 @@ const getNonInventoryPOReferences = async (itemId, itemCode) => {
 
 const sanitizeRawMaterialData = (raw) => {
   const data = { ...raw };
+  delete data.currentStock;
   if (data.ratePerUnit !== undefined) data.ratePerUnit = parseFloat(data.ratePerUnit) || 0;
   if (data.openingStock !== undefined) data.openingStock = parseFloat(data.openingStock) || 0;
   if (data.alertLevel !== undefined) data.alertLevel = parseFloat(data.alertLevel) || 0;
