@@ -281,7 +281,7 @@ export function calculateAllocations({
     const capacityMl = Number(item.capacityMl || item.capacity_ml || 0);
     const cavities = item.cavities !== undefined && item.cavities !== null 
       ? Number(item.cavities) 
-      : (item.cavityCount ? Number(item.cavityCount) : 1);
+      : (item.cavityCount ? Number(item.cavityCount) : (useMould ? 42 : 1));
     const trays = Number(item.trays || 0);
     const wasteMode = item.wasteMode || item.waste_mode || 'PERCENT';
     const wasteVal = Number(item.wasteValue ?? item.waste_value ?? 0);

@@ -137,9 +137,11 @@ async function ensureStandardProductionSchema(p = prisma) {
           evaporated_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (evaporated_ml >= 0),
           mix_after_evap_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_after_evap_ml >= 0),
           locked BOOLEAN NOT NULL DEFAULT FALSE,
+          is_slide_merged BOOLEAN DEFAULT FALSE,
           updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
       `);
+      await p.$executeRawUnsafe(`ALTER TABLE production_batch_merge ADD COLUMN IF NOT EXISTS is_slide_merged BOOLEAN DEFAULT FALSE;`);
     } catch (_) {}
 
     // Ensure production_batch_allocation
@@ -796,7 +798,8 @@ class StandardProductionController {
         lines = [],
         mergeStage = 'Before freezing',
         evaporationPct = 5.0,
-        evaporationApplied = true
+        evaporationApplied = true,
+        isSlideMerged = undefined
       } = req.body || {};
 
       const result = await prisma.$transaction(async (tx) => {
@@ -1018,14 +1021,15 @@ class StandardProductionController {
         }
 
         // Persist computed merge results into production_batch_merge
+        const effectiveSlideMerged = Boolean(isSlideMerged !== undefined ? isSlideMerged : (computed.totalBeforeEvapMl > 0));
         try {
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_merge (
               batch_id, merge_stage, merged_total_ml, evaporation_pct,
-              evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, updated_at
+              evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, is_slide_merged, updated_at
             ) VALUES (
               $1, $2, $3, $4,
-              $5, $6, $7, false, CURRENT_TIMESTAMP
+              $5, $6, $7, false, $8, CURRENT_TIMESTAMP
             )
             ON CONFLICT (batch_id) DO UPDATE SET
               merge_stage = EXCLUDED.merge_stage,
@@ -1034,9 +1038,10 @@ class StandardProductionController {
               evaporation_applied = EXCLUDED.evaporation_applied,
               evaporated_ml = EXCLUDED.evaporated_ml,
               mix_after_evap_ml = EXCLUDED.mix_after_evap_ml,
+              is_slide_merged = EXCLUDED.is_slide_merged,
               updated_at = CURRENT_TIMESTAMP;
           `, id, computed.mergeStage, computed.totalBeforeEvapMl, computed.evaporationPct,
-             computed.evaporationApplied, computed.evaporatedMl, computed.mixAfterEvapMl);
+             computed.evaporationApplied, computed.evaporatedMl, computed.mixAfterEvapMl, effectiveSlideMerged);
         } catch (mErr) {
           console.warn('Notice persisting to production_batch_merge:', mErr.message);
         }
@@ -1519,11 +1524,19 @@ class StandardProductionController {
 
       const enrichedAllocs = allocations.map((a, idx) => {
         const match = savedMouldAllocs.find(s => s.seq === a.seq || s.productId === a.product_id) || savedMouldAllocs[idx] || {};
+        let parsedProductRms = [];
+        if (Array.isArray(match.productRms) && match.productRms.length > 0) {
+          parsedProductRms = match.productRms;
+        } else if (Array.isArray(a.product_rms) && a.product_rms.length > 0) {
+          parsedProductRms = a.product_rms;
+        } else if (typeof a.product_rms === 'string' && a.product_rms.trim().startsWith('[')) {
+          try { parsedProductRms = JSON.parse(a.product_rms); } catch (_) {}
+        }
         return {
           ...match,
           ...a,
           allocatedBaseMl: Number(match.allocatedBaseMl ?? a.mix_used_ml ?? 0),
-          productRms: Array.isArray(match.productRms) ? match.productRms : [],
+          productRms: parsedProductRms,
           useMould: a.use_mould !== undefined ? Boolean(a.use_mould) : (match.useMould !== undefined ? Boolean(match.useMould) : true),
           bulkUom: match.bulkUom || a.product_unit || 'L'
         };
@@ -1703,6 +1716,8 @@ class StandardProductionController {
           return {
             ...r,
             density: Number(r.density || 1.0),
+            evaporates: Boolean(r.evaporates ?? r.master_evaporates ?? false),
+            merged: Boolean(r.merged ?? true),
             available_qty: effectiveAvailableQty,
             warehouse_stock: Number(r.current_stock || 0),
             current_stock: Number(r.current_stock || 0),
@@ -1721,6 +1736,7 @@ class StandardProductionController {
         }),
         mergeData: mergeData ? {
           ...mergeData,
+          is_slide_merged: Boolean(mergeData.is_slide_merged ?? (Number(mergeData.merged_total_ml) > 0)),
           merged_total_ml: Number(mergeData.merged_total_ml),
           evaporation_pct: Number(mergeData.evaporation_pct),
           evaporated_ml: Number(mergeData.evaporated_ml),

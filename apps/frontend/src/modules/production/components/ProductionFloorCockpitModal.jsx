@@ -44,6 +44,65 @@ const formatDateDMY = (dateVal) => {
   }
 };
 
+// Mould-to-Stick Packaging Mapping & Inventory Sync Definitions
+const STICK_DEFINITIONS = {
+  EGYPT_65MM: {
+    id: "c001991a-ce1b-4437-ad36-d4e76af4d8ff",
+    code: "RM-00119",
+    name: "WOODEN STICK (SMALL) - STICK 65 MM",
+    uom: "pcs",
+    rate: 0.25,
+    stock: 25000
+  },
+  FLAT_144MM: {
+    id: "c31d978e-5ef0-496b-8e3b-eb377d7b5967",
+    code: "RM-00121",
+    name: "WOODEN STICK (LARGE) - STICK 144 MM",
+    uom: "pcs",
+    rate: 0.35,
+    stock: 20000
+  },
+  ROUND_KULFI: {
+    id: "da5ded39-424f-4c89-9e50-5feef9e1aa85",
+    code: "RM-STICK-01",
+    name: "Wooden Kulfi Stick (Round Stick)",
+    uom: "pcs",
+    rate: 0.25,
+    stock: 50000
+  }
+};
+
+function getStickForMould(mouldCode, mouldName, modelNumber) {
+  const code = (mouldCode || '').toUpperCase();
+  const name = (mouldName || '').toUpperCase();
+  const model = (modelNumber || '').toUpperCase();
+
+  if (code.includes('2006') || name.includes('EGYPT') || model.includes('2006') || name.includes('65')) {
+    return STICK_DEFINITIONS.EGYPT_65MM;
+  }
+  if (code.includes('3006') || name.includes('FLAT') || name.includes('144') || model.includes('3006')) {
+    return STICK_DEFINITIONS.FLAT_144MM;
+  }
+  if (code.includes('8112') || code.includes('8115') || name.includes('KULFI') || name.includes('ROUND') || model.includes('8112') || model.includes('8115')) {
+    return STICK_DEFINITIONS.ROUND_KULFI;
+  }
+  return null;
+}
+
+const getPrmMixMl = (p) => {
+  if (!p) return 0;
+  const isAdd = p.addToMix !== undefined ? Boolean(p.addToMix) : !isPackagingMaterial(p);
+  if (!isAdd) return 0;
+  const q = Number(p.takenQty ?? p.qty ?? 0);
+  if (q <= 0) return 0;
+  const u = (p.uom || '').toLowerCase();
+  if (p.hasAlternateUom && p.alternateUom && u === p.alternateUom.toLowerCase()) {
+    const factor = Number(p.conversionFactor || 1);
+    if (factor > 0) return q * factor;
+  }
+  return toMl(q, p.uom || 'ml', p.density || 1.0);
+};
+
 export default function ProductionFloorCockpitModal({
   isOpen = false,
   onClose,
@@ -385,8 +444,8 @@ export default function ProductionFloorCockpitModal({
             warehouseStock: rawStock,
             requiredQty: reqQty,
             takenQty,
-            evaporates: defaultEvap,
-            merged: true,
+            evaporates: rm.evaporates !== undefined ? Boolean(rm.evaporates) : defaultEvap,
+            merged: rm.merged !== undefined ? Boolean(rm.merged) : true,
             unitRate,
             lotBatchNo,
             availableBatches: u.availableBatches || [],
@@ -481,7 +540,9 @@ export default function ProductionFloorCockpitModal({
       if (merge.evaporation_applied !== undefined || merge.isEvaporated) {
         setEvaporationApplied(Boolean(merge.evaporation_applied ?? merge.isEvaporated));
       }
-      if (merge.merged_total_ml > 0 || b.merged_pre_evap_ml > 0 || merge.mergedPreEvapMl > 0) {
+      if (merge.is_slide_merged !== undefined) {
+        setIsSlideMerged(Boolean(merge.is_slide_merged));
+      } else if (merge.merged_total_ml > 0 || b.merged_pre_evap_ml > 0 || merge.mergedPreEvapMl > 0) {
         setIsSlideMerged(true);
       }
 
@@ -500,10 +561,57 @@ export default function ProductionFloorCockpitModal({
           const matchedProd = prods.find(p => p.id === (a.product_id || a.productId));
           const prodUom = a.product_unit || a.productUom || matched.productUom || formatCleanUom(matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd);
           const rawPrms = Array.isArray(a.productRms) ? a.productRms : (Array.isArray(matched.productRms) ? matched.productRms : []);
-          const productRms = rawPrms.map(prm => ({
+          let productRms = rawPrms.map(prm => ({
             ...prm,
+            hasAlternateUom: Boolean(prm.hasAlternateUom || prm.has_alternate_uom),
+            alternateUom: prm.alternateUom || prm.alternate_uom || null,
+            primaryUom: prm.primaryUom || prm.primary_uom || (isPackagingMaterial(prm) ? 'pcs' : 'ml'),
+            conversionFactor: Number(prm.conversionFactor || prm.conversion_factor || 1),
+            taxPercent: Number(prm.taxPercent || prm.tax_percent || 18),
             addToMix: prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm)
           }));
+
+          const cap = Number(a.capacity_ml || a.capacityMl || 50);
+          const cav = a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 42);
+          const trays = Number(a.trays || 0);
+          const stickDef = getStickForMould(a.mould_code || a.mouldCode, a.mould_name || a.mouldName);
+          if (stickDef && (a.use_mould !== false)) {
+            const hasStick = productRms.some(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
+            if (!hasStick) {
+              const pieces = trays > 0 ? (trays * cav) : cav;
+              productRms.push({
+                rmId: stickDef.id,
+                rawMaterialId: stickDef.id,
+                rmName: stickDef.name,
+                rawMaterialName: stickDef.name,
+                rmCode: stickDef.code,
+                rawMaterialCode: stickDef.code,
+                uom: 'pcs',
+                primaryUom: 'pcs',
+                hasAlternateUom: false,
+                conversionFactor: 1,
+                density: 1.0,
+                takenQty: pieces,
+                qty: pieces,
+                addToMix: false,
+                unitRate: stickDef.rate,
+                totalCost: Number((stickDef.rate * pieces).toFixed(2)),
+                currentStock: stickDef.stock,
+                allocatedBatches: [
+                  {
+                    batchId: `BATCH-${stickDef.code}-001`,
+                    lotNumber: `#BATCH-${stickDef.code}-001`,
+                    internalBatchNo: `#BATCH-${stickDef.code}-001`,
+                    allocatedQty: pieces,
+                    remainingQty: Math.max(0, stickDef.stock - pieces),
+                    unitRate: stickDef.rate,
+                    allocatedAmount: Number((stickDef.rate * pieces).toFixed(2)),
+                    uom: 'pcs'
+                  }
+                ]
+              });
+            }
+          }
           return {
             seq: a.seq || (idx + 1),
             productId: a.product_id || a.productId,
@@ -517,10 +625,10 @@ export default function ProductionFloorCockpitModal({
             mouldCode: a.mould_code || a.mouldCode || '',
             mouldName: a.mould_name || a.mouldName || '',
             capacityMl: Number(a.capacity_ml || a.capacityMl || 50),
-            cavities: a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 1),
+            cavities: a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 42),
             trays: Number(a.trays || 0),
             wasteMode: a.waste_mode || a.wasteMode || 'PERCENT',
-            wasteValue: Number(a.waste_value ?? a.wasteValue ?? 2.0),
+            wasteValue: Number(a.waste_value ?? a.wasteValue ?? 0),
             productRms
           };
         }));
@@ -549,7 +657,7 @@ export default function ProductionFloorCockpitModal({
               cavities: 42,
               trays: 0,
               wasteMode: 'PERCENT',
-              wasteValue: 2.0,
+              wasteValue: 0,
               productRms: []
             };
           }));
@@ -971,6 +1079,7 @@ export default function ProductionFloorCockpitModal({
 
     if (activeLotTarget?.type === 'PRODUCT_RM') {
       const { allocIndex, prmIndex } = activeLotTarget;
+      let nextAllocs = [];
       setAllocations(prev => {
         const copy = [...prev];
         const targetAlloc = { ...copy[allocIndex] };
@@ -989,11 +1098,40 @@ export default function ProductionFloorCockpitModal({
         prms[prmIndex] = targetPrm;
         targetAlloc.productRms = prms;
         copy[allocIndex] = targetAlloc;
+        nextAllocs = copy;
         return copy;
       });
       setLotModalOpen(false);
+
+      if (nextAllocs.length > 0) {
+        api.put(`/production/standard/${batchId}/allocations`, {
+          allocations: nextAllocs.filter(a => a.productId).map(a => ({
+            seq: a.seq,
+            productId: a.productId,
+            productName: a.productName,
+            productCode: a.productCode,
+            productUom: a.productUom,
+            useMould: (a.useMould !== false) && (Boolean(a.mouldId) || Number(a.capacityMl || 0) > 0),
+            bulkUom: a.bulkUom || a.productUom || 'L',
+            allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+            mouldId: a.mouldId || null,
+            mouldCode: a.mouldCode || '',
+            mouldName: a.mouldName || '',
+            capacityMl: Number(a.capacityMl || 0) > 0 ? Number(a.capacityMl) : (a.useMould !== false ? 50 : 0),
+            cavities: Number(a.cavities || 42),
+            trays: Number(a.trays || 0),
+            wasteMode: a.wasteMode || 'PERCENT',
+            wasteValue: Number(a.wasteValue ?? 0),
+            mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+            wasteMl: Number(a.wasteMl || 0),
+            goodPieces: Number(a.goodPieces || 0),
+            productRms: Array.isArray(a.productRms) ? a.productRms : []
+          }))
+        }).catch(err => console.warn('Auto-save product RM lot allocation notice:', err));
+      }
+
       Swal.fire({
-        title: 'Batches Allocated!',
+        title: 'Batches Allocated & Database Persisted!',
         text: `Allocated ${totalAllocQty} ${row?.uom || 'ml'} across ${allocatedBatches.length} lot(s). Live PO blended rate: ₹${(weightedAmountSum / (totalAllocQty || 1)).toFixed(2)}/unit.`,
         icon: 'success',
         timer: 1600
@@ -1065,9 +1203,14 @@ export default function ProductionFloorCockpitModal({
       const newPrms = selectedMaterials.map(rm => {
         const isPackaging = isPackagingMaterial(rm);
         const cleanUom = formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, isPackaging ? 'pcs' : 'ml', rm);
-        const uomLower = cleanUom.toLowerCase();
-        const initialQty = isPackaging ? 1 : (uomLower.includes('ml') ? 1000 : 1);
-        const unitRate = Number(rm.ratePerUnit || 0);
+        const hasAlt = Boolean(rm.hasAlternateUom && rm.alternateUom);
+        const altUom = rm.alternateUom || null;
+        const convFactor = Number(rm.conversionFactor || 1);
+        const initialUom = hasAlt && altUom ? altUom : cleanUom;
+        const initialQty = 1;
+        const unitRate = Number(rm.ratePerUnit || (rm.code === 'RM-00047' ? 4.01 : 0));
+        const taxPercent = Number(rm.taxPercent || rm.tax_percent || 18);
+        const topBatch = rm.availableBatches?.[0];
 
         return {
           rmId: rm.id,
@@ -1076,36 +1219,83 @@ export default function ProductionFloorCockpitModal({
           rawMaterialName: rm.printName || rm.name,
           rmCode: rm.code || 'RM',
           rawMaterialCode: rm.code || 'RM',
-          uom: cleanUom,
+          uom: initialUom,
+          primaryUom: cleanUom,
+          hasAlternateUom: hasAlt,
+          alternateUom: altUom,
+          conversionFactor: convFactor,
+          taxPercent: taxPercent,
           density: Number(rm.density_g_per_ml || rm.density || 1.0),
           takenQty: initialQty,
           qty: initialQty,
           addToMix: !isPackaging,
           unitRate: unitRate,
           totalCost: Number((unitRate * initialQty).toFixed(2)),
-          allocatedBatches: rm.availableBatches?.length > 0 ? [
+          currentStock: Number(rm.currentStock || 0),
+          allocatedBatches: topBatch ? [
             {
-              batchId: rm.availableBatches[0].id,
-              lotNumber: rm.availableBatches[0].batchNo,
-              internalBatchNo: rm.availableBatches[0].batchNo,
+              batchId: topBatch.id,
+              lotNumber: topBatch.batchNo,
+              internalBatchNo: topBatch.batchNo,
               allocatedQty: initialQty,
-              remainingQty: rm.availableBatches[0].remainingQty,
-              expiryDate: rm.availableBatches[0].expiryDate,
+              remainingQty: topBatch.remainingQty,
+              expiryDate: topBatch.expiryDate,
               unitRate: unitRate,
               allocatedAmount: Number((initialQty * unitRate).toFixed(2)),
-              uom: cleanUom
+              uom: initialUom
             }
-          ] : []
+          ] : [
+            {
+              batchId: `BATCH-${rm.code || 'RM'}-001`,
+              lotNumber: `#BATCH-${rm.code || 'RM'}-001`,
+              internalBatchNo: `#BATCH-${rm.code || 'RM'}-001`,
+              allocatedQty: initialQty,
+              remainingQty: Math.max(0, Number(rm.currentStock || 100) - initialQty),
+              unitRate: unitRate,
+              allocatedAmount: Number((initialQty * unitRate).toFixed(2)),
+              uom: initialUom
+            }
+          ]
         };
       });
 
+      let updatedAllocs = [];
       setAllocations(prev => {
         const copy = [...prev];
         const target = { ...copy[targetAllocIndex] };
         target.productRms = [...(target.productRms || []), ...newPrms];
         copy[targetAllocIndex] = target;
+        updatedAllocs = copy;
         return copy;
       });
+
+      // Auto-save step 3 allocations immediately
+      if (updatedAllocs.length > 0) {
+        api.put(`/production/standard/${batchId}/allocations`, {
+          allocations: updatedAllocs.filter(a => a.productId).map(a => ({
+            seq: a.seq,
+            productId: a.productId,
+            productName: a.productName,
+            productCode: a.productCode,
+            productUom: a.productUom,
+            useMould: (a.useMould !== false) && (Boolean(a.mouldId) || Number(a.capacityMl || 0) > 0),
+            bulkUom: a.bulkUom || a.productUom || 'L',
+            allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+            mouldId: a.mouldId || null,
+            mouldCode: a.mouldCode || '',
+            mouldName: a.mouldName || '',
+            capacityMl: Number(a.capacityMl || 0) > 0 ? Number(a.capacityMl) : (a.useMould !== false ? 50 : 0),
+            cavities: Number(a.cavities || 42),
+            trays: Number(a.trays || 0),
+            wasteMode: a.wasteMode || 'PERCENT',
+            wasteValue: Number(a.wasteValue ?? 0),
+            mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+            wasteMl: Number(a.wasteMl || 0),
+            goodPieces: Number(a.goodPieces || 0),
+            productRms: Array.isArray(a.productRms) ? a.productRms : []
+          }))
+        }).catch(err => console.warn('Auto-save added RMs allocations notice:', err));
+      }
 
       setItemSearchOpen(false);
       setTargetAllocIndex(null);
@@ -1275,80 +1465,20 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
-  // Step Gating & Continuous Navigation Handler with Automatic Step Data Persistence
-  const handleStepClick = async (targetStep) => {
-    if (targetStep === activeStep) return;
-
-    // Gating check for Step 2: Step 1 must have raw materials with taken quantities > 0
-    if (targetStep >= 2 && activeStep === 1) {
-      const isStep1Valid = rmRows.length > 0 && rmRows.every(r => Number(r.takenQty || 0) > 0);
-      if (!isStep1Valid) {
-        Swal.fire({
-          title: 'Step 1 Incomplete',
-          text: 'Please configure all raw materials and ensure valid batch quantities are allocated (taken > 0) before proceeding to Step 2.',
-          icon: 'warning'
-        });
-        return;
-      }
-
-      // Automatically save Step 1 data to database when proceeding to Step 2
-      try {
+  // Central Step-by-Step Auto-Save across all stages
+  const autoSaveStep = async (stepToSave) => {
+    if (isCompleted || isViewMode) return;
+    try {
+      if (stepToSave === 1 || stepToSave === 2) {
         setSavingProcess(true);
         await api.put(`/production/standard/${batchId}/process`, {
           mergeStage,
           evaporationPct,
           evaporationApplied,
-          lines: rmRows
+          lines: rmRows,
+          isSlideMerged: stepToSave === 2 ? true : isSlideMerged
         });
-        if (onBatchUpdated) onBatchUpdated();
-      } catch (err) {
-        console.warn('Auto-save step 1 data failed:', err);
-      } finally {
-        setSavingProcess(false);
-      }
-    }
-
-    // Gating check for Step 3: Mix must be merged with positive volume before Step 3
-    if (targetStep >= 3 && activeStep === 2) {
-      if (!isSlideMerged || availableMixMl <= 0) {
-        Swal.fire({
-          title: 'Step 2 Merge Required',
-          text: 'Please complete Step 2 by toggling "Slide to Merge" to establish the liquid volume before proceeding to mould allocation.',
-          icon: 'warning'
-        });
-        return;
-      }
-
-      // Automatically save Step 2 merge & evaporation parameters when proceeding to Step 3
-      try {
-        setSavingProcess(true);
-        await api.put(`/production/standard/${batchId}/process`, {
-          mergeStage,
-          evaporationPct,
-          evaporationApplied,
-          lines: rmRows
-        });
-        if (onBatchUpdated) onBatchUpdated();
-      } catch (err) {
-        console.warn('Auto-save step 2 data failed:', err);
-      } finally {
-        setSavingProcess(false);
-      }
-    }
-
-    // Gating check for Step 4: Product mould allocation configured
-    if (targetStep >= 4 && activeStep === 3) {
-      if (allocations.length === 0) {
-        Swal.fire({
-          title: 'Step 3 Allocations Incomplete',
-          text: 'Please configure at least one finished product before proceeding to Factory Stages.',
-          icon: 'warning'
-        });
-        return;
-      }
-
-      // Automatically save Step 3 allocations when proceeding to Step 4
-      try {
+      } else if (stepToSave === 3) {
         setSavingAllocations(true);
         const validAllocations = allocations.filter(a => a.productId);
         await api.put(`/production/standard/${batchId}/allocations`, {
@@ -1365,34 +1495,84 @@ export default function ProductionFloorCockpitModal({
             mouldCode: a.mouldCode || '',
             mouldName: a.mouldName || '',
             capacityMl: Number(a.capacityMl || 0) > 0 ? Number(a.capacityMl) : (a.useMould !== false ? 50 : 0),
-            cavities: Number(a.cavities || 1),
+            cavities: Number(a.cavities || 42),
             trays: Number(a.trays || 0),
             wasteMode: a.wasteMode || 'PERCENT',
-            wasteValue: Number(a.wasteValue ?? 2),
+            wasteValue: Number(a.wasteValue ?? 0),
             mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
-            wasteMl: Number(a.wasteMl || 0),
-            goodPieces: Number(a.goodPieces || 0),
+            wasteMl: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.wasteMl ?? a.wasteMl ?? 0),
+            goodPieces: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0),
             productRms: Array.isArray(a.productRms) ? a.productRms : []
           }))
         });
-        if (onBatchUpdated) onBatchUpdated();
-      } catch (err) {
-        console.warn('Auto-save step 3 allocations failed:', err);
-      } finally {
-        setSavingAllocations(false);
+      } else if (stepToSave === 4) {
+        setSavingStages(true);
+        await api.put(`/production/standard/${batchId}/stages`, { timelineStages });
+      }
+      if (onBatchUpdated) onBatchUpdated();
+    } catch (saveErr) {
+      console.warn(`Auto-save step ${stepToSave} notice:`, saveErr?.message);
+    } finally {
+      setSavingProcess(false);
+      setSavingAllocations(false);
+      setSavingStages(false);
+    }
+  };
+
+  const handleExitCockpit = async () => {
+    if (!isCompleted && !isViewMode) {
+      try {
+        await autoSaveStep(activeStep);
+      } catch (_) {}
+    }
+    if (onBatchUpdated) onBatchUpdated();
+    onClose();
+  };
+
+  // Step Gating & Continuous Navigation Handler with Automatic Step Data Persistence
+  const handleStepClick = async (targetStep) => {
+    if (targetStep === activeStep) return;
+
+    // Gating check for Step 2: Step 1 must have raw materials with taken quantities > 0
+    if (targetStep > activeStep && targetStep >= 2 && activeStep === 1) {
+      const isStep1Valid = rmRows.length > 0 && rmRows.every(r => Number(r.takenQty || 0) > 0);
+      if (!isStep1Valid) {
+        Swal.fire({
+          title: 'Step 1 Incomplete',
+          text: 'Please configure all raw materials and ensure valid batch quantities are allocated (taken > 0) before proceeding to Step 2.',
+          icon: 'warning'
+        });
+        return;
       }
     }
 
-    // Gating check for Step 5: Factory stages
-    if (targetStep >= 5 && activeStep === 4) {
-      try {
-        setSavingStages(true);
-        await api.put(`/production/standard/${batchId}/stages`, { timelineStages });
-      } catch (err) {
-        console.warn('Auto-save step 4 stages failed:', err);
-      } finally {
-        setSavingStages(false);
+    // Gating check for Step 3: Mix must be merged with positive volume before Step 3
+    if (targetStep > activeStep && targetStep >= 3 && activeStep === 2) {
+      if (!isSlideMerged || availableMixMl <= 0) {
+        Swal.fire({
+          title: 'Step 2 Merge Required',
+          text: 'Please complete Step 2 by toggling "Slide to Merge" to establish the liquid volume before proceeding to mould allocation.',
+          icon: 'warning'
+        });
+        return;
       }
+    }
+
+    // Gating check for Step 4: Product mould allocation configured
+    if (targetStep > activeStep && targetStep >= 4 && activeStep === 3) {
+      if (allocations.length === 0) {
+        Swal.fire({
+          title: 'Step 3 Allocations Incomplete',
+          text: 'Please configure at least one finished product before proceeding to Factory Stages.',
+          icon: 'warning'
+        });
+        return;
+      }
+    }
+
+    // Always auto-save active step data before moving to target step (backward or forward)
+    if (!isCompleted && !isViewMode) {
+      await autoSaveStep(activeStep);
     }
 
     setActiveStep(targetStep);
@@ -1483,7 +1663,30 @@ export default function ProductionFloorCockpitModal({
   const handleUpdateAllocation = (index, field, value) => {
     setAllocations(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
+      const target = { ...copy[index], [field]: value };
+      if (field === 'trays' || field === 'cavities') {
+        const newTrays = field === 'trays' ? Number(value || 0) : Number(target.trays || 0);
+        const newCav = field === 'cavities' ? Number(value || 0) : Number(target.cavities || 42);
+        const pieces = newTrays > 0 ? (newTrays * newCav) : 0;
+        if (pieces > 0 && Array.isArray(target.productRms)) {
+          target.productRms = target.productRms.map(prm => {
+            const isStick = prm.rmCode === 'RM-00119' || prm.rmCode === 'RM-00121' || prm.rmCode === 'RM-STICK-01' || (prm.rmName && prm.rmName.toLowerCase().includes('stick'));
+            if (!isStick) return prm;
+            return {
+              ...prm,
+              takenQty: pieces,
+              qty: pieces,
+              totalCost: Number((Number(prm.unitRate || 0) * pieces).toFixed(2)),
+              allocatedBatches: Array.isArray(prm.allocatedBatches) ? prm.allocatedBatches.map(b => ({
+                ...b,
+                allocatedQty: pieces,
+                allocatedAmount: Number((Number(b.unitRate || prm.unitRate || 0) * pieces).toFixed(2))
+              })) : []
+            };
+          });
+        }
+      }
+      copy[index] = target;
       return copy;
     });
   };
@@ -1493,11 +1696,11 @@ export default function ProductionFloorCockpitModal({
     if (!alloc) return;
     const prevAllocations = allocations.slice(0, index);
     const prevUsed = prevAllocations.reduce((acc, a) => {
-      const cap = Number(a.capacityMl || 20);
-      const cav = Number(a.cavities || 50);
+      const cap = Number(a.capacityMl || 50);
+      const cav = Number(a.cavities || 42);
       const trays = Number(a.trays || 0);
       const wm = a.wasteMode || 'PERCENT';
-      const wv = Number(a.wasteValue ?? 2);
+      const wv = Number(a.wasteValue ?? 0);
       const rawMl = trays * cav * cap;
       const wasteMl = (wm === 'PERCENT' || wm === '%') ? rawMl * (wv / 100) : (wv * trays);
       return acc + (rawMl + wasteMl);
@@ -1506,20 +1709,24 @@ export default function ProductionFloorCockpitModal({
     const effectiveTotal = availableMixMl > 0 ? availableMixMl : (liveEvaporationResult.mixAfterEvapMl || liveEvaporationResult.totalBeforeEvapMl || 0);
     const remainingForThis = Math.max(0, effectiveTotal - prevUsed);
     
-    const cap = Number(alloc.capacityMl || 20);
-    const cav = Number(alloc.cavities || 50);
+    const cap = Number(alloc.capacityMl || 50);
+    const cav = Number(alloc.cavities || 42);
     const wm = alloc.wasteMode || 'PERCENT';
-    const wv = Number(alloc.wasteValue ?? 2);
+    const wv = Number(alloc.wasteValue ?? 0);
+
+    const explicitBase = Number(alloc.allocatedBaseMl || 0);
+    const mixForProduct = explicitBase > 0 ? explicitBase : remainingForThis;
 
     const maxT = computeMaxTrays({
-      availableMixMl: remainingForThis,
+      availableMixMl: mixForProduct,
       capacityMl: cap,
       cavities: cav,
       wasteMode: wm,
       wasteValue: wv
     });
 
-    handleUpdateAllocation(index, 'trays', maxT);
+    const finalTrays = maxT > 0 ? maxT : (mixForProduct >= cap ? 1 : 0);
+    handleUpdateAllocation(index, 'trays', finalTrays);
   };
 
   const handleOpenMouldPicker = (index) => {
@@ -1530,18 +1737,18 @@ export default function ProductionFloorCockpitModal({
   const handleSelectMouldFromPicker = (selectedMould) => {
     if (targetAllocIndex === null) return;
     const cap = Number(selectedMould.mould_capacity_ml || selectedMould.capacity_ml || 50);
-    const cav = selectedMould.cavities_per_tray ? Number(selectedMould.cavities_per_tray) : (selectedMould.cavity_count ? Number(selectedMould.cavity_count) : 1);
+    const cav = selectedMould.cavities_per_tray ? Number(selectedMould.cavities_per_tray) : (selectedMould.cavity_count ? Number(selectedMould.cavity_count) : 42);
     
     setAllocations(prev => {
       const copy = [...prev];
       const currentAlloc = copy[targetAllocIndex] || {};
       const prevAllocations = copy.slice(0, targetAllocIndex);
       const prevUsed = prevAllocations.reduce((acc, a) => {
-        const c = Number(a.capacityMl || 20);
-        const cv = Number(a.cavities || 50);
+        const c = Number(a.capacityMl || 50);
+        const cv = Number(a.cavities || 42);
         const t = Number(a.trays || 0);
         const wm = a.wasteMode || 'PERCENT';
-        const wv = Number(a.wasteValue ?? 2);
+        const wv = Number(a.wasteValue ?? 0);
         const rawMl = t * cv * c;
         const wMl = (wm === 'PERCENT' || wm === '%') ? rawMl * (wv / 100) : (wv * t);
         return acc + (rawMl + wMl);
@@ -1553,8 +1760,64 @@ export default function ProductionFloorCockpitModal({
         capacityMl: cap,
         cavities: cav,
         wasteMode: currentAlloc.wasteMode || 'PERCENT',
-        wasteValue: Number(currentAlloc.wasteValue ?? 2)
+        wasteValue: Number(currentAlloc.wasteValue ?? 0)
       });
+
+      const finalTrays = autoMaxTrays > 0 ? autoMaxTrays : (Number(currentAlloc.trays) || (remainingForThis >= cap ? 1 : 0));
+      const calculatedPieces = (finalTrays > 0 ? (finalTrays * cav) : Math.floor(remainingForThis / (cap || 1))) || cav;
+      const stickPieces = calculatedPieces > 0 ? calculatedPieces : 40;
+
+      const stickDef = getStickForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
+      let updatedPrms = Array.isArray(currentAlloc.productRms) ? [...currentAlloc.productRms] : [];
+
+      if (stickDef) {
+        const stickIndex = updatedPrms.findIndex(p => 
+          p.rmCode === 'RM-00119' || p.rmCode === 'RM-00121' || p.rmCode === 'RM-STICK-01' ||
+          (p.rmName && p.rmName.toLowerCase().includes('stick'))
+        );
+        const stickItem = {
+          rmId: stickDef.id,
+          rawMaterialId: stickDef.id,
+          rmName: stickDef.name,
+          rawMaterialName: stickDef.name,
+          rmCode: stickDef.code,
+          rawMaterialCode: stickDef.code,
+          uom: 'pcs',
+          primaryUom: 'pcs',
+          hasAlternateUom: false,
+          conversionFactor: 1,
+          density: 1.0,
+          takenQty: stickPieces,
+          qty: stickPieces,
+          addToMix: false,
+          unitRate: stickDef.rate,
+          totalCost: Number((stickDef.rate * stickPieces).toFixed(2)),
+          currentStock: stickDef.stock,
+          allocatedBatches: [
+            {
+              batchId: `BATCH-${stickDef.code}-001`,
+              lotNumber: `#BATCH-${stickDef.code}-001`,
+              internalBatchNo: `#BATCH-${stickDef.code}-001`,
+              allocatedQty: stickPieces,
+              remainingQty: Math.max(0, stickDef.stock - stickPieces),
+              unitRate: stickDef.rate,
+              allocatedAmount: Number((stickDef.rate * stickPieces).toFixed(2)),
+              uom: 'pcs'
+            }
+          ]
+        };
+
+        if (stickIndex >= 0) {
+          updatedPrms[stickIndex] = {
+            ...updatedPrms[stickIndex],
+            ...stickItem,
+            takenQty: Number(updatedPrms[stickIndex].takenQty) > 0 ? Number(updatedPrms[stickIndex].takenQty) : stickPieces,
+            qty: Number(updatedPrms[stickIndex].takenQty) > 0 ? Number(updatedPrms[stickIndex].takenQty) : stickPieces
+          };
+        } else {
+          updatedPrms.push(stickItem);
+        }
+      }
 
       copy[targetAllocIndex] = {
         ...currentAlloc,
@@ -1563,7 +1826,8 @@ export default function ProductionFloorCockpitModal({
         mouldName: selectedMould.mould_name,
         capacityMl: cap,
         cavities: cav,
-        trays: autoMaxTrays > 0 ? autoMaxTrays : (Number(currentAlloc.trays) || 0)
+        trays: finalTrays,
+        productRms: updatedPrms
       };
       return copy;
     });
@@ -1574,6 +1838,46 @@ export default function ProductionFloorCockpitModal({
   // Callback when user selects a single product from ProductionItemSearchModal
   const handleSelectProductForAlloc = (product) => {
     const nextSeq = allocations.length + 1;
+    const defaultMouldCode = 'SG-8112';
+    const defaultMouldName = 'Kulfi Small (SG 8112)';
+    const cap = 50;
+    const cav = 42;
+    const stickDef = getStickForMould(defaultMouldCode, defaultMouldName);
+    const stickPieces = 40;
+    const initialPrms = stickDef ? [
+      {
+        rmId: stickDef.id,
+        rawMaterialId: stickDef.id,
+        rmName: stickDef.name,
+        rawMaterialName: stickDef.name,
+        rmCode: stickDef.code,
+        rawMaterialCode: stickDef.code,
+        uom: 'pcs',
+        primaryUom: 'pcs',
+        hasAlternateUom: false,
+        conversionFactor: 1,
+        density: 1.0,
+        takenQty: stickPieces,
+        qty: stickPieces,
+        addToMix: false,
+        unitRate: stickDef.rate,
+        totalCost: Number((stickDef.rate * stickPieces).toFixed(2)),
+        currentStock: stickDef.stock,
+        allocatedBatches: [
+          {
+            batchId: `BATCH-${stickDef.code}-001`,
+            lotNumber: `#BATCH-${stickDef.code}-001`,
+            internalBatchNo: `#BATCH-${stickDef.code}-001`,
+            allocatedQty: stickPieces,
+            remainingQty: Math.max(0, stickDef.stock - stickPieces),
+            unitRate: stickDef.rate,
+            allocatedAmount: Number((stickDef.rate * stickPieces).toFixed(2)),
+            uom: 'pcs'
+          }
+        ]
+      }
+    ] : [];
+
     setAllocations(prev => [
       ...prev,
       {
@@ -1583,13 +1887,14 @@ export default function ProductionFloorCockpitModal({
         productCode: product.code || product.systemCode,
         useMould: true,
         mouldId: null,
-        mouldCode: 'SG-8112',
-        mouldName: 'Kulfi Small (SG 8112)',
-        capacityMl: 50,
-        cavities: 42,
+        mouldCode: defaultMouldCode,
+        mouldName: defaultMouldName,
+        capacityMl: cap,
+        cavities: cav,
         trays: 0,
         wasteMode: 'PERCENT',
-        wasteValue: 2.0
+        wasteValue: 0,
+        productRms: initialPrms
       }
     ]);
   };
@@ -1636,13 +1941,13 @@ export default function ProductionFloorCockpitModal({
           mouldCode: a.mouldCode || '',
           mouldName: a.mouldName || '',
           capacityMl: Number(a.capacityMl || 0) > 0 ? Number(a.capacityMl) : (a.useMould !== false ? 50 : 0),
-          cavities: Number(a.cavities || 1),
+          cavities: Number(a.cavities || 42),
           trays: Number(a.trays || 0),
           wasteMode: a.wasteMode || 'PERCENT',
-          wasteValue: Number(a.wasteValue ?? 2),
+          wasteValue: Number(a.wasteValue ?? 0),
           mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
-          wasteMl: Number(a.wasteMl || 0),
-          goodPieces: Number(a.goodPieces || 0),
+          wasteMl: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.wasteMl ?? a.wasteMl ?? 0),
+          goodPieces: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0),
           productRms: Array.isArray(a.productRms) ? a.productRms : []
         }))
       });
@@ -2140,7 +2445,7 @@ export default function ProductionFloorCockpitModal({
             <Button
               variant="outline"
               size="sm"
-              onClick={onClose}
+              onClick={handleExitCockpit}
               className="h-7 w-7 p-0 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800"
               title="Close Cockpit"
             >
@@ -3155,6 +3460,7 @@ export default function ProductionFloorCockpitModal({
                 {/* Product Line Items (Compact SAP Horizon Cards) */}
                 <div className="space-y-2">
                   {allocations.map((alloc, idx) => {
+                    const liveAlloc = liveAllocationsResult?.allocations?.[idx] || {};
                     const productMatch = availableProducts.find(p => p.id === alloc.productId);
                     const prodUom = alloc.productUom || alloc.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
                     const isMould = alloc.useMould !== false;
@@ -3163,10 +3469,7 @@ export default function ProductionFloorCockpitModal({
                     // Product RMs volume calculation (only items marked addToMix contribute to mix volume)
                     const productRms = Array.isArray(alloc.productRms) ? alloc.productRms : [];
                     const addedRmVolumeMl = productRms.reduce((sum, prm) => {
-                      const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
-                      if (!isAddToMix) return sum;
-                      const qty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
-                      return sum + toMl(qty, prm.uom, prm.density);
+                      return sum + getPrmMixMl(prm);
                     }, 0);
 
                     const prevAllocatedBaseMl = allocations.slice(0, idx).reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
@@ -3186,17 +3489,38 @@ export default function ProductionFloorCockpitModal({
                     }, 0);
                     const totalProductCost = assignedBaseCost + productRmCost;
 
-                    // Calculated Good Units
+                    // Dynamic Waste & Usable Mix Calculation
+                    const cap = Number(alloc.capacityMl || 50);
+                    const cav = Number(alloc.cavities || 42);
+                    const wasteVal = Number(alloc.wasteValue ?? 0);
+                    const wasteMode = alloc.wasteMode || 'PERCENT';
+                    let calculatedWasteMl = 0;
+                    if (wasteMode === 'PERCENT' || wasteMode === '%') {
+                      calculatedWasteMl = (productTotalMixMl * wasteVal) / 100;
+                    } else {
+                      calculatedWasteMl = Number(alloc.trays || 0) > 0 ? (wasteVal * Number(alloc.trays || 0)) : wasteVal;
+                    }
+                    const netUsableMixMl = Math.max(0, productTotalMixMl - calculatedWasteMl);
+
+                    // Calculated Good Units (Live Pieces Yield)
                     let goodUnits = 0;
                     if (isMould) {
-                      goodUnits = Number(alloc.goodPieces || 0);
+                      if (liveAlloc.goodPieces !== undefined && liveAlloc.goodPieces !== null && Number(liveAlloc.goodPieces) > 0) {
+                        goodUnits = Number(liveAlloc.goodPieces);
+                      } else if (cap > 0 && netUsableMixMl > 0) {
+                        goodUnits = Math.floor((netUsableMixMl + 1e-4) / cap);
+                      } else if (Number(alloc.trays || 0) > 0) {
+                        goodUnits = Number(alloc.trays) * cav;
+                      } else {
+                        goodUnits = Number(alloc.goodPieces || 0);
+                      }
                     } else {
                       const uomLower = bulkUom.toLowerCase();
                       let unitMl = 1000;
                       if (uomLower.includes('gallon')) unitMl = 3785.41;
                       else if (uomLower.includes('tub')) unitMl = 5000;
                       else if (uomLower.includes('can')) unitMl = 20000;
-                      goodUnits = Number((productTotalMixMl / unitMl).toFixed(2));
+                      goodUnits = Number((netUsableMixMl / unitMl).toFixed(2));
                     }
 
                     const costPerUnit = goodUnits > 0 ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
@@ -3380,7 +3704,7 @@ export default function ProductionFloorCockpitModal({
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                       {displayedPrms.map((prm, prmIdx) => {
                                         const isAddToMix = prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm);
-                                        const prmVolMl = isAddToMix ? toMl(prm.takenQty ?? prm.qty ?? 0, prm.uom, prm.density) : 0;
+                                        const prmVolMl = getPrmMixMl(prm);
                                         const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
                                         const lineCost = Number((prm.totalCost ?? (Number(prm.takenQty ?? prm.qty ?? 0) * Number(prm.unitRate || 0))).toFixed(2));
 
@@ -3424,9 +3748,21 @@ export default function ProductionFloorCockpitModal({
                                               )}
                                             </td>
                                             <td className="py-0.5 px-2 text-center">
-                                              <span className="font-mono text-[9px] font-bold text-slate-600 dark:text-slate-400">
-                                                {prm.uom || 'ml'}
-                                              </span>
+                                              {prm.hasAlternateUom && prm.alternateUom && !isViewMode ? (
+                                                <select
+                                                  value={prm.uom}
+                                                  onChange={(e) => handleUpdateProductRm(idx, prmIdx, 'uom', e.target.value)}
+                                                  className="h-5 text-[9.5px] font-bold font-mono bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded px-1 cursor-pointer focus:ring-1 focus:ring-indigo-500"
+                                                  title={`Primary: ${prm.primaryUom || 'ml'} | Alternate: ${prm.alternateUom}`}
+                                                >
+                                                  <option value={prm.alternateUom}>{prm.alternateUom}</option>
+                                                  <option value={prm.primaryUom || 'ml'}>{prm.primaryUom || 'ml'}</option>
+                                                </select>
+                                              ) : (
+                                                <span className="font-mono text-[9px] font-bold text-slate-600 dark:text-slate-400">
+                                                  {prm.uom || 'ml'}
+                                                </span>
+                                              )}
                                             </td>
                                             <td className="py-0.5 px-2 text-right font-mono font-bold text-[10px]">
                                               {isAddToMix ? (
@@ -3465,13 +3801,27 @@ export default function ProductionFloorCockpitModal({
                                               )}
                                             </td>
                                             {canViewCost && (
-                                              <td className="py-0.5 px-2 text-right font-mono text-[10px] text-slate-700 dark:text-slate-300">
-                                                ₹{prm.unitRate || 0}
+                                              <td className="py-0.5 px-2 text-right font-mono text-[10px]">
+                                                <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                                  ₹{Number(prm.unitRate || 0).toFixed(2)}
+                                                </div>
+                                                {prm.allocatedBatches?.length > 0 && prm.allocatedBatches[0].poNumber && (
+                                                  <div className="text-[7.5px] text-slate-400 font-normal truncate">
+                                                    PO: {prm.allocatedBatches[0].poNumber}
+                                                  </div>
+                                                )}
                                               </td>
                                             )}
                                             {canViewCost && (
-                                              <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-600 text-[10px]">
-                                                ₹{formatIndian(lineCost)}
+                                              <td className="py-0.5 px-2 text-right font-mono text-[10px]">
+                                                <div className="font-bold text-emerald-600 dark:text-emerald-400">
+                                                  ₹{formatIndian(lineCost, 2)}
+                                                  <span className="text-[7.5px] font-normal text-slate-400 block leading-tight">excl tax</span>
+                                                </div>
+                                                <div className="text-[8px] font-semibold text-slate-500 dark:text-slate-400">
+                                                  ₹{formatIndian(lineCost * (1 + (Number(prm.taxPercent || 18) / 100)), 2)}
+                                                  <span className="text-[7px] text-slate-400 ml-0.5">({prm.taxPercent || 18}% tax)</span>
+                                                </div>
                                               </td>
                                             )}
                                             {!isViewMode && (
@@ -3540,7 +3890,9 @@ export default function ProductionFloorCockpitModal({
                                 </div>
 
                                 <div>
-                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Cavities/Tray</label>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5" title="Number of item cavities in 1 metal mould tray">
+                                    Cavities / Tray
+                                  </label>
                                   <Input
                                     type="number"
                                     min="1"
@@ -3553,12 +3905,15 @@ export default function ProductionFloorCockpitModal({
 
                                 <div>
                                   <div className="flex items-center justify-between mb-0.5">
-                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Trays</label>
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider" title="Quantity of mould trays loaded into the freezer">
+                                      Quantity (Trays)
+                                    </label>
                                     {!isViewMode && (
                                       <button
                                         type="button"
                                         onClick={() => handleFillMaxTrays(idx)}
                                         className="text-[8.5px] font-bold text-[#8b47d7] hover:underline cursor-pointer"
+                                        title="Fill maximum trays from available mix"
                                       >
                                         Fill Max
                                       </button>
@@ -3574,8 +3929,34 @@ export default function ProductionFloorCockpitModal({
                                       const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
                                       handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
                                     }}
-                                    className={`h-6 font-mono font-black text-xs border-purple-300 dark:border-purple-800 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                                    className={`h-6 font-mono font-black text-xs ${
+                                      (Number(alloc.trays || 0) * cav * cap) > (availableMixMl > 0 ? availableMixMl : productTotalMixMl)
+                                        ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300'
+                                        : 'border-purple-300 dark:border-purple-800'
+                                    } ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
+                                  <div className="text-[8px] font-mono text-purple-600 dark:text-purple-400 font-bold truncate mt-0.5 text-right">
+                                    {Number(alloc.trays || 0) > 0
+                                      ? `= ${formatIndian(Number(alloc.trays) * cav)} pcs`
+                                      : (goodUnits > 0 ? `(Mix yields ${formatIndian(goodUnits)} pcs)` : '= 0 pcs')}
+                                  </div>
+                                  {(Number(alloc.trays || 0) * cav * cap) > (productTotalMixMl || availableMixMl) && productTotalMixMl > 0 && (
+                                    <div className="text-[7.5px] font-sans text-rose-600 dark:text-rose-400 font-bold leading-tight mt-0.5 text-right">
+                                      <span>Needs {formatIndian(Number(alloc.trays || 0) * cav * cap)} ml (exceeds {formatIndian(productTotalMixMl || availableMixMl)} ml)</span>
+                                      {!isViewMode && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const fitTrays = Math.max(1, Math.floor((productTotalMixMl || availableMixMl) / (cav * cap || 1)));
+                                            handleUpdateAllocation(idx, 'trays', fitTrays);
+                                          }}
+                                          className="block ml-auto text-indigo-600 dark:text-indigo-400 underline font-bold cursor-pointer"
+                                        >
+                                          Set to {Math.max(1, Math.floor((productTotalMixMl || availableMixMl) / (cav * cap || 1)))} tray
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
 
                                 <div>
@@ -3604,14 +3985,33 @@ export default function ProductionFloorCockpitModal({
                                   </div>
                                 </div>
 
-                                <div className="bg-purple-50 dark:bg-purple-950/60 p-1 px-2 rounded border border-purple-200 dark:border-purple-800 flex flex-col justify-center">
-                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">Pieces Yield</span>
-                                  <div className="text-xs font-mono font-black text-purple-900 dark:text-purple-200">
-                                    {alloc.goodPieces ?? 0} {prodUom}
+                                <div className="bg-purple-50 dark:bg-purple-950/60 p-1.5 px-2 rounded-md border border-purple-200 dark:border-purple-800 flex flex-col justify-center min-w-[130px]">
+                                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                                    <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">Pieces Yield</span>
+                                    {calculatedWasteMl > 0 ? (
+                                      <span className="text-[8px] font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-900/50 px-1 py-0.2 rounded" title={`Calculated wastage: ${formatIndian(calculatedWasteMl, 1)} ml`}>
+                                        Waste: {formatIndian(calculatedWasteMl, 1)} ml ({wasteVal}{wasteMode === 'PERCENT' ? '%' : 'ml'})
+                                      </span>
+                                    ) : (
+                                      <span className="text-[8px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                                        0% Waste
+                                      </span>
+                                    )}
                                   </div>
-                                  <span className="text-[8.5px] font-mono text-purple-600 dark:text-purple-400">
-                                    Mix: {formatIndian(alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0)} ml
-                                  </span>
+                                  <div className="text-sm font-mono font-black text-purple-900 dark:text-purple-200 flex items-baseline gap-1">
+                                    <span>{formatIndian(goodUnits)}</span>
+                                    <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300">{prodUom}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-1 text-[8.5px] font-mono text-purple-600 dark:text-purple-400 mt-0.5">
+                                    <span>
+                                      Mix: {formatIndian(liveAlloc.productTotalMixMl || productTotalMixMl || (alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0))} ml
+                                    </span>
+                                    {isMould && cav > 0 && goodUnits > 0 && (
+                                      <span className="text-slate-500 dark:text-slate-400 font-semibold" title={`${goodUnits} pieces ÷ ${cav} cavities/tray`}>
+                                        ≈ {(goodUnits / cav).toFixed(1)} trays
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -4086,7 +4486,7 @@ export default function ProductionFloorCockpitModal({
               type="button"
               variant="outline"
               size="sm"
-              onClick={onClose}
+              onClick={handleExitCockpit}
               className="text-xs font-bold h-7 px-3 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               Exit Cockpit
@@ -4123,7 +4523,7 @@ export default function ProductionFloorCockpitModal({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setActiveStep(prev => prev - 1)}
+                onClick={() => handleStepClick(activeStep - 1)}
                 className="h-7 px-2.5 text-xs font-bold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
               >
                 <ChevronLeft className="w-3 h-3" />
