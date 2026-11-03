@@ -14,6 +14,21 @@ const notificationsRoutes = require('../modules/notifications/notifications.rout
 router.use('/', require('./dashboard_api.routes'));
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
+
+const SYSTEM_ROLES = [
+  { id: 'MAIN_MASTER', name: 'MAIN_MASTER', label: 'Main Master / Admin', description: 'Full system administrative access' },
+  { id: 'SUPERVISOR', name: 'SUPERVISOR', label: 'Supervisor', description: 'Production & floor supervision' },
+  { id: 'PRODUCTION_STAFF', name: 'PRODUCTION_STAFF', label: 'Production Staff', description: 'Production floor operations' },
+  { id: 'PURCHASE_ACCOUNTANT', name: 'PURCHASE_ACCOUNTANT', label: 'Purchase Accountant', description: 'Procurement and accounting' },
+  { id: 'MATERIALS_RECEIVER', name: 'MATERIALS_RECEIVER', label: 'Materials Receiver', description: 'Store & GRN gate receiving' },
+  { id: 'SALES_EXECUTIVE', name: 'SALES_EXECUTIVE', label: 'Sales Executive', description: 'Sales orders and billing' },
+  { id: 'DELIVERY_STAFF', name: 'DELIVERY_STAFF', label: 'Delivery Staff', description: 'Dispatch and logistics' },
+  { id: 'LAB_ASSISTANT', name: 'LAB_ASSISTANT', label: 'Lab Assistant', description: 'Quality control and lab tests' }
+];
+
+router.get('/roles', (req, res) => {
+  res.json(SYSTEM_ROLES);
+});
 router.use('/dashboard', authMiddleware, dashboardRoutes);
 router.use('/parties', authMiddleware, partiesRoutes);
 router.use('/item-setup', authMiddleware, itemSetupRoutes);
