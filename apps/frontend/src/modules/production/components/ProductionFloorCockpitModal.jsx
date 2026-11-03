@@ -865,6 +865,29 @@ export default function ProductionFloorCockpitModal({
       }
       setAvailableLots(lots);
 
+      // Auto-allocate warehouse batch lots precisely matching required quantity if unallocated or out-of-sync
+      const targetQty = Number(row.takenQty ?? row.requiredQty ?? row.qty ?? 0);
+      let currentAllocSum = Object.values(allocMap).reduce((s, v) => s + Number(v || 0), 0);
+      if (lots.length > 0 && targetQty > 0 && (currentAllocSum === 0 || Math.abs(currentAllocSum - targetQty) > 0.0001)) {
+        let rem = targetQty;
+        const autoAlloc = {};
+        const sortedLots = [...lots].sort((a, b) => {
+          const dateA = new Date(a.expiryDate || '2099-12-31').getTime();
+          const dateB = new Date(b.expiryDate || '2099-12-31').getTime();
+          return dateA - dateB;
+        });
+        for (const lot of sortedLots) {
+          if (rem <= 0) break;
+          const avail = Number(lot.availableQty || lot.netQty || 0);
+          if (avail > 0) {
+            const take = Math.min(avail, rem);
+            autoAlloc[lot.id] = Number(take.toFixed(6));
+            rem = Number((rem - take).toFixed(6));
+          }
+        }
+        setLotAllocations(autoAlloc);
+      }
+
       const meta = metaRes?.data || null;
       if (meta?.nextBatchNumber) {
         setManualLotForm(prev => ({
@@ -881,6 +904,14 @@ export default function ProductionFloorCockpitModal({
     } finally {
       setLoadingLots(false);
     }
+  };
+
+  const getActiveLotTargetRow = () => {
+    if (!activeLotTarget) return activeLotRowIndex !== null ? rmRows[activeLotRowIndex] : null;
+    if (activeLotTarget.type === 'PRODUCT_RM') {
+      return allocations[activeLotTarget.allocIndex]?.productRms?.[activeLotTarget.prmIndex] || null;
+    }
+    return rmRows[activeLotTarget.rowIndex ?? activeLotRowIndex] || null;
   };
 
   const openLotModal = async (rowIndex) => {
@@ -910,23 +941,23 @@ export default function ProductionFloorCockpitModal({
   };
 
   const handleFillRemainingLot = (lotId, maxAvail) => {
-    if (activeLotRowIndex === null) return;
-    const row = rmRows[activeLotRowIndex];
-    const targetQty = Number(row.requiredQty || row.takenQty || 0);
+    const row = getActiveLotTargetRow();
+    if (!row) return;
+    const targetQty = Number(row.takenQty ?? row.requiredQty ?? row.qty ?? 0);
 
     const currentOtherTotal = Object.entries(lotAllocations).reduce((sum, [id, val]) => {
       return id === lotId ? sum : sum + Number(val || 0);
     }, 0);
 
     const remainingNeeded = Math.max(0, targetQty - currentOtherTotal);
-    const toAlloc = Math.min(maxAvail, Number(remainingNeeded.toFixed(4)));
+    const toAlloc = Math.min(maxAvail, Number(remainingNeeded.toFixed(6)));
     handleSetLotQty(lotId, toAlloc, maxAvail);
   };
 
   const handleAutoAllocateFEFO = () => {
-    if (activeLotRowIndex === null) return;
-    const row = rmRows[activeLotRowIndex];
-    const targetQty = Number(row.requiredQty || row.takenQty || 0);
+    const row = getActiveLotTargetRow();
+    if (!row) return;
+    const targetQty = Number(row.takenQty ?? row.requiredQty ?? row.qty ?? 0);
     if (targetQty <= 0) {
       Swal.fire({ title: 'Quantity Required', text: 'Please set required or taken quantity for this material first.', icon: 'info' });
       return;
@@ -947,26 +978,26 @@ export default function ProductionFloorCockpitModal({
       const avail = Number(lot.availableQty || lot.netQty || 0);
       if (avail > 0) {
         const take = Math.min(avail, remainingNeeded);
-        newAlloc[lot.id] = Number(take.toFixed(3));
-        remainingNeeded = Number((remainingNeeded - take).toFixed(3));
+        newAlloc[lot.id] = Number(take.toFixed(6));
+        remainingNeeded = Number((remainingNeeded - take).toFixed(6));
       }
     }
 
     setLotAllocations(newAlloc);
     Swal.fire({
       title: 'FEFO Auto-Allocation Applied',
-      text: `Reserved lots in earliest expiry order. Remaining required: ${remainingNeeded} ${formatCleanUom(row?.uom, 'kg', row)}`,
+      text: `Reserved lots in earliest expiry order. Remaining required: ${remainingNeeded} ${formatCleanUom(row?.uom, 'units', row)}`,
       icon: 'success',
       timer: 1500
     });
   };
 
   const handleAddManualLot = async () => {
-    if (activeLotRowIndex === null) return;
-    const row = rmRows[activeLotRowIndex];
+    const row = getActiveLotTargetRow();
+    if (!row) return;
 
     const payload = {
-      rawMaterialId: row.rawMaterialId,
+      rawMaterialId: row.rawMaterialId || row.rmId,
       batchNumber: manualLotForm.internalBatchNo,
       supplierBatchNo: manualLotForm.supplierBatchNo || 'SUP-LOT-01',
       poNumber: manualLotForm.poNumber || 'PO-MANUAL-OVERRIDE',
@@ -1006,27 +1037,29 @@ export default function ProductionFloorCockpitModal({
     setAvailableLots(prev => [newLot, ...prev.filter(l => l.internalBatchNo !== newLot.internalBatchNo)]);
 
     // Fill remaining quantity into this lot
-    const req = Number(row?.requiredQty || row?.takenQty || 10);
+    const req = Number(row?.takenQty ?? row?.requiredQty ?? row?.qty ?? 10);
     const currSum = Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0);
     const needed = Math.max(0, req - currSum);
-    const toAlloc = Math.min(newLot.availableQty, needed > 0 ? needed : req);
+    const toAlloc = Math.min(newLot.availableQty, needed > 0 ? Number(needed.toFixed(6)) : req);
 
     setLotAllocations(prev => ({ ...prev, [lotId]: toAlloc }));
     setShowManualLotForm(false);
 
     Swal.fire({
       title: 'Continuing Lot Added & Inventory Synced!',
-      text: `${newLot.internalBatchNo} registered with ${newLot.availableQty} ${formatCleanUom(row?.uom, 'kg', row)} available in warehouse inventory.`,
+      text: `${newLot.internalBatchNo} registered with ${newLot.availableQty} ${formatCleanUom(row?.uom, 'units', row)} available in warehouse inventory.`,
       icon: 'success',
       timer: 1800
     });
   };
 
   const handleSaveLotAllocations = async () => {
-    if (activeLotRowIndex === null) return;
-    const row = activeLotTarget?.type === 'PRODUCT_RM' 
+    if (activeLotRowIndex === null && !activeLotTarget) return;
+    const isProductRm = activeLotTarget?.type === 'PRODUCT_RM';
+    const row = isProductRm 
       ? allocations[activeLotTarget.allocIndex]?.productRms?.[activeLotTarget.prmIndex]
-      : rmRows[activeLotRowIndex];
+      : rmRows[activeLotTarget?.rowIndex ?? activeLotRowIndex];
+    if (!row) return;
 
     const allocatedBatches = [];
     let totalAllocQty = 0;
@@ -1036,7 +1069,7 @@ export default function ProductionFloorCockpitModal({
       const qty = Number(qtyVal || 0);
       if (qty <= 0) continue;
 
-      const lot = availableLots.find(l => String(l.id) === String(lotId)) || {
+      const lot = availableLots.find(l => String(l.id) === String(lotId) || String(l.internalBatchNo) === String(lotId)) || {
         id: lotId,
         internalBatchNo: manualLotForm.internalBatchNo,
         supplierBatchNo: manualLotForm.supplierBatchNo,
@@ -1047,8 +1080,7 @@ export default function ProductionFloorCockpitModal({
 
       totalAllocQty += qty;
 
-      let unitRate = Number(lot.unitCost || lot.rate || row?.unitRate || 0);
-      // Fetch live rate from purchase API if available
+      let unitRate = Number(lot.unitCost || lot.rate || lot.unitRate || row?.unitRate || 0);
       try {
         const rateRes = await api.get(`/purchase/live-rate?batchId=${lot.id}&allocatedQty=${qty}`).catch(() => null);
         if (rateRes?.data?.rate > 0) {
@@ -1056,7 +1088,7 @@ export default function ProductionFloorCockpitModal({
         }
       } catch (_) {}
 
-      const lotAmount = Number((qty * unitRate).toFixed(2));
+      const lotAmount = Number((qty * unitRate).toFixed(4));
       weightedAmountSum += lotAmount;
 
       allocatedBatches.push({
@@ -1068,16 +1100,16 @@ export default function ProductionFloorCockpitModal({
         mfgDate: lot.mfgDate || null,
         grnNumber: lot.grnNumber || lot.grnRef || null,
         poNumber: lot.poNumber || lot.poReferenceNo || null,
-        allocatedQty: qty,
+        allocatedQty: Number(qty.toFixed(6)),
         availableQty: Number(lot.availableQty || lot.netQty || 0),
-        remainingQty: Number(Math.max(0, Number(lot.availableQty || lot.netQty || 0) - qty).toFixed(3)),
+        remainingQty: Number(Math.max(0, Number(lot.availableQty || lot.netQty || 0) - qty).toFixed(6)),
         unitRate,
-        allocatedAmount: lotAmount,
-        uom: row?.uom || 'kg'
+        allocatedAmount: Number(lotAmount.toFixed(2)),
+        uom: row?.uom || 'units'
       });
     }
 
-    if (activeLotTarget?.type === 'PRODUCT_RM') {
+    if (isProductRm) {
       const { allocIndex, prmIndex } = activeLotTarget;
       let nextAllocs = [];
       setAllocations(prev => {
@@ -1132,15 +1164,16 @@ export default function ProductionFloorCockpitModal({
 
       Swal.fire({
         title: 'Batches Allocated & Database Persisted!',
-        text: `Allocated ${totalAllocQty} ${row?.uom || 'ml'} across ${allocatedBatches.length} lot(s). Live PO blended rate: ₹${(weightedAmountSum / (totalAllocQty || 1)).toFixed(2)}/unit.`,
+        text: `Allocated ${totalAllocQty} ${row?.uom || 'units'} across ${allocatedBatches.length} lot(s). Live PO rate: ₹${(weightedAmountSum / (totalAllocQty || 1)).toFixed(2)}/unit.`,
         icon: 'success',
         timer: 1600
       });
       return;
     }
 
+    const targetRowIdx = activeLotTarget?.rowIndex ?? activeLotRowIndex;
     const updatedRows = [...rmRows];
-    const targetRow = { ...updatedRows[activeLotRowIndex] };
+    const targetRow = { ...updatedRows[targetRowIdx] };
 
     targetRow.allocatedBatches = allocatedBatches;
     if (allocatedBatches.length > 0) {
@@ -1154,7 +1187,7 @@ export default function ProductionFloorCockpitModal({
       }
     }
 
-    updatedRows[activeLotRowIndex] = targetRow;
+    updatedRows[targetRowIdx] = targetRow;
     setRmRows(updatedRows);
     setLotModalOpen(false);
 
@@ -1533,13 +1566,34 @@ export default function ProductionFloorCockpitModal({
   const handleStepClick = async (targetStep) => {
     if (targetStep === activeStep) return;
 
-    // Gating check for Step 2: Step 1 must have raw materials with taken quantities > 0
+    // Gating check for Step 2: Step 1 must have raw materials with valid taken quantities AND mandatory lot allocations
     if (targetStep > activeStep && targetStep >= 2 && activeStep === 1) {
-      const isStep1Valid = rmRows.length > 0 && rmRows.every(r => Number(r.takenQty || 0) > 0);
-      if (!isStep1Valid) {
+      if (rmRows.length === 0) {
         Swal.fire({
           title: 'Step 1 Incomplete',
-          text: 'Please configure all raw materials and ensure valid batch quantities are allocated (taken > 0) before proceeding to Step 2.',
+          text: 'Please add base raw materials before proceeding to Step 2.',
+          icon: 'warning'
+        });
+        return;
+      }
+
+      const unallocated = rmRows.filter(r => {
+        const taken = Number(r.takenQty ?? r.requiredQty ?? 0);
+        const allocSum = (r.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
+        return taken <= 0 || allocSum < (taken - 0.0001);
+      });
+
+      if (unallocated.length > 0) {
+        Swal.fire({
+          title: 'Batch / Lot Allocation Mandatory',
+          html: `<div class="text-left text-sm space-y-2">
+            <p>Warehouse batch/lot allocation is <strong>mandatory</strong> before proceeding.</p>
+            <p class="text-rose-600 font-semibold">The following base raw materials are missing or incompletely allocated:</p>
+            <ul class="list-disc pl-5 font-mono text-xs text-slate-700 dark:text-slate-300">
+              ${unallocated.map(u => `<li><strong>${u.rawMaterialName}</strong> (Required: ${u.takenQty || u.requiredQty} ${formatCleanUom(u.uom, 'kg', u)}, Allocated: ${(u.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0)} ${formatCleanUom(u.uom, 'kg', u)})</li>`).join('')}
+            </ul>
+            <p class="text-xs text-slate-500">Please click the <strong>Allocate Lots</strong> button for each item to select warehouse lots.</p>
+          </div>`,
           icon: 'warning'
         });
         return;
@@ -1558,12 +1612,46 @@ export default function ProductionFloorCockpitModal({
       }
     }
 
-    // Gating check for Step 4: Product mould allocation configured
+    // Gating check for Step 4: Product mould allocation configured AND all ingredients/packaging lots allocated
     if (targetStep > activeStep && targetStep >= 4 && activeStep === 3) {
       if (allocations.length === 0) {
         Swal.fire({
           title: 'Step 3 Allocations Incomplete',
           text: 'Please configure at least one finished product before proceeding to Factory Stages.',
+          icon: 'warning'
+        });
+        return;
+      }
+
+      const unallocatedPrms = [];
+      allocations.forEach((alloc, aIdx) => {
+        const prodName = alloc.productName || `Product #${alloc.seq || aIdx + 1}`;
+        (alloc.productRms || []).forEach(prm => {
+          const qty = Number(prm.takenQty ?? prm.qty ?? 0);
+          const allocSum = (prm.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
+          if (qty > 0 && allocSum < (qty - 0.0001)) {
+            unallocatedPrms.push({
+              product: prodName,
+              material: prm.rawMaterialName || prm.rmName || prm.name,
+              req: qty,
+              alloc: allocSum,
+              uom: prm.uom || 'units'
+            });
+          }
+        });
+      });
+
+      if (unallocatedPrms.length > 0) {
+        Swal.fire({
+          title: 'Batch / Lot Allocation Mandatory',
+          html: `<div class="text-left text-sm space-y-2">
+            <p>Warehouse batch/lot allocation is <strong>mandatory</strong> for all product ingredients and packaging before proceeding.</p>
+            <p class="text-rose-600 font-semibold">The following items are missing batch allocations:</p>
+            <ul class="list-disc pl-5 font-mono text-xs text-slate-700 dark:text-slate-300">
+              ${unallocatedPrms.map(u => `<li><strong>${u.product}</strong> → ${u.material} (Required: ${u.req} ${u.uom}, Allocated: ${u.alloc} ${u.uom})</li>`).join('')}
+            </ul>
+            <p class="text-xs text-slate-500">Please click <strong>Allocate Lot</strong> for each ingredient/stick in Step 3.</p>
+          </div>`,
           icon: 'warning'
         });
         return;
@@ -1843,7 +1931,8 @@ export default function ProductionFloorCockpitModal({
     const cap = 50;
     const cav = 42;
     const stickDef = getStickForMould(defaultMouldCode, defaultMouldName);
-    const stickPieces = 40;
+    const initialTrays = 0;
+    const stickPieces = initialTrays * cav;
     const initialPrms = stickDef ? [
       {
         rmId: stickDef.id,
@@ -2821,6 +2910,8 @@ export default function ProductionFloorCockpitModal({
                           <th className="py-1.5 px-2 text-right w-24 bg-amber-500/10">Taken (Used)</th>
                           <th className="py-1.5 px-2 text-right w-24" title="Remaining quantity from allocated batch in this production (Available - Taken)">Rem in Prod</th>
                           <th className="py-1.5 px-2 text-right w-28" title="Remaining stock in warehouse after this batch allocation (Warehouse Stock - Taken)">Rem Warehouse Stock</th>
+                          {canViewCost && <th className="py-1.5 px-2 text-right w-20" title="Live PO Unit Rate from allocated lot">Rate (₹)</th>}
+                          {canViewCost && <th className="py-1.5 px-2 text-right w-24" title="Line cost based on taken quantity and live PO rate">Amount (₹)</th>}
                           {!isViewMode && <th className="py-1.5 px-2 text-center w-8">✕</th>}
                         </tr>
                       </thead>
@@ -2940,6 +3031,11 @@ export default function ProductionFloorCockpitModal({
                                           • {line.allocatedBatches[0].poNumber}
                                         </span>
                                       )}
+                                      {line.allocatedBatches[0]?.grnNumber && (
+                                        <span className="text-slate-400 truncate max-w-[100px]" title={line.allocatedBatches[0].grnNumber}>
+                                          • {line.allocatedBatches[0].grnNumber}
+                                        </span>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -3020,6 +3116,27 @@ export default function ProductionFloorCockpitModal({
                                   {formatIndian(remWarehouseStock)} {formatCleanUom(line.uom, 'kg', line)}
                                 </span>
                               </td>
+
+                              {/* Live PO Rate & Cost */}
+                              {canViewCost && (
+                                <td className="py-1 px-2 text-right font-mono text-[10.5px]">
+                                  <div className="font-bold text-slate-800 dark:text-slate-200">
+                                    ₹{Number(line.allocatedBatches?.[0]?.unitRate || line.unitRate || 0).toFixed(2)}
+                                  </div>
+                                  {line.allocatedBatches?.[0]?.poNumber && (
+                                    <div className="text-[7.5px] text-slate-400 font-normal truncate max-w-[80px] ml-auto">
+                                      PO: {line.allocatedBatches[0].poNumber}
+                                    </div>
+                                  )}
+                                </td>
+                              )}
+                              {canViewCost && (
+                                <td className="py-1 px-2 text-right font-mono text-[10.5px]">
+                                  <div className="font-bold text-emerald-600 dark:text-emerald-400">
+                                    ₹{formatIndian(Number((displayTaken * Number(line.allocatedBatches?.[0]?.unitRate || line.unitRate || 0)).toFixed(2)), 2)}
+                                  </div>
+                                </td>
+                              )}
 
                               {/* Remove Row */}
                               {!isViewMode && (
@@ -4805,14 +4922,14 @@ export default function ProductionFloorCockpitModal({
                 {(() => {
                   const targetReq = itemReq;
                   const currentSum = Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0);
-                  const balance = Number((targetReq - currentSum).toFixed(3));
+                  const balance = Number((targetReq - currentSum).toFixed(4));
                   const totalCost = Object.entries(lotAllocations).reduce((acc, [id, val]) => {
                     const qty = Number(val || 0);
-                    const lot = availableLots.find(l => String(l.id) === String(id));
-                    const r = Number(lot?.unitCost || lot?.rate || targetItem?.unitRate || 100);
+                    const lot = availableLots.find(l => String(l.id) === String(id) || String(l.internalBatchNo) === String(id));
+                    const r = Number(lot?.unitCost || lot?.rate || targetItem?.unitRate || 0);
                     return acc + (qty * r);
                   }, 0);
-                  const blendedRate = currentSum > 0 ? Number((totalCost / currentSum).toFixed(2)) : 0;
+                  const blendedRate = currentSum > 0 ? Number((totalCost / currentSum).toFixed(4)) : 0;
 
                   return (
                     <>
@@ -4823,17 +4940,17 @@ export default function ProductionFloorCockpitModal({
                         </div>
                         <div>
                           <span className="text-slate-400">Allocated:</span>{' '}
-                          <strong className="font-mono text-indigo-600 dark:text-indigo-400">{currentSum} {itemUom}</strong>
+                          <strong className="font-mono text-indigo-600 dark:text-indigo-400">{Number(currentSum.toFixed(4))} {itemUom}</strong>
                         </div>
                         <div>
                           <span className="text-slate-400">Balance:</span>{' '}
-                          <strong className={`font-mono ${balance === 0 ? 'text-emerald-600' : balance > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
-                            {balance === 0 ? 'Fully Allocated ✓' : `${balance} ${itemUom}`}
+                          <strong className={`font-mono ${Math.abs(balance) < 0.0001 ? 'text-emerald-600' : balance > 0 ? 'text-amber-600' : 'text-rose-600'}`}>
+                            {Math.abs(balance) < 0.0001 ? 'Fully Allocated ✓' : `${balance} ${itemUom}`}
                           </strong>
                         </div>
                         <div>
                           <span className="text-slate-400">Blended Rate:</span>{' '}
-                          <strong className="font-mono text-emerald-600">₹{blendedRate}/{itemUom}</strong>
+                          <strong className="font-mono text-emerald-600 dark:text-emerald-400">₹{blendedRate.toFixed(2)}/{itemUom}</strong>
                         </div>
                       </div>
 
@@ -4851,6 +4968,7 @@ export default function ProductionFloorCockpitModal({
                           type="button"
                           size="sm"
                           onClick={handleSaveLotAllocations}
+                          disabled={currentSum <= 0}
                           className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 cursor-pointer"
                         >
                           Confirm &amp; Apply Lot Allocations

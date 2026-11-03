@@ -162,6 +162,9 @@ async function ensureStandardProductionSchema(p = prisma) {
           mix_used_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (mix_used_ml >= 0),
           waste_ml NUMERIC(16,2) NOT NULL DEFAULT 0 CHECK (waste_ml >= 0),
           good_pieces INT NOT NULL DEFAULT 0 CHECK (good_pieces >= 0),
+          allocated_base_ml NUMERIC(16,2) DEFAULT 0,
+          bulk_uom VARCHAR(30) DEFAULT 'L',
+          product_rms JSONB DEFAULT '[]'::jsonb,
           created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT uq_pb_alloc_batch_seq UNIQUE (batch_id, seq)
@@ -169,26 +172,29 @@ async function ensureStandardProductionSchema(p = prisma) {
       `);
     } catch (_) {}
 
-    // Add columns to production_batches if missing
-    try {
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS floor_stage VARCHAR(50) DEFAULT 'STEP1_RM';`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS merged_pre_evap_ml DECIMAL(15, 3) DEFAULT 0;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_rate_pct DECIMAL(6, 2) DEFAULT 5.00;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_loss_ml DECIMAL(15, 3) DEFAULT 0;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS net_post_evap_mix_ml DECIMAL(15, 3) DEFAULT 0;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS mould_allocations JSONB DEFAULT '[]'::jsonb;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS timeline_stages JSONB DEFAULT '[]'::jsonb;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS product_yields JSONB DEFAULT '[]'::jsonb;`);
+    // Add columns to production_batches if missing (isolated per statement)
+    const alterStatements = [
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS floor_stage VARCHAR(50) DEFAULT 'STEP1_RM';`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS merged_pre_evap_ml DECIMAL(15, 3) DEFAULT 0;`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_rate_pct DECIMAL(6, 2) DEFAULT 5.00;`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS evaporation_loss_ml DECIMAL(15, 3) DEFAULT 0;`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS net_post_evap_mix_ml DECIMAL(15, 3) DEFAULT 0;`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS mould_allocations JSONB DEFAULT '[]'::jsonb;`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS timeline_stages JSONB DEFAULT '[]'::jsonb;`,
+      `ALTER TABLE production_batches ADD COLUMN IF NOT EXISTS product_yields JSONB DEFAULT '[]'::jsonb;`,
+      `ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS allocated_base_ml NUMERIC(16,2) DEFAULT 0;`,
+      `ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS bulk_uom VARCHAR(30) DEFAULT 'L';`,
+      `ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS product_rms JSONB DEFAULT '[]'::jsonb;`,
+      `ALTER TABLE production_batch_merge ADD COLUMN IF NOT EXISTS is_slide_merged BOOLEAN DEFAULT FALSE;`,
+      `ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS unit_rate NUMERIC(14,4) DEFAULT 0;`,
+      `ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS total_cost NUMERIC(16,2) DEFAULT 0;`
+    ];
 
-      // Ensure production_batch_allocation columns for rich multi-product & essence data
-      await p.$executeRawUnsafe(`ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS allocated_base_ml NUMERIC(16,2) DEFAULT 0;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS bulk_uom VARCHAR(30) DEFAULT 'L';`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS product_rms JSONB DEFAULT '[]'::jsonb;`);
-
-      // Ensure production_batch_rm_line columns for cost rates
-      await p.$executeRawUnsafe(`ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS unit_rate NUMERIC(14,4) DEFAULT 0;`);
-      await p.$executeRawUnsafe(`ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS total_cost NUMERIC(16,2) DEFAULT 0;`);
-    } catch (_) {}
+    for (const sql of alterStatements) {
+      try {
+        await p.$executeRawUnsafe(sql);
+      } catch (_) {}
+    }
 
     isSchemaEnsured = true;
   } catch (schemaErr) {
@@ -1190,7 +1196,7 @@ class StandardProductionController {
               allocated_base_ml, bulk_uom, product_rms,
               created_at, updated_at
             ) VALUES (
-              gen_random_uuid(), $1, $2, $3, $4, ($5::uuid),
+              gen_random_uuid(), $1, $2, $3, $4, ($5::text)::uuid,
               $6, $7, $8, $9, $10,
               $11, $12, $13,
               $14, $15, $16::jsonb,
@@ -1213,68 +1219,71 @@ class StandardProductionController {
           WHERE id = $1;
         `, id, JSON.stringify(computed.allocations));
 
-        // Synchronize production_batch_items for multi-product consistency
-        try {
-          await tx.$executeRawUnsafe(`DELETE FROM "production_batch_items" WHERE batch_id = $1;`, id);
-          for (const alloc of computed.allocations) {
-            if (alloc.productId) {
-              await tx.$executeRawUnsafe(`
+        return computed;
+      });
+
+      // Synchronize production_batch_items and product_rms outside transaction for zero rollback interference
+      try {
+        await prisma.$executeRawUnsafe(`DELETE FROM "production_batch_items" WHERE batch_id = $1;`, id);
+        for (const alloc of result.allocations || []) {
+          if (alloc.productId) {
+            const pCheck = await prisma.$queryRawUnsafe(`SELECT id FROM products WHERE id = $1;`, alloc.productId).catch(() => []);
+            if (pCheck.length > 0) {
+              await prisma.$executeRawUnsafe(`
                 INSERT INTO "production_batch_items" (
                   id, batch_id, product_id, planned_qty, actual_qty, factor, cost_per_unit, created_at
                 ) VALUES (
                   gen_random_uuid(), $1, $2, $3, 0, 1.0, 0, CURRENT_TIMESTAMP
                 );
-              `, id, alloc.productId, Number(alloc.goodPieces || 0));
+              `, id, alloc.productId, Number(alloc.goodPieces || 0)).catch(() => {});
             }
           }
-        } catch (itemErr) {
-          console.warn('Notice synchronizing production_batch_items:', itemErr.message);
         }
+      } catch (itemErr) {
+        console.warn('Notice synchronizing production_batch_items:', itemErr.message);
+      }
 
-        // Persist product-specific essence and ingredient lots to production_batch_allocations
-        try {
-          for (const alloc of computed.allocations) {
-            if (Array.isArray(alloc.productRms)) {
-              for (const prm of alloc.productRms) {
-                if (Array.isArray(prm.allocatedBatches)) {
-                  for (const ab of prm.allocatedBatches) {
-                    if (Number(ab.allocatedQty) > 0) {
-                      const isManual = Boolean(ab.isManualOverride || String(ab.batchId).startsWith('manual-'));
-                      const lotNum = ab.lotNumber || ab.internalBatchNo || 'LOT-DIRECT';
-                      await tx.$executeRawUnsafe(`
-                        INSERT INTO "production_batch_allocations" (
-                          batch_id, usage_id, inventory_batch_id, lot_number,
-                          allocated_qty, po_original_qty, po_total_amount,
-                          allocated_amount, unit_rate, uom,
-                          is_manual_override, grn_number, po_number, supplier_batch_no
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
-                      `, id,
-                         prm.rmId || alloc.productId,
-                         ab.batchId ? String(ab.batchId) : null,
-                         lotNum,
-                         Number(ab.allocatedQty || 0),
-                         Number(ab.availableQty || ab.allocatedQty || 0),
-                         Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || prm.unitRate || 0))),
-                         Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || prm.unitRate || 0))),
-                         Number(ab.unitRate || prm.unitRate || 0),
-                         ab.uom || prm.uom || 'kg',
-                         isManual,
-                         ab.grnNumber || 'GRN-PRODUCT-ESSENCE',
-                         ab.poNumber || 'PO-PRODUCT-ESSENCE',
-                         ab.supplierBatchNo || 'SUP-LOT-01'
-                      ).catch(() => {});
-                    }
+      // Persist product-specific essence and ingredient lots to production_batch_allocations outside transaction
+      try {
+        for (const alloc of result.allocations || []) {
+          if (Array.isArray(alloc.productRms)) {
+            for (const prm of alloc.productRms) {
+              if (Array.isArray(prm.allocatedBatches)) {
+                for (const ab of prm.allocatedBatches) {
+                  if (Number(ab.allocatedQty) > 0) {
+                    const isManual = Boolean(ab.isManualOverride || String(ab.batchId).startsWith('manual-'));
+                    const lotNum = ab.lotNumber || ab.internalBatchNo || 'LOT-DIRECT';
+                    await prisma.$executeRawUnsafe(`
+                      INSERT INTO "production_batch_allocations" (
+                        batch_id, usage_id, inventory_batch_id, lot_number,
+                        allocated_qty, po_original_qty, po_total_amount,
+                        allocated_amount, unit_rate, uom,
+                        is_manual_override, grn_number, po_number, supplier_batch_no
+                      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
+                    `, id,
+                       null,
+                       ab.batchId ? String(ab.batchId) : null,
+                       lotNum,
+                       Number(ab.allocatedQty || 0),
+                       Number(ab.availableQty || ab.allocatedQty || 0),
+                       Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || prm.unitRate || 0))),
+                       Number(ab.allocatedAmount || (Number(ab.allocatedQty || 0) * Number(ab.unitRate || prm.unitRate || 0))),
+                       Number(ab.unitRate || prm.unitRate || 0),
+                       ab.uom || prm.uom || 'kg',
+                       isManual,
+                       ab.grnNumber || 'GRN-PRODUCT-ESSENCE',
+                       ab.poNumber || 'PO-PRODUCT-ESSENCE',
+                       ab.supplierBatchNo || 'SUP-LOT-01'
+                    ).catch(() => {});
                   }
                 }
               }
             }
           }
-        } catch (rmLotErr) {
-          console.warn('Notice persisting product RM lots to production_batch_allocations:', rmLotErr.message);
         }
-
-        return computed;
-      });
+      } catch (rmLotErr) {
+        console.warn('Notice persisting product RM lots to production_batch_allocations:', rmLotErr.message);
+      }
 
       if (!res.headersSent) {
         res.json({
