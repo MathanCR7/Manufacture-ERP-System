@@ -10,6 +10,7 @@ router.patch('/profile', authMiddleware, userController.updateProfile);
 router.post('/request-password-change', authMiddleware, userController.requestPasswordChange);
 
 // Admin & Supervisor user management
+router.get('/next-empid', authMiddleware, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), userController.getNextEmpId);
 router.get('/', authMiddleware, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), userController.getAllUsers);
 router.post('/', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.createUser);
 router.patch('/:id', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.updateUser);

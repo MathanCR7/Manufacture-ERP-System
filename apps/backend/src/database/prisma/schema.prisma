@@ -88,6 +88,49 @@ model User {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
+  // Employee Master Details
+  contactNo        String?           @map("contact_no")
+  dob              DateTime?
+  doj              DateTime?
+  gender           String?
+  bloodGroup       String?           @map("blood_group")
+  fatherName       String?           @map("father_name")
+  fatherContact    String?           @map("father_contact")
+  motherName       String?           @map("mother_name")
+  motherContact    String?           @map("mother_contact")
+  husbandName      String?           @map("husband_name")
+  husbandContact   String?           @map("husband_contact")
+  spouseName       String?           @map("spouse_name")
+  spouseContact    String?           @map("spouse_contact")
+  presentAddress   String?           @db.Text @map("present_address")
+  permanentAddress String?           @db.Text @map("permanent_address")
+  aadhar           String?
+  pan              String?
+  epfoNo           String?           @map("epfo_no")
+  esiNo            String?           @map("esi_no")
+  bankAccountName  String?           @map("bank_account_name")
+  bankName         String?           @map("bank_name")
+  bankAccountNo    String?           @map("bank_account_no")
+  bankBranch       String?           @map("bank_branch")
+  bankIfsc         String?           @map("bank_ifsc")
+  familyRemarks    String?           @db.Text @map("family_remarks")
+  attachments      Json?             @default("[]")
+  grossPay         Decimal?          @db.Decimal(12, 2) @map("gross_pay")
+  yearlyCtc        Decimal?          @db.Decimal(12, 2) @map("yearly_ctc")
+  workingHours     String?           @map("working_hours")
+  familyPhotos     Json?             @default("[]") @map("family_photos")
+  selfiePhoto      String?           @db.Text @map("selfie_photo")
+  selfieLocation   String?           @map("selfie_location")
+  cv               String?           @db.Text
+  presentAddressProof String?        @db.Text @map("present_address_proof")
+  permanentAddressProof String?      @db.Text @map("permanent_address_proof")
+  aadharDoc        String?           @db.Text @map("aadhar_doc")
+  panDoc           String?           @db.Text @map("pan_doc")
+  bankProof        String?           @db.Text @map("bank_proof")
+  familyDoc        String?           @db.Text @map("family_doc")
+  contacts         Json?             @default("[]")
+  emails           Json?             @default("[]")
+
   // Relations
   idRegistries      IdRegistry[]
   rawMaterialPOs    RawMaterialPO[]

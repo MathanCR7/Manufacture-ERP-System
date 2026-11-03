@@ -8,6 +8,13 @@ class UserController {
     } catch (error) { next(error); }
   }
 
+  async getNextEmpId(req, res, next) {
+    try {
+      const nextEmpId = await userService.getNextEmpId();
+      res.json({ nextEmpId });
+    } catch (error) { next(error); }
+  }
+
   async createUser(req, res, next) {
     try {
       const newUser = await userService.createUser(req.body);
@@ -38,8 +45,8 @@ class UserController {
 
   async updateProfile(req, res, next) {
     try {
-      const { name, email, profilePhoto } = req.body;
-      const updated = await userService.updateProfile(req.user.id, { name, email, profilePhoto });
+      const { name, email, profilePhoto, contactNo } = req.body;
+      const updated = await userService.updateProfile(req.user.id, { name, email, profilePhoto, contactNo });
       res.json(updated);
     } catch (error) { next(error); }
   }
