@@ -379,6 +379,31 @@ class StandardProductionController {
           `, lineId, batch.id, rmId, rm.lotId || (rm.allocatedBatches?.[0]?.batchId) || null, rm.uom || rm.selectedUom || 'kg', density,
              available, required, taken, evaporates, rm.merged !== undefined ? Boolean(rm.merged) : true);
 
+          const primaryLotNum = (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches[0]?.lotNumber) ||
+            (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches[0]?.internalBatchNo) ||
+            'LOT-DIRECT';
+
+          // Ensure exactly one usage record per raw material line
+          try {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO production_batch_rm_usage (
+                id, batch_id, rm_id, required_qty, available_qty_at_time,
+                actual_used_qty, unit_cost, total_cost, status,
+                internal_batch_no, selected_uom, input_qty
+              ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, 'ALLOCATED',
+                $9, $10, $11
+              ) ON CONFLICT (id) DO UPDATE SET
+                actual_used_qty = EXCLUDED.actual_used_qty,
+                total_cost = EXCLUDED.total_cost,
+                input_qty = EXCLUDED.input_qty;`,
+              lineId, batch.id, rmId, required, available,
+              taken, Number(rm.unitRate || 0), Number(rm.unitRate || 0) * taken,
+              primaryLotNum, rm.uom || rm.selectedUom || 'kg', taken
+            );
+          } catch (_) {}
+
           // Persist raw material batch allocations to database
           if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
             for (const ab of rm.allocatedBatches) {
@@ -406,25 +431,6 @@ class StandardProductionController {
                   }
                 } catch (_) {}
               }
-
-              try {
-                await tx.$executeRawUnsafe(
-                  `INSERT INTO production_batch_rm_usage (
-                    id, batch_id, rm_id, required_qty, available_qty_at_time,
-                    actual_used_qty, unit_cost, total_cost, status,
-                    internal_batch_no, selected_uom, input_qty
-                  ) VALUES (
-                    $1, $2, $3, $4, $5,
-                    $6, $7, $8, 'ALLOCATED',
-                    $9, $10, $11
-                  ) ON CONFLICT (id) DO UPDATE SET
-                    actual_used_qty = EXCLUDED.actual_used_qty,
-                    input_qty = EXCLUDED.input_qty;`,
-                  lineId, batch.id, rmId, required, available,
-                  taken, Number(rm.unitRate || 0), Number(rm.unitRate || 0) * taken,
-                  lotNum, rm.uom || rm.selectedUom || 'kg', taken
-                );
-              } catch (_) {}
 
               try {
                 await tx.$executeRawUnsafe(
@@ -523,6 +529,7 @@ class StandardProductionController {
         if (Array.isArray(data.rawMaterials) && data.rawMaterials.length > 0) {
           await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_line WHERE batch_id = $1;`, id);
           try {
+            await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_usage WHERE batch_id = $1;`, id);
             await tx.$executeRawUnsafe(`DELETE FROM "production_batch_allocations" WHERE batch_id = $1;`, id);
           } catch (_) {}
 
@@ -563,6 +570,31 @@ class StandardProductionController {
             `, lineId, id, rmId, rm.lotId || (rm.allocatedBatches?.[0]?.batchId) || null, rm.uom || rm.selectedUom || 'kg', density,
                available, required, taken, evaporates, rm.merged !== undefined ? Boolean(rm.merged) : true);
 
+            const primaryLotNum = (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches[0]?.lotNumber) ||
+              (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches[0]?.internalBatchNo) ||
+              'LOT-DIRECT';
+
+            // Ensure exactly one usage record per raw material line
+            try {
+              await tx.$executeRawUnsafe(
+                `INSERT INTO production_batch_rm_usage (
+                  id, batch_id, rm_id, required_qty, available_qty_at_time,
+                  actual_used_qty, unit_cost, total_cost, status,
+                  internal_batch_no, selected_uom, input_qty
+                ) VALUES (
+                  $1, $2, $3, $4, $5,
+                  $6, $7, $8, 'ALLOCATED',
+                  $9, $10, $11
+                ) ON CONFLICT (id) DO UPDATE SET
+                  actual_used_qty = EXCLUDED.actual_used_qty,
+                  total_cost = EXCLUDED.total_cost,
+                  input_qty = EXCLUDED.input_qty;`,
+                lineId, id, rmId, required, available,
+                taken, Number(rm.unitRate || 0), Number(rm.unitRate || 0) * taken,
+                primaryLotNum, rm.uom || rm.selectedUom || 'kg', taken
+              );
+            } catch (_) {}
+
             // Persist raw material batch allocations to database
             if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
               for (const ab of rm.allocatedBatches) {
@@ -590,25 +622,6 @@ class StandardProductionController {
                     }
                   } catch (_) {}
                 }
-
-                try {
-                  await tx.$executeRawUnsafe(
-                    `INSERT INTO production_batch_rm_usage (
-                      id, batch_id, rm_id, required_qty, available_qty_at_time,
-                      actual_used_qty, unit_cost, total_cost, status,
-                      internal_batch_no, selected_uom, input_qty
-                    ) VALUES (
-                      $1, $2, $3, $4, $5,
-                      $6, $7, $8, 'ALLOCATED',
-                      $9, $10, $11
-                    ) ON CONFLICT (id) DO UPDATE SET
-                      actual_used_qty = EXCLUDED.actual_used_qty,
-                      input_qty = EXCLUDED.input_qty;`,
-                    lineId, id, rmId, required, available,
-                    taken, Number(rm.unitRate || 0), Number(rm.unitRate || 0) * taken,
-                    lotNum, rm.uom || rm.selectedUom || 'kg', taken
-                  );
-                } catch (_) {}
 
                 try {
                   await tx.$executeRawUnsafe(
@@ -917,9 +930,10 @@ class StandardProductionController {
           evaporationApplied
         });
 
-        // Persist computed lines into production_batch_rm_line
+        // Persist computed lines into production_batch_rm_line and keep production_batch_rm_usage synchronized
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_line WHERE batch_id = $1;`, id);
         try {
+          await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_usage WHERE batch_id = $1;`, id);
           await tx.$executeRawUnsafe(`DELETE FROM "production_batch_allocations" WHERE batch_id = $1;`, id);
         } catch (_) {}
 
@@ -947,6 +961,31 @@ class StandardProductionController {
           `, lineId, id, line.rawMaterialId, primaryLotId, line.uom, line.density,
              line.availableQty, line.requiredQty, line.takenQty, line.evaporates, line.merged,
              lineRate, lineCost);
+
+          const primaryLotNum = (Array.isArray(line.allocatedBatches) && line.allocatedBatches[0]?.lotNumber) ||
+            (Array.isArray(line.allocatedBatches) && line.allocatedBatches[0]?.internalBatchNo) ||
+            'LOT-DIRECT';
+
+          // Record exactly ONE synchronized production_batch_rm_usage per raw material line
+          try {
+            await tx.$executeRawUnsafe(
+              `INSERT INTO production_batch_rm_usage (
+                id, batch_id, rm_id, required_qty, available_qty_at_time,
+                actual_used_qty, unit_cost, total_cost, status,
+                internal_batch_no, selected_uom, input_qty
+              ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, 'ALLOCATED',
+                $9, $10, $11
+              ) ON CONFLICT (id) DO UPDATE SET
+                actual_used_qty = EXCLUDED.actual_used_qty,
+                total_cost = EXCLUDED.total_cost,
+                input_qty = EXCLUDED.input_qty;`,
+              lineId, id, line.rawMaterialId, Number(line.requiredQty || 0), Number(line.availableQty || 0),
+              Number(line.takenQty || 0), lineRate, lineCost,
+              primaryLotNum, line.uom || 'kg', Number(line.takenQty || 0)
+            );
+          } catch (_) {}
 
           // If raw material line has allocated lots, persist to production_batch_allocations
           if (Array.isArray(line.allocatedBatches) && line.allocatedBatches.length > 0) {
@@ -978,25 +1017,6 @@ class StandardProductionController {
                   }
                 } catch (_) {}
               }
-
-              try {
-                await tx.$executeRawUnsafe(
-                  `INSERT INTO production_batch_rm_usage (
-                    id, batch_id, rm_id, required_qty, available_qty_at_time,
-                    actual_used_qty, unit_cost, total_cost, status,
-                    internal_batch_no, selected_uom, input_qty
-                  ) VALUES (
-                    $1, $2, $3, $4, $5,
-                    $6, $7, $8, 'ALLOCATED',
-                    $9, $10, $11
-                  ) ON CONFLICT (id) DO UPDATE SET
-                    actual_used_qty = EXCLUDED.actual_used_qty,
-                    input_qty = EXCLUDED.input_qty;`,
-                  lineId, id, line.rawMaterialId, Number(line.requiredQty || 0), Number(line.availableQty || 0),
-                  Number(line.takenQty || 0), Number(line.unitRate || 0), Number(line.unitRate || 0) * Number(line.takenQty || 0),
-                  lotNum, line.uom || 'kg', Number(line.takenQty || 0)
-                );
-              } catch (_) {}
 
               try {
                 await tx.$executeRawUnsafe(
@@ -2209,6 +2229,52 @@ class StandardProductionController {
            JSON.stringify(yieldsList),
            notes ? `[Sub-Run ${subBatchLetter}]: ${notes}` : `[Sub-Run ${subBatchLetter}] Completed`, 
            operatorName);
+
+        // Update RM usages status to CONSUMED upon batch completion
+        try {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batch_rm_usage
+            SET status = 'CONSUMED'
+            WHERE batch_id = $1;
+          `, id);
+        } catch (_) {}
+
+        // Record any product-specific essences/additions into production_batch_rm_usage if not already recorded
+        try {
+          let savedMAllocsForUsage = [];
+          if (typeof batch.mould_allocations === 'string') {
+            savedMAllocsForUsage = JSON.parse(batch.mould_allocations || '[]');
+          } else if (Array.isArray(batch.mould_allocations)) {
+            savedMAllocsForUsage = batch.mould_allocations;
+          }
+          for (const sAlloc of savedMAllocsForUsage) {
+            if (Array.isArray(sAlloc.productRms)) {
+              for (const prm of sAlloc.productRms) {
+                const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+                const prmId = prm.rmId || prm.rawMaterialId;
+                if (prmQty > 0 && prmId) {
+                  const prmLot = prm.allocatedBatches?.[0]?.lotNumber || prm.allocatedBatches?.[0]?.internalBatchNo || 'LOT-DIRECT';
+                  const prmRate = Number(prm.unitRate || prm.allocatedBatches?.[0]?.unitRate || 0);
+                  const prmLineId = require('crypto').randomUUID();
+                  await tx.$executeRawUnsafe(`
+                    INSERT INTO production_batch_rm_usage (
+                      id, batch_id, rm_id, required_qty, available_qty_at_time,
+                      actual_used_qty, unit_cost, total_cost, status,
+                      internal_batch_no, selected_uom, input_qty
+                    )
+                    SELECT $1, $2, $3, $4, $5, $6, $7, $8, 'CONSUMED', $9, $10, $11
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM production_batch_rm_usage WHERE batch_id = $2 AND rm_id = $3
+                    );
+                  `, prmLineId, id, prmId, prmQty, prmQty,
+                     prmQty, prmRate, prmQty * prmRate,
+                     prmLot, prm.uom || 'kg', prmQty
+                  ).catch(() => {});
+                }
+              }
+            }
+          }
+        } catch (_) {}
 
         // Lock merge table if finalized
         if (isFinalize) {

@@ -2875,12 +2875,28 @@ exports.getMaterialHistory = async (req, res, next) => {
       orderBy: { batch: { createdAt: 'desc' } }
     });
 
+    // Deduplicate usages by batchId to ensure exact 1-to-1 sync with production batches
+    const uniqueUsagesMap = new Map();
+    for (const u of usages) {
+      const bKey = String(u.batchId || u.batch?.id || u.batch?.batchNo || u.id);
+      if (!uniqueUsagesMap.has(bKey)) {
+        uniqueUsagesMap.set(bKey, u);
+      } else {
+        const existing = uniqueUsagesMap.get(bKey);
+        const isBetter = String(u.status || '').toUpperCase() === 'CONSUMED' || String(u.batch?.status || '').toLowerCase() === 'completed';
+        if (isBetter && String(existing.status || '').toUpperCase() !== 'CONSUMED') {
+          uniqueUsagesMap.set(bKey, u);
+        }
+      }
+    }
+    const deduplicatedUsages = Array.from(uniqueUsagesMap.values());
+
     const latestPoObj = formattedPurchases[0];
     const latestPoRate = latestPoObj 
       ? Number(latestPoObj.unitPriceWithGst || latestPoObj.unitPrice || 0) 
       : Number(rm.ratePerUnit || 0);
 
-    const formattedUsages = usages.map(u => {
+    const formattedUsages = deduplicatedUsages.map(u => {
       const batchNoStr = u.batch?.batchNo || u.batch?.referenceNo || 'N/A';
       const prodNameStr = u.batch?.product?.name 
         ? `${u.batch.product.name}${u.batch.product.code ? ` (${u.batch.product.code})` : ''}` 
@@ -4253,9 +4269,16 @@ exports.getRmInOutStock = async (req, res, next) => {
     }
 
     // 3. Process Production Usages (Manufacturing Consumption - OUT)
+    const seenBatchRmSet = new Set();
     for (const u of usages) {
       const rm = findRm(u.rmId) || findRm(u.rawMaterial?.id) || findRm(u.rawMaterial?.code) || findRm(u.rawMaterial?.name);
       if (!rm) continue;
+
+      const batchKey = `${u.batch?.id || u.batchId || 'batch'}_${rm.id}`;
+      if (seenBatchRmSet.has(batchKey)) {
+        continue;
+      }
+      seenBatchRmSet.add(batchKey);
 
       const target = rmTxMap.get(rm.id);
       const isCancelled = Boolean(

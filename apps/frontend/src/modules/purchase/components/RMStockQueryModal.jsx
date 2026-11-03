@@ -118,7 +118,16 @@ export default function RMStockQueryModal({
   const summary = data?.summary;
   const costing = data?.costingSummary;
   const purchases = data?.purchases || [];
-  const usages = data?.productionUsages || [];
+  const rawUsages = data?.productionUsages || [];
+  const usages = useMemo(() => {
+    const seen = new Set();
+    return rawUsages.filter(u => {
+      const key = `${u.batchId || u.batchNumber}_${u.id || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [rawUsages]);
   const batches = data?.batches || [];
   const waste = data?.wasteRecords || [];
   const returns = data?.purchaseReturns || [];

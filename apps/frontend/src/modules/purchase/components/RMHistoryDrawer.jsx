@@ -92,7 +92,16 @@ export default function RMHistoryDrawer({
   const labReports = data?.labReports || [];
   const stockAdjustments = data?.stockAdjustments || [];
   const wasteRecords = data?.wasteRecords || [];
-  const productionUsages = data?.productionUsages || [];
+  const rawProductionUsages = data?.productionUsages || [];
+  const productionUsages = useMemo(() => {
+    const seen = new Set();
+    return rawProductionUsages.filter(u => {
+      const key = `${u.batchId || u.batchNumber}_${u.id || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [rawProductionUsages]);
   const purchaseReturns = data?.purchaseReturns || [];
   const resales = data?.resales || [];
 
