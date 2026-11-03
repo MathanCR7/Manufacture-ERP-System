@@ -1465,7 +1465,7 @@ export default function UserManagementPage() {
                         required 
                         value={formData.name} 
                         onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} 
-                        placeholder="ARUN KUMAR" 
+                        placeholder="NAME" 
                         className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11 font-bold uppercase tracking-wide"
                       />
                     </div>
