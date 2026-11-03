@@ -8,7 +8,8 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, RotateCcw,
   Phone, User, Heart, CreditCard, Building, FileText, Upload,
   Image as ImageIcon, DollarSign, Clock, Check, Download, ExternalLink,
-  Paperclip, Camera, Copy, CheckCircle2, Navigation, Compass, FileCheck
+  Paperclip, Camera, Copy, CheckCircle2, Navigation, Compass, FileCheck,
+  ArrowRight, ArrowLeft
 } from 'lucide-react';
 import { format } from 'date-fns';
 import Swal from 'sweetalert2';
@@ -168,13 +169,14 @@ function SearchableSelect({
 }
 
 const INITIAL_FORM_DATA = {
+  hasAppAccess: true,
   name: '',
   emails: [''],
   email: '',
   password: '',
   role: '',
   ipAddress: '',
-  empId: 'VTE000001',
+  empId: 'VTE0001',
   contacts: ['+91 '],
   contactNo: '+91 ',
   secondaryContact: '',
@@ -309,6 +311,7 @@ export default function UserManagementPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
+  const [selectedAccess, setSelectedAccess] = useState('ALL');
   const [sortBy, setSortBy] = useState('name_asc');
 
   // Pagination State
@@ -317,7 +320,7 @@ export default function UserManagementPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedRole, selectedStatus, sortBy, itemsPerPage]);
+  }, [searchTerm, selectedRole, selectedStatus, selectedAccess, sortBy, itemsPerPage]);
 
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
 
@@ -508,7 +511,7 @@ export default function UserManagementPage() {
     }
   });
 
-  // Running number generation helper defaulting to VTE000001
+  // Running number generation helper defaulting to VTE0001
   const handleFetchNextEmpId = async () => {
     try {
       const res = await api.get('/users/next-empid');
@@ -526,9 +529,9 @@ export default function UserManagementPage() {
           if (!isNaN(n) && n > maxNum) maxNum = n;
         }
       });
-      return `VTE${String(maxNum + 1).padStart(6, '0')}`;
+      return `VTE${String(maxNum + 1).padStart(4, '0')}`;
     }
-    return 'VTE000001';
+    return 'VTE0001';
   };
 
   const handleAddUserClick = async () => {
@@ -557,13 +560,15 @@ export default function UserManagementPage() {
 
     // Parse single login email
     const singleEmail = user.email || (Array.isArray(user.emails) ? user.emails[0] : '') || '';
+    const isNoAppAccess = user.hasAppAccess === false || singleEmail.endsWith('@staff.local');
 
     setFormData({
+      hasAppAccess: !isNoAppAccess,
       name: (user.name || '').toUpperCase(),
-      email: singleEmail,
-      emails: [singleEmail],
+      email: isNoAppAccess ? '' : singleEmail,
+      emails: isNoAppAccess ? [] : [singleEmail],
       password: '',
-      role: user.role || '',
+      role: isNoAppAccess ? 'PRODUCTION_STAFF' : (user.role || ''),
       ipAddress: user.ipAddress || '',
       empId: user.empId || '',
       contactNo: primContact,
@@ -617,62 +622,105 @@ export default function UserManagementPage() {
     setFormData(INITIAL_FORM_DATA);
   };
 
+  const validateStep = (tab) => {
+    if (tab === 'basic') {
+      if (!formData.name?.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Full Name is mandatory.' });
+        return false;
+      }
+      const cleanPrimaryContact = (formData.contacts?.[0] || formData.contactNo || '').trim();
+      if (!cleanPrimaryContact || cleanPrimaryContact === '+91' || cleanPrimaryContact === '+91 ') {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Primary Mobile Number is mandatory.' });
+        return false;
+      }
+      if (formData.hasAppAccess !== false) {
+        if (!formData.email?.trim()) {
+          Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Email Address (Login ID) is mandatory for application access.' });
+          return false;
+        }
+        if (!editingUser && !formData.password?.trim()) {
+          Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Login Password is mandatory for application access.' });
+          return false;
+        }
+        if (!formData.role) {
+          Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Designation Role is mandatory for application access.' });
+          return false;
+        }
+      }
+      if (!formData.profilePhoto) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Employee Photo is mandatory (Photos).' });
+        return false;
+      }
+      if (!formData.dob) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Date of Birth (DOB) is mandatory.' });
+        return false;
+      }
+      if (!formData.doj) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Date of Joining (DOJ) is mandatory.' });
+        return false;
+      }
+      if (!formData.gender) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Sex / Gender is mandatory.' });
+        return false;
+      }
+      if (!formData.bloodGroup) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Blood Group is mandatory.' });
+        return false;
+      }
+      return true;
+    }
+
+    if (tab === 'family') {
+      if (!formData.fatherName?.trim()) {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Father Name is mandatory.' });
+        return false;
+      }
+      const cleanFatherContact = (formData.fatherContact || '').trim();
+      if (!cleanFatherContact || cleanFatherContact === '+91' || cleanFatherContact === '+91 ') {
+        Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Emergency Contact No (Father) is mandatory.' });
+        return false;
+      }
+      return true;
+    }
+
+    return true;
+  };
+
+  const handleNextStep = (targetStep) => {
+    if (validateStep(activeTab)) {
+      setActiveTab(targetStep);
+      const formEl = document.getElementById('employee-master-form');
+      if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const handlePrevStep = (targetStep) => {
+    setActiveTab(targetStep);
+    const formEl = document.getElementById('employee-master-form');
+    if (formEl) formEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    // Check Mandatory Validations (Man: x)
-    if (!formData.name?.trim()) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Name is mandatory.' });
+    if (!validateStep('basic')) {
       setActiveTab('basic');
       return;
     }
-    const cleanPrimaryContact = (formData.contacts?.[0] || formData.contactNo || '').trim();
-    if (!cleanPrimaryContact || cleanPrimaryContact === '+91' || cleanPrimaryContact === '+91 ') {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Contact No is mandatory.' });
-      setActiveTab('basic');
-      return;
-    }
-    if (!formData.profilePhoto) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Employee Photo is mandatory (Photos).' });
-      setActiveTab('basic');
-      return;
-    }
-    if (!formData.dob) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Date of Birth (DOB) is mandatory.' });
-      setActiveTab('basic');
-      return;
-    }
-    if (!formData.doj) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Date of Joining (DOJ) is mandatory.' });
-      setActiveTab('basic');
-      return;
-    }
-    if (!formData.gender) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Sex / Gender is mandatory.' });
-      setActiveTab('basic');
-      return;
-    }
-    if (!formData.bloodGroup) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Blood Group is mandatory.' });
-      setActiveTab('basic');
-      return;
-    }
-    if (!formData.fatherName?.trim()) {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Father Name is mandatory.' });
-      setActiveTab('family');
-      return;
-    }
-    const cleanFatherContact = (formData.fatherContact || '').trim();
-    if (!cleanFatherContact || cleanFatherContact === '+91' || cleanFatherContact === '+91 ') {
-      Swal.fire({ icon: 'warning', title: 'Missing Required Field', text: 'Emergency Contact No (Father) is mandatory.' });
+    if (!validateStep('family')) {
       setActiveTab('family');
       return;
     }
 
+    const payload = {
+      ...formData,
+      name: (formData.name || '').trim().toUpperCase()
+    };
+
     if (editingUser) {
-      updateMutation.mutate({ id: editingUser.id, data: formData });
+      updateMutation.mutate({ id: editingUser.id, data: payload });
     } else {
-      createMutation.mutate(formData);
+      createMutation.mutate(payload);
     }
   };
 
@@ -903,8 +951,12 @@ export default function UserManagementPage() {
         selectedStatus === 'ALL' || 
         (selectedStatus === 'ACTIVE' && user.isActive) ||
         (selectedStatus === 'INACTIVE' && !user.isActive);
+      const matchesAccess =
+        selectedAccess === 'ALL' ||
+        (selectedAccess === 'WITH_APP' && user.hasAppAccess !== false) ||
+        (selectedAccess === 'NO_APP' && user.hasAppAccess === false);
         
-      return matchesSearch && matchesRole && matchesStatus;
+      return matchesSearch && matchesRole && matchesStatus && matchesAccess;
     });
 
     result.sort((a, b) => {
@@ -922,7 +974,7 @@ export default function UserManagementPage() {
     });
 
     return result;
-  }, [users, searchTerm, selectedRole, selectedStatus, sortBy]);
+  }, [users, searchTerm, selectedRole, selectedStatus, selectedAccess, sortBy]);
 
   const totalPages = Math.ceil(sortedAndFiltered.length / itemsPerPage) || 1;
   const paginatedUsers = useMemo(() => {
@@ -955,12 +1007,13 @@ export default function UserManagementPage() {
     setCurrentPage(1);
   };
 
-  const isFilterActive = searchTerm || selectedRole !== 'ALL' || selectedStatus !== 'ALL' || sortBy !== 'name_asc';
+  const isFilterActive = searchTerm || selectedRole !== 'ALL' || selectedStatus !== 'ALL' || selectedAccess !== 'ALL' || sortBy !== 'name_asc';
 
   const handleResetFilters = () => {
     setSearchTerm('');
     setSelectedRole('ALL');
     setSelectedStatus('ALL');
+    setSelectedAccess('ALL');
     setSortBy('name_asc');
     setCurrentPage(1);
   };
@@ -1023,7 +1076,7 @@ export default function UserManagementPage() {
             Employee Master & User Configuration
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Running ID sequence (<strong className="text-indigo-600 dark:text-indigo-400 font-mono">VTE000001</strong>), mandatory validations (Man: x), per-field document proofs (Attac: X / XX), multi-contacts (++), and GPS-tagged selfie verification.
+            Running ID sequence (<strong className="text-indigo-600 dark:text-indigo-400 font-mono">VTE0001</strong>), mandatory validations (Man: x), per-field document proofs (Attac: X / XX), multi-contacts (++), and GPS-tagged selfie verification.
           </p>
         </div>
         {!isCreating && !editingUser && (
@@ -1098,7 +1151,7 @@ export default function UserManagementPage() {
 
       {/* Unified Create / Edit Employee Form Section */}
       {(isCreating || editingUser) && (
-        <div className="bg-white dark:bg-slate-900/50 backdrop-blur-md border border-slate-200 dark:border-slate-800/80 rounded-2xl p-6 shadow-xl relative overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
+        <div id="employee-master-form" className="bg-white dark:bg-slate-900/50 backdrop-blur-md border border-slate-200 dark:border-slate-800/80 rounded-2xl p-6 shadow-xl relative overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
           
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800/80">
@@ -1110,7 +1163,7 @@ export default function UserManagementPage() {
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   {editingUser ? `Edit Employee Master: ${editingUser.name}` : 'New Employee Master Registration'}
                   <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white shadow-xs">
-                    {formData.empId || 'VTE000001'}
+                    {formData.empId || 'VTE0001'}
                   </span>
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1205,6 +1258,56 @@ export default function UserManagementPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+            {/* Employee Application Access Mode Selector */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900/80 dark:to-indigo-950/30 border border-slate-200 dark:border-indigo-900/60 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                    <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    Application Access Mode
+                  </Label>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Specify if this employee requires ERP login credentials or is registered strictly for staff/worker records.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, hasAppAccess: true }))}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      formData.hasAppAccess !== false
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>With Login Access</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, hasAppAccess: false, role: 'PRODUCTION_STAFF', password: '' }))}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      formData.hasAppAccess === false
+                        ? 'bg-slate-900 text-white dark:bg-slate-700 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Without Access (Staff Master Only)</span>
+                  </button>
+                </div>
+              </div>
+
+              {formData.hasAppAccess === false && (
+                <div className="flex items-center gap-2 mt-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-200 text-xs animate-in fade-in duration-200">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span>
+                    <strong>Staff Master Only Mode:</strong> No login email, password, role dropdown, or IP lock required. This employee is registered without system login access.
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* TAB 1: BASIC PROFILE */}
             {activeTab === 'basic' && (
               <div className="space-y-6">
@@ -1328,7 +1431,7 @@ export default function UserManagementPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {/* Employee ID - Running no (VTE000001) - Read Only */}
+                  {/* Employee ID - Running no (VTE0001) - Read Only */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs flex items-center gap-1.5">
@@ -1344,7 +1447,7 @@ export default function UserManagementPage() {
                         disabled
                         readOnly
                         value={formData.empId} 
-                        placeholder="VTE000001" 
+                        placeholder="VTE0001" 
                         className="pl-9 bg-slate-100 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 text-indigo-700 dark:text-indigo-400 rounded-xl h-11 font-mono font-bold tracking-wider cursor-not-allowed opacity-90"
                       />
                     </div>
@@ -1368,19 +1471,21 @@ export default function UserManagementPage() {
                     </div>
                   </div>
 
-                  {/* Designation / Role with Search Bar */}
-                  <div className="space-y-2">
-                    <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
-                      Designation Role *
-                    </Label>
-                    <SearchableSelect 
-                      options={availableRoles}
-                      value={formData.role}
-                      onChange={val => setFormData({ ...formData, role: val })}
-                      placeholder="Select official role"
-                      searchPlaceholder="Search designation roles..."
-                    />
-                  </div>
+                  {/* Designation / Role with Search Bar (Only for App Access) */}
+                  {formData.hasAppAccess !== false && (
+                    <div className="space-y-2">
+                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
+                        Designation Role *
+                      </Label>
+                      <SearchableSelect 
+                        options={availableRoles}
+                        value={formData.role}
+                        onChange={val => setFormData({ ...formData, role: val })}
+                        placeholder="Select official role"
+                        searchPlaceholder="Search designation roles..."
+                      />
+                    </div>
+                  )}
 
                   {/* Contact Numbers (Primary & Secondary Only) */}
                   <div className="space-y-3 md:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800">
@@ -1426,54 +1531,58 @@ export default function UserManagementPage() {
                     </div>
                   </div>
 
-                  {/* Single Email Address for Login */}
-                  <div className="space-y-2 md:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5">
-                        <span className="font-bold text-xs text-indigo-500">@</span>
-                        Email Address (Login ID) <span className="text-rose-500 font-bold">*</span>
+                  {/* Single Email Address for Login (Only for App Access) */}
+                  {formData.hasAppAccess !== false && (
+                    <div className="space-y-2 md:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5">
+                          <span className="font-bold text-xs text-indigo-500">@</span>
+                          Email Address (Login ID) <span className="text-rose-500 font-bold">*</span>
+                        </Label>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Single email used for login page</span>
+                      </div>
+
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs">@</span>
+                        <Input 
+                          required={formData.hasAppAccess !== false}
+                          type="email"
+                          value={formData.email} 
+                          onChange={e => handleSingleEmailChange(e.target.value)} 
+                          placeholder="official.email@kulfierp.com" 
+                          className="pl-8 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-11 text-xs font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Password (Only for App Access) */}
+                  {formData.hasAppAccess !== false && (
+                    <div className="space-y-2">
+                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
+                        {editingUser ? 'New Password (Optional)' : 'Login Password *'}
                       </Label>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Single email used for login page</span>
+                      <div className="relative">
+                        <Key className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <Input 
+                          required={formData.hasAppAccess !== false && !editingUser} 
+                          type={showPassword ? "text" : "password"} 
+                          autoComplete="new-password"
+                          value={formData.password} 
+                          onChange={e => setFormData({...formData, password: e.target.value})} 
+                          placeholder={editingUser ? "•••••••• (Leave blank to keep)" : "••••••••"} 
+                          className="pl-9 pr-10 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900 dark:hover:text-white focus:outline-none transition-colors cursor-pointer"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs">@</span>
-                      <Input 
-                        required
-                        type="email"
-                        value={formData.email} 
-                        onChange={e => handleSingleEmailChange(e.target.value)} 
-                        placeholder="official.email@kulfierp.com" 
-                        className="pl-8 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-11 text-xs font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Password */}
-                  <div className="space-y-2">
-                    <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
-                      {editingUser ? 'New Password (Optional)' : 'Login Password *'}
-                    </Label>
-                    <div className="relative">
-                      <Key className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <Input 
-                        required={!editingUser} 
-                        type={showPassword ? "text" : "password"} 
-                        autoComplete="new-password"
-                        value={formData.password} 
-                        onChange={e => setFormData({...formData, password: e.target.value})} 
-                        placeholder={editingUser ? "•••••••• (Leave blank to keep)" : "••••••••"} 
-                        className="pl-9 pr-10 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11" 
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900 dark:hover:text-white focus:outline-none transition-colors cursor-pointer"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
+                  )}
 
                   {/* DOB (Mandatory: x) */}
                   <div className="space-y-2">
@@ -1551,21 +1660,23 @@ export default function UserManagementPage() {
                     </div>
                   </div>
 
-                  {/* IP Restriction */}
-                  <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                    <div className="flex justify-between items-center">
-                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">IP Address Restriction Lock (Optional)</Label>
+                  {/* IP Restriction (Only for App Access) */}
+                  {formData.hasAppAccess !== false && (
+                    <div className="space-y-2 md:col-span-2 lg:col-span-3">
+                      <div className="flex justify-between items-center">
+                        <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">IP Address Restriction Lock (Optional)</Label>
+                      </div>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <Input 
+                          value={formData.ipAddress} 
+                          onChange={e => setFormData({...formData, ipAddress: e.target.value})} 
+                          placeholder="e.g. 192.168.1.100 (Leave blank for unrestricted access)"
+                          className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11" 
+                        />
+                      </div>
                     </div>
-                    <div className="relative">
-                      <MapPin className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <Input 
-                        value={formData.ipAddress} 
-                        onChange={e => setFormData({...formData, ipAddress: e.target.value})} 
-                        placeholder="e.g. 192.168.1.100 (Leave blank for unrestricted access)"
-                        className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11" 
-                      />
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2195,32 +2306,126 @@ export default function UserManagementPage() {
               </div>
             )}
 
-            {/* Bottom Form Action Buttons */}
+            {/* Bottom Form Action Buttons (Step-by-Step Wizard Navigation) */}
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-6 border-t border-slate-100 dark:border-slate-800/80">
               <div className="text-xs text-slate-400 flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>Files saved under employee directory <code className="text-indigo-500 font-mono">uploads/employees/{formData.empId || 'VTE000001'}</code></span>
+                <span>Files saved under employee directory <code className="text-indigo-500 font-mono">uploads/employees/{formData.empId || 'VTE0001'}</code></span>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
                 <Button 
                   type="button" 
                   onClick={handleCancel} 
-                  className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md font-semibold px-6 h-11 transition-colors flex items-center justify-center cursor-pointer flex-1 sm:flex-none"
+                  className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md font-semibold px-5 h-11 transition-colors flex items-center justify-center cursor-pointer flex-1 sm:flex-none"
                 >
                   Cancel
                 </Button>
-                <Button 
-                  type="submit" 
-                  disabled={createMutation.isPending || updateMutation.isPending} 
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-8 h-11 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex items-center justify-center cursor-pointer flex-1 sm:flex-none"
-                >
-                  {editingUser ? (
-                    updateMutation.isPending ? 'Saving...' : 'Update Employee Master'
-                  ) : (
-                    createMutation.isPending ? 'Registering...' : 'Register Employee Master'
-                  )}
-                </Button>
+
+                {activeTab === 'basic' && (
+                  <Button
+                    type="button"
+                    onClick={() => handleNextStep('family')}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 h-11 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex items-center gap-2 justify-center cursor-pointer flex-1 sm:flex-none"
+                  >
+                    <span>Next: Family Details</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                )}
+
+                {activeTab === 'family' && (
+                  <>
+                    <Button
+                      type="button"
+                      onClick={() => handlePrevStep('basic')}
+                      variant="outline"
+                      className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold px-5 h-11 rounded-xl flex items-center gap-2 cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Back</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => handleNextStep('address_kyc')}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 h-11 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex items-center gap-2 justify-center cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <span>Next: Address & KYC</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
+
+                {activeTab === 'address_kyc' && (
+                  <>
+                    <Button
+                      type="button"
+                      onClick={() => handlePrevStep('family')}
+                      variant="outline"
+                      className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold px-5 h-11 rounded-xl flex items-center gap-2 cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Back</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => handleNextStep('banking_salary')}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 h-11 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex items-center gap-2 justify-center cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <span>Next: Banking & Compensation</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
+
+                {activeTab === 'banking_salary' && (
+                  <>
+                    <Button
+                      type="button"
+                      onClick={() => handlePrevStep('address_kyc')}
+                      variant="outline"
+                      className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold px-5 h-11 rounded-xl flex items-center gap-2 cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Back</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => handleNextStep('attachments')}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 h-11 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex items-center gap-2 justify-center cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <span>Next: Attachments & Proofs</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
+
+                {activeTab === 'attachments' && (
+                  <>
+                    <Button
+                      type="button"
+                      onClick={() => handlePrevStep('banking_salary')}
+                      variant="outline"
+                      className="border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold px-5 h-11 rounded-xl flex items-center gap-2 cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Back</span>
+                    </Button>
+                    <Button 
+                      type="submit" 
+                      disabled={createMutation.isPending || updateMutation.isPending} 
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 h-11 rounded-xl shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30 transition-all flex items-center gap-2 justify-center cursor-pointer flex-1 sm:flex-none"
+                    >
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span>
+                        {editingUser ? (
+                          updateMutation.isPending ? 'Saving Master...' : 'Update Employee Master'
+                        ) : (
+                          createMutation.isPending ? 'Registering...' : 'Register Employee Master'
+                        )}
+                      </span>
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </form>
@@ -2237,7 +2442,7 @@ export default function UserManagementPage() {
               setSearchTerm(e.target.value);
               setCurrentPage(1);
             }} 
-            placeholder="Search Arun, VTE000001, phone, role..." 
+            placeholder="Search Arun, VTE0001, phone, role..." 
             className="pl-10 pr-8 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 rounded-xl h-10 w-full text-xs"
           />
           {searchTerm && (
@@ -2254,6 +2459,23 @@ export default function UserManagementPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-start md:justify-end">
+          {/* Access Filter (All, With App Access, Staff Master Only) */}
+          <div className="relative min-w-[140px] sm:min-w-[160px]">
+            <select
+              value={selectedAccess}
+              onChange={(e) => {
+                setSelectedAccess(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-10 w-full pl-3 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
+            >
+              <option value="ALL">All Access Types</option>
+              <option value="WITH_APP">With Login Access</option>
+              <option value="NO_APP">Staff Master (No Login)</option>
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          </div>
+
           {/* Role Filter */}
           <div className="relative min-w-[130px] sm:min-w-[150px]">
             <select
@@ -2344,7 +2566,7 @@ export default function UserManagementPage() {
 
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3">
                   <button onClick={handleToggleSortEmpId} className="inline-flex items-center gap-1.5 uppercase font-bold text-xs cursor-pointer">
-                    <span>Emp ID (VTE000001)</span>
+                    <span>Emp ID (VTE0001)</span>
                     {sortBy === 'empId_asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />}
                   </button>
                 </TableHead>
@@ -2414,7 +2636,13 @@ export default function UserManagementPage() {
                             {user.name}
                             {user.gender && <span className="text-[10px] text-slate-400 font-normal">({user.gender})</span>}
                           </p>
-                          <p className="text-xs text-slate-500 font-mono">{user.email}</p>
+                          {user.hasAppAccess === false || user.email?.includes('@staff.local') ? (
+                            <span className="text-[11px] text-slate-400 italic flex items-center gap-1 font-sans">
+                              <UserX className="w-3 h-3 text-slate-400" /> No Login Access (Staff)
+                            </span>
+                          ) : (
+                            <p className="text-xs text-slate-500 font-mono">{user.email}</p>
+                          )}
                         </div>
                       </div>
                     </TableCell>
@@ -2426,9 +2654,16 @@ export default function UserManagementPage() {
                     </TableCell>
 
                     <TableCell>
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeStyle(user.role)}`}>
-                        {user.role.replace(/_/g, ' ')}
-                      </span>
+                      {user.hasAppAccess === false ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700">
+                          <UserX className="w-3 h-3 text-slate-400" />
+                          <span>STAFF (NO LOGIN)</span>
+                        </span>
+                      ) : (
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeStyle(user.role)}`}>
+                          {user.role.replace(/_/g, ' ')}
+                        </span>
+                      )}
                     </TableCell>
 
                     <TableCell className="hidden md:table-cell text-xs font-mono">
@@ -2636,10 +2871,18 @@ export default function UserManagementPage() {
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-black uppercase tracking-wider text-slate-900 dark:text-white">{viewingUser.name}</h2>
                     <span className="font-mono text-xs px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white font-bold tracking-wider">
-                      {viewingUser.empId || 'VTE000001'}
+                      {viewingUser.empId || 'VTE0001'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5 font-mono">{viewingUser.email} • {viewingUser.contactNo}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono">
+                    {viewingUser.hasAppAccess === false || viewingUser.email?.includes('@staff.local') ? (
+                      <span className="text-slate-500">
+                        {viewingUser.contactNo} • <span className="font-sans italic text-slate-400">Staff Master (No Login Access)</span>
+                      </span>
+                    ) : (
+                      `${viewingUser.email} • ${viewingUser.contactNo}`
+                    )}
+                  </p>
                 </div>
               </div>
 

@@ -46,7 +46,10 @@ async function ensureUserEmployeeMasterSchema() {
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "bank_proof" TEXT;`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "family_doc" TEXT;`,
     `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "contacts" JSONB DEFAULT '[]'::jsonb;`,
-    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emails" JSONB DEFAULT '[]'::jsonb;`
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emails" JSONB DEFAULT '[]'::jsonb;`,
+    `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "has_app_access" BOOLEAN DEFAULT true;`,
+    // Migrate any 6-digit VTE00000x IDs to 4-digit VTE000x format
+    `UPDATE "User" SET "emp_id" = regexp_replace("emp_id", '^VTE-?0*([0-9]+)$', 'VTE' || lpad('\\1', 4, '0')) WHERE "emp_id" ~* '^VTE-?0{4,}[0-9]+$';`
   ];
 
   for (const sql of alterStatements) {

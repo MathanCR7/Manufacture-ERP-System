@@ -9,6 +9,7 @@ const USER_SAFE_SELECT = {
   ipAddress: true,
   profilePhoto: true,
   isActive: true,
+  hasAppAccess: true,
   createdAt: true,
   updatedAt: true,
   contactNo: true,
@@ -63,6 +64,7 @@ const USER_BASIC_SELECT = {
   ipAddress: true,
   profilePhoto: true,
   isActive: true,
+  hasAppAccess: true,
   createdAt: true,
   updatedAt: true
 };
@@ -70,6 +72,7 @@ const USER_BASIC_SELECT = {
 function enrichWithDefaultEmployeeFields(user) {
   if (!user) return user;
   return {
+    hasAppAccess: user.hasAppAccess !== false,
     contactNo: null,
     contacts: [],
     emails: [],
@@ -251,7 +254,7 @@ class UserRepository {
     }
 
     const nextSeq = maxSeq + 1;
-    return `VTE${String(nextSeq).padStart(6, '0')}`;
+    return `VTE${String(nextSeq).padStart(4, '0')}`;
   }
 
   async create(data) {

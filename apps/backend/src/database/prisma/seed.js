@@ -7,7 +7,7 @@ const sampleUsers = [
   {
     email: 'admin@kulfierp.com',
     name: 'ADMIN MASTER',
-    empId: 'VTE000001',
+    empId: 'VTE0001',
     role: 'MAIN_MASTER',
     contactNo: '+91 98401 12345',
     contacts: ['+91 98401 12345', '+91 98401 67890'],
@@ -39,7 +39,7 @@ const sampleUsers = [
   {
     email: 'supervisor@kulfierp.com',
     name: 'FACTORY SUPERVISOR',
-    empId: 'VTE000002',
+    empId: 'VTE0002',
     role: 'SUPERVISOR',
     contactNo: '+91 98402 23456',
     contacts: ['+91 98402 23456', '+91 98402 78901'],
@@ -71,7 +71,7 @@ const sampleUsers = [
   {
     email: 'accountant@kulfierp.com',
     name: 'PURCHASE ACCOUNTANT',
-    empId: 'VTE000003',
+    empId: 'VTE0003',
     role: 'PURCHASE_ACCOUNTANT',
     contactNo: '+91 98403 34567',
     contacts: ['+91 98403 34567', '+91 98403 89012'],
@@ -103,7 +103,7 @@ const sampleUsers = [
   {
     email: 'receiver@kulfierp.com',
     name: 'MATERIALS RECEIVER',
-    empId: 'VTE000004',
+    empId: 'VTE0004',
     role: 'MATERIALS_RECEIVER',
     contactNo: '+91 98404 45678',
     contacts: ['+91 98404 45678', '+91 98404 90123'],
@@ -135,7 +135,7 @@ const sampleUsers = [
   {
     email: 'lab@kulfierp.com',
     name: 'LAB ASSISTANT',
-    empId: 'VTE000005',
+    empId: 'VTE0005',
     role: 'LAB_ASSISTANT',
     contactNo: '+91 98405 56789',
     contacts: ['+91 98405 56789', '+91 98405 01234'],
@@ -167,7 +167,7 @@ const sampleUsers = [
   {
     email: 'production@kulfierp.com',
     name: 'PRODUCTION STAFF',
-    empId: 'VTE000006',
+    empId: 'VTE0006',
     role: 'PRODUCTION_STAFF',
     contactNo: '+91 98406 67890',
     contacts: ['+91 98406 67890', '+91 98406 12345'],

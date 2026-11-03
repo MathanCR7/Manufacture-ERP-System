@@ -60,6 +60,7 @@ sudo -u postgres psql -d erp_manufacture -c "
   ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"family_doc\" TEXT;
   ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"contacts\" JSONB DEFAULT '[]'::jsonb;
   ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"emails\" JSONB DEFAULT '[]'::jsonb;
+  ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"has_app_access\" BOOLEAN DEFAULT true;
   ALTER TABLE \"User\" OWNER TO leonex_web_user;
   ALTER TABLE production_batches OWNER TO leonex_web_user;
   GRANT erp_user TO leonex_web_user;
@@ -92,6 +93,9 @@ echo "📁 Ensuring uploads directory permissions..."
 mkdir -p /var/www/manufacture-erp/apps/backend/uploads/employees
 mkdir -p /var/www/manufacture-erp/apps/backend/uploads/invoices
 mkdir -p /var/www/manufacture-erp/apps/backend/uploads/payments
+if [ -d "/var/www/manufacture-erp/apps/backend/uploads/employees/VTE000001" ] && [ ! -d "/var/www/manufacture-erp/apps/backend/uploads/employees/VTE0001" ]; then
+    cp -r /var/www/manufacture-erp/apps/backend/uploads/employees/VTE000001 /var/www/manufacture-erp/apps/backend/uploads/employees/VTE0001 || true
+fi
 chmod -R 777 /var/www/manufacture-erp/apps/backend/uploads || true
 
 echo "🌐 [5/5] Updating & Reloading Nginx Web Server..."

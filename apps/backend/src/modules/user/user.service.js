@@ -93,29 +93,11 @@ class UserService {
       attachments
     } = userData;
 
+    const hasAppAccess = userData.hasAppAccess !== false;
+
     // Normalizing multi-entry fields (++)
     const contactsList = normalizeArray(contacts).map(c => typeof c === 'string' ? c.trim() : c?.number || '').filter(Boolean);
     const primaryContact = contactsList.length > 0 ? contactsList[0] : parseString(contactNo);
-
-    const emailsList = normalizeArray(emails).map(e => typeof e === 'string' ? e.trim().toLowerCase() : e?.email || '').filter(Boolean);
-    const primaryEmail = (emailsList.length > 0 ? emailsList[0] : parseString(email) || '').toLowerCase();
-
-    // Mandatory Field Validations based on specification
-    if (!name) throw { status: 400, message: 'Full Name is required (Mandatory).' };
-    if (!primaryContact) throw { status: 400, message: 'Contact No is required (Mandatory).' };
-    if (!primaryEmail) throw { status: 400, message: 'Email address is required.' };
-    if (!password) throw { status: 400, message: 'Password is required.' };
-    if (!role) throw { status: 400, message: 'Designation Role is required.' };
-    if (!profilePhoto) throw { status: 400, message: 'Employee Photo is required (Mandatory).' };
-    if (!dob) throw { status: 400, message: 'Date of Birth (DOB) is required (Mandatory).' };
-    if (!doj) throw { status: 400, message: 'Date of Joining (DOJ) is required (Mandatory).' };
-    if (!gender) throw { status: 400, message: 'Sex / Gender is required (Mandatory).' };
-    if (!bloodGroup) throw { status: 400, message: 'Blood Group is required (Mandatory).' };
-    if (!fatherName) throw { status: 400, message: 'Father Name is required (Mandatory).' };
-    if (!fatherContact) throw { status: 400, message: 'Emergency Contact No is required (Mandatory).' };
-
-    const existingUser = await userRepository.findByEmail(primaryEmail);
-    if (existingUser) throw { status: 400, message: `Email "${primaryEmail}" already exists.` };
 
     let finalEmpId = parseString(empId);
     if (!finalEmpId) {
@@ -127,7 +109,38 @@ class UserService {
       }
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const emailsList = normalizeArray(emails).map(e => typeof e === 'string' ? e.trim().toLowerCase() : e?.email || '').filter(Boolean);
+    let primaryEmail = (emailsList.length > 0 ? emailsList[0] : parseString(email) || '').toLowerCase();
+    if (!primaryEmail && !hasAppAccess) {
+      primaryEmail = `${finalEmpId.toLowerCase()}@staff.local`;
+    }
+
+    // Mandatory Field Validations based on specification
+    if (!name) throw { status: 400, message: 'Full Name is required (Mandatory).' };
+    if (!primaryContact) throw { status: 400, message: 'Contact No is required (Mandatory).' };
+    if (hasAppAccess) {
+      if (!primaryEmail) throw { status: 400, message: 'Email address is required for application access.' };
+      if (!password) throw { status: 400, message: 'Password is required for application access.' };
+      if (!role) throw { status: 400, message: 'Designation Role is required for application access.' };
+    }
+    if (!profilePhoto) throw { status: 400, message: 'Employee Photo is required (Mandatory).' };
+    if (!dob) throw { status: 400, message: 'Date of Birth (DOB) is required (Mandatory).' };
+    if (!doj) throw { status: 400, message: 'Date of Joining (DOJ) is required (Mandatory).' };
+    if (!gender) throw { status: 400, message: 'Sex / Gender is required (Mandatory).' };
+    if (!bloodGroup) throw { status: 400, message: 'Blood Group is required (Mandatory).' };
+    if (!fatherName) throw { status: 400, message: 'Father Name is required (Mandatory).' };
+    if (!fatherContact) throw { status: 400, message: 'Emergency Contact No is required (Mandatory).' };
+
+    if (primaryEmail) {
+      const existingUser = await userRepository.findByEmail(primaryEmail);
+      if (existingUser) throw { status: 400, message: `Email "${primaryEmail}" already exists.` };
+    }
+
+    const passwordHash = (hasAppAccess && password)
+      ? await bcrypt.hash(password, 10)
+      : await bcrypt.hash('NO_APP_ACCESS_' + Date.now(), 10);
+
+    const assignedRole = role || 'PRODUCTION_STAFF';
 
     // Save uploaded files to uploads/employees/{empId}/
     const savedPhoto = employeeFileStorage.processProfilePhoto(profilePhoto, finalEmpId, null);
@@ -155,7 +168,8 @@ class UserService {
       email: primaryEmail,
       emails: emailsList.length > 0 ? emailsList : [primaryEmail],
       passwordHash,
-      role,
+      role: assignedRole,
+      hasAppAccess: Boolean(hasAppAccess),
       empId: finalEmpId,
       ipAddress: parseString(ipAddress),
       contactNo: primaryContact,
@@ -353,6 +367,10 @@ class UserService {
 
     if (rest.isActive !== undefined) {
       payload.isActive = Boolean(rest.isActive);
+    }
+
+    if (rest.hasAppAccess !== undefined) {
+      payload.hasAppAccess = Boolean(rest.hasAppAccess);
     }
 
     return userRepository.update(id, payload);

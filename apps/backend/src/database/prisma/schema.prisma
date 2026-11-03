@@ -85,6 +85,7 @@ model User {
   ipAddress       String?
   profilePhoto    String?           @db.Text
   isActive        Boolean           @default(true)
+  hasAppAccess    Boolean           @default(true) @map("has_app_access")
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
