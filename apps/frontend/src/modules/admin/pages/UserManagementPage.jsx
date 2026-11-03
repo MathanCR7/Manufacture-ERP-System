@@ -52,6 +52,121 @@ export const getFileUrl = (url) => {
   return `${serverOrigin}${cleanPath}`;
 };
 
+// Reusable Searchable Dropdown with embedded Search Bar
+function SearchableSelect({ 
+  value, 
+  onChange, 
+  options = [], 
+  placeholder = "Select...", 
+  searchPlaceholder = "Search...", 
+  className = "",
+  disabled = false 
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const normalizedOptions = useMemo(() => {
+    return options.map(opt => {
+      if (typeof opt === 'string') {
+        return { value: opt, label: opt.replace(/_/g, ' ') };
+      }
+      return opt;
+    });
+  }, [options]);
+
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return normalizedOptions;
+    const lower = search.toLowerCase();
+    return normalizedOptions.filter(opt => 
+      (opt.label || opt.value || '').toLowerCase().includes(lower)
+    );
+  }, [normalizedOptions, search]);
+
+  const selectedItem = useMemo(() => {
+    return normalizedOptions.find(o => o.value === value);
+  }, [normalizedOptions, value]);
+
+  return (
+    <div ref={containerRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(!open)}
+        className={`w-full h-11 px-3 text-left bg-slate-50/50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl flex items-center justify-between text-xs font-medium hover:border-indigo-400 transition-colors cursor-pointer ${
+          disabled ? 'opacity-60 cursor-not-allowed' : ''
+        }`}
+      >
+        <span className={value ? "font-bold text-slate-900 dark:text-slate-100 uppercase" : "text-slate-400"}>
+          {selectedItem ? selectedItem.label : placeholder}
+        </span>
+        <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-2 shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1 w-full min-w-[200px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-100">
+          <div className="p-2 border-b border-slate-100 dark:border-slate-800 flex items-center gap-1.5 bg-slate-50/70 dark:bg-slate-950/40">
+            <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              autoFocus
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="w-full text-xs bg-transparent border-0 focus:outline-none text-slate-900 dark:text-white placeholder:text-slate-400"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1 divide-y divide-slate-50 dark:divide-slate-850">
+            {filteredOptions.length === 0 ? (
+              <div className="py-3 px-2 text-center text-xs text-slate-400">
+                No matching results
+              </div>
+            ) : (
+              filteredOptions.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                    className={`w-full text-left px-3 py-2 text-xs rounded-lg flex items-center justify-between transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <span className="font-semibold uppercase">{opt.label}</span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const INITIAL_FORM_DATA = {
   name: '',
   emails: [''],
@@ -59,9 +174,10 @@ const INITIAL_FORM_DATA = {
   password: '',
   role: '',
   ipAddress: '',
-  empId: 'VTE0001',
+  empId: 'VTE000001',
   contacts: ['+91 '],
   contactNo: '+91 ',
+  secondaryContact: '',
   dob: '',
   doj: '',
   gender: '',
@@ -392,7 +508,7 @@ export default function UserManagementPage() {
     }
   });
 
-  // Running number generation helper defaulting to VTE0001
+  // Running number generation helper defaulting to VTE000001
   const handleFetchNextEmpId = async () => {
     try {
       const res = await api.get('/users/next-empid');
@@ -410,9 +526,9 @@ export default function UserManagementPage() {
           if (!isNaN(n) && n > maxNum) maxNum = n;
         }
       });
-      return `VTE${String(maxNum + 1).padStart(4, '0')}`;
+      return `VTE${String(maxNum + 1).padStart(6, '0')}`;
     }
-    return 'VTE0001';
+    return 'VTE000001';
   };
 
   const handleAddUserClick = async () => {
@@ -431,32 +547,28 @@ export default function UserManagementPage() {
     setIsCreating(false);
     setActiveTab('basic');
 
-    // Parse contacts list (++)
-    let contactList = ['+91 '];
+    // Parse contacts (Primary and optional Secondary)
+    let primContact = user.contactNo || '+91 ';
+    let secContact = '';
     if (Array.isArray(user.contacts) && user.contacts.length > 0) {
-      contactList = user.contacts;
-    } else if (user.contactNo) {
-      contactList = [user.contactNo];
+      primContact = user.contacts[0] || '+91 ';
+      secContact = user.contacts[1] || '';
     }
 
-    // Parse emails list (++)
-    let emailList = [''];
-    if (Array.isArray(user.emails) && user.emails.length > 0) {
-      emailList = user.emails;
-    } else if (user.email) {
-      emailList = [user.email];
-    }
+    // Parse single login email
+    const singleEmail = user.email || (Array.isArray(user.emails) ? user.emails[0] : '') || '';
 
     setFormData({
-      name: user.name || '',
-      email: user.email || '',
-      emails: emailList,
+      name: (user.name || '').toUpperCase(),
+      email: singleEmail,
+      emails: [singleEmail],
       password: '',
       role: user.role || '',
       ipAddress: user.ipAddress || '',
       empId: user.empId || '',
-      contactNo: user.contactNo || '+91 ',
-      contacts: contactList,
+      contactNo: primContact,
+      secondaryContact: secContact,
+      contacts: [primContact, secContact].filter(Boolean),
       dob: user.dob ? String(user.dob).substring(0, 10) : '',
       doj: user.doj ? String(user.doj).substring(0, 10) : '',
       gender: user.gender || '',
@@ -564,52 +676,36 @@ export default function UserManagementPage() {
     }
   };
 
-  // Contacts multi-entry (++)
-  const handleAddContact = () => {
+  // Primary & Secondary Contact Handlers (exactly 2 fields)
+  const handlePrimaryContactChange = (val) => {
+    setFormData(prev => {
+      const sec = prev.secondaryContact ? [prev.secondaryContact] : [];
+      return {
+        ...prev,
+        contactNo: val,
+        contacts: [val, ...sec].filter(Boolean)
+      };
+    });
+  };
+
+  const handleSecondaryContactChange = (val) => {
+    setFormData(prev => {
+      const prim = prev.contactNo || '+91 ';
+      return {
+        ...prev,
+        secondaryContact: val,
+        contacts: [prim, val].filter(Boolean)
+      };
+    });
+  };
+
+  // Single Login Email Handler
+  const handleSingleEmailChange = (val) => {
     setFormData(prev => ({
       ...prev,
-      contacts: [...(prev.contacts || []), '+91 ']
+      email: val,
+      emails: [val].filter(Boolean)
     }));
-  };
-
-  const handleContactChange = (index, val) => {
-    setFormData(prev => {
-      const updated = [...(prev.contacts || ['+91 '])];
-      updated[index] = val;
-      return { ...prev, contacts: updated, contactNo: updated[0] };
-    });
-  };
-
-  const handleRemoveContact = (index) => {
-    setFormData(prev => {
-      const updated = (prev.contacts || []).filter((_, i) => i !== index);
-      const finalContacts = updated.length > 0 ? updated : ['+91 '];
-      return { ...prev, contacts: finalContacts, contactNo: finalContacts[0] };
-    });
-  };
-
-  // Emails multi-entry (++)
-  const handleAddEmail = () => {
-    setFormData(prev => ({
-      ...prev,
-      emails: [...(prev.emails || []), '']
-    }));
-  };
-
-  const handleEmailChange = (index, val) => {
-    setFormData(prev => {
-      const updated = [...(prev.emails || [''])];
-      updated[index] = val;
-      return { ...prev, emails: updated, email: updated[0] };
-    });
-  };
-
-  const handleRemoveEmail = (index) => {
-    setFormData(prev => {
-      const updated = (prev.emails || []).filter((_, i) => i !== index);
-      const finalEmails = updated.length > 0 ? updated : [''];
-      return { ...prev, emails: finalEmails, email: finalEmails[0] };
-    });
   };
 
   // Profile photo upload handler (XX)
@@ -1232,157 +1328,124 @@ export default function UserManagementPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {/* Employee ID - Running no (VTE0001) */}
+                  {/* Employee ID - Running no (VTE000001) - Read Only */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
-                        Employee ID - Running no
+                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs flex items-center gap-1.5">
+                        <span>Employee ID (Running No)</span>
+                        <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/50 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5" /> Read Only
+                        </span>
                       </Label>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const next = await handleFetchNextEmpId();
-                          setFormData(prev => ({ ...prev, empId: next }));
-                        }}
-                        className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <RefreshCw className="w-3 h-3" />
-                        Next (VTE)
-                      </button>
                     </div>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">#</span>
                       <Input 
+                        disabled
+                        readOnly
                         value={formData.empId} 
-                        onChange={e => setFormData({...formData, empId: e.target.value})} 
-                        placeholder="VTE0001" 
-                        className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11 font-mono font-bold"
+                        placeholder="VTE000001" 
+                        className="pl-9 bg-slate-100 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 text-indigo-700 dark:text-indigo-400 rounded-xl h-11 font-mono font-bold tracking-wider cursor-not-allowed opacity-90"
                       />
                     </div>
                   </div>
 
-                  {/* Name (Mandatory: x) */}
+                  {/* Name (Mandatory: ALL CAPITAL) */}
                   <div className="space-y-2">
-                    <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
-                      Name <span className="text-rose-500 font-bold">* (Man: x)</span>
+                    <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs flex items-center justify-between">
+                      <span>Full Name <span className="text-rose-500 font-bold">*</span></span>
+                      <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400">Always Capital</span>
                     </Label>
                     <div className="relative">
                       <Users className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <Input 
                         required 
                         value={formData.name} 
-                        onChange={e => setFormData({...formData, name: e.target.value})} 
-                        placeholder="Arun" 
-                        className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11 font-medium"
+                        onChange={e => setFormData({...formData, name: e.target.value.toUpperCase()})} 
+                        placeholder="ARUN KUMAR" 
+                        className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11 font-bold uppercase tracking-wide"
                       />
                     </div>
                   </div>
 
-                  {/* Designation / Role */}
+                  {/* Designation / Role with Search Bar */}
                   <div className="space-y-2">
                     <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
                       Designation Role *
                     </Label>
-                    <Select required value={formData.role} onValueChange={val => setFormData({...formData, role: val})}>
-                      <SelectTrigger className="bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11">
-                        <SelectValue placeholder="Select official role" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200">
-                        {availableRoles.map(role => (
-                          <SelectItem key={role} value={role}>{role.replace(/_/g, ' ')}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect 
+                      options={availableRoles}
+                      value={formData.role}
+                      onChange={val => setFormData({ ...formData, role: val })}
+                      placeholder="Select official role"
+                      searchPlaceholder="Search designation roles..."
+                    />
                   </div>
 
-                  {/* Contact No (++ Multi-entry | Mandatory: x) */}
-                  <div className="space-y-2 md:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800">
+                  {/* Contact Numbers (Primary & Secondary Only) */}
+                  <div className="space-y-3 md:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800">
                     <div className="flex items-center justify-between">
-                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs flex items-center gap-1.5">
+                      <Label className="text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5">
                         <Phone className="w-3.5 h-3.5 text-indigo-500" />
-                        Contact No <span className="text-rose-500 font-bold">* (Man: x)</span>
-                        <span className="text-indigo-600 dark:text-indigo-400 font-bold ml-1">(++ Add Multiple Contacts)</span>
+                        Mobile Numbers
+                        <span className="text-slate-400 font-normal ml-1 text-[11px]">(Primary Required, Secondary Optional)</span>
                       </Label>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleAddContact}
-                        className="h-7 px-2.5 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50 rounded-lg flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Add Number (++)
-                      </Button>
                     </div>
 
-                    <div className="space-y-2 mt-2">
-                      {(formData.contacts || ['+91 ']).map((contact, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-slate-400 w-6">#{idx + 1}</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                          Primary Mobile Number <span className="text-rose-500 font-bold">*</span>
+                        </Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-indigo-600 font-mono">#1</span>
                           <Input 
-                            value={contact} 
-                            onChange={e => handleContactChange(idx, e.target.value)} 
-                            placeholder="+91 9994556698" 
-                            className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-10 font-mono text-xs flex-1"
+                            required
+                            value={formData.contactNo} 
+                            onChange={e => handlePrimaryContactChange(e.target.value)} 
+                            placeholder="+91 99945 56698" 
+                            className="pl-8 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-10 font-mono text-xs"
                           />
-                          {(formData.contacts || []).length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveContact(idx)}
-                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                              title="Remove Contact"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
                         </div>
-                      ))}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          Secondary Mobile Number <span className="text-slate-400 text-[10px]">(Optional)</span>
+                        </Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 font-mono">#2</span>
+                          <Input 
+                            value={formData.secondaryContact || ''} 
+                            onChange={e => handleSecondaryContactChange(e.target.value)} 
+                            placeholder="+91 98421 23456" 
+                            className="pl-8 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-10 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Email (++ Multi-entry) */}
+                  {/* Single Email Address for Login */}
                   <div className="space-y-2 md:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800">
                     <div className="flex items-center justify-between">
-                      <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs flex items-center gap-1.5">
+                      <Label className="text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center gap-1.5">
                         <span className="font-bold text-xs text-indigo-500">@</span>
-                        Email Address *
-                        <span className="text-indigo-600 dark:text-indigo-400 font-bold ml-1">(++ Add Multiple Emails)</span>
+                        Email Address (Login ID) <span className="text-rose-500 font-bold">*</span>
                       </Label>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleAddEmail}
-                        className="h-7 px-2.5 text-xs text-indigo-600 border-indigo-200 hover:bg-indigo-50 rounded-lg flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Add Email (++)
-                      </Button>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Single email used for login page</span>
                     </div>
 
-                    <div className="space-y-2 mt-2">
-                      {(formData.emails || ['']).map((em, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <span className="text-xs font-mono font-bold text-slate-400 w-6">#{idx + 1}</span>
-                          <Input 
-                            type="email"
-                            value={em} 
-                            onChange={e => handleEmailChange(idx, e.target.value)} 
-                            placeholder={idx === 0 ? "official@company.com (Primary Login)" : "personal.email@gmail.com"} 
-                            className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-10 text-xs flex-1"
-                          />
-                          {(formData.emails || []).length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveEmail(idx)}
-                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                              title="Remove Email"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs">@</span>
+                      <Input 
+                        required
+                        type="email"
+                        value={formData.email} 
+                        onChange={e => handleSingleEmailChange(e.target.value)} 
+                        placeholder="official.email@kulfierp.com" 
+                        className="pl-8 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl h-11 text-xs font-mono"
+                      />
                     </div>
                   </div>
 
@@ -1446,38 +1509,32 @@ export default function UserManagementPage() {
                     </div>
                   </div>
 
-                  {/* Sex / Gender (Mandatory: x) */}
+                  {/* Sex / Gender (Mandatory: x) with Search */}
                   <div className="space-y-2">
                     <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
                       Sex / Gender <span className="text-rose-500 font-bold">* (Man: x)</span>
                     </Label>
-                    <Select required value={formData.gender} onValueChange={val => setFormData({...formData, gender: val})}>
-                      <SelectTrigger className="bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11">
-                        <SelectValue placeholder="Select Sex" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-                        <SelectItem value="Male">Male</SelectItem>
-                        <SelectItem value="Female">Female</SelectItem>
-                        <SelectItem value="Other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      options={['Male', 'Female', 'Other']}
+                      value={formData.gender}
+                      onChange={val => setFormData({ ...formData, gender: val })}
+                      placeholder="Select Sex"
+                      searchPlaceholder="Search gender..."
+                    />
                   </div>
 
-                  {/* Blood Group (Mandatory: x) */}
+                  {/* Blood Group (Mandatory: x) with Search */}
                   <div className="space-y-2">
                     <Label className="text-slate-700 dark:text-slate-300 font-medium text-xs">
                       Blood Group <span className="text-rose-500 font-bold">* (Man: x)</span>
                     </Label>
-                    <Select required value={formData.bloodGroup} onValueChange={val => setFormData({...formData, bloodGroup: val})}>
-                      <SelectTrigger className="bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 text-slate-900 dark:text-white rounded-xl h-11">
-                        <SelectValue placeholder="Select Blood Group" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(bg => (
-                          <SelectItem key={bg} value={bg}>{bg}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      options={['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']}
+                      value={formData.bloodGroup}
+                      onChange={val => setFormData({ ...formData, bloodGroup: val })}
+                      placeholder="Select Blood Group"
+                      searchPlaceholder="Search blood group..."
+                    />
                   </div>
 
                   {/* Working Hours */}
@@ -2280,14 +2337,14 @@ export default function UserManagementPage() {
               <TableRow>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-4">
                   <button onClick={handleToggleSortName} className="inline-flex items-center gap-1.5 uppercase font-bold text-xs cursor-pointer">
-                    <span>Employee (Arun)</span>
+                    <span>Employee (ALL CAPITAL)</span>
                     {sortBy === 'name_asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />}
                   </button>
                 </TableHead>
 
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3">
                   <button onClick={handleToggleSortEmpId} className="inline-flex items-center gap-1.5 uppercase font-bold text-xs cursor-pointer">
-                    <span>Emp ID (VTE0001)</span>
+                    <span>Emp ID (VTE000001)</span>
                     {sortBy === 'empId_asc' ? <ArrowUp className="w-3.5 h-3.5 text-indigo-600" /> : <ArrowDown className="w-3.5 h-3.5 text-indigo-600" />}
                   </button>
                 </TableHead>
@@ -2299,7 +2356,7 @@ export default function UserManagementPage() {
                 </TableHead>
 
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3 hidden md:table-cell">
-                  Contact No (++)
+                  Mobile Numbers (Primary / Sec)
                 </TableHead>
 
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3 hidden lg:table-cell">
@@ -2353,17 +2410,17 @@ export default function UserManagementPage() {
                           </div>
                         )}
                         <div>
-                          <p className="font-semibold text-slate-900 dark:text-white tracking-wide text-sm flex items-center gap-1.5">
+                          <p className="font-bold uppercase tracking-wider text-slate-900 dark:text-white text-sm flex items-center gap-1.5">
                             {user.name}
-                            {user.gender && <span className="text-[10px] text-slate-400">({user.gender})</span>}
+                            {user.gender && <span className="text-[10px] text-slate-400 font-normal">({user.gender})</span>}
                           </p>
-                          <p className="text-xs text-slate-500">{user.email}</p>
+                          <p className="text-xs text-slate-500 font-mono">{user.email}</p>
                         </div>
                       </div>
                     </TableCell>
 
                     <TableCell>
-                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      <span className="font-mono text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 tracking-wider">
                         {user.empId || '—'}
                       </span>
                     </TableCell>
@@ -2375,12 +2432,13 @@ export default function UserManagementPage() {
                     </TableCell>
 
                     <TableCell className="hidden md:table-cell text-xs font-mono">
-                      <div>
-                        <span className="text-slate-800 dark:text-slate-200 font-semibold">{user.contactNo || '—'}</span>
-                        {Array.isArray(user.contacts) && user.contacts.length > 1 && (
-                          <span className="ml-1 text-[10px] px-1 py-0.2 rounded bg-indigo-50 text-indigo-600 font-bold">
-                            +{user.contacts.length - 1} more
-                          </span>
+                      <div className="space-y-0.5">
+                        <div className="text-slate-800 dark:text-slate-200 font-semibold">{user.contactNo || (Array.isArray(user.contacts) ? user.contacts[0] : '—')}</div>
+                        {Array.isArray(user.contacts) && user.contacts[1] && (
+                          <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+                            <span className="text-[9px] uppercase font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 rounded">Sec</span>
+                            {user.contacts[1]}
+                          </div>
                         )}
                       </div>
                     </TableCell>
@@ -2469,14 +2527,60 @@ export default function UserManagementPage() {
           </Table>
         </div>
 
-        {/* Pagination */}
-        <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-500">
-          <div>
-            Showing <strong className="text-slate-800 dark:text-slate-200">{paginatedUsers.length}</strong> of <strong className="text-slate-800 dark:text-slate-200">{sortedAndFiltered.length}</strong> employees
+        {/* Pagination Bar */}
+        <div className="px-4 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-500">
+          <div className="flex items-center gap-2.5">
+            <span className="text-slate-500 font-medium">Rows per page:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer shadow-sm"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span className="ml-2 text-slate-500">
+              Showing <strong className="text-slate-800 dark:text-slate-200 font-bold">{sortedAndFiltered.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</strong> to <strong className="text-slate-800 dark:text-slate-200 font-bold">{Math.min(currentPage * itemsPerPage, sortedAndFiltered.length)}</strong> of <strong className="text-slate-800 dark:text-slate-200 font-bold">{sortedAndFiltered.length}</strong> employees
+            </span>
           </div>
-          {totalPages > 1 && (
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
-          )}
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+            >
+              Previous
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+              <button
+                key={pageNum}
+                onClick={() => setCurrentPage(pageNum)}
+                className={`min-w-[30px] h-8 px-2 rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer ${
+                  currentPage === pageNum
+                    ? 'bg-indigo-600 text-white shadow-indigo-200 dark:shadow-none'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                {pageNum}
+              </button>
+            ))}
+
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2499,12 +2603,12 @@ export default function UserManagementPage() {
                 )}
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">{viewingUser.name}</h2>
-                    <span className="font-mono text-xs px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white font-bold">
-                      {viewingUser.empId || 'VTE0001'}
+                    <h2 className="text-xl font-black uppercase tracking-wider text-slate-900 dark:text-white">{viewingUser.name}</h2>
+                    <span className="font-mono text-xs px-2.5 py-0.5 rounded-lg bg-indigo-600 text-white font-bold tracking-wider">
+                      {viewingUser.empId || 'VTE000001'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">{viewingUser.email} • {viewingUser.contactNo}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono">{viewingUser.email} • {viewingUser.contactNo}</p>
                 </div>
               </div>
 
@@ -2555,11 +2659,11 @@ export default function UserManagementPage() {
                 </div>
               </div>
 
-              {/* Contacts & Emails (++) */}
+              {/* Contacts & Login Email */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
                   <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5 text-indigo-600">
-                    <Phone className="w-3.5 h-3.5" /> Contact Numbers (++)
+                    <Phone className="w-3.5 h-3.5" /> Mobile Numbers (Primary & Secondary)
                   </h4>
                   <div className="space-y-1 font-mono">
                     {Array.isArray(viewingUser.contacts) && viewingUser.contacts.length > 0 ? (
@@ -2568,6 +2672,7 @@ export default function UserManagementPage() {
                           <span className="text-[10px] text-slate-400">#{i + 1}</span>
                           <span className="font-semibold">{c}</span>
                           {i === 0 && <span className="text-[9px] px-1 bg-emerald-50 text-emerald-600 rounded">Primary</span>}
+                          {i === 1 && <span className="text-[9px] px-1 bg-slate-100 text-slate-600 rounded">Secondary</span>}
                         </div>
                       ))
                     ) : (
@@ -2578,20 +2683,14 @@ export default function UserManagementPage() {
 
                 <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2">
                   <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5 text-indigo-600">
-                    <span className="text-xs font-bold">@</span> Email Addresses (++)
+                    <span className="text-xs font-bold">@</span> Email Address (Login ID)
                   </h4>
-                  <div className="space-y-1">
-                    {Array.isArray(viewingUser.emails) && viewingUser.emails.length > 0 ? (
-                      viewingUser.emails.map((em, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="text-[10px] text-slate-400">#{i + 1}</span>
-                          <span className="font-medium">{em}</span>
-                          {i === 0 && <span className="text-[9px] px-1 bg-indigo-50 text-indigo-600 rounded">Official</span>}
-                        </div>
-                      ))
-                    ) : (
-                      <span>{viewingUser.email || '—'}</span>
-                    )}
+                  <div className="space-y-1 font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-400">#1</span>
+                      <span className="font-semibold">{viewingUser.email || (Array.isArray(viewingUser.emails) ? viewingUser.emails[0] : '—')}</span>
+                      <span className="text-[9px] px-1 bg-indigo-50 text-indigo-600 rounded">Login ID</span>
+                    </div>
                   </div>
                 </div>
               </div>

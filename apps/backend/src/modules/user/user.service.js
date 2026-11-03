@@ -151,7 +151,7 @@ class UserService {
     }
 
     return userRepository.create({
-      name: name.trim(),
+      name: name.trim().toUpperCase(),
       email: primaryEmail,
       emails: emailsList.length > 0 ? emailsList : [primaryEmail],
       passwordHash,
@@ -343,7 +343,11 @@ class UserService {
 
     stringFields.forEach(field => {
       if (rest[field] !== undefined) {
-        payload[field] = parseString(rest[field]);
+        if (field === 'name') {
+          payload[field] = parseString(rest[field])?.toUpperCase() || null;
+        } else {
+          payload[field] = parseString(rest[field]);
+        }
       }
     });
 

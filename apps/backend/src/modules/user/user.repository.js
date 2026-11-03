@@ -115,8 +115,32 @@ function enrichWithDefaultEmployeeFields(user) {
   };
 }
 
+let _hasEmployeeMasterColumns = null;
+
+async function checkEmployeeMasterSupport() {
+  if (_hasEmployeeMasterColumns !== null) return _hasEmployeeMasterColumns;
+  try {
+    const cols = await prisma.$queryRawUnsafe(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'User' AND column_name = 'contact_no'
+    `);
+    _hasEmployeeMasterColumns = Array.isArray(cols) && cols.length > 0;
+  } catch (_) {
+    _hasEmployeeMasterColumns = false;
+  }
+  return _hasEmployeeMasterColumns;
+}
+
 class UserRepository {
   async findAll() {
+    const hasEmpColumns = await checkEmployeeMasterSupport();
+    if (!hasEmpColumns) {
+      const basicUsers = await prisma.user.findMany({
+        select: USER_BASIC_SELECT,
+        orderBy: { createdAt: 'desc' }
+      });
+      return basicUsers.map(enrichWithDefaultEmployeeFields);
+    }
     try {
       return await prisma.user.findMany({
         select: USER_SAFE_SELECT,
@@ -124,6 +148,7 @@ class UserRepository {
       });
     } catch (err) {
       console.warn('Notice: Falling back to basic user select:', err.message);
+      _hasEmployeeMasterColumns = false;
       const basicUsers = await prisma.user.findMany({
         select: USER_BASIC_SELECT,
         orderBy: { createdAt: 'desc' }
@@ -134,12 +159,21 @@ class UserRepository {
 
   async findByEmail(email) {
     if (!email) return null;
+    const hasEmpColumns = await checkEmployeeMasterSupport();
+    if (!hasEmpColumns) {
+      const basic = await prisma.user.findUnique({
+        where: { email },
+        select: USER_BASIC_SELECT
+      });
+      return enrichWithDefaultEmployeeFields(basic);
+    }
     try {
       return await prisma.user.findUnique({
         where: { email },
         select: USER_SAFE_SELECT
       });
     } catch (_) {
+      _hasEmployeeMasterColumns = false;
       const basic = await prisma.user.findUnique({
         where: { email },
         select: USER_BASIC_SELECT
@@ -150,12 +184,21 @@ class UserRepository {
 
   async findById(id) {
     if (!id) return null;
+    const hasEmpColumns = await checkEmployeeMasterSupport();
+    if (!hasEmpColumns) {
+      const basic = await prisma.user.findUnique({
+        where: { id },
+        select: USER_BASIC_SELECT
+      });
+      return enrichWithDefaultEmployeeFields(basic);
+    }
     try {
       return await prisma.user.findUnique({
         where: { id },
         select: USER_SAFE_SELECT
       });
     } catch (_) {
+      _hasEmployeeMasterColumns = false;
       const basic = await prisma.user.findUnique({
         where: { id },
         select: USER_BASIC_SELECT
@@ -166,12 +209,21 @@ class UserRepository {
 
   async findByEmpId(empId) {
     if (!empId) return null;
+    const hasEmpColumns = await checkEmployeeMasterSupport();
+    if (!hasEmpColumns) {
+      const basic = await prisma.user.findUnique({
+        where: { empId },
+        select: USER_BASIC_SELECT
+      });
+      return enrichWithDefaultEmployeeFields(basic);
+    }
     try {
       return await prisma.user.findUnique({
         where: { empId },
         select: USER_SAFE_SELECT
       });
     } catch (_) {
+      _hasEmployeeMasterColumns = false;
       const basic = await prisma.user.findUnique({
         where: { empId },
         select: USER_BASIC_SELECT
@@ -188,7 +240,7 @@ class UserRepository {
     let maxSeq = 0;
     for (const u of users) {
       if (!u.empId) continue;
-      // Match VTE0001, VTE-0001, or any trailing numeric sequence
+      // Match VTE000001, VTE0001, VTE-0001, or any trailing numeric sequence
       const vteMatch = u.empId.match(/^VTE-?(\d+)/i) || u.empId.match(/(\d+)$/);
       if (vteMatch) {
         const num = parseInt(vteMatch[1], 10);
@@ -199,7 +251,7 @@ class UserRepository {
     }
 
     const nextSeq = maxSeq + 1;
-    return `VTE${String(nextSeq).padStart(4, '0')}`;
+    return `VTE${String(nextSeq).padStart(6, '0')}`;
   }
 
   async create(data) {
