@@ -1,6 +1,7 @@
 const { randomUUID } = require('crypto');
 const { z } = require('zod');
 const prisma = require('../../database/prisma');
+const { getTaxSettingsData } = require('../setup/tax.controller');
 const {
   toMl,
   round2,
@@ -1624,19 +1625,34 @@ class StandardProductionController {
           const assignedBaseRmCost = baseMixConsumed * baseCostPerMl;
 
           let productSpecificRmCost = 0;
+          let productRmsBreakdown = [];
           if (Array.isArray(a.productRms)) {
             for (const prm of a.productRms) {
               const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
               const prmRate = Number(prm.unitRate || prm.rate || 0);
-              productSpecificRmCost += (prmQty * prmRate);
+              const prmCost = prmQty * prmRate;
+              productSpecificRmCost += prmCost;
+              productRmsBreakdown.push({
+                ...prm,
+                rawMaterialName: prm.rawMaterialName || prm.rmName || 'Flavour / Addition',
+                rawMaterialCode: prm.rawMaterialCode || prm.rmCode || 'RM-ADD',
+                lotBatchNo: prm.allocatedBatches?.[0]?.lotNumber || prm.lotBatchNo || 'BATCH-DIRECT',
+                takenQty: prmQty,
+                unitRate: prmRate,
+                totalCost: round2(prmCost),
+                uom: prm.uom || 'kg',
+                density: Number(prm.density || 1.0)
+              });
             }
           }
 
           const totalAssignedRmCost = assignedBaseRmCost + productSpecificRmCost;
           const share = totalMixUsedMl > 0 ? (baseMixConsumed / totalMixUsedMl) : 0;
           const assignedLabourCost = labourCost * share;
-          const assignedTotal = totalAssignedRmCost + assignedLabourCost;
-          const pieces = Number(a.good_pieces || 0);
+          const assignedUtilityCost = utilityCost * share;
+          const assignedOverheadCost = overheadCost * share;
+          const assignedTotal = totalAssignedRmCost + assignedLabourCost + assignedUtilityCost + assignedOverheadCost;
+          const pieces = Number(a.good_pieces || a.goodPieces || 0);
           const costPerPiece = pieces > 0 ? (assignedTotal / pieces) : 0;
 
           return {
@@ -1646,9 +1662,12 @@ class StandardProductionController {
             goodPieces: pieces,
             mixUsedMl: baseMixConsumed,
             productRmsCost: round2(productSpecificRmCost),
+            productRms: productRmsBreakdown,
             assignedRmCost: round2(totalAssignedRmCost),
             assignedBaseRmCost: round2(assignedBaseRmCost),
             assignedLabourCost: round2(assignedLabourCost),
+            assignedUtilityCost: round2(assignedUtilityCost),
+            assignedOverheadCost: round2(assignedOverheadCost),
             totalAssignedCost: round2(assignedTotal),
             costPerPiece: round2(costPerPiece)
           };
@@ -1677,6 +1696,34 @@ class StandardProductionController {
         }
       } catch (_) {}
 
+      // Parse timeline stages & per-product stages map
+      let parsedTimelineStages = [];
+      let parsedProductStagesMap = {};
+      try {
+        let rawStages = batch.timeline_stages;
+        if (typeof rawStages === 'string') {
+          rawStages = JSON.parse(rawStages || '[]');
+        }
+        if (rawStages && typeof rawStages === 'object' && !Array.isArray(rawStages)) {
+          parsedTimelineStages = Array.isArray(rawStages.stages) ? rawStages.stages : [];
+          parsedProductStagesMap = rawStages.productStagesMap || {};
+        } else if (Array.isArray(rawStages)) {
+          parsedTimelineStages = rawStages;
+          parsedProductStagesMap = {};
+        }
+      } catch (_) {
+        parsedTimelineStages = [];
+        parsedProductStagesMap = {};
+      }
+
+      // Fetch live company settings from setup/tax
+      let companyDetails = null;
+      try {
+        companyDetails = await getTaxSettingsData();
+      } catch (cErr) {
+        console.warn('Error reading tax settings:', cErr.message);
+      }
+
       res.json({
         success: true,
         batch: {
@@ -1685,10 +1732,13 @@ class StandardProductionController {
           baseName: batch.base_name,
           templateName: batch.template_name,
           productYields: savedProductYields,
-          timelineStages: Array.isArray(batch.timeline_stages) ? batch.timeline_stages : (
-            typeof batch.timeline_stages === 'string' ? JSON.parse(batch.timeline_stages || '[]') : []
-          )
+          timelineStages: parsedTimelineStages,
+          productStagesMap: parsedProductStagesMap,
+          companyDetails
         },
+        companyDetails,
+        timelineStages: parsedTimelineStages,
+        productStagesMap: parsedProductStagesMap,
         productYields: savedProductYields,
         rmLines: rmLines.map(r => {
           const matchedAllocs = (savedBatchAllocations || []).filter(a => 
@@ -1855,6 +1905,7 @@ class StandardProductionController {
           evaporates_by_default: Boolean(m.evaporates_by_default),
           ratePerUnit: Number(m.ratePerUnit || 0),
           hsnCode: m.hsnCode || '',
+          description: m.description || '',
           availableBatches: batchMap.get(m.id) || []
         };
       });
@@ -1933,12 +1984,16 @@ class StandardProductionController {
         isFinalize = true,
         productOutputs = [],
         productYields = [],
+        productStagesMap = {},
+        timelineStages,
         labourTotalCost,
         labourCost,
         ebTotalCost,
         utilityCost,
         ebUnitsKwh,
-        ebRatePerUnit
+        ebRatePerUnit,
+        overheadCost,
+        overheadAmt
       } = req.body || {};
 
       // Existence and status pre-check outside transaction
@@ -2217,6 +2272,12 @@ class StandardProductionController {
         const finalEb = ebTotalCost !== undefined && ebTotalCost !== null ? Number(ebTotalCost) : (utilityCost !== undefined && utilityCost !== null ? Number(utilityCost) : null);
         const finalUnits = ebUnitsKwh !== undefined && ebUnitsKwh !== null ? Number(ebUnitsKwh) : null;
         const finalRate = ebRatePerUnit !== undefined && ebRatePerUnit !== null ? Number(ebRatePerUnit) : null;
+        const finalOverhead = overheadAmt !== undefined && overheadAmt !== null ? Number(overheadAmt) : (overheadCost !== undefined && overheadCost !== null ? Number(overheadCost) : null);
+
+        const stagesPayload = (timelineStages || (productStagesMap && Object.keys(productStagesMap).length > 0)) ? {
+          stages: Array.isArray(timelineStages) ? timelineStages : [],
+          productStagesMap: (productStagesMap && typeof productStagesMap === 'object') ? productStagesMap : {}
+        } : null;
 
         await tx.$executeRawUnsafe(`
           UPDATE production_batches
@@ -2235,6 +2296,8 @@ class StandardProductionController {
             eb_total_cost = COALESCE($11, eb_total_cost),
             eb_units_kwh = COALESCE($12, eb_units_kwh),
             eb_rate_per_unit = COALESCE($13, eb_rate_per_unit),
+            timeline_stages = COALESCE($14::jsonb, timeline_stages),
+            overhead_amt = COALESCE($15, overhead_amt),
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
         `, id, finalStatus, qcStatus, 
@@ -2247,7 +2310,9 @@ class StandardProductionController {
            finalLabour,
            finalEb,
            finalUnits,
-           finalRate);
+           finalRate,
+           stagesPayload ? JSON.stringify(stagesPayload) : null,
+           finalOverhead);
 
         // Update RM usages status to CONSUMED upon batch completion
         try {
@@ -2345,12 +2410,15 @@ class StandardProductionController {
       const { id } = req.params;
       const { 
         timelineStages = [],
+        productStagesMap = {},
         labourCost,
         labourTotalCost,
         utilityCost,
         ebTotalCost,
         ebUnitsKwh,
         ebRatePerUnit,
+        overheadCost,
+        overheadAmt,
         productYields
       } = req.body || {};
 
@@ -2358,6 +2426,12 @@ class StandardProductionController {
       const finalEb = ebTotalCost !== undefined && ebTotalCost !== null ? Number(ebTotalCost) : (utilityCost !== undefined && utilityCost !== null ? Number(utilityCost) : null);
       const finalUnits = ebUnitsKwh !== undefined && ebUnitsKwh !== null ? Number(ebUnitsKwh) : null;
       const finalRate = ebRatePerUnit !== undefined && ebRatePerUnit !== null ? Number(ebRatePerUnit) : null;
+      const finalOverhead = overheadAmt !== undefined && overheadAmt !== null ? Number(overheadAmt) : (overheadCost !== undefined && overheadCost !== null ? Number(overheadCost) : null);
+
+      const stagesPayload = {
+        stages: Array.isArray(timelineStages) ? timelineStages : [],
+        productStagesMap: (productStagesMap && typeof productStagesMap === 'object') ? productStagesMap : {}
+      };
 
       await prisma.$executeRawUnsafe(`
         UPDATE production_batches
@@ -2366,15 +2440,17 @@ class StandardProductionController {
             eb_total_cost = COALESCE($4, eb_total_cost),
             eb_units_kwh = COALESCE($5, eb_units_kwh),
             eb_rate_per_unit = COALESCE($6, eb_rate_per_unit),
-            product_yields = COALESCE($7::jsonb, product_yields),
+            overhead_amt = COALESCE($7, overhead_amt),
+            product_yields = COALESCE($8::jsonb, product_yields),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1;
       `, id, 
-         JSON.stringify(timelineStages),
+         JSON.stringify(stagesPayload),
          finalLabour,
          finalEb,
          finalUnits,
          finalRate,
+         finalOverhead,
          productYields ? JSON.stringify(productYields) : null
       );
 
@@ -2382,8 +2458,10 @@ class StandardProductionController {
         success: true,
         message: 'Factory stages, labour cost and utilities updated successfully',
         timelineStages,
+        productStagesMap,
         labourCost: finalLabour,
-        ebTotalCost: finalEb
+        ebTotalCost: finalEb,
+        overheadCost: finalOverhead
       });
     } catch (err) {
       console.error('Error updating factory stages:', err);
