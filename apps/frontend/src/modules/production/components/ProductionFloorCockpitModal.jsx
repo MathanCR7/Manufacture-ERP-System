@@ -192,7 +192,8 @@ function createPackagingItem(def, pieces, existing = null) {
   const rate = Number(existing?.unitRate ?? def.rate ?? 0.25);
   const totalCost = Number((rate * qty).toFixed(2));
   const rawLot = existing?.allocatedBatches?.[0]?.lotNumber || existing?.allocatedBatches?.[0]?.internalBatchNo || existing?.lotBatchNo || `BATCH-${def.code}-001`;
-  const lotNo = String(rawLot).startsWith('#') ? rawLot : `#${rawLot}`;
+  const cleanBatch = String(rawLot).replace(/^#+/, '');
+  const lotNo = `#${cleanBatch}`;
 
   return {
     rmId: def.id,
@@ -216,9 +217,9 @@ function createPackagingItem(def, pieces, existing = null) {
     currentStock: def.stock || 50000,
     allocatedBatches: [
       {
-        batchId: lotNo,
-        lotNumber: lotNo,
-        internalBatchNo: lotNo,
+        batchId: cleanBatch,
+        lotNumber: cleanBatch,
+        internalBatchNo: cleanBatch,
         allocatedQty: qty,
         remainingQty: Math.max(0, (def.stock || 50000) - qty),
         expiryDate: '2028-12-31',
@@ -850,13 +851,14 @@ export default function ProductionFloorCockpitModal({
             };
           });
 
-          const cap = Number(a.capacity_ml || a.capacityMl || 50);
-          const cav = a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 42);
+          const cap = Number(a.capacity_ml || a.capacityMl || 0);
+          const cav = a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 0);
           const trays = Number(a.trays || 0);
-          const pkg = getPackagingForMould(a.mould_code || a.mouldCode, a.mould_name || a.mouldName);
-          const stickDef = pkg?.stick;
-          const coverDef = pkg?.cover;
-          if (a.use_mould !== false) {
+          const mouldHasCode = Boolean(a.mould_code || a.mouldCode);
+          if (a.use_mould !== false && mouldHasCode) {
+            const pkg = getPackagingForMould(a.mould_code || a.mouldCode, a.mould_name || a.mouldName);
+            const stickDef = pkg?.stick;
+            const coverDef = pkg?.cover;
             const pieces = trays > 0 ? (trays * cav) : (Number(a.goodPieces || a.good_pieces) || cav);
             if (stickDef) {
               const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
@@ -894,8 +896,8 @@ export default function ProductionFloorCockpitModal({
             mouldId: a.mould_id || a.mouldId || null,
             mouldCode: a.mould_code || a.mouldCode || '',
             mouldName: a.mould_name || a.mouldName || '',
-            capacityMl: Number(a.capacity_ml || a.capacityMl || 50),
-            cavities: a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 42),
+            capacityMl: Number(a.capacity_ml || a.capacityMl || 0),
+            cavities: a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 0),
             trays: Number(a.trays || 0),
             wasteMode: a.waste_mode || a.wasteMode || 'PERCENT',
             wasteValue: Number(a.waste_value ?? a.wasteValue ?? 0),
@@ -921,10 +923,10 @@ export default function ProductionFloorCockpitModal({
               bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
               allocatedBaseMl: 0,
               mouldId: null,
-              mouldCode: 'SG-8112',
-              mouldName: 'Kulfi Small (SG 8112)',
-              capacityMl: 50,
-              cavities: 42,
+              mouldCode: '',
+              mouldName: '',
+              capacityMl: 0,
+              cavities: 0,
               trays: 0,
               wasteMode: 'PERCENT',
               wasteValue: 0,
@@ -2254,6 +2256,26 @@ export default function ProductionFloorCockpitModal({
     setAllocations(prev => {
       const copy = [...prev];
       const target = { ...copy[index], [field]: value };
+
+      if (field === 'useMould') {
+        const useM = Boolean(value);
+        if (!useM) {
+          // In Bulk mode, remove packaging materials (sticks & covers)
+          target.productRms = (target.productRms || []).filter(p => !isPackagingMaterial(p));
+        } else if (target.mouldCode) {
+          // If switched back to Mould and a mould was previously selected, ensure stick & cover are present
+          const pkg = getPackagingForMould(target.mouldCode, target.mouldName);
+          const pcs = Number(target.goodPieces || 0) || (Number(target.trays || 0) * Number(target.cavities || 42)) || Number(target.cavities || 42);
+          const prms = [...(target.productRms || [])];
+          if (pkg?.stick && !prms.some(p => p.rmCode === pkg.stick.code || (p.rmName && p.rmName.toLowerCase().includes('stick')))) {
+            prms.push(createPackagingItem(pkg.stick, pcs));
+          }
+          if (pkg?.cover && !prms.some(p => p.rmCode === pkg.cover.code || (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly'))))) {
+            prms.push(createPackagingItem(pkg.cover, pcs));
+          }
+          target.productRms = prms;
+        }
+      }
       
       const newTrays = field === 'trays' ? Number(value || 0) : Number(target.trays || 0);
       const newCav = field === 'cavities' ? Number(value || 0) : Number(target.cavities || 42);
@@ -2275,7 +2297,8 @@ export default function ProductionFloorCockpitModal({
         pieces = Number(target.goodPieces);
       }
 
-      if (pieces > 0 && Array.isArray(target.productRms)) {
+      // Sync existing packaging items quantities with the pieces yield (ONLY if mouldCode is selected)
+      if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
         target.goodPieces = pieces;
         target.productRms = target.productRms.map(prm => {
           const isPkg = isPackagingMaterial(prm);
@@ -2386,41 +2409,22 @@ export default function ProductionFloorCockpitModal({
       } else {
         calculatedPieces = cav;
       }
-      const packagingPieces = calculatedPieces > 0 ? calculatedPieces : 42;
+      const packagingPieces = calculatedPieces > 0 ? calculatedPieces : cav;
 
       const pkg = getPackagingForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
       const stickDef = pkg?.stick;
       const coverDef = pkg?.cover;
 
-      let updatedPrms = Array.isArray(currentAlloc.productRms) ? [...currentAlloc.productRms] : [];
+      // Preserve all user-added non-packaging materials (flavours, essences, colors)
+      const nonPkgPrms = (currentAlloc.productRms || []).filter(p => !isPackagingMaterial(p));
+      const updatedPrms = [...nonPkgPrms];
 
-      // 1. Wooden Stick Sync / Add
+      // Automatically add Wooden Stick and Packing Cover ONLY on mould spec selection
       if (stickDef) {
-        const stickIdx = updatedPrms.findIndex(p => 
-          p.rmCode === 'RM-00119' || p.rmCode === 'RM-00121' || p.rmCode === 'RM-STICK-01' ||
-          (p.rmName && p.rmName.toLowerCase().includes('stick'))
-        );
-        const stickItem = createPackagingItem(stickDef, packagingPieces, stickIdx >= 0 ? updatedPrms[stickIdx] : null);
-        if (stickIdx >= 0) {
-          updatedPrms[stickIdx] = stickItem;
-        } else {
-          updatedPrms.push(stickItem);
-        }
+        updatedPrms.push(createPackagingItem(stickDef, packagingPieces));
       }
-
-      // 2. Packing Cover Sync / Add
       if (coverDef) {
-        const coverIdx = updatedPrms.findIndex(p => 
-          p.rmCode === 'RM-00130' || p.rmCode === 'RM-00131' || p.rmCode === 'RM-00132' ||
-          p.rmCode === 'RM-PACK-01' || p.rmCode === 'RM-OVERPACK-01' ||
-          (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
-        );
-        const coverItem = createPackagingItem(coverDef, packagingPieces, coverIdx >= 0 ? updatedPrms[coverIdx] : null);
-        if (coverIdx >= 0) {
-          updatedPrms[coverIdx] = coverItem;
-        } else {
-          updatedPrms.push(coverItem);
-        }
+        updatedPrms.push(createPackagingItem(coverDef, packagingPieces));
       }
 
       copy[targetAllocIndex] = {
@@ -2443,21 +2447,6 @@ export default function ProductionFloorCockpitModal({
   // Callback when user selects a single product from ProductionItemSearchModal
   const handleSelectProductForAlloc = (product) => {
     const nextSeq = allocations.length + 1;
-    const defaultMouldCode = 'SG-8112';
-    const defaultMouldName = 'Kulfi Small (SG 8112)';
-    const cap = 50;
-    const cav = 42;
-    const pkg = getPackagingForMould(defaultMouldCode, defaultMouldName);
-    const initialTrays = 0;
-    const initialPieces = cav;
-    const initialPrms = [];
-    if (pkg?.stick) {
-      initialPrms.push(createPackagingItem(pkg.stick, initialPieces));
-    }
-    if (pkg?.cover) {
-      initialPrms.push(createPackagingItem(pkg.cover, initialPieces));
-    }
-
     setAllocations(prev => [
       ...prev,
       {
@@ -2466,16 +2455,18 @@ export default function ProductionFloorCockpitModal({
         productName: product.name || product.productName,
         productCode: product.code || product.systemCode,
         useMould: true,
+        bulkUom: 'Liter',
+        allocatedBaseMl: 0,
         mouldId: null,
-        mouldCode: defaultMouldCode,
-        mouldName: defaultMouldName,
-        capacityMl: cap,
-        cavities: cav,
+        mouldCode: '',
+        mouldName: '',
+        capacityMl: 0,
+        cavities: 0,
         trays: 0,
-        goodPieces: initialPieces,
+        goodPieces: 0,
         wasteMode: 'PERCENT',
         wasteValue: 0,
-        productRms: initialPrms
+        productRms: [] // Empty until user selects Mould Spec!
       }
     ]);
   };
