@@ -507,7 +507,7 @@ export default function ProductionFloorCockpitModal({
   }, [lotAllocations]);
 
   // ── Fetch Master Data & Batch Details from /api/production/standard/:id ──
-  const fetchAllData = useCallback(async () => {
+  const fetchAllData = useCallback(async (forceReportMode = false) => {
     if (!batchId) return;
     try {
       setLoading(true);
@@ -524,8 +524,8 @@ export default function ProductionFloorCockpitModal({
       const b = detailRes.data.batch || detailRes.data;
       setBatch(b);
       setActualYieldPieces(Number(b.actualOutput || b.quantity || 2000));
-      const batchFinished = b.status === 'Completed' || b.status === 'qc_passed';
-      if (batchFinished) {
+      const batchFinished = b.status === 'Completed' || b.status === 'qc_passed' || String(b.status || '').toLowerCase().includes('finish') || String(b.status || '').toLowerCase().includes('complet');
+      if (forceReportMode || initialViewMode === 'REPORT' || batchFinished) {
         setViewMode('REPORT');
       } else {
         setViewMode('STEPS');
@@ -2887,7 +2887,7 @@ export default function ProductionFloorCockpitModal({
         `;
       }
 
-      Swal.fire({
+      await Swal.fire({
         title: 'Production Run Finalized!',
         html: `
           <div style="text-align: left; font-size: 13px; line-height: 1.6;">
@@ -2897,13 +2897,21 @@ export default function ProductionFloorCockpitModal({
             ${restoreHtml}
           </div>
         `,
-        icon: 'success'
+        icon: 'success',
+        confirmButtonText: 'OK'
       });
 
       setShowYieldModal(false);
       setViewMode('REPORT');
-      fetchAllData();
+      setBatch(prev => ({ 
+        ...prev, 
+        status: 'Completed', 
+        actualOutput: totalActual,
+        actual_output: totalActual,
+        good_quantity: totalActual
+      }));
       if (onBatchUpdated) onBatchUpdated();
+      await fetchAllData(true);
     } catch (err) {
       console.error('Failed to complete batch:', err);
       Swal.fire({ title: 'Error', text: err.response?.data?.error || 'Failed to complete production run.', icon: 'error' });
