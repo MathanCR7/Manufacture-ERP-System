@@ -233,12 +233,12 @@ async function ensureStandardProductionSchema(p = prisma) {
                     WHERE id = usage.rm_id;
                 END LOOP;
 
-                -- 3. Decrement Finished Product currentStock
+                -- 3. Decrement Finished Product current_stock in table products
                 prod_yield := COALESCE(OLD.good_quantity, OLD.actual_output, OLD.quantity, 0);
                 IF OLD.product_id IS NOT NULL AND prod_yield > 0 THEN
-                    UPDATE "Product"
-                    SET "currentStock" = GREATEST(0, "currentStock" - prod_yield),
-                        "updatedAt" = CURRENT_TIMESTAMP
+                    UPDATE products
+                    SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - prod_yield),
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = OLD.product_id;
                 END IF;
             END IF;
@@ -2785,9 +2785,9 @@ class StandardProductionController {
           const prodYield = Number(batch.good_quantity || batch.actual_output || batch.quantity || 0);
           if (batch.product_id && prodYield > 0) {
             await tx.$executeRawUnsafe(`
-              UPDATE "Product"
-              SET "currentStock" = GREATEST(0, "currentStock" - $1),
-                  "updatedAt" = CURRENT_TIMESTAMP
+              UPDATE products
+              SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
+                  updated_at = CURRENT_TIMESTAMP
               WHERE id = $2;
             `, prodYield, batch.product_id);
           }
