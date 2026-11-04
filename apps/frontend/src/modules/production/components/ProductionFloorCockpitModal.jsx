@@ -587,7 +587,9 @@ export default function ProductionFloorCockpitModal({
             if (totQty > 0) unitRate = Number((totAmt / totQty).toFixed(4));
           }
 
-          let resolvedUom = line.unit_id || line.unitId || line.uom;
+          let resolvedUom = (line.uom && !/^[0-9a-fA-F-]{32,36}$/.test(line.uom)) 
+            ? line.uom 
+            : (line.unitId || line.unit_id || 'kg');
           if (line.has_alternate_uom || line.hasAlternateUom) {
             const alt = (line.alternate_uom || line.alternateUom || '').toLowerCase();
             const curr = String(resolvedUom || '').toLowerCase();
@@ -778,6 +780,49 @@ export default function ProductionFloorCockpitModal({
           };
         });
       }
+
+      // If initialRows is still empty, seamless fallback from standard template lines
+      if (initialRows.length === 0 && (b.template_id || b.templateId)) {
+        try {
+          const tId = b.template_id || b.templateId;
+          const tRes = await api.get(`/production/standard/templates/${tId}`).catch(() => api.get(`/production/templates/${tId}`));
+          const tLines = tRes.data?.lines || tRes.data?.template?.lines || tRes.data?.data?.lines || [];
+          if (Array.isArray(tLines) && tLines.length > 0) {
+            initialRows = tLines.map(tl => {
+              const master = liveRmCatalog.find(rc => rc.id === tl.raw_material_id || rc.code === tl.raw_material_code) || {};
+              const name = tl.raw_material_name || master.name || 'Raw Material';
+              const lowerName = name.toLowerCase();
+              const defaultEvap = lowerName.includes('milk') || lowerName.includes('smp') || 
+                                  lowerName.includes('stabilizer') || lowerName.includes('essence') ||
+                                  lowerName.includes('flavor');
+              const reqQty = Number(tl.quantity || 0);
+              const uomStr = tl.uom || master.uom || 'kg';
+              return {
+                rawMaterialId: tl.raw_material_id || master.id,
+                rawMaterialName: name,
+                rawMaterialCode: tl.raw_material_code || master.code || 'RM',
+                uom: formatCleanUom(uomStr, 'kg', master),
+                hasAlternateUom: Boolean(master.hasAlternateUom),
+                alternateUom: master.alternateUom,
+                conversionFactor: Number(master.conversionFactor || 1),
+                consumptionUnit: master.consumptionUnit,
+                density: 1.0,
+                availableQty: reqQty,
+                warehouseStock: Number(master.currentStock || reqQty),
+                requiredQty: reqQty,
+                takenQty: reqQty,
+                evaporates: defaultEvap,
+                merged: true,
+                unitRate: Number(tl.rate || master.ratePerUnit || 0),
+                lotBatchNo: null,
+                availableBatches: [],
+                allocatedBatches: []
+              };
+            });
+          }
+        } catch (_) {}
+      }
+
       setRmRows(initialRows);
 
       // Merge state

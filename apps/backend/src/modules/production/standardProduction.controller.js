@@ -1453,6 +1453,63 @@ class StandardProductionController {
         }
       }
 
+      // If production_batch_rm_line and rm_usage are both empty, seamlessly fallback to production_template_lines
+      if (!rmLines || rmLines.length === 0) {
+        try {
+          const tId = batch.template_id;
+          const bId = batch.base_id;
+          rmLines = await prisma.$queryRawUnsafe(`
+            SELECT 
+              ptl.id,
+              $1::text AS batch_id,
+              ptl.raw_material_id,
+              NULL::text AS lot_id,
+              COALESCE(
+                uom_tbl.abbreviation,
+                uom_tbl.name,
+                CASE WHEN rm."unitId" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."unitId" END,
+                CASE WHEN ptl.uom ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE ptl.uom END,
+                CASE WHEN rm."consumptionUnit" ~ '^[0-9a-fA-F-]{32,36}$' THEN NULL ELSE rm."consumptionUnit" END,
+                'kg'
+              ) AS uom,
+              1.0000 AS density,
+              COALESCE(rm."currentStock", 0) AS available_qty,
+              COALESCE(ptl.quantity, 0) AS required_qty,
+              COALESCE(ptl.quantity, 0) AS taken_qty,
+              CASE 
+                WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%stabl%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+                ELSE FALSE 
+              END AS evaporates,
+              TRUE AS merged,
+              rm.name AS raw_material_name,
+              rm.code AS raw_material_code,
+              rm."currentStock" AS current_stock,
+              COALESCE(ptl.rate, rm."ratePerUnit", 0) AS rate_per_unit,
+              rm."unitId" AS unit_id,
+              rm."hasAlternateUom" AS has_alternate_uom,
+              rm."alternateUom" AS alternate_uom,
+              rm."alternateUomQty" AS alternate_uom_qty,
+              rm."baseUomQty" AS base_uom_qty,
+              rm."conversionFactor" AS conversion_factor,
+              rm."consumptionUnit" AS consumption_unit,
+              1.0000 AS master_density,
+              CASE 
+                WHEN LOWER(rm.name) LIKE '%milk%' OR LOWER(rm.name) LIKE '%smp%' OR LOWER(rm.name) LIKE '%stabilizer%' OR LOWER(rm.name) LIKE '%stabl%' OR LOWER(rm.name) LIKE '%rabdi%' THEN TRUE 
+                ELSE FALSE 
+              END AS master_evaporates,
+              NULL AS lot_batch_no,
+              NULL AS lot_expiry_date
+            FROM production_template_lines ptl
+            LEFT JOIN "RawMaterial" rm ON rm.id = ptl.raw_material_id
+            LEFT JOIN "UOM" uom_tbl ON uom_tbl.id = rm."unitId"
+            WHERE ptl.template_id = $2 OR ptl.template_id IN (SELECT id FROM production_templates WHERE base_id = $3)
+            ORDER BY ptl.seq_no;
+          `, id, tId || '', bId || '');
+        } catch (tErr) {
+          console.warn('Fallback template_lines query error:', tErr.message);
+        }
+      }
+
       // Fetch saved raw material batch allocations
       let savedBatchAllocations = [];
       try {
@@ -1780,6 +1837,34 @@ class StandardProductionController {
               poNumber: 'PO-AUTO',
               supplierBatchNo: r.lot_batch_no || 'SUP-LOT-01'
             }];
+          } else if (resolvedAllocatedBatches.length === 0 && batchMap.has(r.raw_material_id) && batchMap.get(r.raw_material_id).length > 0) {
+            const availLots = batchMap.get(r.raw_material_id);
+            const neededQty = Number(r.taken_qty || r.required_qty || 0);
+            let unalloc = neededQty;
+            const autoLots = [];
+            for (const lot of availLots) {
+              if (unalloc <= 0) break;
+              const allocFromLot = Math.min(lot.remainingQty, unalloc);
+              autoLots.push({
+                batchId: lot.id,
+                lotNumber: lot.batchNo,
+                internalBatchNo: lot.batchNo,
+                allocatedQty: allocFromLot,
+                poOriginalQty: lot.remainingQty,
+                poTotalAmount: Number((allocFromLot * Number(r.rate_per_unit || 0)).toFixed(2)),
+                allocatedAmount: Number((allocFromLot * Number(r.rate_per_unit || 0)).toFixed(2)),
+                unitRate: Number(r.rate_per_unit || 0),
+                uom: r.uom,
+                isManualOverride: false,
+                grnNumber: 'GRN-AUTO',
+                poNumber: 'PO-AUTO',
+                supplierBatchNo: lot.batchNo
+              });
+              unalloc -= allocFromLot;
+            }
+            if (autoLots.length > 0) {
+              resolvedAllocatedBatches = autoLots;
+            }
           }
 
           const resolvedLotBatchNo = resolvedAllocatedBatches.length > 0
