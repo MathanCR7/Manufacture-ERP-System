@@ -1035,8 +1035,8 @@ const getBatchesForRawMaterial = async (rmId) => {
     const batches = await prisma.inventoryBatch.findMany({
       where: {
         OR: orConditions,
-        netQty: { gt: 0 },
-        status: 'AVAILABLE'
+        netQty: { gt: 0.0001 },
+        status: { notIn: ['DEPLETED', 'EXHAUSTED', 'CONSUMED', 'WASTED'] }
       },
       include: {
         grn: {
@@ -1217,11 +1217,11 @@ const getBatchesForRawMaterial = async (rmId) => {
       }
     }
 
-    // 3. Fallback: Synthesize active warehouse lot for every material with warehouse inventory
-    if (formatted.length === 0) {
+    // 3. Fallback: Synthesize active warehouse lot for material only if positive warehouse inventory exists
+    if (formatted.length === 0 && Number(rm?.currentStock || 0) > 0) {
       const mDate = rm?.createdAt || new Date();
       const expDate = new Date(new Date(mDate).getTime() + 365 * 24 * 60 * 60 * 1000);
-      const stock = Math.max(1, Number(rm?.currentStock || 100));
+      const stock = Number(rm?.currentStock);
       const fallbackRate = Number(rm?.ratePerUnit || 54);
       formatted.push({
         id: `wh-${rm?.id || rmId}`,

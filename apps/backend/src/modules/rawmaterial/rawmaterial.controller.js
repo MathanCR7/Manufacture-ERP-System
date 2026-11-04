@@ -1895,7 +1895,8 @@ exports.getRMBatches = async (req, res, next) => {
           { rawMaterialId: rm.code },
           { rawMaterialName: { equals: rm.name, mode: 'insensitive' } }
         ],
-        netQty: { gt: 0 }
+        netQty: { gt: 0.0001 },
+        status: { notIn: ['DEPLETED', 'EXHAUSTED', 'CONSUMED', 'WASTED'] }
       },
       include: {
         uom: true,

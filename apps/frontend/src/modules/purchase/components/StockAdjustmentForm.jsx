@@ -300,11 +300,12 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
     setSubtractionAllocations(newAlloc);
   };
 
-  // Filter existing batches by search query
+  // Filter existing batches by search query and ensure available quantity > 0
   const filteredExistingBatches = useMemo(() => {
-    if (!batchSearchTerm.trim()) return existingBatches;
+    const active = existingBatches.filter(b => Number(b.netQty || 0) > 0);
+    if (!batchSearchTerm.trim()) return active;
     const q = batchSearchTerm.toLowerCase().trim();
-    return existingBatches.filter(b => 
+    return active.filter(b => 
       (b.batchNumber && b.batchNumber.toLowerCase().includes(q)) ||
       (b.poReferenceNo && b.poReferenceNo.toLowerCase().includes(q)) ||
       (b.grnReferenceNo && b.grnReferenceNo.toLowerCase().includes(q)) ||

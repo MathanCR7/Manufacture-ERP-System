@@ -246,27 +246,16 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
         for (const b of batchesList) {
           const deductQty = Number(b.quantity || 0);
           if (deductQty > 0) {
-            if (b.id) {
-              await tx.$executeRawUnsafe(
-                `UPDATE "InventoryBatch" 
-                 SET "netQty" = GREATEST(0, "netQty" - $1), 
-                     "status" = CASE WHEN ("netQty" - $1) <= 0 THEN 'DEPLETED' ELSE "status" END,
-                     "updatedAt" = NOW() 
-                 WHERE "id" = $2`,
-                deductQty,
-                b.id
-              );
-            } else if (b.batchNumber) {
-              await tx.$executeRawUnsafe(
-                `UPDATE "InventoryBatch" 
-                 SET "netQty" = GREATEST(0, "netQty" - $1), 
-                     "status" = CASE WHEN ("netQty" - $1) <= 0 THEN 'DEPLETED' ELSE "status" END,
-                     "updatedAt" = NOW() 
-                 WHERE "batchNumber" = $2`,
-                deductQty,
-                b.batchNumber
-              );
-            }
+            await tx.$executeRawUnsafe(
+              `UPDATE "InventoryBatch" 
+               SET "netQty" = GREATEST(0, "netQty" - $1), 
+                   "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                   "updatedAt" = NOW() 
+               WHERE ("id" = $2 OR "batchNumber" = $3)`,
+              deductQty,
+              b.id || '',
+              b.batchNumber || b.id || ''
+            );
           }
         }
       }

@@ -255,19 +255,23 @@ class ProductionCompletionService {
 
         // Deduct from allocated InventoryBatch lots (FEFO)
         const allocations = await tx.$queryRawUnsafe(
-          `SELECT inventory_batch_id, allocated_qty FROM "production_batch_allocations" WHERE usage_id = $1`,
+          `SELECT inventory_batch_id, allocated_qty, lot_number FROM "production_batch_allocations" WHERE usage_id = $1`,
           usage.id
         );
 
         for (const alloc of allocations) {
-          if (alloc.inventory_batch_id && Number(alloc.allocated_qty) > 0) {
+          const aQty = Number(alloc.allocated_qty || 0);
+          if (aQty > 0) {
+            const lotId = alloc.inventory_batch_id ? String(alloc.inventory_batch_id).trim() : null;
+            const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
             try {
-              await tx.inventoryBatch.updateMany({
-                where: { id: alloc.inventory_batch_id },
-                data: {
-                  netQty: { decrement: Number(alloc.allocated_qty) }
-                }
-              });
+              await tx.$executeRawUnsafe(`
+                UPDATE "InventoryBatch" 
+                SET "netQty" = GREATEST(0, "netQty" - $1),
+                    "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                    "updatedAt" = CURRENT_TIMESTAMP
+                WHERE id = $2 OR "batchNumber" = $3;
+              `, aQty, lotId || '', lotNum || lotId || '');
             } catch (allocErr) {
               console.warn('InventoryBatch decrement non-fatal warning:', allocErr.message);
             }

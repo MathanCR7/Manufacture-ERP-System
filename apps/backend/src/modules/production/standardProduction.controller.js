@@ -2152,27 +2152,56 @@ class StandardProductionController {
           }
         }
 
-        // 2. Deduct from allocated lots in InventoryBatch
+        // 2. Deduct from allocated lots in InventoryBatch (matching by ID and Batch Number, updating status to DEPLETED when netQty <= 0)
         const allocations = await tx.$queryRawUnsafe(`
           SELECT inventory_batch_id, allocated_qty, lot_number 
           FROM "production_batch_allocations" 
           WHERE batch_id = $1;
         `, id);
 
+        const deductedLots = new Set();
         for (const alloc of allocations) {
-          if (alloc.inventory_batch_id && Number(alloc.allocated_qty) > 0) {
+          const qty = Number(alloc.allocated_qty || 0);
+          if (qty > 0) {
+            const lotId = alloc.inventory_batch_id ? String(alloc.inventory_batch_id).trim() : null;
+            const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
             try {
               await tx.$executeRawUnsafe(`
                 UPDATE "InventoryBatch" 
                 SET "netQty" = GREATEST(0, "netQty" - $1),
+                    "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
                     "updatedAt" = CURRENT_TIMESTAMP
-                WHERE id = $2;
-              `, Number(alloc.allocated_qty), alloc.inventory_batch_id);
-            } catch (_) {}
+                WHERE id = $2 OR "batchNumber" = $3;
+              `, qty, lotId || '', lotNum || lotId || '');
+              if (lotId) deductedLots.add(lotId);
+              if (lotNum) deductedLots.add(lotNum);
+            } catch (lotErr) {
+              console.warn('Notice deducting lot from allocations:', lotErr.message);
+            }
           }
         }
 
-        // Deduct product-specific raw materials (essences, flavours, additions)
+        // Also ensure lots from production_batch_rm_line are deducted if not already covered
+        for (const line of rmLines) {
+          const taken = Number(line.taken_qty || 0);
+          const lotId = line.lot_id ? String(line.lot_id).trim() : null;
+          if (taken > 0 && lotId && !deductedLots.has(lotId)) {
+            try {
+              await tx.$executeRawUnsafe(`
+                UPDATE "InventoryBatch" 
+                SET "netQty" = GREATEST(0, "netQty" - $1),
+                    "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                    "updatedAt" = CURRENT_TIMESTAMP
+                WHERE id = $2 OR "batchNumber" = $3;
+              `, taken, lotId, lotId);
+              deductedLots.add(lotId);
+            } catch (lotErr) {
+              console.warn('Notice deducting lot from rm_line:', lotErr.message);
+            }
+          }
+        }
+
+        // Deduct product-specific raw materials (essences, flavours, wooden sticks, packing covers)
         try {
           let savedMAllocs = [];
           if (typeof batch.mould_allocations === 'string') {
@@ -2195,14 +2224,18 @@ class StandardProductionController {
 
                   if (Array.isArray(prm.allocatedBatches)) {
                     for (const ab of prm.allocatedBatches) {
-                      if (ab.batchId && Number(ab.allocatedQty) > 0) {
+                      const aQty = Number(ab.allocatedQty || ab.qty || 0);
+                      const aLotId = ab.batchId ? String(ab.batchId).trim() : null;
+                      const aLotNum = (ab.batchNumber || ab.lotNumber || ab.batchNo || ab.batchId) ? String(ab.batchNumber || ab.lotNumber || ab.batchNo || ab.batchId).trim() : null;
+                      if (aQty > 0 && (aLotId || aLotNum)) {
                         try {
                           await tx.$executeRawUnsafe(`
                             UPDATE "InventoryBatch" 
                             SET "netQty" = GREATEST(0, "netQty" - $1),
+                                "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
                                 "updatedAt" = CURRENT_TIMESTAMP
-                            WHERE id = $2;
-                          `, Number(ab.allocatedQty), ab.batchId);
+                            WHERE id = $2 OR "batchNumber" = $3;
+                          `, aQty, aLotId || '', aLotNum || aLotId || '');
                         } catch (_) {}
                       }
                     }
