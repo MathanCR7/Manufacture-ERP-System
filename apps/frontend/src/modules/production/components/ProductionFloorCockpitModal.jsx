@@ -2939,14 +2939,14 @@ export default function ProductionFloorCockpitModal({
         subBatches: completedSubBatches
       });
 
-      const leftoverLogs = res.data?.leftoverRestoration || [];
-      let restoreHtml = '';
-      if (leftoverLogs.length > 0) {
-        restoreHtml = `
-          <div style="margin-top: 10px; text-align: left; font-size: 11px; max-height: 140px; overflow-y: auto; background: #f8fafc; padding: 8px; border-radius: 8px;">
-            <strong style="color: #047857;">Restored / Verified in Warehouse Stock:</strong>
+      const deductions = res.data?.rmDeductions || res.data?.data?.rmDeductions || [];
+      let deductHtml = '';
+      if (deductions.length > 0) {
+        deductHtml = `
+          <div style="margin-top: 10px; text-align: left; font-size: 11px; max-height: 140px; overflow-y: auto; background: #f8fafc; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <strong style="color: #4f46e5;">Raw Materials Consumed &amp; Deducted from Stock:</strong>
             <ul style="padding-left: 16px; margin-top: 4px;">
-              ${leftoverLogs.map(l => `<li><strong>${l.rawMaterialName}</strong>: ${l.unusedRestoredQty} ${l.uom} remained (${l.remainingWarehouseStock} in warehouse)</li>`).join('')}
+              ${deductions.map(l => `<li><strong>${l.name}</strong>: -${l.consumedQty} ${l.uom} deducted (Remaining Warehouse Stock: ${l.remainingWarehouseStock} ${l.uom})</li>`).join('')}
             </ul>
           </div>
         `;
@@ -2968,7 +2968,7 @@ export default function ProductionFloorCockpitModal({
             <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${totalActual} items</span></p>
             <p><strong>Status:</strong> <span style="font-weight: bold; color: #047857;">Completed</span></p>
             <p><strong>Lab Test Status:</strong> <span style="font-weight: bold; color: ${labTestRequired ? '#d97706' : '#047857'};">${labTestRequired ? 'Sent to QC Quarantine' : 'Directly added to Available Sellable Stock'}</span></p>
-            ${restoreHtml}
+            ${deductHtml}
           </div>
         `,
         icon: 'success',

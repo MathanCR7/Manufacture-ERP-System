@@ -458,7 +458,9 @@ export default function BatchAllocationGrid({
         api.get(`/production/rm-batches/${item.rmId}`),
         api.get(`/production/rm-batch-meta/${item.rmId}?rmName=${encodeURIComponent(item.rmName || '')}`).catch(() => null)
       ]);
-      const lots = batchesRes.data || [];
+      const rawLots = Array.isArray(batchesRes.data) ? batchesRes.data : [];
+      // Strictly filter out any lots that have 0 remaining balance or are marked DEPLETED
+      const lots = rawLots.filter(l => Number(l.availableQty ?? l.netQty ?? 0) > 0.0001 && l.status !== 'DEPLETED');
       const meta = metaRes?.data || null;
 
       setAvailableLots(lots);

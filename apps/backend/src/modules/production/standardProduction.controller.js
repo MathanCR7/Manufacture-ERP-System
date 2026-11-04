@@ -1953,9 +1953,12 @@ class StandardProductionController {
         orderBy: { name: 'asc' }
       });
 
-      // Query active inventory batches
+      // Query active inventory batches (excluding depleted lots)
       const batches = await prisma.inventoryBatch.findMany({
-        where: { netQty: { gt: 0 } },
+        where: { 
+          netQty: { gt: 0.0001 },
+          status: { notIn: ['DEPLETED', 'EXHAUSTED', 'CONSUMED', 'WASTED'] }
+        },
         orderBy: [{ expiryDate: 'asc' }, { createdAt: 'asc' }]
       });
 
