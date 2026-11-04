@@ -859,11 +859,23 @@ export default function ProductionFloorCockpitModal({
             const pkg = getPackagingForMould(a.mould_code || a.mouldCode, a.mould_name || a.mouldName);
             const stickDef = pkg?.stick;
             const coverDef = pkg?.cover;
-            const pieces = trays > 0 ? (trays * cav) : (Number(a.goodPieces || a.good_pieces) || cav);
+            
+            // Calculate pieces yield strictly respecting allocated base mix volume
+            let pieces = Number(a.goodPieces || a.good_pieces || 0);
+            if (pieces <= 0) {
+              const baseMl = Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0);
+              const mixLimit = (cap > 0 && baseMl > 0) ? Math.floor(baseMl / cap) : 0;
+              const trayLimit = (trays > 0 && cav > 0) ? (trays * cav) : 0;
+              if (mixLimit > 0 && trayLimit > 0) pieces = Math.min(mixLimit, trayLimit);
+              else if (mixLimit > 0) pieces = mixLimit;
+              else if (trayLimit > 0) pieces = trayLimit;
+              else pieces = cav > 0 ? cav : 1;
+            }
+
             if (stickDef) {
               const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
               if (stickIdx >= 0) {
-                if (!productRms[stickIdx].takenQty || Number(productRms[stickIdx].takenQty) <= 0) {
+                if (!productRms[stickIdx].takenQty || Number(productRms[stickIdx].takenQty) <= 0 || Number(productRms[stickIdx].takenQty) !== pieces) {
                   productRms[stickIdx] = createPackagingItem(stickDef, pieces, productRms[stickIdx]);
                 }
               } else {
@@ -876,7 +888,7 @@ export default function ProductionFloorCockpitModal({
                 (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
               );
               if (coverIdx >= 0) {
-                if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0) {
+                if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0 || Number(productRms[coverIdx].takenQty) !== pieces) {
                   productRms[coverIdx] = createPackagingItem(coverDef, pieces, productRms[coverIdx]);
                 }
               } else {
@@ -1859,10 +1871,85 @@ export default function ProductionFloorCockpitModal({
     });
   };
 
+  // ── Helpers for Synchronizing Pieces Yield and Packaging Quantities ──
+  const computeAllocPiecesYield = (alloc, overrideField = null, overrideValue = null) => {
+    const cap = Number(overrideField === 'capacityMl' ? (overrideValue || 50) : (alloc.capacityMl || 50));
+    const cav = Number(overrideField === 'cavities' ? (overrideValue || 42) : (alloc.cavities || 42));
+    const trays = Number(overrideField === 'trays' ? (overrideValue || 0) : (alloc.trays || 0));
+    const baseMl = Number(overrideField === 'allocatedBaseMl' ? overrideValue : (alloc.allocatedBaseMl || alloc.mixUsedMl || 0));
+    const wm = overrideField === 'wasteMode' ? overrideValue : (alloc.wasteMode || 'PERCENT');
+    const wv = Number(overrideField === 'wasteValue' ? overrideValue : (alloc.wasteValue ?? 0));
+
+    // Product-specific mix addition (flavours, essences, colors)
+    let addedRmVolumeMl = 0;
+    const prms = Array.isArray(alloc.productRms) ? alloc.productRms : [];
+    for (const prm of prms) {
+      const shouldAdd = prm.addToMix !== undefined 
+        ? Boolean(prm.addToMix) 
+        : (prm.isLiquidMix !== undefined ? Boolean(prm.isLiquidMix) : !isPackagingMaterial(prm));
+      if (!shouldAdd) continue;
+      const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+      const prmUom = prm.uom || prm.selectedUom || 'ml';
+      const prmDensity = Number(prm.density || 1.0);
+      try {
+        addedRmVolumeMl += toMl(prmQty, prmUom, prmDensity);
+      } catch (_) {
+        addedRmVolumeMl += prmQty;
+      }
+    }
+
+    const totalMix = baseMl + addedRmVolumeMl;
+    let wasteMl = 0;
+    if (wm === 'PERCENT' || wm === '%') {
+      wasteMl = (totalMix * wv) / 100;
+    } else {
+      wasteMl = trays > 0 ? (wv * trays) : wv;
+    }
+    const usableMixMl = Math.max(0, totalMix - wasteMl);
+
+    const mixLimit = (cap > 0 && usableMixMl > 0) ? Math.floor(usableMixMl / cap) : 0;
+    const trayLimit = (trays > 0 && cav > 0) ? (trays * cav) : 0;
+
+    if (mixLimit > 0 && trayLimit > 0) {
+      return Math.min(mixLimit, trayLimit);
+    }
+    if (mixLimit > 0) return mixLimit;
+    if (trayLimit > 0) return trayLimit;
+    if (Number(alloc.goodPieces) > 0) return Number(alloc.goodPieces);
+    return cav > 0 ? cav : 1;
+  };
+
+  const syncPackagingQuantities = (productRms, pieces) => {
+    if (!Array.isArray(productRms) || pieces <= 0) return productRms;
+    return productRms.map(prm => {
+      if (!isPackagingMaterial(prm)) return prm;
+      const rate = Number(prm.unitRate || 0);
+      const totalCost = Number((rate * pieces).toFixed(2));
+      return {
+        ...prm,
+        takenQty: pieces,
+        qty: pieces,
+        requiredQty: pieces,
+        totalCost,
+        allocatedBatches: Array.isArray(prm.allocatedBatches) ? prm.allocatedBatches.map(b => ({
+          ...b,
+          allocatedQty: pieces,
+          allocatedAmount: Number((Number(b.unitRate || rate) * pieces).toFixed(2))
+        })) : []
+      };
+    });
+  };
+
   const handleUpdateProductBaseMl = (index, value) => {
     setAllocations(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], allocatedBaseMl: value, mixUsedMl: value };
+      const target = { ...copy[index], allocatedBaseMl: value, mixUsedMl: value };
+      const pieces = computeAllocPiecesYield(target);
+      if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
+        target.goodPieces = pieces;
+        target.productRms = syncPackagingQuantities(target.productRms, pieces);
+      }
+      copy[index] = target;
       return copy;
     });
   };
@@ -1873,7 +1960,13 @@ export default function ProductionFloorCockpitModal({
     const rem = Math.max(0, effectiveTotal - otherUsed);
     setAllocations(prev => {
       const copy = [...prev];
-      copy[index] = { ...copy[index], allocatedBaseMl: rem, mixUsedMl: rem };
+      const target = { ...copy[index], allocatedBaseMl: rem, mixUsedMl: rem };
+      const pieces = computeAllocPiecesYield(target);
+      if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
+        target.goodPieces = pieces;
+        target.productRms = syncPackagingQuantities(target.productRms, pieces);
+      }
+      copy[index] = target;
       return copy;
     });
   };
@@ -1921,6 +2014,15 @@ export default function ProductionFloorCockpitModal({
 
       prms[prmIndex] = current;
       target.productRms = prms;
+
+      if (field === 'addToMix' || field === 'takenQty' || field === 'uom') {
+        const pieces = computeAllocPiecesYield(target);
+        if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
+          target.goodPieces = pieces;
+          target.productRms = syncPackagingQuantities(target.productRms, pieces);
+        }
+      }
+
       copy[allocIndex] = target;
       return copy;
     });
@@ -2265,7 +2367,7 @@ export default function ProductionFloorCockpitModal({
         } else if (target.mouldCode) {
           // If switched back to Mould and a mould was previously selected, ensure stick & cover are present
           const pkg = getPackagingForMould(target.mouldCode, target.mouldName);
-          const pcs = Number(target.goodPieces || 0) || (Number(target.trays || 0) * Number(target.cavities || 42)) || Number(target.cavities || 42);
+          const pcs = computeAllocPiecesYield(target);
           const prms = [...(target.productRms || [])];
           if (pkg?.stick && !prms.some(p => p.rmCode === pkg.stick.code || (p.rmName && p.rmName.toLowerCase().includes('stick')))) {
             prms.push(createPackagingItem(pkg.stick, pcs));
@@ -2277,47 +2379,15 @@ export default function ProductionFloorCockpitModal({
         }
       }
       
-      const newTrays = field === 'trays' ? Number(value || 0) : Number(target.trays || 0);
-      const newCav = field === 'cavities' ? Number(value || 0) : Number(target.cavities || 42);
-      const cap = Number(field === 'capacityMl' ? (value || 50) : (target.capacityMl || 50));
-      const baseMl = Number(field === 'allocatedBaseMl' ? value : (target.allocatedBaseMl || target.mixUsedMl || 0));
-      const wm = field === 'wasteMode' ? value : (target.wasteMode || 'PERCENT');
-      const wv = field === 'wasteValue' ? Number(value ?? 0) : Number(target.wasteValue ?? 0);
-
-      // Pieces Yield calculation
-      let pieces = 0;
-      if (field === 'goodPieces' && Number(value) > 0) {
-        pieces = Number(value);
-      } else if (newTrays > 0) {
-        pieces = newTrays * newCav;
-      } else if (baseMl > 0 && cap > 0) {
-        const wasteMl = (wm === 'PERCENT' || wm === '%') ? baseMl * (wv / 100) : (wv * newTrays);
-        pieces = Math.floor(Math.max(0, baseMl - wasteMl) / cap);
-      } else if (Number(target.goodPieces) > 0) {
-        pieces = Number(target.goodPieces);
-      }
+      // Calculate live pieces yield strictly bounded by liquid mix volume
+      const pieces = field === 'goodPieces' && Number(value) > 0 
+        ? Number(value) 
+        : computeAllocPiecesYield(target, field, value);
 
       // Sync existing packaging items quantities with the pieces yield (ONLY if mouldCode is selected)
       if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
         target.goodPieces = pieces;
-        target.productRms = target.productRms.map(prm => {
-          const isPkg = isPackagingMaterial(prm);
-          if (!isPkg) return prm;
-          const rate = Number(prm.unitRate || 0);
-          const totalCost = Number((rate * pieces).toFixed(2));
-          return {
-            ...prm,
-            takenQty: pieces,
-            qty: pieces,
-            requiredQty: pieces,
-            totalCost,
-            allocatedBatches: Array.isArray(prm.allocatedBatches) ? prm.allocatedBatches.map(b => ({
-              ...b,
-              allocatedQty: pieces,
-              allocatedAmount: Number((Number(b.unitRate || rate) * pieces).toFixed(2))
-            })) : []
-          };
-        });
+        target.productRms = syncPackagingQuantities(target.productRms, pieces);
       }
       copy[index] = target;
       return copy;
@@ -2398,18 +2468,13 @@ export default function ProductionFloorCockpitModal({
 
       const finalTrays = autoMaxTrays > 0 ? autoMaxTrays : (Number(currentAlloc.trays) || (remainingForThis >= cap ? 1 : 0));
       
-      // Calculate Pieces Yield precisely matching Step 3 live yield
-      let calculatedPieces = 0;
-      if (currentAlloc.goodPieces !== undefined && currentAlloc.goodPieces !== null && Number(currentAlloc.goodPieces) > 0) {
-        calculatedPieces = Number(currentAlloc.goodPieces);
-      } else if (finalTrays > 0) {
-        calculatedPieces = finalTrays * cav;
-      } else if (remainingForThis > 0 && cap > 0) {
-        calculatedPieces = Math.floor(remainingForThis / cap);
-      } else {
-        calculatedPieces = cav;
-      }
-      const packagingPieces = calculatedPieces > 0 ? calculatedPieces : cav;
+      const allocWithMould = {
+        ...currentAlloc,
+        capacityMl: cap,
+        cavities: cav,
+        trays: finalTrays
+      };
+      const packagingPieces = computeAllocPiecesYield(allocWithMould);
 
       const pkg = getPackagingForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
       const stickDef = pkg?.stick;
@@ -2435,7 +2500,7 @@ export default function ProductionFloorCockpitModal({
         capacityMl: cap,
         cavities: cav,
         trays: finalTrays,
-        goodPieces: calculatedPieces,
+        goodPieces: packagingPieces,
         productRms: updatedPrms
       };
       return copy;
