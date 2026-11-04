@@ -315,6 +315,51 @@ export default function ProductionMouldPickerModal({
                       </div>
                     </div>
 
+                    {/* Stick & Packaging Cover Specification Master */}
+                    {(() => {
+                      const codeUpper = (code || '').toUpperCase();
+                      const nameUpper = (name || '').toUpperCase();
+                      let stickName = 'STICK 144 MM';
+                      let coverName = 'packing cover=130 mm (provisional)';
+
+                      if (codeUpper.includes('2006') || nameUpper.includes('EGYPT') || nameUpper.includes('65')) {
+                        stickName = 'STICK 65 MM (Wooden Stick)';
+                        coverName = 'packing cover=130 mm (provisional)';
+                      } else if (codeUpper.includes('8115') || (nameUpper.includes('KULFI') && (nameUpper.includes('LARGE') || nameUpper.includes('70')))) {
+                        stickName = 'Round Stick (Wooden Kulfi Stick)';
+                        coverName = 'packing cover=170 mm (provisional)';
+                      } else if (codeUpper.includes('3006') || nameUpper.includes('FLAT')) {
+                        stickName = 'STICK 144 MM (Flat Stick)';
+                        coverName = 'packing cover=130 mm (provisional)';
+                      } else if (codeUpper.includes('8112') || nameUpper.includes('8112') || nameUpper.includes('KULFI')) {
+                        stickName = 'STICK 144 MM (Wooden Stick)';
+                        coverName = 'packing cover=130 mm (provisional)';
+                      }
+
+                      return (
+                        <div className="my-2 p-2 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 space-y-1 text-xs">
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3 text-amber-500" />
+                              Wooden Stick:
+                            </span>
+                            <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                              {stickName}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                              <Box className="w-3 h-3 text-indigo-500" />
+                              Suggested Cover:
+                            </span>
+                            <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                              {coverName}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* Material & Line */}
                     <div className="text-[10px] text-slate-500 border-t border-slate-100 dark:border-slate-800/60 pt-2 flex items-center justify-between">
                       <span className="font-medium text-slate-600 dark:text-slate-400">
@@ -332,10 +377,15 @@ export default function ProductionMouldPickerModal({
         </div>
 
         {/* ── FOOTER ── */}
-        <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shrink-0 text-xs text-slate-500">
-          <div className="flex items-center gap-1.5">
+        <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shrink-0 text-xs text-slate-500 flex-wrap gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Active Mould Specs: SG 2006 (18ml) • SG 3006 (40ml) • SG 8112 (50ml) • SG 8115 (70ml)</span>
+            <span className="font-semibold text-slate-700 dark:text-slate-300">
+              Active Mould Specs:
+            </span>
+            <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
+              SG 2006 (18ml • STICK 65 MM • Cover 130mm) • SG 3006 (40ml • STICK 144 MM • Cover 130mm) • SG 8112 (50ml • STICK 144 MM • Cover 130mm) • SG 8115 (70ml • Round Stick • Cover 170mm)
+            </span>
           </div>
           <Button
             variant="outline"

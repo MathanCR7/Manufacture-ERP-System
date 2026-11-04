@@ -97,8 +97,9 @@ export default function ProductionCleanReportView({
       mixUsedMl: 2000,
       goodPieces: 40,
       productRms: [
-        { rawMaterialName: 'RABDI(OSSORO)', rawMaterialCode: 'RM-FLV-01', qty: 0.0045, uom: 'liter', unitRate: 700.0, totalCost: 3.15, addToMix: true, lotBatchNo: 'BATCH-RABDI-001' },
-        { rawMaterialName: 'Wooden Kulfi Stick (Round Stick)', rawMaterialCode: 'RM-PCK-04', qty: 42, uom: 'pcs', unitRate: 0.15, totalCost: 6.30, addToMix: false, lotBatchNo: 'BATCH-STICK-001' }
+        { rawMaterialName: 'RABDI(OSSORO)', rawMaterialCode: 'RM-00047', qty: 0.0045, uom: 'liter', unitRate: 700.0, totalCost: 3.15, addToMix: true, lotBatchNo: 'BATCH-RABDIOSSORO-001' },
+        { rawMaterialName: 'WOODEN STICK (LARGE) - STICK 144 MM', rawMaterialCode: 'RM-00121', qty: 40, uom: 'pcs', unitRate: 0.35, totalCost: 14.00, addToMix: false, lotBatchNo: 'BATCH-RM-00121-001' },
+        { rawMaterialName: 'STICK (S) POLY COVER - 130 MM (provisional)', rawMaterialCode: 'RM-00130', qty: 40, uom: 'pcs', unitRate: 0.15, totalCost: 6.00, addToMix: false, lotBatchNo: 'BATCH-RM-00130-001' }
       ]
     },
     {
@@ -113,7 +114,9 @@ export default function ProductionCleanReportView({
       mixUsedMl: 84590,
       goodPieces: 1711,
       productRms: [
-        { rawMaterialName: 'MANGO', rawMaterialCode: 'RM-FLV-09', qty: 1.0, uom: 'liter', unitRate: 180.0, totalCost: 180.00, addToMix: true, lotBatchNo: 'BATCH-MANGO-002' }
+        { rawMaterialName: 'MANGO', rawMaterialCode: 'RM-FLV-09', qty: 1.0, uom: 'liter', unitRate: 180.0, totalCost: 180.00, addToMix: true, lotBatchNo: 'BATCH-MANGO-002' },
+        { rawMaterialName: 'WOODEN STICK (LARGE) - STICK 144 MM', rawMaterialCode: 'RM-00121', qty: 1711, uom: 'pcs', unitRate: 0.35, totalCost: 598.85, addToMix: false, lotBatchNo: 'BATCH-RM-00121-002' },
+        { rawMaterialName: 'STICK (S) POLY COVER - 130 MM (provisional)', rawMaterialCode: 'RM-00130', qty: 1711, uom: 'pcs', unitRate: 0.15, totalCost: 256.65, addToMix: false, lotBatchNo: 'BATCH-RM-00130-002' }
       ]
     }
   ];

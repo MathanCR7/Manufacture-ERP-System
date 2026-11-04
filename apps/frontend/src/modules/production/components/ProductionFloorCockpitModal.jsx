@@ -44,49 +44,190 @@ const formatDateDMY = (dateVal) => {
   }
 };
 
-// Mould-to-Stick Packaging Mapping & Inventory Sync Definitions
-const STICK_DEFINITIONS = {
-  EGYPT_65MM: {
-    id: "c001991a-ce1b-4437-ad36-d4e76af4d8ff",
-    code: "RM-00119",
-    name: "WOODEN STICK (SMALL) - STICK 65 MM",
-    uom: "pcs",
-    rate: 0.25,
-    stock: 25000
+// Mould Specifications Packaging Mapping (Wooden Sticks & Suggested Poly Packing Covers)
+// Formulated per factory mould master specifications:
+// 1. SG-2006 Egypt Small (18 ml, 42 cav): STICK 65 MM (RM-00119) + packing cover=130 mm (provisional) (RM-00130)
+// 2. SG-3006 Flat Stick (40 ml, 50 cav): STICK 144 MM (RM-00121) + packing cover=130 mm (provisional) (RM-00131)
+// 3. SG-8112 Kulfi Small (50 ml, 42 cav): STICK 144 MM (RM-00121) + packing cover=130 mm (provisional) (RM-00130)
+// 4. SG-8115 Kulfi Large (70 ml, 42 cav): Round Stick (RM-STICK-01) + packing cover=170 mm (provisional) (RM-00132)
+
+const MOULD_PACKAGING_DEFINITIONS = {
+  SG_2006: {
+    code: 'SG-2006',
+    name: 'Egypt Small (SG 2006)',
+    capacityMl: 18,
+    cavities: 42,
+    stick: {
+      id: "c001991a-ce1b-4437-ad36-d4e76af4d8ff",
+      code: "RM-00119",
+      name: "WOODEN STICK (SMALL) - STICK 65 MM",
+      printName: "STICK 65 MM (Small)",
+      uom: "pcs",
+      rate: 0.25,
+      stock: 25000
+    },
+    cover: {
+      id: "c15be4ee-e68f-43ce-9b46-d7810fb7ccbd",
+      code: "RM-00130",
+      name: "STICK (S) POLY COVER - 130 MM (provisional)",
+      printName: "Packing Cover 130 MM (Provisional)",
+      uom: "pcs",
+      rate: 0.15,
+      stock: 50000
+    }
   },
-  FLAT_144MM: {
-    id: "c31d978e-5ef0-496b-8e3b-eb377d7b5967",
-    code: "RM-00121",
-    name: "WOODEN STICK (LARGE) - STICK 144 MM",
-    uom: "pcs",
-    rate: 0.35,
-    stock: 20000
+  SG_3006: {
+    code: 'SG-3006',
+    name: 'Flat Stick (SG 3006)',
+    capacityMl: 40,
+    cavities: 50,
+    stick: {
+      id: "c31d978e-5ef0-496b-8e3b-eb377d7b5967",
+      code: "RM-00121",
+      name: "WOODEN STICK (LARGE) - STICK 144 MM",
+      printName: "STICK 144 MM (Flat Stick)",
+      uom: "pcs",
+      rate: 0.35,
+      stock: 20000
+    },
+    cover: {
+      id: "d8759184-001d-4679-a549-f666ca7d4e65",
+      code: "RM-00131",
+      name: "STICK (M) POLY COVER - 130 MM (provisional)",
+      printName: "Packing Cover 130 MM (Provisional)",
+      uom: "pcs",
+      rate: 0.15,
+      stock: 50000
+    }
   },
-  ROUND_KULFI: {
-    id: "da5ded39-424f-4c89-9e50-5feef9e1aa85",
-    code: "RM-STICK-01",
-    name: "Wooden Kulfi Stick (Round Stick)",
-    uom: "pcs",
-    rate: 0.25,
-    stock: 50000
+  SG_8112: {
+    code: 'SG-8112',
+    name: 'Kulfi Small (SG 8112)',
+    capacityMl: 50,
+    cavities: 42,
+    stick: {
+      id: "c31d978e-5ef0-496b-8e3b-eb377d7b5967",
+      code: "RM-00121",
+      name: "WOODEN STICK (LARGE) - STICK 144 MM",
+      printName: "STICK 144 MM (Flat Stick)",
+      uom: "pcs",
+      rate: 0.35,
+      stock: 20000
+    },
+    cover: {
+      id: "c15be4ee-e68f-43ce-9b46-d7810fb7ccbd",
+      code: "RM-00130",
+      name: "STICK (S) POLY COVER - 130 MM (provisional)",
+      printName: "Packing Cover 130 MM (Provisional)",
+      uom: "pcs",
+      rate: 0.15,
+      stock: 50000
+    }
+  },
+  SG_8115: {
+    code: 'SG-8115',
+    name: 'Kulfi Large (SG 8115)',
+    capacityMl: 70,
+    cavities: 42,
+    stick: {
+      id: "da5ded39-424f-4c89-9e50-5feef9e1aa85",
+      code: "RM-STICK-01",
+      name: "Wooden Kulfi Stick (Round Stick)",
+      printName: "Round Stick (Kulfi Stick)",
+      uom: "pcs",
+      rate: 0.25,
+      stock: 50000
+    },
+    cover: {
+      id: "68123b8a-688d-4db3-ab75-65b8f5616a5b",
+      code: "RM-00132",
+      name: "STICK (L) POLY COVER - 170 MM (provisional)",
+      printName: "Packing Cover 170 MM (Provisional)",
+      uom: "pcs",
+      rate: 0.20,
+      stock: 50000
+    }
   }
 };
 
-function getStickForMould(mouldCode, mouldName, modelNumber) {
+const STICK_DEFINITIONS = {
+  EGYPT_65MM: MOULD_PACKAGING_DEFINITIONS.SG_2006.stick,
+  FLAT_144MM: MOULD_PACKAGING_DEFINITIONS.SG_3006.stick,
+  ROUND_KULFI: MOULD_PACKAGING_DEFINITIONS.SG_8115.stick
+};
+
+function getPackagingForMould(mouldCode, mouldName, modelNumber) {
   const code = (mouldCode || '').toUpperCase();
   const name = (mouldName || '').toUpperCase();
   const model = (modelNumber || '').toUpperCase();
 
   if (code.includes('2006') || name.includes('EGYPT') || model.includes('2006') || name.includes('65')) {
-    return STICK_DEFINITIONS.EGYPT_65MM;
+    return MOULD_PACKAGING_DEFINITIONS.SG_2006;
   }
-  if (code.includes('3006') || name.includes('FLAT') || name.includes('144') || model.includes('3006')) {
-    return STICK_DEFINITIONS.FLAT_144MM;
+  if (code.includes('3006') || (name.includes('FLAT') && !name.includes('8112')) || model.includes('3006')) {
+    return MOULD_PACKAGING_DEFINITIONS.SG_3006;
   }
-  if (code.includes('8112') || code.includes('8115') || name.includes('KULFI') || name.includes('ROUND') || model.includes('8112') || model.includes('8115')) {
-    return STICK_DEFINITIONS.ROUND_KULFI;
+  if (code.includes('8115') || (name.includes('KULFI') && (name.includes('LARGE') || name.includes('70')))) {
+    return MOULD_PACKAGING_DEFINITIONS.SG_8115;
   }
-  return null;
+  if (code.includes('8112') || name.includes('8112') || (name.includes('KULFI') && name.includes('SMALL'))) {
+    return MOULD_PACKAGING_DEFINITIONS.SG_8112;
+  }
+  if (name.includes('KULFI') || name.includes('ROUND')) {
+    return MOULD_PACKAGING_DEFINITIONS.SG_8112;
+  }
+  return MOULD_PACKAGING_DEFINITIONS.SG_8112;
+}
+
+function getStickForMould(mouldCode, mouldName, modelNumber) {
+  return getPackagingForMould(mouldCode, mouldName, modelNumber)?.stick || null;
+}
+
+function getCoverForMould(mouldCode, mouldName, modelNumber) {
+  return getPackagingForMould(mouldCode, mouldName, modelNumber)?.cover || null;
+}
+
+function createPackagingItem(def, pieces, existing = null) {
+  const qty = pieces > 0 ? pieces : (Number(existing?.takenQty ?? existing?.qty) || 1);
+  const rate = Number(existing?.unitRate ?? def.rate ?? 0.25);
+  const totalCost = Number((rate * qty).toFixed(2));
+  const rawLot = existing?.allocatedBatches?.[0]?.lotNumber || existing?.allocatedBatches?.[0]?.internalBatchNo || existing?.lotBatchNo || `BATCH-${def.code}-001`;
+  const lotNo = String(rawLot).startsWith('#') ? rawLot : `#${rawLot}`;
+
+  return {
+    rmId: def.id,
+    rawMaterialId: def.id,
+    rmName: def.name,
+    rawMaterialName: def.name,
+    rmCode: def.code,
+    rawMaterialCode: def.code,
+    uom: 'pcs',
+    primaryUom: 'pcs',
+    hasAlternateUom: false,
+    alternateUom: null,
+    conversionFactor: 1,
+    density: 1.0,
+    takenQty: qty,
+    qty: qty,
+    requiredQty: qty,
+    addToMix: false,
+    unitRate: rate,
+    totalCost: totalCost,
+    currentStock: def.stock || 50000,
+    allocatedBatches: [
+      {
+        batchId: lotNo,
+        lotNumber: lotNo,
+        internalBatchNo: lotNo,
+        allocatedQty: qty,
+        remainingQty: Math.max(0, (def.stock || 50000) - qty),
+        expiryDate: '2028-12-31',
+        unitRate: rate,
+        allocatedAmount: totalCost,
+        uom: 'pcs'
+      }
+    ]
+  };
 }
 
 const getPrmMixMl = (p, master = null) => {
@@ -712,42 +853,33 @@ export default function ProductionFloorCockpitModal({
           const cap = Number(a.capacity_ml || a.capacityMl || 50);
           const cav = a.cavities !== undefined ? Number(a.cavities) : (a.cavity_count ? Number(a.cavity_count) : 42);
           const trays = Number(a.trays || 0);
-          const stickDef = getStickForMould(a.mould_code || a.mouldCode, a.mould_name || a.mouldName);
-          if (stickDef && (a.use_mould !== false)) {
-            const hasStick = productRms.some(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
-            if (!hasStick) {
-              const pieces = trays > 0 ? (trays * cav) : cav;
-              productRms.push({
-                rmId: stickDef.id,
-                rawMaterialId: stickDef.id,
-                rmName: stickDef.name,
-                rawMaterialName: stickDef.name,
-                rmCode: stickDef.code,
-                rawMaterialCode: stickDef.code,
-                uom: 'pcs',
-                primaryUom: 'pcs',
-                hasAlternateUom: false,
-                conversionFactor: 1,
-                density: 1.0,
-                takenQty: pieces,
-                qty: pieces,
-                addToMix: false,
-                unitRate: stickDef.rate,
-                totalCost: Number((stickDef.rate * pieces).toFixed(2)),
-                currentStock: stickDef.stock,
-                allocatedBatches: [
-                  {
-                    batchId: `BATCH-${stickDef.code}-001`,
-                    lotNumber: `#BATCH-${stickDef.code}-001`,
-                    internalBatchNo: `#BATCH-${stickDef.code}-001`,
-                    allocatedQty: pieces,
-                    remainingQty: Math.max(0, stickDef.stock - pieces),
-                    unitRate: stickDef.rate,
-                    allocatedAmount: Number((stickDef.rate * pieces).toFixed(2)),
-                    uom: 'pcs'
-                  }
-                ]
-              });
+          const pkg = getPackagingForMould(a.mould_code || a.mouldCode, a.mould_name || a.mouldName);
+          const stickDef = pkg?.stick;
+          const coverDef = pkg?.cover;
+          if (a.use_mould !== false) {
+            const pieces = trays > 0 ? (trays * cav) : (Number(a.goodPieces || a.good_pieces) || cav);
+            if (stickDef) {
+              const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
+              if (stickIdx >= 0) {
+                if (!productRms[stickIdx].takenQty || Number(productRms[stickIdx].takenQty) <= 0) {
+                  productRms[stickIdx] = createPackagingItem(stickDef, pieces, productRms[stickIdx]);
+                }
+              } else {
+                productRms.push(createPackagingItem(stickDef, pieces));
+              }
+            }
+            if (coverDef) {
+              const coverIdx = productRms.findIndex(p => 
+                p.rmCode === coverDef.code || 
+                (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
+              );
+              if (coverIdx >= 0) {
+                if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0) {
+                  productRms[coverIdx] = createPackagingItem(coverDef, pieces, productRms[coverIdx]);
+                }
+              } else {
+                productRms.push(createPackagingItem(coverDef, pieces));
+              }
             }
           }
           return {
@@ -2122,27 +2254,47 @@ export default function ProductionFloorCockpitModal({
     setAllocations(prev => {
       const copy = [...prev];
       const target = { ...copy[index], [field]: value };
-      if (field === 'trays' || field === 'cavities') {
-        const newTrays = field === 'trays' ? Number(value || 0) : Number(target.trays || 0);
-        const newCav = field === 'cavities' ? Number(value || 0) : Number(target.cavities || 42);
-        const pieces = newTrays > 0 ? (newTrays * newCav) : 0;
-        if (pieces > 0 && Array.isArray(target.productRms)) {
-          target.productRms = target.productRms.map(prm => {
-            const isStick = prm.rmCode === 'RM-00119' || prm.rmCode === 'RM-00121' || prm.rmCode === 'RM-STICK-01' || (prm.rmName && prm.rmName.toLowerCase().includes('stick'));
-            if (!isStick) return prm;
-            return {
-              ...prm,
-              takenQty: pieces,
-              qty: pieces,
-              totalCost: Number((Number(prm.unitRate || 0) * pieces).toFixed(2)),
-              allocatedBatches: Array.isArray(prm.allocatedBatches) ? prm.allocatedBatches.map(b => ({
-                ...b,
-                allocatedQty: pieces,
-                allocatedAmount: Number((Number(b.unitRate || prm.unitRate || 0) * pieces).toFixed(2))
-              })) : []
-            };
-          });
-        }
+      
+      const newTrays = field === 'trays' ? Number(value || 0) : Number(target.trays || 0);
+      const newCav = field === 'cavities' ? Number(value || 0) : Number(target.cavities || 42);
+      const cap = Number(field === 'capacityMl' ? (value || 50) : (target.capacityMl || 50));
+      const baseMl = Number(field === 'allocatedBaseMl' ? value : (target.allocatedBaseMl || target.mixUsedMl || 0));
+      const wm = field === 'wasteMode' ? value : (target.wasteMode || 'PERCENT');
+      const wv = field === 'wasteValue' ? Number(value ?? 0) : Number(target.wasteValue ?? 0);
+
+      // Pieces Yield calculation
+      let pieces = 0;
+      if (field === 'goodPieces' && Number(value) > 0) {
+        pieces = Number(value);
+      } else if (newTrays > 0) {
+        pieces = newTrays * newCav;
+      } else if (baseMl > 0 && cap > 0) {
+        const wasteMl = (wm === 'PERCENT' || wm === '%') ? baseMl * (wv / 100) : (wv * newTrays);
+        pieces = Math.floor(Math.max(0, baseMl - wasteMl) / cap);
+      } else if (Number(target.goodPieces) > 0) {
+        pieces = Number(target.goodPieces);
+      }
+
+      if (pieces > 0 && Array.isArray(target.productRms)) {
+        target.goodPieces = pieces;
+        target.productRms = target.productRms.map(prm => {
+          const isPkg = isPackagingMaterial(prm);
+          if (!isPkg) return prm;
+          const rate = Number(prm.unitRate || 0);
+          const totalCost = Number((rate * pieces).toFixed(2));
+          return {
+            ...prm,
+            takenQty: pieces,
+            qty: pieces,
+            requiredQty: pieces,
+            totalCost,
+            allocatedBatches: Array.isArray(prm.allocatedBatches) ? prm.allocatedBatches.map(b => ({
+              ...b,
+              allocatedQty: pieces,
+              allocatedAmount: Number((Number(b.unitRate || rate) * pieces).toFixed(2))
+            })) : []
+          };
+        });
       }
       copy[index] = target;
       return copy;
@@ -2222,58 +2374,52 @@ export default function ProductionFloorCockpitModal({
       });
 
       const finalTrays = autoMaxTrays > 0 ? autoMaxTrays : (Number(currentAlloc.trays) || (remainingForThis >= cap ? 1 : 0));
-      const calculatedPieces = (finalTrays > 0 ? (finalTrays * cav) : Math.floor(remainingForThis / (cap || 1))) || cav;
-      const stickPieces = calculatedPieces > 0 ? calculatedPieces : 40;
+      
+      // Calculate Pieces Yield precisely matching Step 3 live yield
+      let calculatedPieces = 0;
+      if (currentAlloc.goodPieces !== undefined && currentAlloc.goodPieces !== null && Number(currentAlloc.goodPieces) > 0) {
+        calculatedPieces = Number(currentAlloc.goodPieces);
+      } else if (finalTrays > 0) {
+        calculatedPieces = finalTrays * cav;
+      } else if (remainingForThis > 0 && cap > 0) {
+        calculatedPieces = Math.floor(remainingForThis / cap);
+      } else {
+        calculatedPieces = cav;
+      }
+      const packagingPieces = calculatedPieces > 0 ? calculatedPieces : 42;
 
-      const stickDef = getStickForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
+      const pkg = getPackagingForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
+      const stickDef = pkg?.stick;
+      const coverDef = pkg?.cover;
+
       let updatedPrms = Array.isArray(currentAlloc.productRms) ? [...currentAlloc.productRms] : [];
 
+      // 1. Wooden Stick Sync / Add
       if (stickDef) {
-        const stickIndex = updatedPrms.findIndex(p => 
+        const stickIdx = updatedPrms.findIndex(p => 
           p.rmCode === 'RM-00119' || p.rmCode === 'RM-00121' || p.rmCode === 'RM-STICK-01' ||
           (p.rmName && p.rmName.toLowerCase().includes('stick'))
         );
-        const stickItem = {
-          rmId: stickDef.id,
-          rawMaterialId: stickDef.id,
-          rmName: stickDef.name,
-          rawMaterialName: stickDef.name,
-          rmCode: stickDef.code,
-          rawMaterialCode: stickDef.code,
-          uom: 'pcs',
-          primaryUom: 'pcs',
-          hasAlternateUom: false,
-          conversionFactor: 1,
-          density: 1.0,
-          takenQty: stickPieces,
-          qty: stickPieces,
-          addToMix: false,
-          unitRate: stickDef.rate,
-          totalCost: Number((stickDef.rate * stickPieces).toFixed(2)),
-          currentStock: stickDef.stock,
-          allocatedBatches: [
-            {
-              batchId: `BATCH-${stickDef.code}-001`,
-              lotNumber: `#BATCH-${stickDef.code}-001`,
-              internalBatchNo: `#BATCH-${stickDef.code}-001`,
-              allocatedQty: stickPieces,
-              remainingQty: Math.max(0, stickDef.stock - stickPieces),
-              unitRate: stickDef.rate,
-              allocatedAmount: Number((stickDef.rate * stickPieces).toFixed(2)),
-              uom: 'pcs'
-            }
-          ]
-        };
-
-        if (stickIndex >= 0) {
-          updatedPrms[stickIndex] = {
-            ...updatedPrms[stickIndex],
-            ...stickItem,
-            takenQty: Number(updatedPrms[stickIndex].takenQty) > 0 ? Number(updatedPrms[stickIndex].takenQty) : stickPieces,
-            qty: Number(updatedPrms[stickIndex].takenQty) > 0 ? Number(updatedPrms[stickIndex].takenQty) : stickPieces
-          };
+        const stickItem = createPackagingItem(stickDef, packagingPieces, stickIdx >= 0 ? updatedPrms[stickIdx] : null);
+        if (stickIdx >= 0) {
+          updatedPrms[stickIdx] = stickItem;
         } else {
           updatedPrms.push(stickItem);
+        }
+      }
+
+      // 2. Packing Cover Sync / Add
+      if (coverDef) {
+        const coverIdx = updatedPrms.findIndex(p => 
+          p.rmCode === 'RM-00130' || p.rmCode === 'RM-00131' || p.rmCode === 'RM-00132' ||
+          p.rmCode === 'RM-PACK-01' || p.rmCode === 'RM-OVERPACK-01' ||
+          (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
+        );
+        const coverItem = createPackagingItem(coverDef, packagingPieces, coverIdx >= 0 ? updatedPrms[coverIdx] : null);
+        if (coverIdx >= 0) {
+          updatedPrms[coverIdx] = coverItem;
+        } else {
+          updatedPrms.push(coverItem);
         }
       }
 
@@ -2285,6 +2431,7 @@ export default function ProductionFloorCockpitModal({
         capacityMl: cap,
         cavities: cav,
         trays: finalTrays,
+        goodPieces: calculatedPieces,
         productRms: updatedPrms
       };
       return copy;
@@ -2300,42 +2447,16 @@ export default function ProductionFloorCockpitModal({
     const defaultMouldName = 'Kulfi Small (SG 8112)';
     const cap = 50;
     const cav = 42;
-    const stickDef = getStickForMould(defaultMouldCode, defaultMouldName);
+    const pkg = getPackagingForMould(defaultMouldCode, defaultMouldName);
     const initialTrays = 0;
-    const stickPieces = initialTrays * cav;
-    const initialPrms = stickDef ? [
-      {
-        rmId: stickDef.id,
-        rawMaterialId: stickDef.id,
-        rmName: stickDef.name,
-        rawMaterialName: stickDef.name,
-        rmCode: stickDef.code,
-        rawMaterialCode: stickDef.code,
-        uom: 'pcs',
-        primaryUom: 'pcs',
-        hasAlternateUom: false,
-        conversionFactor: 1,
-        density: 1.0,
-        takenQty: stickPieces,
-        qty: stickPieces,
-        addToMix: false,
-        unitRate: stickDef.rate,
-        totalCost: Number((stickDef.rate * stickPieces).toFixed(2)),
-        currentStock: stickDef.stock,
-        allocatedBatches: [
-          {
-            batchId: `BATCH-${stickDef.code}-001`,
-            lotNumber: `#BATCH-${stickDef.code}-001`,
-            internalBatchNo: `#BATCH-${stickDef.code}-001`,
-            allocatedQty: stickPieces,
-            remainingQty: Math.max(0, stickDef.stock - stickPieces),
-            unitRate: stickDef.rate,
-            allocatedAmount: Number((stickDef.rate * stickPieces).toFixed(2)),
-            uom: 'pcs'
-          }
-        ]
-      }
-    ] : [];
+    const initialPieces = cav;
+    const initialPrms = [];
+    if (pkg?.stick) {
+      initialPrms.push(createPackagingItem(pkg.stick, initialPieces));
+    }
+    if (pkg?.cover) {
+      initialPrms.push(createPackagingItem(pkg.cover, initialPieces));
+    }
 
     setAllocations(prev => [
       ...prev,
@@ -2351,6 +2472,7 @@ export default function ProductionFloorCockpitModal({
         capacityMl: cap,
         cavities: cav,
         trays: 0,
+        goodPieces: initialPieces,
         wasteMode: 'PERCENT',
         wasteValue: 0,
         productRms: initialPrms
