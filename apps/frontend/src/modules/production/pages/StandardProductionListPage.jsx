@@ -1383,6 +1383,13 @@ export default function StandardProductionListPage() {
             setSelectedCockpitBatchId(null);
             setIsCockpitReadOnly(false);
             fetchBatches();
+            setSearchParams(prev => {
+              const next = new URLSearchParams(prev);
+              next.delete('cockpitBatchId');
+              next.delete('reportBatchId');
+              next.delete('mode');
+              return next;
+            });
           }}
           batchId={selectedCockpitBatchId}
           initialViewMode={cockpitViewMode}
