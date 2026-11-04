@@ -197,6 +197,67 @@ async function ensureStandardProductionSchema(p = prisma) {
       } catch (_) {}
     }
 
+    // Ensure automatic stock reversal trigger on production_batches deletion
+    try {
+      await p.$executeRawUnsafe(`
+        CREATE OR REPLACE FUNCTION trg_revert_stock_on_batch_delete()
+        RETURNS TRIGGER AS $$
+        DECLARE
+            alloc RECORD;
+            usage RECORD;
+            prod_yield NUMERIC;
+        BEGIN
+            IF OLD.status = 'Completed' THEN
+                -- 1. Revert Raw Material lot quantities in InventoryBatch
+                FOR alloc IN 
+                    SELECT inventory_batch_id, lot_number, allocated_qty 
+                    FROM production_batch_allocations 
+                    WHERE batch_id = OLD.id AND allocated_qty > 0
+                LOOP
+                    UPDATE "InventoryBatch"
+                    SET "netQty" = "netQty" + alloc.allocated_qty,
+                        "status" = 'AVAILABLE',
+                        "updatedAt" = CURRENT_TIMESTAMP
+                    WHERE (id = alloc.inventory_batch_id OR "batchNumber" = alloc.lot_number);
+                END LOOP;
+
+                -- 2. Revert RawMaterial.currentStock from production_batch_rm_usage
+                FOR usage IN
+                    SELECT rm_id, COALESCE(actual_used_qty, required_qty, input_qty, 0) AS qty
+                    FROM production_batch_rm_usage
+                    WHERE batch_id = OLD.id AND COALESCE(actual_used_qty, required_qty, input_qty, 0) > 0
+                LOOP
+                    UPDATE "RawMaterial"
+                    SET "currentStock" = "currentStock" + usage.qty,
+                        "updatedAt" = CURRENT_TIMESTAMP
+                    WHERE id = usage.rm_id;
+                END LOOP;
+
+                -- 3. Decrement Finished Product currentStock
+                prod_yield := COALESCE(OLD.good_quantity, OLD.actual_output, OLD.quantity, 0);
+                IF OLD.product_id IS NOT NULL AND prod_yield > 0 THEN
+                    UPDATE "Product"
+                    SET "currentStock" = GREATEST(0, "currentStock" - prod_yield),
+                        "updatedAt" = CURRENT_TIMESTAMP
+                    WHERE id = OLD.product_id;
+                END IF;
+            END IF;
+
+            RETURN OLD;
+        END;
+        $$ LANGUAGE plpgsql;
+      `);
+      await p.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_revert_production_batch_stock ON production_batches;`);
+      await p.$executeRawUnsafe(`
+        CREATE TRIGGER trg_revert_production_batch_stock
+        BEFORE DELETE ON production_batches
+        FOR EACH ROW
+        EXECUTE FUNCTION trg_revert_stock_on_batch_delete();
+      `);
+    } catch (trgErr) {
+      console.warn('Notice ensuring trg_revert_production_batch_stock:', trgErr.message);
+    }
+
     isSchemaEnsured = true;
   } catch (schemaErr) {
     console.warn('ensureStandardProductionSchema notice:', schemaErr.message);
@@ -2660,6 +2721,106 @@ class StandardProductionController {
 
       res.json({ success: true, message: 'Production run resumed' });
     } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── 13. DELETE /api/production/standard/:id (Delete Batch & Automatically Revert Stock) ──
+  async deleteBatch(req, res, next) {
+    try {
+      const { id } = req.params;
+
+      const result = await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRawUnsafe(`
+          SELECT * FROM production_batches WHERE id = $1 FOR UPDATE;
+        `, id);
+
+        if (!rows || rows.length === 0) {
+          return { notFound: true };
+        }
+
+        const batch = rows[0];
+
+        // 1. If batch was Completed, automatically restore warehouse stock (dual-layer safety alongside DB trigger)
+        if (batch.status === 'Completed') {
+          const allocations = await tx.$queryRawUnsafe(`
+            SELECT inventory_batch_id, lot_number, allocated_qty 
+            FROM production_batch_allocations 
+            WHERE batch_id = $1 AND allocated_qty > 0;
+          `, id);
+
+          for (const alloc of allocations) {
+            const lotId = alloc.inventory_batch_id ? String(alloc.inventory_batch_id).trim() : null;
+            const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
+            const aQty = Number(alloc.allocated_qty || 0);
+            if (aQty > 0) {
+              await tx.$executeRawUnsafe(`
+                UPDATE "InventoryBatch" 
+                SET "netQty" = "netQty" + $1,
+                    "status" = 'AVAILABLE',
+                    "updatedAt" = CURRENT_TIMESTAMP
+                WHERE id = $2 OR "batchNumber" = $3;
+              `, aQty, lotId || '', lotNum || lotId || '');
+            }
+          }
+
+          const usages = await tx.$queryRawUnsafe(`
+            SELECT rm_id, COALESCE(actual_used_qty, required_qty, input_qty, 0) AS qty
+            FROM production_batch_rm_usage
+            WHERE batch_id = $1;
+          `, id);
+
+          for (const u of usages) {
+            const uQty = Number(u.qty || 0);
+            if (uQty > 0 && u.rm_id) {
+              await tx.$executeRawUnsafe(`
+                UPDATE "RawMaterial"
+                SET "currentStock" = "currentStock" + $1,
+                    "updatedAt" = CURRENT_TIMESTAMP
+                WHERE id = $2;
+              `, uQty, u.rm_id);
+            }
+          }
+
+          const prodYield = Number(batch.good_quantity || batch.actual_output || batch.quantity || 0);
+          if (batch.product_id && prodYield > 0) {
+            await tx.$executeRawUnsafe(`
+              UPDATE "Product"
+              SET "currentStock" = GREATEST(0, "currentStock" - $1),
+                  "updatedAt" = CURRENT_TIMESTAMP
+              WHERE id = $2;
+            `, prodYield, batch.product_id);
+          }
+        }
+
+        // 2. Cascade delete all child foreign key tables
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_allocations WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_usage WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_line WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_allocation WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_merge WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_items WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_output WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_loss WHERE production_batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM lab_production_test WHERE production_batch_id = $1;`, id);
+
+        // 3. Delete the production batch itself
+        await tx.$executeRawUnsafe(`DELETE FROM production_batches WHERE id = $1;`, id);
+
+        return { success: true, batchNo: batch.batch_no || batch.reference_no, status: batch.status };
+      });
+
+      if (result.notFound) {
+        return res.status(404).json({ error: 'Production batch not found' });
+      }
+
+      res.json({
+        success: true,
+        message: `Batch ${result.batchNo} deleted successfully. All raw material stock has been automatically restored to inventory.`,
+        deletedBatch: result
+      });
+    } catch (err) {
+      console.error('Error deleting production batch:', err);
       next(err);
     }
   }

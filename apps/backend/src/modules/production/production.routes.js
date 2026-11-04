@@ -879,6 +879,7 @@ router.post('/standard/:id/reopen', authenticateToken, roleMiddleware(['MAIN_MAS
 router.post('/standard/:id/pause', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.pauseProduction(req, res, next));
 router.post('/standard/:id/resume', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.resumeProduction(req, res, next));
 router.get('/standard/:id', authenticateToken, (req, res, next) => standardProductionController.getBatchDetails(req, res, next));
+router.delete('/standard/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.deleteBatch(req, res, next));
 
 // ── Ice Cream Moulds Master Routes ──
 router.get('/moulds', authenticateToken, (req, res, next) => iceCreamMouldController.getMoulds(req, res, next));

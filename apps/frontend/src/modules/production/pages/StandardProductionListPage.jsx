@@ -5,7 +5,7 @@ import {
   Factory, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
   Package, Check, Layers, Lock, FlaskConical, X, ArrowUpDown, ArrowUp, ArrowDown,
-  RotateCcw, ChevronDown, Printer, Tag, Pencil, Sliders, Droplets
+  RotateCcw, ChevronDown, Printer, Tag, Pencil, Sliders, Droplets, Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -250,6 +250,48 @@ export default function StandardProductionListPage() {
     } catch (err) {
       console.error('Failed to start batch:', err);
       Swal.fire({ title: 'Error', text: 'Failed to start batch.', icon: 'error' });
+    }
+  };
+
+  // Handle Delete Batch with automated stock restoration
+  const handleDeleteBatch = async (batch) => {
+    const batchIdentifier = batch.referenceNo || batch.batchNo || batch.id;
+    const confirm = await Swal.fire({
+      title: 'Delete Production Batch?',
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+          <p>Are you sure you want to delete batch <strong>#${batchIdentifier}</strong>?</p>
+          <div style="margin-top: 10px; padding: 10px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534;">
+            <p><strong>✓ Automatic Inventory Restoration:</strong></p>
+            <p style="font-size: 11px; margin-top: 4px;">All raw material stock and lot balances allocated or consumed by this batch will be automatically returned to available warehouse inventory.</p>
+          </div>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Delete & Restore Stock',
+      confirmButtonColor: '#ef4444',
+      cancelButtonText: 'Cancel'
+    });
+
+    if (confirm.isConfirmed) {
+      try {
+        const res = await api.delete(`/production/standard/${batch.id}`);
+        Swal.fire({
+          title: 'Batch Deleted!',
+          text: res.data?.message || `Batch #${batchIdentifier} was deleted and all raw materials were restored to inventory.`,
+          icon: 'success',
+          confirmButtonColor: '#4f46e5'
+        });
+        fetchBatches();
+      } catch (err) {
+        console.error('Failed to delete batch:', err);
+        Swal.fire({
+          title: 'Delete Failed',
+          text: err.response?.data?.error || err.message || 'Failed to delete production batch',
+          icon: 'error'
+        });
+      }
     }
   };
 
@@ -1241,6 +1283,16 @@ export default function StandardProductionListPage() {
                                 </span>
                               </>
                             )}
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteBatch(b)}
+                              className="rounded-xl border-rose-200 dark:border-rose-900/60 bg-rose-50/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                              title="Delete production batch and automatically restore all raw material stock to inventory"
+                            >
+                              <Trash2 className="w-3 h-3 text-rose-500 shrink-0" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
