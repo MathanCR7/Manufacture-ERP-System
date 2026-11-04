@@ -21,7 +21,7 @@ import Swal from 'sweetalert2';
 
 export default function StandardProductionListPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1435,13 +1435,19 @@ export default function StandardProductionListPage() {
             setSelectedCockpitBatchId(null);
             setIsCockpitReadOnly(false);
             fetchBatches();
-            setSearchParams(prev => {
-              const next = new URLSearchParams(prev);
-              next.delete('cockpitBatchId');
-              next.delete('reportBatchId');
-              next.delete('mode');
-              return next;
-            });
+            try {
+              if (typeof setSearchParams === 'function') {
+                setSearchParams(prev => {
+                  const next = new URLSearchParams(prev);
+                  next.delete('cockpitBatchId');
+                  next.delete('reportBatchId');
+                  next.delete('mode');
+                  return next;
+                });
+              }
+            } catch (spErr) {
+              console.warn('Notice clearing search params on cockpit close:', spErr);
+            }
           }}
           batchId={selectedCockpitBatchId}
           initialViewMode={cockpitViewMode}

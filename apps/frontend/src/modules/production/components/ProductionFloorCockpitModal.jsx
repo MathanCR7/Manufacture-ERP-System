@@ -2990,12 +2990,14 @@ export default function ProductionFloorCockpitModal({
         good_quantity: totalActual
       };
       setBatch(prev => ({ ...prev, ...updatedBatchObj }));
-      if (onBatchUpdated) onBatchUpdated();
+      try { if (onBatchUpdated) onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
       if (onOpenCleanSheet) {
-        if (onClose) onClose();
-        onOpenCleanSheet(updatedBatchObj);
+        if (onClose) {
+          try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
+        }
+        try { onOpenCleanSheet(updatedBatchObj); } catch (e) { console.warn('onOpenCleanSheet callback warning:', e); }
       } else if (onClose) {
-        onClose();
+        try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
       }
     } catch (err) {
       if (err.response?.status === 409 || err.response?.data?.error?.includes('already completed')) {
@@ -3025,12 +3027,14 @@ export default function ProductionFloorCockpitModal({
           icon: 'success',
           confirmButtonText: 'View Clean Sheet'
         });
-        if (onBatchUpdated) onBatchUpdated();
+        try { if (onBatchUpdated) onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
         if (onOpenCleanSheet) {
-          if (onClose) onClose();
-          onOpenCleanSheet(updatedBatchObj);
+          if (onClose) {
+            try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
+          }
+          try { onOpenCleanSheet(updatedBatchObj); } catch (e) { console.warn('onOpenCleanSheet callback warning:', e); }
         } else if (onClose) {
-          onClose();
+          try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
         }
         return;
       }
