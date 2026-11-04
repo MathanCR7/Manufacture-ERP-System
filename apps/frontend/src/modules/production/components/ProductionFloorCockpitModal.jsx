@@ -2976,40 +2976,16 @@ export default function ProductionFloorCockpitModal({
       });
 
       setShowYieldModal(false);
-      setViewMode('REPORT');
-      const updatedBatchObj = { 
-        ...batch, 
-        id: batchId,
-        batch_no: resolvedBatchNo,
-        batchNo: resolvedBatchNo,
-        reference_no: resolvedBatchNo,
-        referenceNo: resolvedBatchNo,
-        status: 'Completed', 
-        actualOutput: totalActual,
-        actual_output: totalActual,
-        good_quantity: totalActual
-      };
-      setBatch(prev => ({ ...prev, ...updatedBatchObj }));
-      // Refresh the list in background — do NOT close+reopen cockpit (causes race/stale state)
-      // The cockpit is already in REPORT mode via setViewMode('REPORT') above.
-      // User exits naturally via "Exit Cockpit" which triggers onClose → fetchBatches again.
-      try { if (onBatchUpdated) onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
+      // Close the cockpit modal and redirect directly to list page with refreshed Completed status
+      if (onClose) {
+        try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
+      } else if (onBatchUpdated) {
+        try { onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
+      }
     } catch (err) {
       if (err.response?.status === 409 || err.response?.data?.error?.includes('already completed')) {
         const resolvedBatchNo = batch?.batch_no || batch?.reference_no || batch?.batchNo || batch?.referenceNo || 'PROD-CURRENT';
         setShowYieldModal(false);
-        setViewMode('REPORT');
-        const updatedBatchObj = { 
-          ...batch, 
-          id: batchId,
-          batch_no: resolvedBatchNo,
-          batchNo: resolvedBatchNo,
-          status: 'Completed', 
-          actualOutput: totalActual,
-          actual_output: totalActual,
-          good_quantity: totalActual
-        };
-        setBatch(prev => ({ ...prev, ...updatedBatchObj }));
         await Swal.fire({
           title: 'Production Run Finalized!',
           html: `
@@ -3020,10 +2996,13 @@ export default function ProductionFloorCockpitModal({
             </div>
           `,
           icon: 'success',
-          confirmButtonText: 'View Clean Sheet'
+          confirmButtonText: 'OK'
         });
-        // Refresh list in background, stay in REPORT mode
-        try { if (onBatchUpdated) onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
+        if (onClose) {
+          try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
+        } else if (onBatchUpdated) {
+          try { onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
+        }
         return;
       }
       console.error('Failed to complete batch:', err);
