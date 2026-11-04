@@ -72,8 +72,12 @@ export function toMl(qty, uom, density = 1.0) {
     case 'boxes':
     case 'pack':
     case 'packs':
-      // Solid unit fallback - assume nominal 50ml per unit rather than throwing hard crash
-      return numQty * 50;
+    case 'roll':
+    case 'rolls':
+    case 'unit':
+    case 'units':
+      // Discrete packaging units do NOT contribute liquid mix volume
+      return 0;
 
     default:
       if (norm.endsWith('ml')) return numQty;
@@ -98,7 +102,7 @@ export function round2(num) {
  */
 export function formatIndian(num, decimals = 2) {
   const n = Number(num);
-  if (isNaN(n)) return '0';
+  if (isNaN(n) || !isFinite(n) || Math.abs(n) > 1e14) return '0.00';
   return n.toLocaleString('en-IN', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
@@ -244,17 +248,46 @@ export function isPackagingMaterial(item) {
   const cat = String(item.category || item.categoryName || '').toLowerCase();
   const uom = String(item.uom || item.consumptionUnit || item.selectedUom || '').toLowerCase();
 
-  const packagingKeywords = [
-    'stick', 'poly', 'cover', 'pack', 'box', 'cup', 'wrapper', 'carton',
-    'label', 'seal', 'spoon', 'pouch', 'tray', 'cone', 'wrap', 'liner', 'film'
+  // 1. Food Ingredients & Raw Materials are NEVER packaging materials (even if they contain words like 'cover' or 'dip' or 'pack')
+  const foodKeywords = [
+    'chocolate', 'choco', 'cocoa', 'dip', 'dark cover', 'compound', 'syrup', 'sauce',
+    'paste', 'cream', 'butter', 'milk', 'sugar', 'flavor', 'flavour', 'essence',
+    'color', 'colour', 'puree', 'fruit', 'nut', 'oil', 'powder', 'smp', 'stabilizer',
+    'fat', 'cashew', 'almond', 'pista', 'mango', 'vanilla', 'strawberry', 'dates'
   ];
-  if (packagingKeywords.some(kw => name.includes(kw) || code.includes(kw) || cat.includes(kw))) {
+  if (foodKeywords.some(kw => name.includes(kw) || code.includes(kw) || cat.includes(kw))) {
+    return false;
+  }
+
+  // 2. Weight and volume UOMs (kg, g, l, ml) are NEVER packaging
+  const fluidWeightUoms = ['kg', 'kgs', 'kilo', 'kilogram', 'kilograms', 'g', 'gm', 'gms', 'gram', 'grams', 'l', 'ltr', 'liter', 'litre', 'liters', 'litres', 'ml', 'milliliter', 'tonne', 'ton'];
+  if (fluidWeightUoms.includes(uom)) {
+    return false;
+  }
+
+  // 3. Packaging items: explicit packaging keywords
+  const packagingKeywords = [
+    'wooden stick', 'stick 144', 'stick 65', 'ice cream stick', 'poly cover', 'packing cover',
+    'pouch', 'wrapper', 'carton', 'corrugated', 'outer box', 'packing roll', 'tape', 'seal',
+    'spoon', 'liner', 'film 130', 'film 170', 'wrapper roll'
+  ];
+  if (packagingKeywords.some(kw => name.includes(kw) || code.includes(kw))) {
     return true;
   }
-  const packagingUoms = ['pcs', 'pc', 'piece', 'pieces', 'unit', 'units', 'box', 'boxes', 'roll', 'rolls', 'pkt', 'packet', 'bag', 'nos', 'case'];
-  if (packagingUoms.includes(uom)) {
+
+  // 4. Packaging Category
+  if (cat.includes('pack') || cat.includes('box') || cat.includes('wrapper')) {
     return true;
   }
+
+  // 5. Discrete packaging units where name indicates packing
+  const discreteUoms = ['pcs', 'pc', 'piece', 'pieces', 'unit', 'units', 'roll', 'rolls', 'pkt', 'packet', 'bag', 'nos', 'case'];
+  if (discreteUoms.includes(uom)) {
+    if (['stick', 'poly', 'pack', 'box', 'cup', 'wrapper', 'carton', 'bag', 'roll', 'seal', 'spoon', 'pouch'].some(kw => name.includes(kw))) {
+      return true;
+    }
+  }
+
   return false;
 }
 
