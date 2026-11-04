@@ -2797,7 +2797,7 @@ export default function ProductionFloorCockpitModal({
     }
 
     return allocs.map((a, i) => {
-      const prod = productsCatalog.find(p => p.id === (a.productId || a.product_id)) || {};
+      const prod = (Array.isArray(availableProducts) ? availableProducts : []).find(p => p.id === (a.productId || a.product_id)) || {};
       const uom = formatCleanUom(a.productUom || a.bulkUom || a.uom || prod.consumptionUnit || prod.unit || 'pcs', 'pcs', prod);
       const calcYield = Number(a.goodPieces ?? a.goodUnits ?? 0);
       const plannedYield = Number(a.plannedQty || calcYield || (batch?.quantity ? Math.round(batch.quantity / (allocs.length || 1)) : 2000));
@@ -2814,7 +2814,7 @@ export default function ProductionFloorCockpitModal({
         rejectOutput: match?.rejectOutput !== undefined ? Number(match.rejectOutput) : 0
       };
     });
-  }, [liveAllocationsResult.allocations, productYields, batch, actualYieldPieces, productsCatalog]);
+  }, [liveAllocationsResult.allocations, productYields, batch, actualYieldPieces, availableProducts]);
 
   const handleOpenYieldModal = () => {
     const defaultYields = buildDefaultYields();
