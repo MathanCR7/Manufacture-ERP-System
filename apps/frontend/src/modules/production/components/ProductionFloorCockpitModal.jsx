@@ -917,7 +917,7 @@ export default function ProductionFloorCockpitModal({
             else pieces = Number(a.goodPieces || a.good_pieces || cav || 1);
 
             if (stickDef) {
-              const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
+              const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (isPackagingMaterial(p) && p.rmName && p.rmName.toLowerCase().includes('stick')));
               if (stickIdx >= 0) {
                 if (!productRms[stickIdx].takenQty || Number(productRms[stickIdx].takenQty) <= 0 || Number(productRms[stickIdx].takenQty) !== pieces) {
                   productRms[stickIdx] = createPackagingItem(stickDef, pieces, productRms[stickIdx]);
@@ -929,7 +929,7 @@ export default function ProductionFloorCockpitModal({
             if (coverDef) {
               const coverIdx = productRms.findIndex(p => 
                 p.rmCode === coverDef.code || 
-                (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
+                (isPackagingMaterial(p) && p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
               );
               if (coverIdx >= 0) {
                 if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0 || Number(productRms[coverIdx].takenQty) !== pieces) {
@@ -1175,7 +1175,9 @@ export default function ProductionFloorCockpitModal({
 
       let prmChanged = false;
       const updatedPrms = alloc.productRms.map(prm => {
-        if (!isPackagingMaterial(prm)) return prm;
+        if (!isPackagingMaterial(prm) || prm.addToMix === true) return prm;
+        const prmUom = String(prm.uom || prm.primaryUom || '').toLowerCase();
+        if (!['pcs', 'pc', 'piece', 'pieces', 'nos', 'no', 'unit', 'units'].includes(prmUom)) return prm;
         const currentQty = Number(prm.takenQty ?? prm.qty ?? 0);
         if (currentQty !== targetPieces) {
           prmChanged = true;
@@ -2020,7 +2022,9 @@ export default function ProductionFloorCockpitModal({
   const syncPackagingQuantities = (productRms, pieces) => {
     if (!Array.isArray(productRms) || pieces <= 0) return productRms;
     return productRms.map(prm => {
-      if (!isPackagingMaterial(prm)) return prm;
+      if (!isPackagingMaterial(prm) || prm.addToMix === true) return prm;
+      const prmUom = String(prm.uom || prm.primaryUom || '').toLowerCase();
+      if (!['pcs', 'pc', 'piece', 'pieces', 'nos', 'no', 'unit', 'units'].includes(prmUom)) return prm;
       const rate = Number(prm.unitRate || 0);
       const totalCost = Number((rate * pieces).toFixed(2));
       return {
@@ -4364,7 +4368,7 @@ export default function ProductionFloorCockpitModal({
                       goodUnits = Number((netUsableMixMl / unitMl).toFixed(2));
                     }
 
-                    const costPerUnit = goodUnits > 0 ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
+                    const costPerUnit = (goodUnits > 0 && isFinite(totalProductCost) && totalProductCost < 1e14) ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
 
                     return (
                       <Card 
