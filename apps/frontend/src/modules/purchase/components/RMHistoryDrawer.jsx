@@ -70,6 +70,18 @@ export default function RMHistoryDrawer({
     refetchOnWindowFocus: false,
   });
 
+  // All Hooks must execute unconditionally at the top level before any early return
+  const rawProductionUsages = data?.productionUsages || [];
+  const productionUsages = useMemo(() => {
+    const seen = new Set();
+    return rawProductionUsages.filter(u => {
+      const key = `${u.batchId || u.batchNumber}_${u.id || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [rawProductionUsages]);
+
   if (!isOpen) return null;
 
   const formatUOM = (uom) => {
@@ -92,16 +104,6 @@ export default function RMHistoryDrawer({
   const labReports = data?.labReports || [];
   const stockAdjustments = data?.stockAdjustments || [];
   const wasteRecords = data?.wasteRecords || [];
-  const rawProductionUsages = data?.productionUsages || [];
-  const productionUsages = useMemo(() => {
-    const seen = new Set();
-    return rawProductionUsages.filter(u => {
-      const key = `${u.batchId || u.batchNumber}_${u.id || ''}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [rawProductionUsages]);
   const purchaseReturns = data?.purchaseReturns || [];
   const resales = data?.resales || [];
 
