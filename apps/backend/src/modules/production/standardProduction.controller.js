@@ -197,66 +197,11 @@ async function ensureStandardProductionSchema(p = prisma) {
       } catch (_) {}
     }
 
-    // Ensure automatic stock reversal trigger on production_batches deletion
+    // Drop any legacy triggers to prevent duplicate stock restoration
     try {
-      await p.$executeRawUnsafe(`
-        CREATE OR REPLACE FUNCTION trg_revert_stock_on_batch_delete()
-        RETURNS TRIGGER AS $$
-        DECLARE
-            alloc RECORD;
-            usage RECORD;
-            prod_yield NUMERIC;
-        BEGIN
-            IF OLD.status = 'Completed' THEN
-                -- 1. Revert Raw Material lot quantities in InventoryBatch
-                FOR alloc IN 
-                    SELECT inventory_batch_id, lot_number, allocated_qty 
-                    FROM production_batch_allocations 
-                    WHERE batch_id = OLD.id AND allocated_qty > 0
-                LOOP
-                    UPDATE "InventoryBatch"
-                    SET "netQty" = "netQty" + alloc.allocated_qty,
-                        "status" = 'AVAILABLE',
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE (id = alloc.inventory_batch_id OR "batchNumber" = alloc.lot_number);
-                END LOOP;
-
-                -- 2. Revert RawMaterial.currentStock from production_batch_rm_usage
-                FOR usage IN
-                    SELECT rm_id, COALESCE(actual_used_qty, required_qty, input_qty, 0) AS qty
-                    FROM production_batch_rm_usage
-                    WHERE batch_id = OLD.id AND COALESCE(actual_used_qty, required_qty, input_qty, 0) > 0
-                LOOP
-                    UPDATE "RawMaterial"
-                    SET "currentStock" = "currentStock" + usage.qty,
-                        "updatedAt" = CURRENT_TIMESTAMP
-                    WHERE id = usage.rm_id;
-                END LOOP;
-
-                -- 3. Decrement Finished Product current_stock in table products
-                prod_yield := COALESCE(OLD.good_quantity, OLD.actual_output, OLD.quantity, 0);
-                IF OLD.product_id IS NOT NULL AND prod_yield > 0 THEN
-                    UPDATE products
-                    SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - prod_yield),
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = OLD.product_id;
-                END IF;
-            END IF;
-
-            RETURN OLD;
-        END;
-        $$ LANGUAGE plpgsql;
-      `);
       await p.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_revert_production_batch_stock ON production_batches;`);
-      await p.$executeRawUnsafe(`
-        CREATE TRIGGER trg_revert_production_batch_stock
-        BEFORE DELETE ON production_batches
-        FOR EACH ROW
-        EXECUTE FUNCTION trg_revert_stock_on_batch_delete();
-      `);
-    } catch (trgErr) {
-      console.warn('Notice ensuring trg_revert_production_batch_stock:', trgErr.message);
-    }
+      await p.$executeRawUnsafe(`DROP FUNCTION IF EXISTS trg_revert_stock_on_batch_delete CASCADE;`);
+    } catch (_) {}
 
     isSchemaEnsured = true;
   } catch (schemaErr) {
@@ -2227,13 +2172,23 @@ class StandardProductionController {
             const lotId = alloc.inventory_batch_id ? String(alloc.inventory_batch_id).trim() : null;
             const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
             try {
-              await tx.$executeRawUnsafe(`
-                UPDATE "InventoryBatch" 
-                SET "netQty" = GREATEST(0, "netQty" - $1),
-                    "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
-                    "updatedAt" = CURRENT_TIMESTAMP
-                WHERE id = $2 OR "batchNumber" = $3;
-              `, qty, lotId || '', lotNum || lotId || '');
+              if (lotId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lotId)) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch" 
+                  SET "netQty" = GREATEST(0, "netQty" - $1),
+                      "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, qty, lotId);
+              } else if (lotNum) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch" 
+                  SET "netQty" = GREATEST(0, "netQty" - $1),
+                      "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE "batchNumber" = $2;
+                `, qty, lotNum);
+              }
               if (lotId) deductedLots.add(lotId);
               if (lotNum) deductedLots.add(lotNum);
             } catch (lotErr) {
@@ -2248,13 +2203,23 @@ class StandardProductionController {
           const lotId = line.lot_id ? String(line.lot_id).trim() : null;
           if (taken > 0 && lotId && !deductedLots.has(lotId)) {
             try {
-              await tx.$executeRawUnsafe(`
-                UPDATE "InventoryBatch" 
-                SET "netQty" = GREATEST(0, "netQty" - $1),
-                    "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
-                    "updatedAt" = CURRENT_TIMESTAMP
-                WHERE id = $2 OR "batchNumber" = $3;
-              `, taken, lotId, lotId);
+              if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lotId)) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch" 
+                  SET "netQty" = GREATEST(0, "netQty" - $1),
+                      "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, taken, lotId);
+              } else {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch" 
+                  SET "netQty" = GREATEST(0, "netQty" - $1),
+                      "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE "batchNumber" = $2;
+                `, taken, lotId);
+              }
               deductedLots.add(lotId);
             } catch (lotErr) {
               console.warn('Notice deducting lot from rm_line:', lotErr.message);
@@ -2290,13 +2255,23 @@ class StandardProductionController {
                       const aLotNum = (ab.batchNumber || ab.lotNumber || ab.batchNo || ab.batchId) ? String(ab.batchNumber || ab.lotNumber || ab.batchNo || ab.batchId).trim() : null;
                       if (aQty > 0 && (aLotId || aLotNum)) {
                         try {
-                          await tx.$executeRawUnsafe(`
-                            UPDATE "InventoryBatch" 
-                            SET "netQty" = GREATEST(0, "netQty" - $1),
-                                "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
-                                "updatedAt" = CURRENT_TIMESTAMP
-                            WHERE id = $2 OR "batchNumber" = $3;
-                          `, aQty, aLotId || '', aLotNum || aLotId || '');
+                          if (aLotId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(aLotId)) {
+                            await tx.$executeRawUnsafe(`
+                              UPDATE "InventoryBatch" 
+                              SET "netQty" = GREATEST(0, "netQty" - $1),
+                                  "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                                  "updatedAt" = CURRENT_TIMESTAMP
+                              WHERE id = $2;
+                            `, aQty, aLotId);
+                          } else if (aLotNum) {
+                            await tx.$executeRawUnsafe(`
+                              UPDATE "InventoryBatch" 
+                              SET "netQty" = GREATEST(0, "netQty" - $1),
+                                  "status" = CASE WHEN ("netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                                  "updatedAt" = CURRENT_TIMESTAMP
+                              WHERE "batchNumber" = $2;
+                            `, aQty, aLotNum);
+                          }
                         } catch (_) {}
                       }
                     }
@@ -2777,13 +2752,23 @@ class StandardProductionController {
             const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
             const aQty = Number(alloc.allocated_qty || 0);
             if (aQty > 0) {
-              await tx.$executeRawUnsafe(`
-                UPDATE "InventoryBatch" 
-                SET "netQty" = "netQty" + $1,
-                    "status" = 'AVAILABLE',
-                    "updatedAt" = CURRENT_TIMESTAMP
-                WHERE id = $2 OR "batchNumber" = $3;
-              `, aQty, lotId || '', lotNum || lotId || '');
+              if (lotId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lotId)) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch" 
+                  SET "netQty" = "netQty" + $1,
+                      "status" = 'AVAILABLE',
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, aQty, lotId);
+              } else if (lotNum) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch" 
+                  SET "netQty" = "netQty" + $1,
+                      "status" = 'AVAILABLE',
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE "batchNumber" = $2;
+                `, aQty, lotNum);
+              }
             }
           }
 
