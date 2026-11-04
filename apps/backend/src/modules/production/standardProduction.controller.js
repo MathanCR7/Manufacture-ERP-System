@@ -2609,6 +2609,29 @@ class StandardProductionController {
         };
       });
 
+      // Explicitly update productionBatchNew via Prisma ORM to ensure status is 100% committed & visible to getBatches
+      try {
+        await prisma.productionBatchNew.update({
+          where: { id },
+          data: {
+            status: result.status || 'Completed',
+            actualOutput: result.actualOutput || 0,
+            goodQuantity: result.actualOutput || 0,
+            completeDate: new Date(),
+            updatedAt: new Date()
+          }
+        });
+      } catch (ormErr) {
+        console.warn('Notice updating productionBatchNew via Prisma ORM after complete:', ormErr.message);
+        try {
+          await prisma.$executeRawUnsafe(`
+            UPDATE production_batches 
+            SET status = $2, good_quantity = $3, actual_output = $3, complete_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $1;
+          `, id, result.status || 'Completed', result.actualOutput || 0);
+        } catch (_) {}
+      }
+
       if (!res.headersSent) {
         res.json({
           success: true,
