@@ -1785,6 +1785,10 @@ class StandardProductionController {
         success: true,
         batch: {
           ...batch,
+          batchNo: batch.batch_no || batch.reference_no,
+          referenceNo: batch.reference_no || batch.batch_no,
+          batch_number: batch.batch_no || batch.reference_no,
+          actualOutput: Number(batch.actual_output || batch.good_quantity || batch.quantity || 0),
           quantity: Number(batch.quantity || 0),
           baseName: batch.base_name,
           templateName: batch.template_name,
@@ -2359,6 +2363,39 @@ class StandardProductionController {
         const finalRate = ebRatePerUnit !== undefined && ebRatePerUnit !== null ? Number(ebRatePerUnit) : null;
         const finalOverhead = overheadAmt !== undefined && overheadAmt !== null ? Number(overheadAmt) : (overheadCost !== undefined && overheadCost !== null ? Number(overheadCost) : null);
 
+        // Compute financial grand total and per-unit cost
+        let directMaterialsCost = 0;
+        for (const line of rmLines) {
+          const taken = Number(line.taken_qty || 0);
+          const rate = Number(line.unit_rate || line.rate_per_unit || 0);
+          directMaterialsCost += (taken * rate);
+        }
+        let productRmCost = 0;
+        try {
+          let savedMAllocs = [];
+          if (typeof batch.mould_allocations === 'string') {
+            savedMAllocs = JSON.parse(batch.mould_allocations || '[]');
+          } else if (Array.isArray(batch.mould_allocations)) {
+            savedMAllocs = batch.mould_allocations;
+          }
+          for (const mAlloc of savedMAllocs) {
+            if (Array.isArray(mAlloc.productRms)) {
+              for (const prm of mAlloc.productRms) {
+                const prmQty = Number(prm.takenQty ?? prm.qty ?? 0);
+                const prmRate = Number(prm.unitRate ?? prm.rate ?? 0);
+                productRmCost += (prmQty * prmRate);
+              }
+            }
+          }
+        } catch (_) {}
+
+        const labourVal = finalLabour !== null ? finalLabour : Number(batch.labour_total_cost || 0);
+        const ebVal = finalEb !== null ? finalEb : Number(batch.eb_total_cost || 0);
+        const overheadVal = finalOverhead !== null ? finalOverhead : Number(batch.overhead_amt || 1069.12);
+        const subTotalCost = round2(directMaterialsCost + productRmCost);
+        const totalBatchCost = round2(subTotalCost + labourVal + ebVal + overheadVal);
+        const unitCost = finalOutput > 0 ? round2(totalBatchCost / finalOutput) : 0;
+
         const stagesPayload = (timelineStages || (productStagesMap && Object.keys(productStagesMap).length > 0)) ? {
           stages: Array.isArray(timelineStages) ? timelineStages : [],
           productStagesMap: (productStagesMap && typeof productStagesMap === 'object') ? productStagesMap : {}
@@ -2376,6 +2413,7 @@ class StandardProductionController {
             product_yields = $7::jsonb,
             note = COALESCE(note, '') || ' ' || $8,
             completed_at = CURRENT_TIMESTAMP,
+            complete_date = CURRENT_TIMESTAMP,
             completed_by = $9,
             labour_total_cost = COALESCE($10, labour_total_cost),
             eb_total_cost = COALESCE($11, eb_total_cost),
@@ -2383,6 +2421,10 @@ class StandardProductionController {
             eb_rate_per_unit = COALESCE($13, eb_rate_per_unit),
             timeline_stages = COALESCE($14::jsonb, timeline_stages),
             overhead_amt = COALESCE($15, overhead_amt),
+            sub_total = COALESCE($16, sub_total),
+            grand_total = COALESCE($17, grand_total),
+            total_cost = COALESCE($17, total_cost),
+            cost_per_unit = COALESCE($18, cost_per_unit),
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
         `, id, finalStatus, qcStatus, 
@@ -2397,7 +2439,10 @@ class StandardProductionController {
            finalUnits,
            finalRate,
            stagesPayload ? JSON.stringify(stagesPayload) : null,
-           finalOverhead);
+           finalOverhead,
+           subTotalCost,
+           totalBatchCost,
+           unitCost);
 
         // Update RM usages status to CONSUMED upon batch completion
         try {

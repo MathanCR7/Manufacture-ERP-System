@@ -2774,14 +2774,14 @@ export default function ProductionFloorCockpitModal({
   };
 
   // ── YIELD RECORDING & COMPLETION ──
-  const handleOpenYieldModal = () => {
+  const buildDefaultYields = useCallback(() => {
     const allocs = liveAllocationsResult.allocations || [];
     const existingYields = Array.isArray(productYields) ? productYields : [];
 
     if (allocs.length === 0 && batch?.product) {
       const prodUom = formatCleanUom(batch.product.consumptionUnit || batch.product.unit || 'pcs', 'pcs', batch.product);
       const match = existingYields.find(y => y.productId === (batch.product.id || batch.productId));
-      setProductYields([
+      return [
         {
           seq: 1,
           productId: batch.product.id || batch.productId,
@@ -2793,26 +2793,32 @@ export default function ProductionFloorCockpitModal({
           actualGoodOutput: Number(match?.actualGoodOutput ?? actualYieldPieces ?? 2000),
           rejectOutput: Number(match?.rejectOutput ?? 0)
         }
-      ]);
-    } else {
-      setProductYields(allocs.map((a, i) => {
-        const uom = a.productUom || a.bulkUom || a.uom || 'pcs';
-        const calcYield = Number(a.goodPieces ?? a.goodUnits ?? 0);
-        const plannedYield = Number(a.plannedQty || calcYield || (batch?.quantity ? Math.round(batch.quantity / (allocs.length || 1)) : 2000));
-        const match = existingYields.find(y => y.productId === a.productId || y.seq === (a.seq || (i + 1)));
-        return {
-          seq: a.seq || (i + 1),
-          productId: a.productId,
-          productName: a.productName,
-          productCode: a.productCode,
-          uom,
-          planned: match?.planned ?? plannedYield,
-          calculatedYield: match?.calculatedYield ?? calcYield,
-          actualGoodOutput: match?.actualGoodOutput !== undefined ? Number(match.actualGoodOutput) : (calcYield > 0 ? calcYield : plannedYield),
-          rejectOutput: match?.rejectOutput !== undefined ? Number(match.rejectOutput) : 0
-        };
-      }));
+      ];
     }
+
+    return allocs.map((a, i) => {
+      const prod = productsCatalog.find(p => p.id === (a.productId || a.product_id)) || {};
+      const uom = formatCleanUom(a.productUom || a.bulkUom || a.uom || prod.consumptionUnit || prod.unit || 'pcs', 'pcs', prod);
+      const calcYield = Number(a.goodPieces ?? a.goodUnits ?? 0);
+      const plannedYield = Number(a.plannedQty || calcYield || (batch?.quantity ? Math.round(batch.quantity / (allocs.length || 1)) : 2000));
+      const match = existingYields.find(y => y.productId === a.productId || y.seq === (a.seq || (i + 1)));
+      return {
+        seq: a.seq || (i + 1),
+        productId: a.productId || a.product_id,
+        productName: a.productName || a.product_name || prod.name || `Finished Product #${i + 1}`,
+        productCode: a.productCode || a.product_code || prod.code || 'FP',
+        uom,
+        planned: match?.planned ?? plannedYield,
+        calculatedYield: match?.calculatedYield ?? calcYield,
+        actualGoodOutput: match?.actualGoodOutput !== undefined ? Number(match.actualGoodOutput) : (calcYield > 0 ? calcYield : plannedYield),
+        rejectOutput: match?.rejectOutput !== undefined ? Number(match.rejectOutput) : 0
+      };
+    });
+  }, [liveAllocationsResult.allocations, productYields, batch, actualYieldPieces, productsCatalog]);
+
+  const handleOpenYieldModal = () => {
+    const defaultYields = buildDefaultYields();
+    setProductYields(defaultYields);
     setShowYieldModal(true);
   };
 
@@ -2825,8 +2831,11 @@ export default function ProductionFloorCockpitModal({
     });
   };
 
-  const handleCompleteBatchSubmit = async () => {
-    const yieldsList = Array.isArray(productYields) ? productYields : [];
+  const handleCompleteBatchSubmit = async (customYieldsList = null) => {
+    let yieldsList = Array.isArray(customYieldsList) && customYieldsList.length > 0
+      ? customYieldsList
+      : (Array.isArray(productYields) && productYields.length > 0 ? productYields : buildDefaultYields());
+
     const totalActual = yieldsList.length > 0
       ? yieldsList.reduce((s, p) => s + Number(p.actualGoodOutput || 0), 0)
       : Number(actualYieldPieces || 0);
@@ -2887,11 +2896,19 @@ export default function ProductionFloorCockpitModal({
         `;
       }
 
+      const resolvedBatchNo = res.data?.data?.batchNo 
+        || res.data?.data?.referenceNo 
+        || batch?.batch_no 
+        || batch?.reference_no 
+        || batch?.batchNo 
+        || batch?.referenceNo 
+        || 'PROD-CURRENT';
+
       await Swal.fire({
         title: 'Production Run Finalized!',
         html: `
           <div style="text-align: left; font-size: 13px; line-height: 1.6;">
-            <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batch?.referenceNo || batch?.batchNo || batchId}</span></p>
+            <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${resolvedBatchNo}</span></p>
             <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${totalActual} items</span></p>
             <p><strong>Lab Test Status:</strong> <span style="font-weight: bold; color: ${labTestRequired ? '#d97706' : '#047857'};">${labTestRequired ? 'Sent to QC Quarantine' : 'Directly added to Available Sellable Stock'}</span></p>
             ${restoreHtml}
@@ -2905,6 +2922,10 @@ export default function ProductionFloorCockpitModal({
       setViewMode('REPORT');
       setBatch(prev => ({ 
         ...prev, 
+        batch_no: resolvedBatchNo,
+        batchNo: resolvedBatchNo,
+        reference_no: resolvedBatchNo,
+        referenceNo: resolvedBatchNo,
         status: 'Completed', 
         actualOutput: totalActual,
         actual_output: totalActual,
@@ -2917,6 +2938,37 @@ export default function ProductionFloorCockpitModal({
       Swal.fire({ title: 'Error', text: err.response?.data?.error || 'Failed to complete production run.', icon: 'error' });
     } finally {
       setCompleting(false);
+    }
+  };
+
+  const handleFinalizeEntireProductionClick = async () => {
+    const defaultYields = buildDefaultYields();
+    setProductYields(defaultYields);
+    const totalActual = defaultYields.reduce((s, p) => s + Number(p.actualGoodOutput || 0), 0);
+    const batchNum = batch?.batch_no || batch?.reference_no || batch?.batchNo || batch?.referenceNo || 'PROD-CURRENT';
+
+    const confirmResult = await Swal.fire({
+      title: 'Finalize Entire Production?',
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+          <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${batchNum}</span></p>
+          <p><strong>Total Output:</strong> <span style="font-weight: bold; color: #10b981;">${totalActual} items</span> across ${defaultYields.length} finished product(s)</p>
+          <p><strong>Status Transition:</strong> <span style="font-weight: bold; color: #047857;">In Progress &rarr; Completed</span></p>
+          <p style="margin-top: 8px; font-size: 11px; color: #64748b;">This will deduct consumed raw materials, update warehouse inventory, and immediately open the audited Clean Sheet Report.</p>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Finalize & Complete',
+      cancelButtonText: 'Adjust Yields Manually',
+      confirmButtonColor: '#059669',
+      cancelButtonColor: '#6366f1'
+    });
+
+    if (confirmResult.isConfirmed) {
+      await handleCompleteBatchSubmit(defaultYields);
+    } else if (confirmResult.dismiss === Swal.DismissReason.cancel) {
+      setShowYieldModal(true);
     }
   };
 
@@ -5674,7 +5726,7 @@ export default function ProductionFloorCockpitModal({
               <Button
                 type="button"
                 size="sm"
-                onClick={handleOpenYieldModal}
+                onClick={handleFinalizeEntireProductionClick}
                 className="bg-[#30914c] hover:bg-emerald-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />

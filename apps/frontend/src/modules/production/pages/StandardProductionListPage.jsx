@@ -1382,6 +1382,7 @@ export default function StandardProductionListPage() {
             setCockpitModalOpen(false);
             setSelectedCockpitBatchId(null);
             setIsCockpitReadOnly(false);
+            fetchBatches();
           }}
           batchId={selectedCockpitBatchId}
           initialViewMode={cockpitViewMode}
