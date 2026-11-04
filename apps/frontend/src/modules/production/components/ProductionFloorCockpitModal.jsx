@@ -286,6 +286,7 @@ export default function ProductionFloorCockpitModal({
   batchId,
   onBatchUpdated,
   onOpenCompleteModal,
+  onOpenCleanSheet,
   initialViewMode = 'STEPS',
   readOnly = false,
   isViewOnly = false
@@ -906,16 +907,14 @@ export default function ProductionFloorCockpitModal({
             const coverDef = pkg?.cover;
             
             // Calculate pieces yield strictly respecting allocated base mix volume
-            let pieces = Number(a.goodPieces || a.good_pieces || 0);
-            if (pieces <= 0) {
-              const baseMl = Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0);
-              const mixLimit = (cap > 0 && baseMl > 0) ? Math.floor(baseMl / cap) : 0;
-              const trayLimit = (trays > 0 && cav > 0) ? (trays * cav) : 0;
-              if (mixLimit > 0 && trayLimit > 0) pieces = Math.min(mixLimit, trayLimit);
-              else if (mixLimit > 0) pieces = mixLimit;
-              else if (trayLimit > 0) pieces = trayLimit;
-              else pieces = cav > 0 ? cav : 1;
-            }
+            const baseMl = Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0);
+            const mixLimit = (cap > 0 && baseMl > 0) ? Math.floor(baseMl / cap) : 0;
+            const trayLimit = (trays > 0 && cav > 0) ? (trays * cav) : 0;
+            let pieces = 0;
+            if (mixLimit > 0 && trayLimit > 0) pieces = Math.min(mixLimit, trayLimit);
+            else if (mixLimit > 0) pieces = mixLimit;
+            else if (trayLimit > 0) pieces = trayLimit;
+            else pieces = Number(a.goodPieces || a.good_pieces || cav || 1);
 
             if (stickDef) {
               const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (p.rmName && p.rmName.toLowerCase().includes('stick')));
@@ -1164,6 +1163,56 @@ export default function ProductionFloorCockpitModal({
     });
   }, [labourCost, activeAllocs]);
 
+  // Automatically sync packaging quantities (sticks, covers, pouches) to match live pieces yield (e.g. 14 pcs)
+  useEffect(() => {
+    if (!Array.isArray(allocations) || allocations.length === 0) return;
+    let needsUpdate = false;
+    const nextAllocs = allocations.map((alloc, idx) => {
+      const isM = alloc.useMould !== false;
+      const liveAlloc = liveAllocationsResult?.allocations?.[idx];
+      const targetPieces = Number(liveAlloc?.goodPieces || alloc.goodPieces || 0);
+      if (!isM || targetPieces <= 0 || !Array.isArray(alloc.productRms)) return alloc;
+
+      let prmChanged = false;
+      const updatedPrms = alloc.productRms.map(prm => {
+        if (!isPackagingMaterial(prm)) return prm;
+        const currentQty = Number(prm.takenQty ?? prm.qty ?? 0);
+        if (currentQty !== targetPieces) {
+          prmChanged = true;
+          needsUpdate = true;
+          const rate = Number(prm.unitRate || 0);
+          const totalCost = Number((rate * targetPieces).toFixed(2));
+          return {
+            ...prm,
+            takenQty: targetPieces,
+            qty: targetPieces,
+            requiredQty: targetPieces,
+            totalCost,
+            allocatedBatches: Array.isArray(prm.allocatedBatches) ? prm.allocatedBatches.map(b => ({
+              ...b,
+              allocatedQty: targetPieces,
+              allocatedAmount: Number((Number(b.unitRate || rate) * targetPieces).toFixed(2))
+            })) : []
+          };
+        }
+        return prm;
+      });
+
+      if (prmChanged) {
+        return {
+          ...alloc,
+          goodPieces: targetPieces,
+          productRms: updatedPrms
+        };
+      }
+      return alloc;
+    });
+
+    if (needsUpdate) {
+      setAllocations(nextAllocs);
+    }
+  }, [liveAllocationsResult, allocations]);
+
   const handleProductLabourChange = (productId, val) => {
     const num = Math.max(0, Number(val) || 0);
     setProductLabourMap(prev => {
@@ -1306,22 +1355,26 @@ export default function ProductionFloorCockpitModal({
             (l.internalBatchNo && l.internalBatchNo === (ab.lotNumber || ab.internalBatchNo))
           );
           if (!exists) {
-            lots.unshift({
-              id: abId,
-              internalBatchNo: ab.lotNumber || ab.internalBatchNo,
-              batchNumber: ab.lotNumber || ab.internalBatchNo,
-              supplierBatchNo: ab.supplierBatchNo || 'SUP-LOT-01',
-              grnNumber: ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
-              grnRef: ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
-              poNumber: ab.poNumber || 'PO-MANUAL-OVERRIDE',
-              availableQty: Number(ab.availableQty || Math.max(Number(ab.allocatedQty || 0) * 2, 500)),
-              netQty: Number(ab.availableQty || Math.max(Number(ab.allocatedQty || 0) * 2, 500)),
-              expiryDate: ab.expiryDate || expStr,
-              unitCost: Number(ab.unitRate || row.unitRate || master?.ratePerUnit || 54),
-              unitRate: Number(ab.unitRate || row.unitRate || master?.ratePerUnit || 54),
-              rate: Number(ab.unitRate || row.unitRate || master?.ratePerUnit || 54),
-              isManualOverride: Boolean(ab.isManualOverride)
-            });
+            // ONLY keep in available lots if it was explicitly flagged as a manual override
+            // Regular warehouse batches that do not exist in live warehouse stock must NOT be fabricated with fake available quantities!
+            if (ab.isManualOverride === true) {
+              lots.unshift({
+                id: abId,
+                internalBatchNo: ab.lotNumber || ab.internalBatchNo,
+                batchNumber: ab.lotNumber || ab.internalBatchNo,
+                supplierBatchNo: ab.supplierBatchNo || 'SUP-LOT-01',
+                grnNumber: ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
+                grnRef: ab.grnNumber || 'GRN-MANUAL-OVERRIDE',
+                poNumber: ab.poNumber || 'PO-MANUAL-OVERRIDE',
+                availableQty: Number(ab.availableQty || ab.allocatedQty || 0),
+                netQty: Number(ab.availableQty || ab.allocatedQty || 0),
+                expiryDate: ab.expiryDate || expStr,
+                unitCost: Number(ab.unitRate || row.unitRate || master?.ratePerUnit || 54),
+                unitRate: Number(ab.unitRate || row.unitRate || master?.ratePerUnit || 54),
+                rate: Number(ab.unitRate || row.unitRate || master?.ratePerUnit || 54),
+                isManualOverride: true
+              });
+            }
           }
         });
       }
@@ -2924,8 +2977,9 @@ export default function ProductionFloorCockpitModal({
 
       setShowYieldModal(false);
       setViewMode('REPORT');
-      setBatch(prev => ({ 
-        ...prev, 
+      const updatedBatchObj = { 
+        ...batch, 
+        id: batchId,
         batch_no: resolvedBatchNo,
         batchNo: resolvedBatchNo,
         reference_no: resolvedBatchNo,
@@ -2934,21 +2988,31 @@ export default function ProductionFloorCockpitModal({
         actualOutput: totalActual,
         actual_output: totalActual,
         good_quantity: totalActual
-      }));
+      };
+      setBatch(prev => ({ ...prev, ...updatedBatchObj }));
       if (onBatchUpdated) onBatchUpdated();
-      await fetchAllData(true);
+      if (onOpenCleanSheet) {
+        if (onClose) onClose();
+        onOpenCleanSheet(updatedBatchObj);
+      } else if (onClose) {
+        onClose();
+      }
     } catch (err) {
       if (err.response?.status === 409 || err.response?.data?.error?.includes('already completed')) {
         const resolvedBatchNo = batch?.batch_no || batch?.reference_no || batch?.batchNo || batch?.referenceNo || 'PROD-CURRENT';
         setShowYieldModal(false);
         setViewMode('REPORT');
-        setBatch(prev => ({ 
-          ...prev, 
+        const updatedBatchObj = { 
+          ...batch, 
+          id: batchId,
+          batch_no: resolvedBatchNo,
+          batchNo: resolvedBatchNo,
           status: 'Completed', 
           actualOutput: totalActual,
           actual_output: totalActual,
           good_quantity: totalActual
-        }));
+        };
+        setBatch(prev => ({ ...prev, ...updatedBatchObj }));
         await Swal.fire({
           title: 'Production Run Finalized!',
           html: `
@@ -2962,7 +3026,12 @@ export default function ProductionFloorCockpitModal({
           confirmButtonText: 'View Clean Sheet'
         });
         if (onBatchUpdated) onBatchUpdated();
-        await fetchAllData(true);
+        if (onOpenCleanSheet) {
+          if (onClose) onClose();
+          onOpenCleanSheet(updatedBatchObj);
+        } else if (onClose) {
+          onClose();
+        }
         return;
       }
       console.error('Failed to complete batch:', err);

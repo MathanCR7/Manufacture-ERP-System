@@ -1396,6 +1396,7 @@ export default function StandardProductionListPage() {
           readOnly={isCockpitReadOnly}
           onBatchUpdated={fetchBatches}
           onOpenCompleteModal={handleOpenCompleteModal}
+          onOpenCleanSheet={handleOpenCleanSheet}
         />
       )}
 

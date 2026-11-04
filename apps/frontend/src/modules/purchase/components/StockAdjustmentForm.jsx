@@ -940,7 +940,7 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
                   <Package className="w-4 h-4 text-indigo-500" />
-                  EXISTING INVENTORY BATCHES ({existingBatches.length} AVAILABLE)
+                  EXISTING INVENTORY BATCHES ({filteredExistingBatches.length} AVAILABLE)
                 </span>
 
                 {/* Subtraction Allocation Status Badge */}

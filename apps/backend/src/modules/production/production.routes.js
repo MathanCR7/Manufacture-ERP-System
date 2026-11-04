@@ -1091,13 +1091,33 @@ const getBatchesForRawMaterial = async (rmId) => {
     const seenGrnIds = new Set();
     const seenGrnRefs = new Set();
 
+    // Pre-populate seen trackers with all historical InventoryBatch records (including depleted ones)
+    // to strictly prevent ghost resurrecting of already-consumed GRN inward receipts
+    const allHistoricalBatches = await prisma.inventoryBatch.findMany({
+      where: { OR: orConditions },
+      select: {
+        id: true,
+        batchNumber: true,
+        grnId: true,
+        poId: true,
+        grn: { select: { id: true, referenceNo: true } }
+      }
+    });
+
+    for (const hb of allHistoricalBatches) {
+      if (hb.batchNumber) seenBatchNumbers.add(hb.batchNumber);
+      if (hb.grnId) seenGrnIds.add(hb.grnId);
+      if (hb.grn?.id) seenGrnIds.add(hb.grn.id);
+      if (hb.grn?.referenceNo) seenGrnRefs.add(hb.grn.referenceNo);
+    }
+
     // Clean Raw Material name for standardized Our Batch auto-generation
     const rawClean = (rm?.name || rm?.code || 'RM')
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '')
       .slice(0, 24);
 
-    // 1. Batches from InventoryBatch (canonical warehouse stock)
+    // 1. Batches from InventoryBatch (canonical live warehouse stock)
     for (const b of batches) {
       const grnItem = b.grn?.items?.find(it => 
         (it.batchNumber && it.batchNumber === b.batchNumber) || 
@@ -1114,7 +1134,7 @@ const getBatchesForRawMaterial = async (rmId) => {
         ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
       }
 
-      if (!seenBatchNumbers.has(ourBatchNo) && !seenBatchNumbers.has(b.batchNumber)) {
+      if (!formatted.some(f => f.id === b.id || f.internalBatchNo === ourBatchNo)) {
         seenBatchNumbers.add(ourBatchNo);
         if (b.batchNumber) seenBatchNumbers.add(b.batchNumber);
         if (b.grnId) seenGrnIds.add(b.grnId);
@@ -1157,63 +1177,67 @@ const getBatchesForRawMaterial = async (rmId) => {
       }
     }
 
-    // 2. Batches from GRNReceiveItems ONLY IF GRN is not already inwarded into InventoryBatch
-    for (const gi of grnItems) {
-      const grnRef = gi.grn?.referenceNo || 'GRN-DIRECT';
-      const grnSeq = (grnRef.replace(/[^0-9]/g, '') || '001').padStart(3, '0');
+    // 2. Batches from GRNReceiveItems ONLY IF warehouse has positive stock AND GRN was never inwarded into InventoryBatch
+    const liveStockNum = Number(rm?.currentStock || 0);
+    if (liveStockNum > 0.0001) {
+      for (const gi of grnItems) {
+        const grnRef = gi.grn?.referenceNo || 'GRN-DIRECT';
+        const grnSeq = (grnRef.replace(/[^0-9]/g, '') || '001').padStart(3, '0');
 
-      // Skip if this GRN was already represented in InventoryBatch
-      if (
-        (gi.grnId && seenGrnIds.has(gi.grnId)) ||
-        (gi.grn?.id && seenGrnIds.has(gi.grn.id)) ||
-        (gi.grn?.referenceNo && seenGrnRefs.has(gi.grn.referenceNo))
-      ) {
-        continue;
-      }
+        // Skip if this GRN was already represented in InventoryBatch
+        if (
+          (gi.grnId && seenGrnIds.has(gi.grnId)) ||
+          (gi.grn?.id && seenGrnIds.has(gi.grn.id)) ||
+          (gi.grn?.referenceNo && seenGrnRefs.has(gi.grn.referenceNo)) ||
+          (gi.batchNumber && seenBatchNumbers.has(gi.batchNumber))
+        ) {
+          continue;
+        }
 
-      let ourBatchNo = gi.batchNumber;
-      if (!ourBatchNo || ourBatchNo.startsWith('GRN-GRN-') || ourBatchNo.startsWith('GRN-')) {
-        ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
-      }
+        let ourBatchNo = gi.batchNumber;
+        if (!ourBatchNo || ourBatchNo.startsWith('GRN-GRN-') || ourBatchNo.startsWith('GRN-')) {
+          ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
+        }
 
-      if (!seenBatchNumbers.has(ourBatchNo) && (!gi.batchNumber || !seenBatchNumbers.has(gi.batchNumber))) {
-        seenBatchNumbers.add(ourBatchNo);
-        if (gi.batchNumber) seenBatchNumbers.add(gi.batchNumber);
-        if (gi.grnId) seenGrnIds.add(gi.grnId);
-        if (gi.grn?.referenceNo) seenGrnRefs.add(gi.grn.referenceNo);
+        if (!formatted.some(f => f.id === gi.id || f.internalBatchNo === ourBatchNo) && !seenBatchNumbers.has(ourBatchNo)) {
+          seenBatchNumbers.add(ourBatchNo);
+          if (gi.batchNumber) seenBatchNumbers.add(gi.batchNumber);
+          if (gi.grnId) seenGrnIds.add(gi.grnId);
+          if (gi.grn?.referenceNo) seenGrnRefs.add(gi.grn.referenceNo);
 
-        const supplierMfgBatch = gi.mfgBatchNo || gi.grn?.po?.mfgBatchNo || 'BATCH-01';
-        const batchQty = gi.batchQuantity ? Number(gi.batchQuantity) : 1;
-        const weightVal = gi.weight || '25 kg / 50';
-        const mfgDate = gi.mfgDate || gi.createdAt || new Date();
-        const expiryDate = gi.expiryDate || new Date(new Date(mfgDate).getTime() + 180 * 24 * 60 * 60 * 1000);
-        const poRef = gi.grn?.po?.referenceNo || gi.grn?.po?.poNumber || 'PO-GRN';
-        const suppName = gi.grn?.po?.supplier?.name || 'SUP-LOT-DIRECT';
-        const avail = Number(gi.actualReceivedQty || 0);
-        const grnRate = Number(gi.unitPrice || gi.rate || rm?.ratePerUnit || 54);
+          const supplierMfgBatch = gi.mfgBatchNo || gi.grn?.po?.mfgBatchNo || 'BATCH-01';
+          const batchQty = gi.batchQuantity ? Number(gi.batchQuantity) : 1;
+          const weightVal = gi.weight || '25 kg / 50';
+          const mfgDate = gi.mfgDate || gi.createdAt || new Date();
+          const expiryDate = gi.expiryDate || new Date(new Date(mfgDate).getTime() + 180 * 24 * 60 * 60 * 1000);
+          const poRef = gi.grn?.po?.referenceNo || gi.grn?.po?.poNumber || 'PO-GRN';
+          const suppName = gi.grn?.po?.supplier?.name || 'SUP-LOT-DIRECT';
+          const avail = Math.min(Number(gi.actualReceivedQty || 0), liveStockNum);
+          const grnRate = Number(gi.unitPrice || gi.rate || rm?.ratePerUnit || 54);
 
-        formatted.push({
-          id: gi.id,
-          internalBatchNo: ourBatchNo,
-          supplierBatchNo: supplierMfgBatch,
-          mfgBatchNo: supplierMfgBatch,
-          batchQty: batchQty,
-          weight: weightVal,
-          mfgDate: mfgDate,
-          expiryDate: expiryDate,
-          netQty: avail,
-          availableQty: avail,
-          storageLocation: 'Central Receiving Store',
-          grnNumber: grnRef,
-          grnRef: grnRef,
-          poNumber: poRef,
-          poReferenceNo: poRef,
-          supplierName: suppName,
-          unitCost: grnRate,
-          unitRate: grnRate,
-          rate: grnRate,
-          source: 'PURCHASE_GRN'
-        });
+          formatted.push({
+            id: gi.id,
+            internalBatchNo: ourBatchNo,
+            supplierBatchNo: supplierMfgBatch,
+            mfgBatchNo: supplierMfgBatch,
+            batchQty: batchQty,
+            weight: weightVal,
+            mfgDate: mfgDate,
+            expiryDate: expiryDate,
+            netQty: avail,
+            availableQty: avail,
+            storageLocation: 'Central Receiving Store',
+            grnNumber: grnRef,
+            grnRef: grnRef,
+            poNumber: poRef,
+            poReferenceNo: poRef,
+            supplierName: suppName,
+            unitCost: grnRate,
+            unitRate: grnRate,
+            rate: grnRate,
+            source: 'PURCHASE_GRN'
+          });
+        }
       }
     }
 
