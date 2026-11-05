@@ -406,6 +406,11 @@ export default function ProductionFloorCockpitModal({
   const [selectedProductStageTab, setSelectedProductStageTab] = useState('ALL');
   const [productStagesMap, setProductStagesMap] = useState({}); // { [productId]: stages[] }
 
+  // Step 3 Finished Products Navigation & Master-Detail Sidebar State
+  const [selectedStep3Index, setSelectedStep3Index] = useState(0);
+  const [step3SearchFilter, setStep3SearchFilter] = useState('');
+  const [step3LayoutMode, setStep3LayoutMode] = useState('SIDEBAR'); // 'SIDEBAR' | 'STACKED'
+
   // Multi-Product Yield Recording Modal State
   const [showYieldModal, setShowYieldModal] = useState(false);
   const [productYields, setProductYields] = useState({}); // { [productId]: { actualOutput, rejectOutput, notes } }
@@ -2614,32 +2619,40 @@ export default function ProductionFloorCockpitModal({
   // Callback when user selects a single product from ProductionItemSearchModal
   const handleSelectProductForAlloc = (product) => {
     const nextSeq = allocations.length + 1;
-    setAllocations(prev => [
-      ...prev,
-      {
-        seq: nextSeq,
-        productId: product.id,
-        productName: product.name || product.productName,
-        productCode: product.code || product.systemCode,
-        useMould: true,
-        bulkUom: 'Liter',
-        allocatedBaseMl: 0,
-        mouldId: null,
-        mouldCode: '',
-        mouldName: '',
-        capacityMl: 0,
-        cavities: 0,
-        trays: 0,
-        goodPieces: 0,
-        wasteMode: 'PERCENT',
-        wasteValue: 0,
-        productRms: [] // Empty until user selects Mould Spec!
-      }
-    ]);
+    setAllocations(prev => {
+      const next = [
+        ...prev,
+        {
+          seq: nextSeq,
+          productId: product.id,
+          productName: product.name || product.productName,
+          productCode: product.code || product.systemCode,
+          useMould: true,
+          bulkUom: 'Liter',
+          allocatedBaseMl: 0,
+          mouldId: null,
+          mouldCode: '',
+          mouldName: '',
+          capacityMl: 0,
+          cavities: 0,
+          trays: 0,
+          goodPieces: 0,
+          wasteMode: 'PERCENT',
+          wasteValue: 0,
+          productRms: [] // Empty until user selects Mould Spec!
+        }
+      ];
+      setSelectedStep3Index(next.length - 1);
+      return next;
+    });
   };
 
   const handleRemoveProductAllocation = (index) => {
-    setAllocations(prev => prev.filter((_, idx) => idx !== index));
+    setAllocations(prev => {
+      const next = prev.filter((_, idx) => idx !== index);
+      setSelectedStep3Index(cur => Math.max(0, Math.min(cur >= index ? cur - 1 : cur, next.length - 1)));
+      return next;
+    });
   };
 
   // Save Section C via PUT /api/production/standard/:id/allocations
@@ -4302,9 +4315,22 @@ export default function ProductionFloorCockpitModal({
                   </div>
                 </Card>
 
-                {/* Product Line Items (Compact SAP Horizon Cards) */}
-                <div className="space-y-2">
-                  {allocations.map((alloc, idx) => {
+                {/* ══════════════════════════════════════════════════════════════════════
+                    STEP 3 FINISHED PRODUCTS MASTER-DETAIL WORKSPACE (SIDEBAR & RESPONSIVE)
+                ══════════════════════════════════════════════════════════════════════ */}
+                {(() => {
+                  const activeStep3Index = Math.max(0, Math.min(selectedStep3Index, Math.max(0, allocations.length - 1)));
+                  const filteredAllocations = allocations.map((a, i) => ({ ...a, originalIndex: i })).filter(a => {
+                    if (!step3SearchFilter.trim()) return true;
+                    const q = step3SearchFilter.toLowerCase();
+                    return (a.productName && a.productName.toLowerCase().includes(q)) ||
+                           (a.productCode && a.productCode.toLowerCase().includes(q)) ||
+                           (a.mouldCode && a.mouldCode.toLowerCase().includes(q)) ||
+                           String(a.originalIndex + 1).includes(q);
+                  });
+
+                  const renderProductCard = (alloc, idx, isSidebarMode = false) => {
+                    if (!alloc) return null;
                     const liveAlloc = liveAllocationsResult?.allocations?.[idx] || {};
                     const productMatch = availableProducts.find(p => p.id === alloc.productId);
                     const prodUom = alloc.productUom || alloc.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
@@ -4373,26 +4399,62 @@ export default function ProductionFloorCockpitModal({
                     return (
                       <Card 
                         key={`alloc-card-${alloc.productId || 'alloc'}-${idx}`}
-                        className="border border-slate-200 dark:border-slate-800 rounded-lg bg-white dark:bg-slate-900 shadow-2xs overflow-hidden"
+                        className="border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 shadow-xs overflow-hidden"
                       >
-                        {/* 1. SAP Horizon Line Item Header */}
-                        <div className="px-2.5 py-1 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-1.5">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="w-4 h-4 rounded bg-[#8b47d7] text-white font-mono font-black text-[10px] flex items-center justify-center shadow-3xs shrink-0">
+                        {/* 1. Product Header */}
+                        <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-5 h-5 rounded-md bg-[#8b47d7] text-white font-mono font-black text-xs flex items-center justify-center shadow-3xs shrink-0">
                               {idx + 1}
                             </span>
-                            <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
-                              {alloc.productName}
-                            </span>
-                            <span className="font-mono text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
-                              {alloc.productCode || 'FP'}
-                            </span>
-                            <span className="font-mono text-[9px] font-bold px-1 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
-                              {prodUom}
-                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-extrabold text-xs sm:text-[13px] text-slate-900 dark:text-white truncate">
+                                  {alloc.productName}
+                                </span>
+                                <span className="font-mono text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
+                                  {alloc.productCode || 'FP'}
+                                </span>
+                                <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
+                                  {prodUom}
+                                </span>
+                              </div>
+                              {isSidebarMode && allocations.length > 1 && (
+                                <span className="text-[9.5px] text-slate-400 font-mono">
+                                  Product #{idx + 1} of {allocations.length} in sequential mix chain
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Prev / Next buttons in Sidebar Mode */}
+                            {isSidebarMode && allocations.length > 1 && (
+                              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs mr-1">
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() => setSelectedStep3Index(prev => Math.max(0, prev - 1))}
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-0.5 cursor-pointer"
+                                  title="Previous Product"
+                                >
+                                  <ChevronLeft className="w-3 h-3" />
+                                  <span className="hidden sm:inline">Prev</span>
+                                </button>
+                                <span className="text-slate-300 dark:text-slate-600 text-[10px] px-1">•</span>
+                                <button
+                                  type="button"
+                                  disabled={idx === allocations.length - 1}
+                                  onClick={() => setSelectedStep3Index(prev => Math.min(allocations.length - 1, prev + 1))}
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-0.5 cursor-pointer"
+                                  title="Next Product"
+                                >
+                                  <span className="hidden sm:inline">Next</span>
+                                  <ChevronRight className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+
                             {/* Mould vs Bulk Storage Selector */}
                             <div className="flex items-center bg-white dark:bg-slate-900 p-0.5 rounded border border-slate-300 dark:border-slate-700 text-[10px]">
                               <button
@@ -4425,7 +4487,7 @@ export default function ProductionFloorCockpitModal({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveProductAllocation(idx)}
-                                className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                                 title="Remove line item"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -4434,17 +4496,17 @@ export default function ProductionFloorCockpitModal({
                           </div>
                         </div>
 
-                        <div className="p-2 space-y-1.5">
+                        <div className="p-2.5 space-y-2">
                           {/* 2. Base Mix Allocation Row (Compact SAP Horizon Bar) */}
-                          <div className="p-1 px-2 rounded bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between flex-wrap gap-1.5 text-xs">
+                          <div className="p-1.5 px-2.5 rounded-lg bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between flex-wrap gap-1.5 text-xs">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                                <Droplets className="w-3 h-3 text-[#0070f2]" />
+                                <Droplets className="w-3.5 h-3.5 text-[#0070f2]" />
                                 <span>Base Mix Allocated:</span>
                               </span>
                               <div className="flex items-center gap-1">
                                 {isViewMode ? (
-                                  <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 px-1 py-0.5 rounded bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800">
+                                  <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800">
                                     {formatIndian(baseMl)}
                                   </span>
                                 ) : (
@@ -4455,7 +4517,7 @@ export default function ProductionFloorCockpitModal({
                                     value={baseMl || ''}
                                     onChange={(e) => handleUpdateProductBaseMl(idx, parseFloat(e.target.value) || 0)}
                                     placeholder="0"
-                                    className="h-6 w-20 font-mono font-black text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
+                                    className="h-6 w-24 font-mono font-black text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900"
                                   />
                                 )}
                                 <span className="font-mono font-bold text-[10px] text-slate-500">ml</span>
@@ -4463,7 +4525,7 @@ export default function ProductionFloorCockpitModal({
                               <span className="font-mono text-[10px] font-bold text-slate-700 dark:text-slate-300 px-1 py-0.2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                                 ≈ {(baseMl / 1000).toFixed(2)} L
                               </span>
-                              <span className="font-mono text-[10px] font-bold text-[#8b47d7] px-1 py-0.2 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800">
+                              <span className="font-mono text-[10px] font-bold text-[#8b47d7] px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800">
                                 {productSharePct}% of batch
                               </span>
                               <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
@@ -4488,7 +4550,7 @@ export default function ProductionFloorCockpitModal({
                                   variant="outline"
                                   size="sm"
                                   onClick={() => handleAllocateRemainingMix(idx)}
-                                  className="h-6 px-1.5 text-[9.5px] font-bold border-emerald-400 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                                  className="h-6 px-2 text-[9.5px] font-bold border-emerald-400 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
                                   title="Allocate entire remaining available mix to this product"
                                 >
                                   <Sparkles className="w-2.5 h-2.5 text-emerald-600" />
@@ -4499,10 +4561,10 @@ export default function ProductionFloorCockpitModal({
                           </div>
 
                           {/* 3. Product-Specific Essences & Packaging Table */}
-                          <div className="border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden bg-white dark:bg-slate-900">
-                            <div className="px-2 py-0.5 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-1">
+                          <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900">
+                            <div className="px-2.5 py-1 bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-1">
                               <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                                <Flame className="w-2.5 h-2.5 text-amber-500" />
+                                <Flame className="w-3 h-3 text-amber-500" />
                                 <span>Essences, Flavours &amp; Raw Materials:</span>
                               </span>
 
@@ -4516,9 +4578,9 @@ export default function ProductionFloorCockpitModal({
                                     setTargetAllocIndex(idx);
                                     setItemSearchOpen(true);
                                   }}
-                                  className="h-5 px-1.5 text-[9px] font-bold rounded border-amber-300 text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer flex items-center gap-0.5"
+                                  className="h-5 px-2 text-[9.5px] font-bold rounded border-amber-300 text-amber-800 dark:text-amber-200 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer flex items-center gap-1 shadow-3xs"
                                 >
-                                  <Plus className="w-2 h-2 text-amber-600" />
+                                  <Plus className="w-2.5 h-2.5 text-amber-600" />
                                   <span>+ Add Material</span>
                                 </Button>
                               )}
@@ -4945,20 +5007,299 @@ export default function ProductionFloorCockpitModal({
                         </div>
                       </Card>
                     );
-                  })}
+                  };
 
-                  {allocations.length === 0 && (
-                    <div className="p-6 text-center text-slate-400 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl space-y-1.5 bg-white dark:bg-slate-900">
-                      <Box className="w-7 h-7 mx-auto text-slate-400" />
-                      <p className="font-bold text-xs text-slate-700 dark:text-slate-300">
-                        No finished products added to mould allocations yet
-                      </p>
-                      <p className="text-[11px]">
-                        Click <strong>+ Add Product</strong> above to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).
-                      </p>
+                  if (allocations.length === 0) {
+                    return (
+                      <div className="p-8 text-center text-slate-400 border border-dashed border-slate-300 dark:border-slate-800 rounded-2xl space-y-3 bg-white dark:bg-slate-900 shadow-xs">
+                        <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/60 text-[#8b47d7] flex items-center justify-center mx-auto shadow-xs">
+                          <Boxes className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="font-extrabold text-sm text-slate-800 dark:text-slate-200">
+                            No finished products added to mould allocations yet
+                          </h4>
+                          <p className="text-xs text-slate-500 max-w-md mx-auto">
+                            Add multiple finished products (up to 14+) to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).
+                          </p>
+                        </div>
+                        {!isViewMode && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              setItemSearchMode('PRODUCT_SINGLE');
+                              setItemSearchOpen(true);
+                            }}
+                            className="h-8 px-4 text-xs font-bold rounded-lg bg-[#8b47d7] hover:bg-purple-700 text-white shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Add Finished Product</span>
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-2">
+                      {/* Top Layout Switcher & Information Strip */}
+                      <div className="flex items-center justify-between px-1 flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                            Batch Product Queue: <strong className="font-mono text-[#8b47d7]">{allocations.length} Products Configured</strong>
+                          </span>
+                          <span className="text-[10px] text-slate-400 hidden sm:inline">•</span>
+                          <span className="text-[10px] text-slate-500 hidden sm:inline">
+                            Navigate between products easily via the sidebar
+                          </span>
+                        </div>
+
+                        {allocations.length > 1 && (
+                          <div className="flex items-center bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                            <button
+                              type="button"
+                              onClick={() => setStep3LayoutMode('SIDEBAR')}
+                              className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                                step3LayoutMode === 'SIDEBAR' 
+                                  ? 'bg-[#8b47d7] text-white shadow-3xs' 
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                              }`}
+                            >
+                              <Layers className="w-3 h-3" />
+                              <span>Sidebar Master-Detail</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setStep3LayoutMode('STACKED')}
+                              className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                                step3LayoutMode === 'STACKED' 
+                                  ? 'bg-[#8b47d7] text-white shadow-3xs' 
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                              }`}
+                            >
+                              <FileSpreadsheet className="w-3 h-3" />
+                              <span>View All Stacked</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Mobile Horizontal Pill Scroller (< lg screens) */}
+                      {step3LayoutMode === 'SIDEBAR' && allocations.length > 1 && (
+                        <div className="lg:hidden flex items-center gap-1.5 overflow-x-auto pb-1 select-none">
+                          {allocations.map((a, i) => {
+                            const isSel = i === activeStep3Index;
+                            return (
+                              <button
+                                key={`mob-step3-pill-${i}`}
+                                type="button"
+                                onClick={() => setSelectedStep3Index(i)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
+                                  isSel
+                                    ? 'bg-[#8b47d7] text-white border-[#8b47d7] shadow-xs ring-1 ring-purple-300'
+                                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-purple-300'
+                                }`}
+                              >
+                                <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center font-mono text-[9px] font-black">
+                                  {i + 1}
+                                </span>
+                                <span className="truncate max-w-[120px]">{a.productName || `Product #${i + 1}`}</span>
+                              </button>
+                            );
+                          })}
+                          {!isViewMode && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setItemSearchMode('PRODUCT_SINGLE');
+                                setItemSearchOpen(true);
+                              }}
+                              className="h-7 px-2 text-xs font-bold shrink-0 border-dashed border-purple-300 text-purple-700 dark:text-purple-300 cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Add</span>
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Layout: Master-Detail Sidebar Mode */}
+                      {step3LayoutMode === 'SIDEBAR' && (
+                        <div className="flex flex-col lg:flex-row gap-2.5 items-stretch min-h-[540px]">
+                          {/* ── Left Sidebar (List of 1..14+ Products) ── */}
+                          <div className="hidden lg:flex w-72 xl:w-80 shrink-0 flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
+                            {/* Sidebar Header with Search */}
+                            <div className="p-2.5 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 space-y-1.5">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Boxes className="w-4 h-4 text-[#8b47d7]" />
+                                  <span className="font-extrabold text-xs text-slate-900 dark:text-white uppercase tracking-tight">
+                                    Product Queue
+                                  </span>
+                                  <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                                    {allocations.length}
+                                  </span>
+                                </div>
+
+                                {!isViewMode && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => {
+                                      setItemSearchMode('PRODUCT_SINGLE');
+                                      setItemSearchOpen(true);
+                                    }}
+                                    className="h-5.5 px-2 text-[10px] font-bold rounded-md bg-[#8b47d7] hover:bg-purple-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
+                                    title="Add another product to sequential mix allocation"
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                    <span>Add</span>
+                                  </Button>
+                                )}
+                              </div>
+
+                              {allocations.length > 2 && (
+                                <div className="relative">
+                                  <Search className="w-3 h-3 text-slate-400 absolute left-2 top-2" />
+                                  <input
+                                    type="text"
+                                    value={step3SearchFilter}
+                                    onChange={(e) => setStep3SearchFilter(e.target.value)}
+                                    placeholder={`Filter ${allocations.length} products...`}
+                                    className="w-full h-7 pl-7 pr-6 text-[10.5px] rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                  />
+                                  {step3SearchFilter && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setStep3SearchFilter('')}
+                                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Scrollable Product List */}
+                            <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60 p-1.5 space-y-1 max-h-[580px]">
+                              {filteredAllocations.map(item => {
+                                const i = item.originalIndex;
+                                const isSel = i === activeStep3Index;
+                                const prms = Array.isArray(item.productRms) ? item.productRms : [];
+                                const hasMissingLots = prms.some(prm => {
+                                  const taken = Number(prm.takenQty ?? prm.qty ?? 0);
+                                  if (taken <= 0) return false;
+                                  return !Array.isArray(prm.allocatedBatches) || prm.allocatedBatches.length === 0;
+                                });
+                                const isM = item.useMould !== false;
+                                const live = liveAllocationsResult?.allocations?.[i] || {};
+                                const goodPcs = Number(live.goodPieces || item.goodPieces || 0);
+                                const mixMl = Number(item.allocatedBaseMl || item.mixUsedMl || 0);
+
+                                return (
+                                  <div
+                                    key={`step3-side-prod-${i}`}
+                                    onClick={() => setSelectedStep3Index(i)}
+                                    className={`p-2 rounded-lg border transition-all cursor-pointer select-none text-left relative ${
+                                      isSel
+                                        ? 'bg-purple-50/90 dark:bg-purple-950/60 border-purple-400 dark:border-purple-600 shadow-xs ring-1 ring-purple-400/50'
+                                        : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/60 border-slate-200 dark:border-slate-800'
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-1 mb-1">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span className={`w-4 h-4 rounded text-[9.5px] font-mono font-black flex items-center justify-center shrink-0 ${
+                                          isSel ? 'bg-[#8b47d7] text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                                        }`}>
+                                          {i + 1}
+                                        </span>
+                                        <strong className="text-xs font-bold text-slate-900 dark:text-white truncate block">
+                                          {item.productName || 'Finished Product'}
+                                        </strong>
+                                      </div>
+
+                                      {!isViewMode && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemoveProductAllocation(i);
+                                          }}
+                                          className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                          title="Remove product"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono text-slate-500 mb-1">
+                                      <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700">
+                                        {item.productCode || 'FP'}
+                                      </span>
+                                      <span>•</span>
+                                      <span>{isM ? (item.mouldCode || 'No Mould') : `Bulk ${item.bulkUom || 'Liter'}`}</span>
+                                      {hasMissingLots && (
+                                        <span className="text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/80 px-1 py-0.2 rounded border border-amber-300 dark:border-amber-700 font-bold ml-auto text-[8px]">
+                                          ⚠ Lot Needed
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[10px] font-mono font-bold pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                                      <span className="text-purple-700 dark:text-purple-300">
+                                        {formatIndian(mixMl)} ml
+                                      </span>
+                                      <span className="text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                                        {formatIndian(goodPcs)} pcs
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Sidebar Footer Mix Summary */}
+                            <div className="p-2 bg-slate-50 dark:bg-slate-950/90 border-t border-slate-200 dark:border-slate-800 text-[10px] font-mono shrink-0">
+                              <div className="flex items-center justify-between text-slate-500 mb-1">
+                                <span>Batch Allocated:</span>
+                                <span className="font-bold text-purple-700 dark:text-purple-300">
+                                  {formatIndian(totalAllocatedBaseMl)} / {formatIndian(availableMixMl)} ml
+                                </span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full transition-all duration-300 ${
+                                    unallocatedRemainingMl < 0 ? 'bg-rose-500' : (unallocatedRemainingMl === 0 ? 'bg-emerald-500' : 'bg-[#8b47d7]')
+                                  }`}
+                                  style={{
+                                    width: `${availableMixMl > 0 ? Math.min(100, (totalAllocatedBaseMl / availableMixMl) * 100) : 0}%`
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* ── Right Workspace (Active Product Configuration) ── */}
+                          <div className="flex-1 min-w-0">
+                            {renderProductCard(allocations[activeStep3Index], activeStep3Index, true)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Layout: Stacked Cards Mode (when user toggles 'View All Stacked') */}
+                      {step3LayoutMode === 'STACKED' && (
+                        <div className="space-y-2">
+                          {allocations.map((alloc, idx) => renderProductCard(alloc, idx, false))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
 
               {/* ══════════════════════════════════════════════════════════════════════════
