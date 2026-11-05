@@ -4788,7 +4788,7 @@ export default function ProductionFloorCockpitModal({
                             <div className="px-2 py-0.5 bg-slate-50/60 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] font-mono font-bold">
                               <span className="text-slate-500">Net Liquid Mix (Base + Essences):</span>
                               <span className="text-purple-700 dark:text-purple-300">
-                                {formatIndian(baseMl)} ml + {formatIndian(addedRmVolumeMl)} ml = <strong className="text-xs font-black">{formatIndian(productTotalMixMl)} ml</strong> ({((productTotalMixMl) / 1000).toFixed(2)} L)
+                                {formatIndian(baseMl)} ml + {formatIndian(addedRmVolumeMl)} ml = <strong className="text-xs font-black">{formatIndian(productTotalMixMl)} ml</strong> ({isFinite(productTotalMixMl) ? ((productTotalMixMl || 0) / 1000).toFixed(2) : '0.00'} L)
                               </span>
                             </div>
                           </div>
@@ -4969,12 +4969,12 @@ export default function ProductionFloorCockpitModal({
                                   </select>
                                 </div>
 
-                                <div>
-                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Available Mix</label>
-                                  <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 h-6 flex items-center">
-                                    {formatIndian(productTotalMixMl)} ml ({((productTotalMixMl) / 1000).toFixed(2)} L)
+                                  <div>
+                                    <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Available Mix</label>
+                                    <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 h-6 flex items-center">
+                                      {formatIndian(productTotalMixMl)} ml ({isFinite(productTotalMixMl) ? ((productTotalMixMl || 0) / 1000).toFixed(2) : '0.00'} L)
+                                    </div>
                                   </div>
-                                </div>
 
                                 <div className="bg-emerald-50 dark:bg-emerald-950/60 p-1 px-2 rounded border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center">
                                   <span className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Bulk Yield</span>
@@ -5000,7 +5000,7 @@ export default function ProductionFloorCockpitModal({
                               </div>
 
                               <div className="text-slate-900 dark:text-white font-black text-[10px]">
-                                Unit Cost: <span className="text-emerald-600 dark:text-emerald-400 font-bold">₹{costPerUnit}</span> / {isMould ? prodUom : bulkUom}
+                                Unit Cost: <span className="text-emerald-600 dark:text-emerald-400 font-bold">₹{formatIndian(costPerUnit, 2)}</span> / {isMould ? prodUom : bulkUom}
                               </div>
                             </div>
                           )}

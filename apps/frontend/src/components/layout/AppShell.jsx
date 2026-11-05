@@ -792,17 +792,7 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
     items: [
-      {
-        id: 'createProductionSubmenu',
-        name: '⚙️ Create Production',
-        isNested: true,
-        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
-        children: [
-          { name: '🏭 Standard Production', path: '/production/standard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-          { name: '📦 Order Based Production', path: '/production/order-based', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-          { name: '🔄 Stock Update Production', path: '/production/stock-update', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-        ]
-      },
+      { name: '🏭 Standard Production', path: '/production/standard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
       {
         id: 'productionTemplateSubmenu',
         name: '📑 Production Template',
