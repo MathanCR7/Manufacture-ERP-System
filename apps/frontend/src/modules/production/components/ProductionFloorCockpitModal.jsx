@@ -2249,7 +2249,10 @@ export default function ProductionFloorCockpitModal({
             wasteValue: Number(a.wasteValue ?? 0),
             mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
             wasteMl: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.wasteMl ?? a.wasteMl ?? 0),
-            goodPieces: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0),
+            goodPieces: Number(a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '' && Number(a.actualYield) >= 0
+              ? a.actualYield
+              : (liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0)),
+            actualYield: (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '') ? Number(a.actualYield) : null,
             productRms: Array.isArray(a.productRms) ? a.productRms : []
           }))
         });
@@ -4407,7 +4410,9 @@ export default function ProductionFloorCockpitModal({
                     // Calculated Good Units (Live Pieces Yield)
                     let goodUnits = 0;
                     if (isMould) {
-                      if (liveAlloc.goodPieces !== undefined && liveAlloc.goodPieces !== null && Number(liveAlloc.goodPieces) > 0) {
+                      if (liveAlloc.theoreticalGoodPieces !== undefined && liveAlloc.theoreticalGoodPieces !== null) {
+                        goodUnits = Number(liveAlloc.theoreticalGoodPieces);
+                      } else if (liveAlloc.goodPieces !== undefined && liveAlloc.goodPieces !== null && Number(liveAlloc.goodPieces) > 0) {
                         goodUnits = Number(liveAlloc.goodPieces);
                       } else if (cap > 0 && netUsableMixMl > 0) {
                         goodUnits = Math.floor((netUsableMixMl + 1e-4) / cap);
@@ -4422,7 +4427,11 @@ export default function ProductionFloorCockpitModal({
                       if (uomLower.includes('gallon')) unitMl = 3785.41;
                       else if (uomLower.includes('tub')) unitMl = 5000;
                       else if (uomLower.includes('can')) unitMl = 20000;
-                      goodUnits = Number((netUsableMixMl / unitMl).toFixed(2));
+                      if (liveAlloc.theoreticalGoodPieces !== undefined && liveAlloc.theoreticalGoodPieces !== null) {
+                        goodUnits = Number(liveAlloc.theoreticalGoodPieces);
+                      } else {
+                        goodUnits = Number((netUsableMixMl / unitMl).toFixed(2));
+                      }
                     }
 
                     const effectiveYield = alloc.actualYield !== undefined && alloc.actualYield !== null && alloc.actualYield !== '' && Number(alloc.actualYield) >= 0

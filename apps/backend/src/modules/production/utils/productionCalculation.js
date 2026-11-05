@@ -418,6 +418,11 @@ function calculateAllocations({
       });
     }
 
+    const theoreticalGoodPieces = goodPieces;
+    const effectiveGoodPieces = (item.actualYield !== undefined && item.actualYield !== null && item.actualYield !== '' && Number(item.actualYield) >= 0)
+      ? Number(item.actualYield)
+      : theoreticalGoodPieces;
+
     results.push({
       ...item,
       seq,
@@ -437,7 +442,9 @@ function calculateAllocations({
       wasteMl: round2(wasteMl),
       wasteL: round2(wasteMl / 1000),
       usableMixMl: round2(usableMixMl),
-      goodPieces,
+      theoreticalGoodPieces,
+      goodPieces: effectiveGoodPieces,
+      actualYield: (item.actualYield !== undefined && item.actualYield !== null && item.actualYield !== '') ? Number(item.actualYield) : null,
       productRms,
       mixLeftBeforeThisProduct: round2(runningMixLeft),
       mixLeftAfterThisProduct: round2(remainingAfter),
