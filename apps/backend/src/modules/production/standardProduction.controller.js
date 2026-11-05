@@ -1252,18 +1252,23 @@ class StandardProductionController {
       // Synchronize production_batch_items and product_rms outside transaction for zero rollback interference
       try {
         await prisma.$executeRawUnsafe(`DELETE FROM "production_batch_items" WHERE batch_id = $1;`, id);
+        const prodAggMap = new Map();
         for (const alloc of result.allocations || []) {
           if (alloc.productId) {
-            const pCheck = await prisma.$queryRawUnsafe(`SELECT id FROM products WHERE id = $1;`, alloc.productId).catch(() => []);
-            if (pCheck.length > 0) {
-              await prisma.$executeRawUnsafe(`
-                INSERT INTO "production_batch_items" (
-                  id, batch_id, product_id, planned_qty, actual_qty, factor, cost_per_unit, created_at
-                ) VALUES (
-                  gen_random_uuid(), $1, $2, $3, 0, 1.0, 0, CURRENT_TIMESTAMP
-                );
-              `, id, alloc.productId, Number(alloc.goodPieces || 0)).catch(() => {});
-            }
+            const currentPlanned = prodAggMap.get(alloc.productId) || 0;
+            prodAggMap.set(alloc.productId, currentPlanned + Number(alloc.goodPieces || 0));
+          }
+        }
+        for (const [prodId, totalPlanned] of prodAggMap.entries()) {
+          const pCheck = await prisma.$queryRawUnsafe(`SELECT id FROM products WHERE id = $1;`, prodId).catch(() => []);
+          if (pCheck.length > 0) {
+            await prisma.$executeRawUnsafe(`
+              INSERT INTO "production_batch_items" (
+                id, batch_id, product_id, planned_qty, actual_qty, factor, cost_per_unit, created_at
+              ) VALUES (
+                gen_random_uuid(), $1, $2, $3, 0, 1.0, 0, CURRENT_TIMESTAMP
+              );
+            `, id, prodId, totalPlanned).catch(() => {});
           }
         }
       } catch (itemErr) {
@@ -2300,6 +2305,15 @@ class StandardProductionController {
         let totalRejects = 0;
 
         if (yieldsList.length > 0) {
+          // Pre-aggregate actual quantities by productId so that multi-allocation of the same product accumulates cleanly
+          const productActualTotals = {};
+          for (const po of yieldsList) {
+            const pId = po.productId || po.id;
+            if (pId) {
+              productActualTotals[pId] = (productActualTotals[pId] || 0) + Number(po.actualGoodOutput ?? po.actualOutput ?? 0);
+            }
+          }
+
           for (const po of yieldsList) {
             const qty = Number(po.actualGoodOutput ?? po.actualOutput ?? 0);
             const rej = Number(po.rejectOutput || 0);
@@ -2308,13 +2322,13 @@ class StandardProductionController {
             const pId = po.productId || po.id;
 
             if (pId) {
-              // Update production_batch_items
+              // Update production_batch_items with total actual output for this product
               try {
                 await tx.$executeRawUnsafe(`
                   UPDATE "production_batch_items"
                   SET actual_qty = $1
                   WHERE batch_id = $2 AND product_id = $3;
-                `, qty, id, pId);
+                `, Number(productActualTotals[pId] ?? qty), id, pId);
               } catch (_) {}
 
               // Add to sellable inventory if not quarantined
@@ -2362,6 +2376,13 @@ class StandardProductionController {
           const totalGoodPieces = productAllocs.reduce((s, a) => s + Number(a.good_pieces || 0), 0);
           finalOutput = Number(actualOutput || totalGoodPieces || batch.quantity || 0);
 
+          const productAllocsTotals = {};
+          for (const pa of productAllocs) {
+            if (pa.product_id) {
+              productAllocsTotals[pa.product_id] = (productAllocsTotals[pa.product_id] || 0) + Number(pa.good_pieces || 0);
+            }
+          }
+
           for (const pa of productAllocs) {
             const pcs = Number(pa.good_pieces || 0);
             if (pcs > 0 && pa.product_id) {
@@ -2370,7 +2391,7 @@ class StandardProductionController {
                   UPDATE "production_batch_items"
                   SET actual_qty = $1
                   WHERE batch_id = $2 AND product_id = $3;
-                `, pcs, id, pa.product_id);
+                `, Number(productAllocsTotals[pa.product_id] ?? pcs), id, pa.product_id);
               } catch (_) {}
 
               if (!labTestRequired) {

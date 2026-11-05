@@ -2899,7 +2899,7 @@ export default function ProductionFloorCockpitModal({
       const uom = isM ? 'pcs' : formatCleanUom(a.bulkUom || a.productUom || a.uom || prod.consumptionUnit || prod.unit || 'L', 'L', prod);
       const calcYield = Number(a.goodPieces ?? a.good_pieces ?? a.goodUnits ?? 0);
       const plannedYield = Number(a.plannedQty ?? a.planned_qty ?? calcYield ?? (batch?.quantity ? Math.round(batch.quantity / (allocs.length || 1)) : 2000));
-      const match = existingYields.find(y => y.productId === (a.productId || a.product_id) || y.seq === (a.seq || (i + 1)));
+      const match = existingYields.find(y => y.seq === (a.seq || (i + 1))) || existingYields[i] || existingYields.find(y => y.productId === (a.productId || a.product_id));
 
       // Main actual yield: takes user-entered actualYield from Step 3 if entered
       const effectiveActual = (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '' && Number(a.actualYield) >= 0)
@@ -6908,7 +6908,7 @@ export default function ProductionFloorCockpitModal({
                     rejectOutput: 0
                   }
                 ]).map((p, pIdx) => (
-                  <div key={`pyield-${p.productId || pIdx}`} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                  <div key={`pyield-${p.seq || pIdx}-${p.productId || pIdx}`} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
                         <span className="w-5 h-5 rounded-full bg-purple-700 text-white font-mono text-[10px] flex items-center justify-center font-bold">
