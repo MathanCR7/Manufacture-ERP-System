@@ -1175,7 +1175,10 @@ export default function ProductionFloorCockpitModal({
     const nextAllocs = allocations.map((alloc, idx) => {
       const isM = alloc.useMould !== false;
       const liveAlloc = liveAllocationsResult?.allocations?.[idx];
-      const targetPieces = Number(liveAlloc?.goodPieces || alloc.goodPieces || 0);
+      const calculatedPieces = Number(liveAlloc?.goodPieces || alloc.goodPieces || 0);
+      const targetPieces = (alloc.actualYield !== undefined && alloc.actualYield !== null && alloc.actualYield !== '' && Number(alloc.actualYield) > 0)
+        ? Number(alloc.actualYield)
+        : calculatedPieces;
       if (!isM || targetPieces <= 0 || !Array.isArray(alloc.productRms)) return alloc;
 
       let prmChanged = false;
@@ -2052,9 +2055,12 @@ export default function ProductionFloorCockpitModal({
       const copy = [...prev];
       const target = { ...copy[index], allocatedBaseMl: value, mixUsedMl: value };
       const pieces = computeAllocPiecesYield(target);
-      if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
-        target.goodPieces = pieces;
-        target.productRms = syncPackagingQuantities(target.productRms, pieces);
+      const effectivePieces = (target.actualYield !== undefined && target.actualYield !== null && target.actualYield !== '' && Number(target.actualYield) > 0)
+        ? Number(target.actualYield)
+        : pieces;
+      if (effectivePieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
+        target.goodPieces = effectivePieces;
+        target.productRms = syncPackagingQuantities(target.productRms, effectivePieces);
       }
       copy[index] = target;
       return copy;
@@ -2069,9 +2075,12 @@ export default function ProductionFloorCockpitModal({
       const copy = [...prev];
       const target = { ...copy[index], allocatedBaseMl: rem, mixUsedMl: rem };
       const pieces = computeAllocPiecesYield(target);
-      if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
-        target.goodPieces = pieces;
-        target.productRms = syncPackagingQuantities(target.productRms, pieces);
+      const effectivePieces = (target.actualYield !== undefined && target.actualYield !== null && target.actualYield !== '' && Number(target.actualYield) > 0)
+        ? Number(target.actualYield)
+        : pieces;
+      if (effectivePieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
+        target.goodPieces = effectivePieces;
+        target.productRms = syncPackagingQuantities(target.productRms, effectivePieces);
       }
       copy[index] = target;
       return copy;
@@ -2487,14 +2496,25 @@ export default function ProductionFloorCockpitModal({
       }
       
       // Calculate live pieces yield strictly bounded by liquid mix volume
-      const pieces = field === 'goodPieces' && Number(value) > 0 
-        ? Number(value) 
-        : computeAllocPiecesYield(target, field, value);
+      const calculatedPieces = computeAllocPiecesYield(target, field, value);
 
-      // Sync existing packaging items quantities with the pieces yield (ONLY if mouldCode is selected)
-      if (pieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
-        target.goodPieces = pieces;
-        target.productRms = syncPackagingQuantities(target.productRms, pieces);
+      // Determine effective pieces for packaging and stock yield:
+      // If actualYield was explicitly updated or is present > 0, use it. Otherwise, use calculated pieces.
+      let effectivePieces = calculatedPieces;
+      if (field === 'actualYield') {
+        effectivePieces = (value !== '' && value !== null && !isNaN(Number(value)) && Number(value) >= 0) ? Number(value) : calculatedPieces;
+        target.actualYield = value;
+      } else if (target.actualYield !== undefined && target.actualYield !== null && target.actualYield !== '' && Number(target.actualYield) > 0) {
+        effectivePieces = Number(target.actualYield);
+      } else {
+        target.actualYield = calculatedPieces;
+        effectivePieces = calculatedPieces;
+      }
+
+      // Sync existing packaging items quantities with the effective pieces yield (ONLY if mouldCode is selected)
+      if (effectivePieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
+        target.goodPieces = effectivePieces;
+        target.productRms = syncPackagingQuantities(target.productRms, effectivePieces);
       }
       copy[index] = target;
       return copy;
@@ -2685,9 +2705,9 @@ export default function ProductionFloorCockpitModal({
           productId: a.productId,
           productName: a.productName,
           productCode: a.productCode,
-          productUom: a.productUom || a.uom || 'pcs',
+          productUom: (a.useMould !== false) ? 'pcs' : (a.bulkUom || a.productUom || 'Liter'),
           useMould: (a.useMould !== false) && (Boolean(a.mouldId) || Number(a.capacityMl || 0) > 0),
-          bulkUom: a.bulkUom || a.productUom || 'L',
+          bulkUom: a.bulkUom || a.productUom || 'Liter',
           allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
           mouldId: a.mouldId || null,
           mouldCode: a.mouldCode || '',
@@ -2699,7 +2719,10 @@ export default function ProductionFloorCockpitModal({
           wasteValue: Number(a.wasteValue ?? 0),
           mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
           wasteMl: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.wasteMl ?? a.wasteMl ?? 0),
-          goodPieces: Number(liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0),
+          goodPieces: Number(a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '' && Number(a.actualYield) >= 0
+            ? a.actualYield
+            : (liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0)),
+          actualYield: (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '') ? Number(a.actualYield) : null,
           productRms: Array.isArray(a.productRms) ? a.productRms : []
         }))
       });
@@ -2869,10 +2892,17 @@ export default function ProductionFloorCockpitModal({
 
     return allocs.map((a, i) => {
       const prod = (Array.isArray(availableProducts) ? availableProducts : []).find(p => p.id === (a.productId || a.product_id)) || {};
-      const uom = formatCleanUom(a.productUom || a.bulkUom || a.uom || prod.consumptionUnit || prod.unit || 'pcs', 'pcs', prod);
+      const isM = a.useMould !== false;
+      const uom = isM ? 'pcs' : formatCleanUom(a.bulkUom || a.productUom || a.uom || prod.consumptionUnit || prod.unit || 'L', 'L', prod);
       const calcYield = Number(a.goodPieces ?? a.good_pieces ?? a.goodUnits ?? 0);
       const plannedYield = Number(a.plannedQty ?? a.planned_qty ?? calcYield ?? (batch?.quantity ? Math.round(batch.quantity / (allocs.length || 1)) : 2000));
       const match = existingYields.find(y => y.productId === (a.productId || a.product_id) || y.seq === (a.seq || (i + 1)));
+
+      // Main actual yield: takes user-entered actualYield from Step 3 if entered
+      const effectiveActual = (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '' && Number(a.actualYield) >= 0)
+        ? Number(a.actualYield)
+        : (match?.actualGoodOutput !== undefined ? Number(match.actualGoodOutput) : (calcYield > 0 ? calcYield : (plannedYield > 0 ? plannedYield : Number(batch?.quantity || 2000))));
+
       return {
         seq: a.seq || (i + 1),
         productId: a.productId || a.product_id,
@@ -2881,7 +2911,8 @@ export default function ProductionFloorCockpitModal({
         uom,
         planned: match?.planned ?? (plannedYield > 0 ? plannedYield : 2000),
         calculatedYield: match?.calculatedYield ?? (calcYield > 0 ? calcYield : 2000),
-        actualGoodOutput: match?.actualGoodOutput !== undefined ? Number(match.actualGoodOutput) : (calcYield > 0 ? calcYield : (plannedYield > 0 ? plannedYield : Number(batch?.quantity || 2000))),
+        actualGoodOutput: effectiveActual,
+        actualOutput: effectiveActual,
         rejectOutput: match?.rejectOutput !== undefined ? Number(match.rejectOutput) : 0
       };
     });
@@ -4333,8 +4364,8 @@ export default function ProductionFloorCockpitModal({
                     if (!alloc) return null;
                     const liveAlloc = liveAllocationsResult?.allocations?.[idx] || {};
                     const productMatch = availableProducts.find(p => p.id === alloc.productId);
-                    const prodUom = alloc.productUom || alloc.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
                     const isMould = alloc.useMould !== false;
+                    const prodUom = isMould ? 'pcs' : (alloc.bulkUom || alloc.productUom || 'Liter');
                     const bulkUom = alloc.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
 
                     // Product RMs volume calculation (only items marked addToMix contribute to mix volume)
@@ -4394,7 +4425,11 @@ export default function ProductionFloorCockpitModal({
                       goodUnits = Number((netUsableMixMl / unitMl).toFixed(2));
                     }
 
-                    const costPerUnit = (goodUnits > 0 && isFinite(totalProductCost) && totalProductCost < 1e14) ? Number((totalProductCost / goodUnits).toFixed(2)) : 0;
+                    const effectiveYield = alloc.actualYield !== undefined && alloc.actualYield !== null && alloc.actualYield !== '' && Number(alloc.actualYield) >= 0
+                      ? Number(alloc.actualYield)
+                      : goodUnits;
+
+                    const costPerUnit = (effectiveYield > 0 && isFinite(totalProductCost) && totalProductCost < 1e14) ? Number((totalProductCost / effectiveYield).toFixed(2)) : 0;
 
                     return (
                       <Card 
@@ -4793,9 +4828,9 @@ export default function ProductionFloorCockpitModal({
                             </div>
                           </div>
 
-                          {/* 4. Output Specification & Yield (Compact 6-Col Grid) */}
+                          {/* 4. Output Specification & Yield (Compact 6-Col Grid with Editable Actual Yield) */}
                           {isMould ? (
-                            <div className="p-1.5 rounded-md bg-slate-50/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
+                            <div className="p-1.5 rounded-md bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
                               <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5 text-xs items-center">
                                 <div>
                                   <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Mould Spec</label>
@@ -4873,26 +4908,9 @@ export default function ProductionFloorCockpitModal({
                                   />
                                   <div className="text-[8px] font-mono text-purple-600 dark:text-purple-400 font-bold truncate mt-0.5 text-right">
                                     {Number(alloc.trays || 0) > 0
-                                      ? `= ${formatIndian(Number(alloc.trays) * cav)} pcs`
-                                      : (goodUnits > 0 ? `(Mix yields ${formatIndian(goodUnits)} pcs)` : '= 0 pcs')}
+                                      ? `= ${formatIndian(Number(alloc.trays) * cav, 0)} pcs`
+                                      : (goodUnits > 0 ? `(Mix: ${formatIndian(goodUnits, 0)} pcs)` : '= 0 pcs')}
                                   </div>
-                                  {(Number(alloc.trays || 0) * cav * cap) > (productTotalMixMl || availableMixMl) && productTotalMixMl > 0 && (
-                                    <div className="text-[7.5px] font-sans text-rose-600 dark:text-rose-400 font-bold leading-tight mt-0.5 text-right">
-                                      <span>Needs {formatIndian(Number(alloc.trays || 0) * cav * cap)} ml (exceeds {formatIndian(productTotalMixMl || availableMixMl)} ml)</span>
-                                      {!isViewMode && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const fitTrays = Math.max(1, Math.floor((productTotalMixMl || availableMixMl) / (cav * cap || 1)));
-                                            handleUpdateAllocation(idx, 'trays', fitTrays);
-                                          }}
-                                          className="block ml-auto text-indigo-600 dark:text-indigo-400 underline font-bold cursor-pointer"
-                                        >
-                                          Set to {Math.max(1, Math.floor((productTotalMixMl || availableMixMl) / (cav * cap || 1)))} tray
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
                                 </div>
 
                                 <div>
@@ -4919,41 +4937,62 @@ export default function ProductionFloorCockpitModal({
                                       className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                     />
                                   </div>
+                                  <div className="text-[8px] font-mono text-slate-400 mt-0.5 text-right">
+                                    {calculatedWasteMl > 0 ? `${formatIndian(calculatedWasteMl, 0)} ml waste` : '0% waste'}
+                                  </div>
                                 </div>
 
-                                <div className="bg-purple-50 dark:bg-purple-950/60 p-1.5 px-2 rounded-md border border-purple-200 dark:border-purple-800 flex flex-col justify-center min-w-[130px]">
+                                {/* 6. EDITABLE ACTUAL YIELD (MAIN VALUE FOR STOCK & PACKAGING) */}
+                                <div className="bg-purple-50/90 dark:bg-purple-950/70 p-1.5 px-2 rounded-md border-2 border-purple-400 dark:border-purple-700 flex flex-col justify-between shadow-xs">
                                   <div className="flex items-center justify-between gap-1 mb-0.5">
-                                    <span className="text-[8.5px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">Pieces Yield</span>
-                                    {calculatedWasteMl > 0 ? (
-                                      <span className="text-[8px] font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-900/50 px-1 py-0.2 rounded" title={`Calculated wastage: ${formatIndian(calculatedWasteMl, 1)} ml`}>
-                                        Waste: {formatIndian(calculatedWasteMl, 1)} ml ({wasteVal}{wasteMode === 'PERCENT' ? '%' : 'ml'})
-                                      </span>
-                                    ) : (
-                                      <span className="text-[8px] font-mono font-semibold text-emerald-600 dark:text-emerald-400">
-                                        0% Waste
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-sm font-mono font-black text-purple-900 dark:text-purple-200 flex items-baseline gap-1">
-                                    <span>{formatIndian(goodUnits)}</span>
-                                    <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300">{prodUom}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between gap-1 text-[8.5px] font-mono text-purple-600 dark:text-purple-400 mt-0.5">
-                                    <span>
-                                      Mix: {formatIndian(liveAlloc.productTotalMixMl || productTotalMixMl || (alloc.mixRequiredMl ?? alloc.mixUsedMl ?? 0))} ml
+                                    <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-purple-900 dark:text-purple-200 flex items-center gap-0.5">
+                                      <Sparkles className="w-2.5 h-2.5 text-purple-600 animate-pulse" />
+                                      <span>Actual Yield *</span>
                                     </span>
-                                    {isMould && cav > 0 && goodUnits > 0 && (
-                                      <span className="text-slate-500 dark:text-slate-400 font-semibold" title={`${goodUnits} pieces ÷ ${cav} cavities/tray`}>
-                                        ≈ {(goodUnits / cav).toFixed(1)} trays
-                                      </span>
+                                    <span className="text-[7.5px] font-mono font-bold text-purple-600 dark:text-purple-400" title="Calculated theoretical pieces from trays & mix">
+                                      Calc: {formatIndian(goodUnits, 0)} pcs
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      step="1"
+                                      min="0"
+                                      disabled={isViewMode}
+                                      value={alloc.actualYield !== undefined && alloc.actualYield !== null ? alloc.actualYield : goodUnits}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        const val = raw === '' ? '' : parseInt(raw, 10);
+                                        handleUpdateAllocation(idx, 'actualYield', isNaN(val) ? 0 : val);
+                                      }}
+                                      placeholder={String(goodUnits)}
+                                      className={`h-6 font-mono font-black text-xs border-purple-400 bg-white dark:bg-slate-900 text-purple-950 dark:text-purple-100 ${
+                                        isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''
+                                      }`}
+                                    />
+                                    <span className="text-[10px] font-bold text-purple-800 dark:text-purple-300 font-mono">pcs</span>
+                                  </div>
+
+                                  <div className="text-[7.5px] font-bold text-purple-700 dark:text-purple-300 mt-0.5 flex items-center justify-between leading-tight">
+                                    <span>Updates Stock &amp; Sticks</span>
+                                    {Number(alloc.actualYield ?? goodUnits) !== goodUnits && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateAllocation(idx, 'actualYield', goodUnits)}
+                                        className="text-amber-700 dark:text-amber-300 font-extrabold underline cursor-pointer"
+                                        title="Reset to calculated pieces"
+                                      >
+                                        Reset
+                                      </button>
                                     )}
                                   </div>
                                 </div>
                               </div>
                             </div>
                           ) : (
-                            <div className="p-1.5 rounded-md bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60">
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-xs items-center">
+                            <div className="p-1.5 rounded-md bg-emerald-50/50 dark:bg-emerald-950/25 border-2 border-emerald-300 dark:border-emerald-800/70">
+                              <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5 text-xs items-center">
                                 <div>
                                   <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Bulk Storage Unit</label>
                                   <select
@@ -4969,19 +5008,66 @@ export default function ProductionFloorCockpitModal({
                                   </select>
                                 </div>
 
-                                  <div>
-                                    <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Available Mix</label>
-                                    <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 h-6 flex items-center">
-                                      {formatIndian(productTotalMixMl)} ml ({isFinite(productTotalMixMl) ? ((productTotalMixMl || 0) / 1000).toFixed(2) : '0.00'} L)
-                                    </div>
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Available Mix</label>
+                                  <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 h-6 flex items-center">
+                                    {formatIndian(productTotalMixMl)} ml ({isFinite(productTotalMixMl) ? ((productTotalMixMl || 0) / 1000).toFixed(2) : '0.00'} L)
+                                  </div>
+                                </div>
+
+                                <div className="bg-white/80 dark:bg-slate-900/60 p-1 px-2 rounded border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center">
+                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Calculated Yield</span>
+                                  <div className="text-xs font-mono font-black text-emerald-800 dark:text-emerald-300">
+                                    {formatIndian(goodUnits, 2)} {bulkUom}
+                                  </div>
+                                  <span className="text-[7.5px] text-slate-400 font-mono">Suggested from mix</span>
+                                </div>
+
+                                {/* EDITABLE ACTUAL BULK YIELD */}
+                                <div className="bg-emerald-100/70 dark:bg-emerald-950/80 p-1 px-2 rounded-md border-2 border-emerald-400 dark:border-emerald-700 flex flex-col justify-between shadow-xs">
+                                  <div className="flex items-center justify-between gap-1 mb-0.5">
+                                    <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-emerald-900 dark:text-emerald-200 flex items-center gap-0.5">
+                                      <Sparkles className="w-2.5 h-2.5 text-emerald-600 animate-pulse" />
+                                      <span>Actual Yield *</span>
+                                    </span>
+                                    <span className="text-[7.5px] font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                                      Sellable Stock
+                                    </span>
                                   </div>
 
-                                <div className="bg-emerald-50 dark:bg-emerald-950/60 p-1 px-2 rounded border border-emerald-200 dark:border-emerald-800 flex flex-col justify-center">
-                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Bulk Yield</span>
-                                  <div className="text-xs font-mono font-black text-emerald-950 dark:text-emerald-200">
-                                    {goodUnits} {bulkUom}
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      step="any"
+                                      min="0"
+                                      disabled={isViewMode}
+                                      value={alloc.actualYield !== undefined && alloc.actualYield !== null ? alloc.actualYield : goodUnits}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        const val = raw === '' ? '' : parseFloat(raw);
+                                        handleUpdateAllocation(idx, 'actualYield', isNaN(val) ? 0 : val);
+                                      }}
+                                      placeholder={String(goodUnits)}
+                                      className={`h-6 font-mono font-black text-xs border-emerald-400 bg-white dark:bg-slate-900 text-emerald-950 dark:text-emerald-100 ${
+                                        isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''
+                                      }`}
+                                    />
+                                    <span className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 font-mono">{bulkUom}</span>
                                   </div>
-                                  <span className="text-[8.5px] text-emerald-600 dark:text-emerald-400">Direct to sellable stock</span>
+
+                                  <div className="text-[7.5px] font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 flex items-center justify-between leading-tight">
+                                    <span>Direct to sellable stock</span>
+                                    {Number(alloc.actualYield ?? goodUnits) !== goodUnits && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateAllocation(idx, 'actualYield', goodUnits)}
+                                        className="text-amber-700 dark:text-amber-300 font-extrabold underline cursor-pointer"
+                                        title="Reset to calculated bulk yield"
+                                      >
+                                        Reset
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </div>
