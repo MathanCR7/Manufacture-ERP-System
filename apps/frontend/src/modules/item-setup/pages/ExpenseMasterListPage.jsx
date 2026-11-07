@@ -21,7 +21,12 @@ import {
   ArrowUp,
   ArrowDown,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Building2,
+  Percent,
+  Hash,
+  ShieldCheck,
+  FileSpreadsheet
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import { Card, CardContent } from '@/components/ui/card';
@@ -57,7 +62,11 @@ export default function ExpenseMasterListPage() {
       code: '',
       name: '',
       description: '',
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      expenseWithSupplier: false,
+      defaultGstRate: '0',
+      hsnSacCode: '',
+      expenseType: 'INDIRECT'
     }
   });
 
@@ -77,6 +86,7 @@ export default function ExpenseMasterListPage() {
 
   const currentStatus = useWatch({ control, name: 'status', defaultValue: 'ACTIVE' });
   const currentName = useWatch({ control, name: 'name', defaultValue: '' });
+  const currentWithSupplier = useWatch({ control, name: 'expenseWithSupplier', defaultValue: false });
   const [debouncedName, setDebouncedName] = useState('');
   const [nameMatches, setNameMatches] = useState([]);
   const [isNameFocused, setIsNameFocused] = useState(false);
@@ -108,7 +118,11 @@ export default function ExpenseMasterListPage() {
       code: `EXP-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
       name: '',
       description: '',
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      expenseWithSupplier: false,
+      defaultGstRate: '18',
+      hsnSacCode: '',
+      expenseType: 'INDIRECT'
     });
     setIsModalOpen(true);
   };
@@ -120,7 +134,11 @@ export default function ExpenseMasterListPage() {
       code: cat.code || '',
       name: cat.name || '',
       description: cat.description || '',
-      status: cat.status || 'ACTIVE'
+      status: cat.status || 'ACTIVE',
+      expenseWithSupplier: Boolean(cat.expenseWithSupplier),
+      defaultGstRate: cat.defaultGstRate != null ? String(cat.defaultGstRate) : '0',
+      hsnSacCode: cat.hsnSacCode || '',
+      expenseType: cat.expenseType || 'INDIRECT'
     });
     setIsModalOpen(true);
   };
@@ -132,7 +150,11 @@ export default function ExpenseMasterListPage() {
         code: formData.code ? formData.code.trim().toUpperCase() : undefined,
         name: formData.name ? formData.name.trim() : '',
         description: formData.description ? formData.description.trim() : null,
-        status: formData.status || 'ACTIVE'
+        status: formData.status || 'ACTIVE',
+        expenseWithSupplier: Boolean(formData.expenseWithSupplier),
+        defaultGstRate: formData.defaultGstRate !== '' ? parseFloat(formData.defaultGstRate) : 0,
+        hsnSacCode: formData.hsnSacCode ? formData.hsnSacCode.trim().toUpperCase() : null,
+        expenseType: formData.expenseType || 'INDIRECT'
       };
 
       if (editingCategory) {
@@ -289,8 +311,12 @@ export default function ExpenseMasterListPage() {
   const filteredCategories = useMemo(() => {
     let list = [...categories];
 
-    if (statusFilter !== 'ALL') {
-      list = list.filter((c) => (c.status || 'ACTIVE') === statusFilter);
+    if (statusFilter === 'ACTIVE') {
+      list = list.filter((c) => (c.status || 'ACTIVE') === 'ACTIVE');
+    } else if (statusFilter === 'INACTIVE') {
+      list = list.filter((c) => (c.status || 'ACTIVE') === 'INACTIVE');
+    } else if (statusFilter === 'WITH_SUPPLIER') {
+      list = list.filter((c) => Boolean(c.expenseWithSupplier));
     }
 
     if (searchTerm.trim()) {
@@ -299,7 +325,9 @@ export default function ExpenseMasterListPage() {
         (c) =>
           (c.name && c.name.toLowerCase().includes(q)) ||
           (c.code && c.code.toLowerCase().includes(q)) ||
-          (c.description && c.description.toLowerCase().includes(q))
+          (c.hsnSacCode && c.hsnSacCode.toLowerCase().includes(q)) ||
+          (c.description && c.description.toLowerCase().includes(q)) ||
+          (c.expenseType && c.expenseType.toLowerCase().includes(q))
       );
     }
 
@@ -329,11 +357,12 @@ export default function ExpenseMasterListPage() {
     const total = categories.length;
     const active = categories.filter((c) => (c.status || 'ACTIVE') === 'ACTIVE').length;
     const inactive = total - active;
+    const withSupplier = categories.filter((c) => Boolean(c.expenseWithSupplier)).length;
     const totalExpenses = categories.reduce(
       (sum, c) => sum + (c._count?.expenses || (c.expenses ? c.expenses.length : 0)),
       0
     );
-    return { total, active, inactive, totalExpenses };
+    return { total, active, inactive, withSupplier, totalExpenses };
   }, [categories]);
 
   const handleSort = (field) => {
@@ -365,7 +394,7 @@ export default function ExpenseMasterListPage() {
             </span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Standard expense categories linked directly to finance expense entries. Categories in use cannot be deleted.
+            Manage comprehensive expense master categories with supplier requirement tags, HSN/SAC codes, and GST rates for automated finance entry.
           </p>
         </div>
 
@@ -410,11 +439,24 @@ export default function ExpenseMasterListPage() {
         <Card className="rounded-2xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Status</p>
-              <h3 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{stats.active}</h3>
-              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Available in Dropdown</p>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">With Supplier</p>
+              <h3 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{stats.withSupplier}</h3>
+              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Supplier Tagged</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900">
+              <Building2 className="w-5 h-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Status</p>
+              <h3 className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-0.5">{stats.active}</h3>
+              <p className="text-[10px] text-blue-600/80 dark:text-blue-400/80 mt-0.5">In Dropdown</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-100 dark:border-blue-900">
               <CheckCircle2 className="w-5 h-5" />
             </div>
           </CardContent>
@@ -423,22 +465,9 @@ export default function ExpenseMasterListPage() {
         <Card className="rounded-2xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Inactive</p>
-              <h3 className="text-2xl font-black text-slate-500 dark:text-slate-400 mt-0.5">{stats.inactive}</h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">Disabled Categories</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center border border-slate-200 dark:border-slate-700">
-              <XCircle className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Acquired Entries</p>
-              <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5">{stats.totalExpenses}</h3>
-              <p className="text-[10px] text-indigo-600/80 dark:text-indigo-400/80 mt-0.5">Linked Expenses</p>
+              <h3 className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-0.5">{stats.totalExpenses}</h3>
+              <p className="text-[10px] text-purple-600/80 dark:text-purple-400/80 mt-0.5">Linked Expenses</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900">
               <Receipt className="w-5 h-5" />
@@ -457,7 +486,7 @@ export default function ExpenseMasterListPage() {
               setSearchTerm(e.target.value);
               setCurrentPage(1);
             }}
-            placeholder="Search by code, category name, or description..."
+            placeholder="Search code, category name, HSN/SAC, or description..."
             className="pl-9 h-9 text-xs rounded-xl border-slate-200 dark:border-slate-700"
           />
           {searchTerm && (
@@ -473,20 +502,25 @@ export default function ExpenseMasterListPage() {
         <div className="flex items-center gap-2">
           {/* Status Tabs */}
           <div className="flex rounded-xl p-1 bg-slate-100 dark:bg-slate-800 text-xs">
-            {['ALL', 'ACTIVE', 'INACTIVE'].map((st) => (
+            {[
+              { id: 'ALL', label: 'ALL' },
+              { id: 'WITH_SUPPLIER', label: 'WITH SUPPLIER' },
+              { id: 'ACTIVE', label: 'ACTIVE' },
+              { id: 'INACTIVE', label: 'INACTIVE' }
+            ].map((st) => (
               <button
-                key={st}
+                key={st.id}
                 onClick={() => {
-                  setStatusFilter(st);
+                  setStatusFilter(st.id);
                   setCurrentPage(1);
                 }}
                 className={`px-3 py-1 rounded-lg font-bold text-[11px] transition-all ${
-                  statusFilter === st
+                  statusFilter === st.id
                     ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >
-                {st}
+                {st.label}
               </button>
             ))}
           </div>
@@ -508,7 +542,7 @@ export default function ExpenseMasterListPage() {
         </div>
       </div>
 
-      {/* Main Table */}
+      {/* Main Table with Detailed Expense Master Columns */}
       <Card className="rounded-2xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
@@ -516,7 +550,7 @@ export default function ExpenseMasterListPage() {
               <TableRow className="border-b border-slate-200 dark:border-slate-800">
                 <TableHead className="w-12 text-center">#</TableHead>
                 <TableHead
-                  className="cursor-pointer hover:text-indigo-600 transition-colors w-32"
+                  className="cursor-pointer hover:text-indigo-600 transition-colors w-28"
                   onClick={() => handleSort('code')}
                 >
                   <div className="flex items-center gap-1">
@@ -530,7 +564,7 @@ export default function ExpenseMasterListPage() {
                 </TableHead>
 
                 <TableHead
-                  className="cursor-pointer hover:text-indigo-600 transition-colors min-w-[200px]"
+                  className="cursor-pointer hover:text-indigo-600 transition-colors min-w-[180px]"
                   onClick={() => handleSort('name')}
                 >
                   <div className="flex items-center gap-1">
@@ -543,12 +577,20 @@ export default function ExpenseMasterListPage() {
                   </div>
                 </TableHead>
 
-                <TableHead className="min-w-[240px]">Description</TableHead>
+                <TableHead className="w-28 text-center">Nature / Type</TableHead>
 
-                <TableHead className="w-36 text-center">Linked Expenses</TableHead>
+                <TableHead className="w-36 text-center">Supplier Tagging</TableHead>
+
+                <TableHead className="w-24 text-center">HSN / SAC</TableHead>
+
+                <TableHead className="w-24 text-center">Default GST</TableHead>
+
+                <TableHead className="min-w-[180px]">Description</TableHead>
+
+                <TableHead className="w-28 text-center">Linked Entries</TableHead>
 
                 <TableHead
-                  className="cursor-pointer hover:text-indigo-600 transition-colors w-28 text-center"
+                  className="cursor-pointer hover:text-indigo-600 transition-colors w-24 text-center"
                   onClick={() => handleSort('status')}
                 >
                   <div className="flex items-center justify-center gap-1">
@@ -561,7 +603,7 @@ export default function ExpenseMasterListPage() {
                   </div>
                 </TableHead>
 
-                <TableHead className="w-24 text-right pr-4">Actions</TableHead>
+                <TableHead className="w-20 text-right pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
 
@@ -569,14 +611,14 @@ export default function ExpenseMasterListPage() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={7} className="py-4 text-center">
+                    <TableCell colSpan={11} className="py-4 text-center">
                       <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded-md animate-pulse"></div>
                     </TableCell>
                   </TableRow>
                 ))
               ) : paginatedCategories.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-12 text-center text-slate-400">
+                  <TableCell colSpan={11} className="py-12 text-center text-slate-400">
                     <Receipt className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
                     <p className="font-semibold text-sm">No expense categories found</p>
                     <p className="text-xs mt-0.5">Try adjusting your search or add a new master category.</p>
@@ -587,6 +629,7 @@ export default function ExpenseMasterListPage() {
                   const globalIdx = (currentPage - 1) * pageSize + idx + 1;
                   const expenseCount = cat._count?.expenses || (cat.expenses ? cat.expenses.length : 0);
                   const isAcquired = expenseCount > 0;
+                  const isWithSupplier = Boolean(cat.expenseWithSupplier);
 
                   return (
                     <TableRow
@@ -608,6 +651,45 @@ export default function ExpenseMasterListPage() {
                           <Tag className="w-3.5 h-3.5 text-indigo-500" />
                           <span>{cat.name}</span>
                         </div>
+                      </TableCell>
+
+                      {/* Nature / Type */}
+                      <TableCell className="text-center">
+                        <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          {cat.expenseType || 'INDIRECT'}
+                        </span>
+                      </TableCell>
+
+                      {/* Supplier Tagging */}
+                      <TableCell className="text-center">
+                        {isWithSupplier ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <Building2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            With Supplier
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-slate-400 bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800">
+                            Standard
+                          </span>
+                        )}
+                      </TableCell>
+
+                      {/* HSN / SAC */}
+                      <TableCell className="text-center font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        {cat.hsnSacCode ? (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                            {cat.hsnSacCode}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Default GST */}
+                      <TableCell className="text-center">
+                        <span className="font-mono font-bold text-[11px] px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900">
+                          {cat.defaultGstRate != null ? `${cat.defaultGstRate}%` : '0%'}
+                        </span>
                       </TableCell>
 
                       <TableCell className="text-slate-500 dark:text-slate-400 max-w-xs truncate">
@@ -703,15 +785,15 @@ export default function ExpenseMasterListPage() {
         )}
       </Card>
 
-      {/* Add / Edit Expense Category Modal */}
+      {/* Add / Edit Expense Category Modal with Detailed Fields */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 backdrop-blur-[2px] bg-slate-900/[0.04] dark:bg-slate-950/20 pointer-events-auto animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 backdrop-blur-[2px] bg-slate-900/[0.1] dark:bg-slate-950/40 pointer-events-auto animate-in fade-in duration-200"
           onClick={() => setIsModalOpen(false)}
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-[0_25px_70px_-15px_rgba(15,23,42,0.22),0_0_0_1px_rgba(226,232,240,0.85)] dark:shadow-[0_25px_70px_-15px_rgba(0,0,0,0.7),0_0_0_1px_rgba(30,41,59,0.85)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
+            className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-3xl shadow-[0_25px_70px_-15px_rgba(15,23,42,0.25)] border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[92vh]"
           >
             {/* Top Accent Gradient Bar */}
             <div className="h-1.5 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600" />
@@ -730,9 +812,7 @@ export default function ExpenseMasterListPage() {
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {editingCategory
-                      ? 'Update category name, code, or active status'
-                      : 'Define a new standard master category for expenses'}
+                    Configure master category rules, supplier association, default GST, and HSN/SAC code
                   </p>
                 </div>
               </div>
@@ -747,8 +827,8 @@ export default function ExpenseMasterListPage() {
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleSubmit((data) => saveMutation.mutate(data))} className="flex flex-col">
-              <div className="p-6 space-y-4.5">
+            <form onSubmit={handleSubmit((data) => saveMutation.mutate(data))} className="flex flex-col flex-1 overflow-y-auto">
+              <div className="p-6 space-y-4">
                 {/* Category Code */}
                 <div>
                   <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
@@ -767,7 +847,7 @@ export default function ExpenseMasterListPage() {
                   <Input
                     {...register('code', { required: 'Code is required' })}
                     placeholder="e.g. EXP-OFF, EXP-UTL"
-                    className="h-10.5 px-3.5 text-xs font-mono uppercase font-bold tracking-wider rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/50 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    className="h-10 px-3.5 text-xs font-mono uppercase font-bold tracking-wider rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-950/50 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                   />
                   {errors.code && <p className="text-rose-500 text-[11px] font-medium mt-1">{errors.code.message}</p>}
                 </div>
@@ -788,14 +868,14 @@ export default function ExpenseMasterListPage() {
                       register('name').onBlur?.(e);
                       setTimeout(() => setIsNameFocused(false), 200);
                     }}
-                    placeholder="e.g. Office Supplies, Maintenance, Raw Materials..."
-                    className="h-10.5 px-3.5 text-xs font-semibold rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    placeholder="e.g. Office Supplies, Vendor Maintenance, Freight Inward..."
+                    className="h-10 px-3.5 text-xs font-semibold rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                   />
                   {errors.name && <p className="text-rose-500 text-[11px] font-medium mt-1">{errors.name.message}</p>}
 
-                  {/* Similar Duplicate Warn overlay - Only display when focused on Category Name */}
+                  {/* Similar Duplicate Warn overlay */}
                   {isNameFocused && nameMatches.length > 0 && (
-                    <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/90 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start justify-between gap-2 animate__animated animate__fadeIn">
+                    <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/90 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2 flex-1">
                         <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div>
@@ -822,6 +902,91 @@ export default function ExpenseMasterListPage() {
                   )}
                 </div>
 
+                {/* 🌟 EXPENSE WITH SUPPLIER CHECKBOX CARD (Explicit User Request) */}
+                <div className={`p-3.5 rounded-2xl border transition-all ${
+                  currentWithSupplier
+                    ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/60 dark:bg-emerald-950/30 ring-1 ring-emerald-500/20'
+                    : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50'
+                }`}>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      {...register('expenseWithSupplier')}
+                      className="mt-0.5 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 dark:border-slate-600 cursor-pointer"
+                    />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <Building2 className={`w-4 h-4 ${currentWithSupplier ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`} />
+                          Expense with Supplier
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          currentWithSupplier
+                            ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                        }`}>
+                          {currentWithSupplier ? 'ENABLED' : 'OPTIONAL'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                        When enabled, entries under this category on the <strong className="text-indigo-600 dark:text-indigo-400">/finance/expenses</strong> page will automatically display the <strong>Supplier search dropdown</strong>, invoice number, and full <strong>GST tax breakdown (CGST/SGST/IGST)</strong> just like on Purchase Orders.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* 3-Column Detailed Master Settings: Nature, Default GST %, HSN/SAC */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Expense Nature / Type */}
+                  <div>
+                    <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 block">
+                      Expense Nature
+                    </Label>
+                    <select
+                      {...register('expenseType')}
+                      className="w-full h-10 px-2.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    >
+                      <option value="INDIRECT">INDIRECT (Admin / Sales)</option>
+                      <option value="DIRECT">DIRECT (Production / COGS)</option>
+                      <option value="OPERATIONAL">OPERATIONAL</option>
+                      <option value="FINANCIAL">FINANCIAL</option>
+                    </select>
+                  </div>
+
+                  {/* Default GST Rate */}
+                  <div>
+                    <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Percent className="w-3.5 h-3.5 text-indigo-500" />
+                        Default GST %
+                      </span>
+                    </Label>
+                    <select
+                      {...register('defaultGstRate')}
+                      className="w-full h-10 px-2.5 text-xs font-bold font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                    >
+                      <option value="0">0% (Exempt)</option>
+                      <option value="5">5% GST</option>
+                      <option value="12">12% GST</option>
+                      <option value="18">18% GST (Standard)</option>
+                      <option value="28">28% GST</option>
+                    </select>
+                  </div>
+
+                  {/* HSN / SAC Code */}
+                  <div>
+                    <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
+                      <Hash className="w-3.5 h-3.5 text-indigo-500" />
+                      HSN / SAC Code
+                    </Label>
+                    <Input
+                      {...register('hsnSacCode')}
+                      placeholder="e.g. 998311"
+                      className="h-10 px-3 text-xs font-mono uppercase rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+                </div>
+
                 {/* Description / Purpose */}
                 <div>
                   <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 block">
@@ -829,9 +994,9 @@ export default function ExpenseMasterListPage() {
                   </Label>
                   <textarea
                     {...register('description')}
-                    rows={3}
+                    rows={2}
                     placeholder="Optional brief description of what expenses fall under this category..."
-                    className="w-full p-3 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 resize-none transition-all leading-relaxed"
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 resize-none transition-all leading-relaxed"
                   />
                 </div>
 
@@ -842,7 +1007,7 @@ export default function ExpenseMasterListPage() {
                   </Label>
                   <div className="grid grid-cols-2 gap-2.5">
                     <label 
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
                         currentStatus === 'ACTIVE'
                           ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 shadow-xs ring-1 ring-emerald-500/30'
                           : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-400'
@@ -861,7 +1026,7 @@ export default function ExpenseMasterListPage() {
                     </label>
 
                     <label 
-                      className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${
+                      className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
                         currentStatus === 'INACTIVE'
                           ? 'border-slate-400 bg-slate-100/90 dark:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-xs ring-1 ring-slate-400/30'
                           : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-400'
@@ -879,7 +1044,7 @@ export default function ExpenseMasterListPage() {
                       </div>
                     </label>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1.5">
+                  <p className="text-[10px] text-slate-400 mt-1">
                     Only ACTIVE categories appear in the finance expense creation and editing dropdown.
                   </p>
                 </div>

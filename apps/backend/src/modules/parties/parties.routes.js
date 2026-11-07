@@ -8,8 +8,8 @@ const router = express.Router();
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// Allow MAIN_MASTER, SUPERVISOR, PURCHASE_ACCOUNTANT, and SALES_TEAM to access parties
-const allowedRoles = ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'];
+// Allow MAIN_MASTER, SUPERVISOR, PURCHASE_ACCOUNTANT, SALES_TEAM, ACCOUNTANT, and MANAGER to access parties
+const allowedRoles = ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM', 'ACCOUNTANT', 'MANAGER'];
 
 router.post('/customers', roleMiddleware(allowedRoles), PartiesController.createCustomer);
 router.get('/customers', roleMiddleware(allowedRoles), PartiesController.getCustomers);

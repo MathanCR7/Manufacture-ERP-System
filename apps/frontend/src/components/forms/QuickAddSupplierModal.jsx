@@ -231,7 +231,7 @@ export default function QuickAddSupplierModal({ onAdded, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
+    <div className="fixed inset-0 z-[1000000] bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300">
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 md:p-8 w-full max-w-2xl shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto transform animate-in zoom-in-95 duration-200">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Quick Add Supplier</h2>

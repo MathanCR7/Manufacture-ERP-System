@@ -532,34 +532,53 @@ model Customer {
 }
 
 model Expense {
-  id              String           @id @default(uuid())
-  title           String
-  amount          Decimal
-  category        String
-  categoryId      String?
-  expenseCategory ExpenseCategory? @relation(fields: [categoryId], references: [id])
-  date            DateTime
-  notes           String?          @db.Text
-  attachments     String?          @db.Text
-  createdBy       String
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                  String           @id @default(uuid())
+  title               String
+  amount              Decimal
+  category            String
+  categoryId          String?
+  expenseCategory     ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  date                DateTime
+  notes               String?          @db.Text
+  attachments         String?          @db.Text
+  isSupplierExpense   Boolean          @default(false)
+  supplierId          String?
+  supplierName        String?
+  supplierGstin       String?
+  invoiceNo           String?
+  invoiceDate         DateTime?
+  taxableAmount       Decimal?
+  gstPercentage       Decimal?         @default(0)
+  cgstAmount          Decimal?         @default(0)
+  sgstAmount          Decimal?         @default(0)
+  igstAmount          Decimal?         @default(0)
+  totalAmount         Decimal?
+  isInterState        Boolean          @default(false)
+  hsnSacCode          String?
+  createdBy           String
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   user User @relation(fields: [createdBy], references: [id])
 
   @@index([categoryId])
+  @@index([supplierId])
 }
 
 model ExpenseCategory {
-  id          String    @id @default(uuid())
-  code        String?   @unique
-  name        String
-  description String?   @db.Text
-  status      String    @default("ACTIVE") // ACTIVE / INACTIVE
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  code                String?   @unique
+  name                String
+  description         String?   @db.Text
+  status              String    @default("ACTIVE") // ACTIVE / INACTIVE
+  expenseWithSupplier Boolean   @default(false)
+  defaultGstRate      Decimal?  @default(0)
+  hsnSacCode          String?
+  expenseType         String?   @default("INDIRECT")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  expenses    Expense[]
+  expenses            Expense[]
 
   @@index([name])
 }

@@ -161,7 +161,12 @@ const createExpense = async (req, res, next) => {
       return createBulkExpenses(req, res, next);
     }
 
-    const { title, amount, category, categoryId, date, notes, attachments } = req.body;
+    const {
+      title, amount, category, categoryId, date, notes, attachments,
+      isSupplierExpense, supplierId, supplierName, supplierGstin,
+      invoiceNo, invoiceDate, taxableAmount, gstPercentage,
+      cgstAmount, sgstAmount, igstAmount, totalAmount, isInterState, hsnSacCode
+    } = req.body;
     const userId = req.user.id;
 
     if (!title || amount === undefined || (!category && !categoryId) || !date) {
@@ -175,6 +180,37 @@ const createExpense = async (req, res, next) => {
 
     const { categoryId: resolvedCatId, category: resolvedCatName } = await resolveCategoryData(category, categoryId);
 
+    let finalSupplierName = supplierName ? String(supplierName).trim() : null;
+    let finalSupplierGstin = supplierGstin ? String(supplierGstin).trim() : null;
+    if (supplierId && (!finalSupplierName || !finalSupplierGstin)) {
+      try {
+        const sup = await prisma.supplier.findUnique({ where: { id: supplierId } });
+        if (sup) {
+          finalSupplierName = sup.name;
+          finalSupplierGstin = sup.gstin || null;
+        }
+      } catch (_) {}
+    }
+
+    const numTaxable = (taxableAmount !== undefined && taxableAmount !== null && taxableAmount !== '')
+      ? parseFloat(taxableAmount)
+      : numericAmount;
+    const numGstPct = (gstPercentage !== undefined && gstPercentage !== null && gstPercentage !== '')
+      ? parseFloat(gstPercentage)
+      : 0;
+    const numCgst = (cgstAmount !== undefined && cgstAmount !== null && cgstAmount !== '')
+      ? parseFloat(cgstAmount)
+      : 0;
+    const numSgst = (sgstAmount !== undefined && sgstAmount !== null && sgstAmount !== '')
+      ? parseFloat(sgstAmount)
+      : 0;
+    const numIgst = (igstAmount !== undefined && igstAmount !== null && igstAmount !== '')
+      ? parseFloat(igstAmount)
+      : 0;
+    const numTotal = (totalAmount !== undefined && totalAmount !== null && totalAmount !== '')
+      ? parseFloat(totalAmount)
+      : (numericAmount || (numTaxable + numCgst + numSgst + numIgst));
+
     let parsedAttachments = [];
     if (attachments) {
       parsedAttachments = Array.isArray(attachments)
@@ -185,12 +221,26 @@ const createExpense = async (req, res, next) => {
     const expense = await prisma.expense.create({
       data: {
         title: title.trim(),
-        amount: numericAmount,
+        amount: numTotal || numericAmount,
         category: resolvedCatName,
         categoryId: resolvedCatId,
         date: new Date(date),
         notes: notes ? String(notes).trim() : null,
         attachments: parsedAttachments.length > 0 ? JSON.stringify(parsedAttachments) : null,
+        isSupplierExpense: Boolean(isSupplierExpense || supplierId),
+        supplierId: supplierId || null,
+        supplierName: finalSupplierName,
+        supplierGstin: finalSupplierGstin,
+        invoiceNo: invoiceNo ? String(invoiceNo).trim() : null,
+        invoiceDate: invoiceDate ? new Date(invoiceDate) : null,
+        taxableAmount: numTaxable,
+        gstPercentage: numGstPct,
+        cgstAmount: numCgst,
+        sgstAmount: numSgst,
+        igstAmount: numIgst,
+        totalAmount: numTotal,
+        isInterState: Boolean(isInterState),
+        hsnSacCode: hsnSacCode ? String(hsnSacCode).trim() : null,
         createdBy: userId
       },
       include: {
@@ -281,15 +331,48 @@ const createBulkExpenses = async (req, res, next) => {
           : (typeof item.attachments === 'string' ? JSON.parse(item.attachments) : []);
       }
 
+      const numTaxable = (item.taxableAmount !== undefined && item.taxableAmount !== null && item.taxableAmount !== '')
+        ? parseFloat(item.taxableAmount)
+        : numAmt;
+      const numGstPct = (item.gstPercentage !== undefined && item.gstPercentage !== null && item.gstPercentage !== '')
+        ? parseFloat(item.gstPercentage)
+        : 0;
+      const numCgst = (item.cgstAmount !== undefined && item.cgstAmount !== null && item.cgstAmount !== '')
+        ? parseFloat(item.cgstAmount)
+        : 0;
+      const numSgst = (item.sgstAmount !== undefined && item.sgstAmount !== null && item.sgstAmount !== '')
+        ? parseFloat(item.sgstAmount)
+        : 0;
+      const numIgst = (item.igstAmount !== undefined && item.igstAmount !== null && item.igstAmount !== '')
+        ? parseFloat(item.igstAmount)
+        : 0;
+      const numTotal = (item.totalAmount !== undefined && item.totalAmount !== null && item.totalAmount !== '')
+        ? parseFloat(item.totalAmount)
+        : (numAmt || (numTaxable + numCgst + numSgst + numIgst));
+
       validExpenses.push({
         title: item.title.trim(),
-        amount: numAmt,
+        amount: numTotal || numAmt,
         category: resolvedCatName,
         categoryId: resolvedCatId,
         date: new Date(item.date),
         notes: item.notes ? String(item.notes).trim() : null,
         attachments: atts.length > 0 ? JSON.stringify(atts) : null,
         rawAttachments: atts,
+        isSupplierExpense: Boolean(item.isSupplierExpense || item.supplierId),
+        supplierId: item.supplierId || null,
+        supplierName: item.supplierName ? String(item.supplierName).trim() : null,
+        supplierGstin: item.supplierGstin ? String(item.supplierGstin).trim() : null,
+        invoiceNo: item.invoiceNo ? String(item.invoiceNo).trim() : null,
+        invoiceDate: item.invoiceDate ? new Date(item.invoiceDate) : null,
+        taxableAmount: numTaxable,
+        gstPercentage: numGstPct,
+        cgstAmount: numCgst,
+        sgstAmount: numSgst,
+        igstAmount: numIgst,
+        totalAmount: numTotal,
+        isInterState: Boolean(item.isInterState),
+        hsnSacCode: item.hsnSacCode ? String(item.hsnSacCode).trim() : null,
         createdBy: userId
       });
     }
@@ -445,8 +528,18 @@ const getExpenses = async (req, res, next) => {
         { title: { contains: search, mode: 'insensitive' } },
         { notes: { contains: search, mode: 'insensitive' } },
         { category: { contains: search, mode: 'insensitive' } },
+        { supplierName: { contains: search, mode: 'insensitive' } },
+        { supplierGstin: { contains: search, mode: 'insensitive' } },
+        { invoiceNo: { contains: search, mode: 'insensitive' } },
         { user: { name: { contains: search, mode: 'insensitive' } } }
       ];
+    }
+
+    if (req.query.supplierId) {
+      where.supplierId = req.query.supplierId;
+    }
+    if (req.query.isSupplierExpense !== undefined && req.query.isSupplierExpense !== '') {
+      where.isSupplierExpense = req.query.isSupplierExpense === 'true' || req.query.isSupplierExpense === true;
     }
 
     const expenses = await prisma.expense.findMany({
@@ -481,7 +574,12 @@ const getExpenses = async (req, res, next) => {
 const updateExpense = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { title, amount, category, categoryId, date, notes, attachments } = req.body;
+    const {
+      title, amount, category, categoryId, date, notes, attachments,
+      isSupplierExpense, supplierId, supplierName, supplierGstin,
+      invoiceNo, invoiceDate, taxableAmount, gstPercentage,
+      cgstAmount, sgstAmount, igstAmount, totalAmount, isInterState, hsnSacCode
+    } = req.body;
     const userId = req.user.id;
 
     if (!title || amount === undefined || (!category && !categoryId) || !date) {
@@ -497,6 +595,39 @@ const updateExpense = async (req, res, next) => {
     if (!existing) {
       return res.status(404).json({ error: 'Expense not found.' });
     }
+
+    let finalSupplierName = supplierName !== undefined ? (supplierName ? String(supplierName).trim() : null) : existing.supplierName;
+    let finalSupplierGstin = supplierGstin !== undefined ? (supplierGstin ? String(supplierGstin).trim() : null) : existing.supplierGstin;
+    const targetSupplierId = supplierId !== undefined ? (supplierId || null) : existing.supplierId;
+
+    if (targetSupplierId && (!finalSupplierName || !finalSupplierGstin)) {
+      try {
+        const sup = await prisma.supplier.findUnique({ where: { id: targetSupplierId } });
+        if (sup) {
+          finalSupplierName = sup.name;
+          finalSupplierGstin = sup.gstin || null;
+        }
+      } catch (_) {}
+    }
+
+    const numTaxable = (taxableAmount !== undefined && taxableAmount !== null && taxableAmount !== '')
+      ? parseFloat(taxableAmount)
+      : (existing.taxableAmount ? parseFloat(existing.taxableAmount) : numericAmount);
+    const numGstPct = (gstPercentage !== undefined && gstPercentage !== null && gstPercentage !== '')
+      ? parseFloat(gstPercentage)
+      : (existing.gstPercentage ? parseFloat(existing.gstPercentage) : 0);
+    const numCgst = (cgstAmount !== undefined && cgstAmount !== null && cgstAmount !== '')
+      ? parseFloat(cgstAmount)
+      : (existing.cgstAmount ? parseFloat(existing.cgstAmount) : 0);
+    const numSgst = (sgstAmount !== undefined && sgstAmount !== null && sgstAmount !== '')
+      ? parseFloat(sgstAmount)
+      : (existing.sgstAmount ? parseFloat(existing.sgstAmount) : 0);
+    const numIgst = (igstAmount !== undefined && igstAmount !== null && igstAmount !== '')
+      ? parseFloat(igstAmount)
+      : (existing.igstAmount ? parseFloat(existing.igstAmount) : 0);
+    const numTotal = (totalAmount !== undefined && totalAmount !== null && totalAmount !== '')
+      ? parseFloat(totalAmount)
+      : (numericAmount || (numTaxable + numCgst + numSgst + numIgst));
 
     // Storage Management: Prune removed attachments from disk to free up space
     let incomingAttachments = [];
@@ -520,15 +651,29 @@ const updateExpense = async (req, res, next) => {
       where: { id },
       data: {
         title: title.trim(),
-        amount: numericAmount,
+        amount: numTotal || numericAmount,
         category: resolvedCatName,
         categoryId: resolvedCatId,
         date: new Date(date),
         notes: notes !== undefined ? (notes ? String(notes).trim() : null) : existing.notes,
-        attachments: finalAttachments.length > 0 ? JSON.stringify(finalAttachments) : null
+        attachments: finalAttachments.length > 0 ? JSON.stringify(finalAttachments) : null,
+        isSupplierExpense: isSupplierExpense !== undefined ? Boolean(isSupplierExpense || targetSupplierId) : existing.isSupplierExpense,
+        supplierId: targetSupplierId,
+        supplierName: finalSupplierName,
+        supplierGstin: finalSupplierGstin,
+        invoiceNo: invoiceNo !== undefined ? (invoiceNo ? String(invoiceNo).trim() : null) : existing.invoiceNo,
+        invoiceDate: invoiceDate !== undefined ? (invoiceDate ? new Date(invoiceDate) : null) : existing.invoiceDate,
+        taxableAmount: numTaxable,
+        gstPercentage: numGstPct,
+        cgstAmount: numCgst,
+        sgstAmount: numSgst,
+        igstAmount: numIgst,
+        totalAmount: numTotal,
+        isInterState: isInterState !== undefined ? Boolean(isInterState) : existing.isInterState,
+        hsnSacCode: hsnSacCode !== undefined ? (hsnSacCode ? String(hsnSacCode).trim() : null) : existing.hsnSacCode
       },
       include: {
-        expenseCategory: { select: { id: true, name: true, code: true } },
+        expenseCategory: { select: { id: true, name: true, code: true, status: true, expenseWithSupplier: true, defaultGstRate: true, hsnSacCode: true } },
         user: { select: { id: true, name: true, email: true } }
       }
     });

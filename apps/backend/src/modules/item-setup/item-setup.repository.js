@@ -176,7 +176,12 @@ class ItemSetupRepository {
       ...data,
       name: data.name ? data.name.trim() : data.name,
       code: data.code ? data.code.trim().toUpperCase() : undefined,
-      status: data.status || 'ACTIVE'
+      description: data.description ? data.description.trim() : null,
+      status: data.status || 'ACTIVE',
+      expenseWithSupplier: Boolean(data.expenseWithSupplier),
+      defaultGstRate: (data.defaultGstRate !== undefined && data.defaultGstRate !== null && data.defaultGstRate !== '') ? parseFloat(data.defaultGstRate) : 0,
+      hsnSacCode: data.hsnSacCode ? data.hsnSacCode.trim() : null,
+      expenseType: data.expenseType || 'INDIRECT'
     };
     return prisma.expenseCategory.create({ data: formattedData });
   }
@@ -208,6 +213,17 @@ class ItemSetupRepository {
     const { id: _, createdAt, updatedAt, expenses, _count, ...updateData } = data;
     if (updateData.name) updateData.name = updateData.name.trim();
     if (updateData.code) updateData.code = updateData.code.trim().toUpperCase();
+    if (updateData.description !== undefined) updateData.description = updateData.description ? updateData.description.trim() : null;
+    if (updateData.expenseWithSupplier !== undefined) updateData.expenseWithSupplier = Boolean(updateData.expenseWithSupplier);
+    if (updateData.defaultGstRate !== undefined && updateData.defaultGstRate !== null && updateData.defaultGstRate !== '') {
+      updateData.defaultGstRate = parseFloat(updateData.defaultGstRate);
+    }
+    if (updateData.hsnSacCode !== undefined) {
+      updateData.hsnSacCode = updateData.hsnSacCode ? updateData.hsnSacCode.trim() : null;
+    }
+    if (updateData.expenseType !== undefined) {
+      updateData.expenseType = updateData.expenseType || 'INDIRECT';
+    }
     return prisma.expenseCategory.update({ where: { id }, data: updateData });
   }
   async deleteExpenseCategory(id) {
