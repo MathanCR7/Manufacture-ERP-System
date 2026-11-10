@@ -65,7 +65,8 @@ const UOM_PRESETS = [
   // Volume
   { label: '1 Liter = 1000 ml', category: 'Volume', base: 'liter', alt: 'ml', baseQty: 1, altQty: 1000 },
   { label: '1000 ml = 1 Liter', category: 'Volume', base: 'ml', alt: 'liter', baseQty: 1000, altQty: 1 },
-  { label: '1 Gallon = 3.785 L', category: 'Volume', base: 'gallon', alt: 'liter', baseQty: 1, altQty: 3.785 },
+  { label: '1 Gallon = 2 L (2,000 ml)', category: 'Volume', base: 'gallon', alt: 'liter', baseQty: 1, altQty: 2 },
+  { label: '1 US Gallon = 3.785 L', category: 'Volume', base: 'gallon', alt: 'liter', baseQty: 1, altQty: 3.785 },
   // Weight
   { label: '1 kg = 1000 gm', category: 'Weight', base: 'kg', alt: 'gm', baseQty: 1, altQty: 1000 },
   { label: '1000 gm = 1 kg', category: 'Weight', base: 'gm', alt: 'kg', baseQty: 1000, altQty: 1 },

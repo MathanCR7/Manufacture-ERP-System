@@ -50,6 +50,11 @@ function toMl(qty, uom, density = 1.0) {
     case 'litres':
       return numQty * 1000;
 
+    case 'gallon':
+    case 'gallons':
+    case 'gal':
+      return numQty * 2000;
+
     case 'g':
     case 'gm':
     case 'gms':
@@ -395,7 +400,7 @@ function calculateAllocations({
       // Bulk Storage Mode: Gallon, Liter, Tub or Piece
       const bulkUom = String(item.bulkUom || item.uom || 'L').toLowerCase();
       if (bulkUom.includes('gallon')) {
-        goodPieces = round2(usableMixMl / 3785.41);
+        goodPieces = round2(usableMixMl / 2000);
       } else if (bulkUom.includes('liter') || bulkUom.includes('ltr') || bulkUom === 'l') {
         goodPieces = round2(usableMixMl / 1000);
       } else if (effectiveCapacityMl > 0) {

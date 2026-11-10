@@ -248,6 +248,9 @@ const getPrmMixMl = (p, master = null) => {
   if (['l', 'ltr', 'liter', 'litre', 'liters', 'litres'].includes(u)) {
     return q * 1000;
   }
+  if (['gallon', 'gallons', 'gal'].includes(u)) {
+    return q * 2000;
+  }
   if (['kg', 'kgs', 'kilo', 'kilogram', 'kilograms'].includes(u)) {
     return (q * 1000) / d;
   }
@@ -4424,7 +4427,7 @@ export default function ProductionFloorCockpitModal({
                     } else {
                       const uomLower = bulkUom.toLowerCase();
                       let unitMl = 1000;
-                      if (uomLower.includes('gallon')) unitMl = 3785.41;
+                      if (uomLower.includes('gallon')) unitMl = 2000;
                       else if (uomLower.includes('tub')) unitMl = 5000;
                       else if (uomLower.includes('can')) unitMl = 20000;
                       if (liveAlloc.theoreticalGoodPieces !== undefined && liveAlloc.theoreticalGoodPieces !== null) {
@@ -5011,7 +5014,7 @@ export default function ProductionFloorCockpitModal({
                                     className={`w-full h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-xs font-bold outline-none ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : 'cursor-pointer'}`}
                                   >
                                     <option value="Liter">Liter (1,000 ml)</option>
-                                    <option value="Gallon">Gallon (3,785 ml)</option>
+                                    <option value="Gallon">Gallon (2,000 ml)</option>
                                     <option value="Tub (5L)">Tub (5 Litres)</option>
                                     <option value="Can (20L)">Can (20 Litres)</option>
                                   </select>
@@ -5875,7 +5878,7 @@ export default function ProductionFloorCockpitModal({
                           } else {
                             const uLower = bUom.toLowerCase();
                             let cap = 1000;
-                            if (uLower.includes('gallon')) cap = 3785.41;
+                            if (uLower.includes('gallon')) cap = 2000;
                             else if (uLower.includes('tub')) cap = 5000;
                             else if (uLower.includes('can')) cap = 20000;
                             outQty = Number((totMl / cap).toFixed(2));
