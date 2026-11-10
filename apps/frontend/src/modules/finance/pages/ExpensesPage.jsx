@@ -25,6 +25,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import useCompanyStore from '@/app/store/companyStore';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 import GstCalculationModal, { calculateGstBreakdown } from '@/modules/purchase/components/GstCalculationModal';
+import PaymentFieldsSection, { ImagePreviewModal, resolvePaymentImageUrl, PAYMENT_MODES } from '@/modules/purchase/components/PaymentFieldsSection';
 
 // Helper to construct fully qualified static file URL
 const getFileUrl = (url) => {
@@ -807,19 +808,22 @@ function downloadExpensesCSV(expensesList, filenamePrefix = 'expenses') {
     return;
   }
 
-  const headers = ['ID', 'Date', 'Expense Title', 'Category', 'Supplier', 'Supplier GSTIN', 'Invoice No', 'Taxable (INR)', 'GST %', 'CGST', 'SGST', 'IGST', 'Total Amount (INR)', 'Recorded By', 'Attachments Count', 'Notes'];
+  const headers = ['Expense No', 'Date', 'Expense Title', 'Category', 'Supplier', 'Supplier GSTIN', 'Invoice No', 'Payment Mode', 'Payment Status', 'Paid Amount (INR)', 'Taxable (INR)', 'GST %', 'CGST', 'SGST', 'IGST', 'Total Amount (INR)', 'Recorded By', 'Attachments Count', 'Notes'];
   const csvRows = [headers.join(',')];
 
   expensesList.forEach(item => {
     const attCount = Array.isArray(item.attachments) ? item.attachments.length : 0;
     const row = [
-      `"${item.id || ''}"`,
+      `"${item.expenseNumber || ''}"`,
       `"${new Date(item.date).toISOString().split('T')[0]}"`,
       `"${(item.title || '').replace(/"/g, '""')}"`,
       `"${item.category || ''}"`,
       `"${(item.supplierName || '').replace(/"/g, '""')}"`,
       `"${item.supplierGstin || ''}"`,
       `"${item.invoiceNo || ''}"`,
+      `"${item.paymentMode || 'CASH'}"`,
+      `"${item.paymentStatus || 'PAID'}"`,
+      Number(item.paidAmount || 0).toFixed(2),
       Number(item.taxableAmount || item.amount || 0).toFixed(2),
       Number(item.gstPercentage || 0).toFixed(0),
       Number(item.cgstAmount || 0).toFixed(2),
@@ -885,22 +889,64 @@ export default function ExpensesPage() {
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
   const [targetRowIdxForNewSupplier, setTargetRowIdxForNewSupplier] = useState(null);
 
+  // Running Expense Number Query
+  const { data: nextExpenseNumberData, refetch: refetchNextNumber } = useQuery({
+    queryKey: ['expense-next-number'],
+    queryFn: async () => {
+      const res = await api.get('/finance/expenses/next-number');
+      return res.data?.nextNumber || 'EXP-000001';
+    }
+  });
+  const candidateExpenseNumber = nextExpenseNumberData || 'EXP-000001';
+
+  // Fullscreen Attachment (Image / PDF) Preview State
+  const [previewAttachmentUrl, setPreviewAttachmentUrl] = useState(null);
+  const [previewAttachmentTitle, setPreviewAttachmentTitle] = useState('Expense Attachment');
+
+  const handlePreviewAttachment = (file) => {
+    if (!file) return;
+    const url = file.url || file;
+    const fullUrl = getFileUrl(url);
+    const isPdf = (file.type && file.type.includes('pdf')) || (typeof url === 'string' && url.toLowerCase().endsWith('.pdf'));
+
+    if (isPdf) {
+      window.open(fullUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      setPreviewAttachmentUrl(fullUrl);
+      setPreviewAttachmentTitle(file.name || file.originalName || 'Attachment Preview');
+    }
+  };
+
   // Attachments State for Modals
   const [rowAttachmentModalIdx, setRowAttachmentModalIdx] = useState(null);
   const [editAttachments, setEditAttachments] = useState([]);
   const [viewingAttachmentsExpense, setViewingAttachmentsExpense] = useState(null);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
-  // Section 4 Financial Summary Extra Charges (Discount, Shipping, Other Charges)
+  // Section 4 Financial Summary Individual Extra Charges with Dedicated GST Checkboxes & Rates
   const [batchDiscount, setBatchDiscount] = useState('0');
   const [batchShipping, setBatchShipping] = useState('0');
   const [batchShippingGstApplicable, setBatchShippingGstApplicable] = useState(false);
   const [batchShippingGstPercentage, setBatchShippingGstPercentage] = useState(18);
+  const [batchPacking, setBatchPacking] = useState('0');
+  const [batchPackingGstApplicable, setBatchPackingGstApplicable] = useState(false);
+  const [batchPackingGstPercentage, setBatchPackingGstPercentage] = useState(18);
+  const [batchLoading, setBatchLoading] = useState('0');
+  const [batchLoadingGstApplicable, setBatchLoadingGstApplicable] = useState(false);
+  const [batchLoadingGstPercentage, setBatchLoadingGstPercentage] = useState(18);
   const [batchOtherCharges, setBatchOtherCharges] = useState('0');
-  const [batchOtherChargesLabel, setBatchOtherChargesLabel] = useState('Loading & Unloading');
+  const [batchOtherChargesLabel, setBatchOtherChargesLabel] = useState('Other Charges');
   const [batchOtherChargesGstApplicable, setBatchOtherChargesGstApplicable] = useState(false);
   const [batchOtherChargesGstPercentage, setBatchOtherChargesGstPercentage] = useState(18);
   const [batchRemarks, setBatchRemarks] = useState('');
+
+  // Section 5 Payment & Settlement Details State (PO Compatible)
+  const [batchPaymentStatus, setBatchPaymentStatus] = useState('PAID');
+  const [batchPaidAmount, setBatchPaidAmount] = useState('0');
+  const [batchPaymentMode, setBatchPaymentMode] = useState('CASH');
+  const [batchPaymentRef, setBatchPaymentRef] = useState('');
+  const [batchPaymentImage, setBatchPaymentImage] = useState(null);
+  const [batchPaymentNotes, setBatchPaymentNotes] = useState('');
 
   // 1. Fetch Dynamic Expense Master Categories
   const { data: masterCategories = [] } = useQuery({
@@ -1174,6 +1220,7 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
       queryClient.invalidateQueries({ queryKey: ['expenses-summary'] });
       queryClient.invalidateQueries({ queryKey: ['expense-categories'] });
+      queryClient.invalidateQueries({ queryKey: ['expense-next-number'] });
       showCustomToast(
         'Expenses Saved!',
         `Successfully recorded ${data.count || data.expenses?.length || 1} expense(s).`,
@@ -1195,6 +1242,7 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ['expenses'] });
       queryClient.invalidateQueries({ queryKey: ['expenses-summary'] });
       queryClient.invalidateQueries({ queryKey: ['expense-categories'] });
+      queryClient.invalidateQueries({ queryKey: ['expense-next-number'] });
       showCustomToast('Expense Updated!', 'The expense entry has been updated.', 'success');
       setEditingExpense(null);
     },
@@ -1238,6 +1286,7 @@ export default function ExpensesPage() {
 
   // Handlers for Multi-Entry Grid
   const handleOpenMultiModal = () => {
+    refetchNextNumber();
     setBatchRows([
       getInitialBatchRow(1),
       getInitialBatchRow(2),
@@ -1247,11 +1296,23 @@ export default function ExpensesPage() {
     setBatchShipping('0');
     setBatchShippingGstApplicable(false);
     setBatchShippingGstPercentage(18);
+    setBatchPacking('0');
+    setBatchPackingGstApplicable(false);
+    setBatchPackingGstPercentage(18);
+    setBatchLoading('0');
+    setBatchLoadingGstApplicable(false);
+    setBatchLoadingGstPercentage(18);
     setBatchOtherCharges('0');
-    setBatchOtherChargesLabel('Loading & Unloading');
+    setBatchOtherChargesLabel('Other Charges');
     setBatchOtherChargesGstApplicable(false);
     setBatchOtherChargesGstPercentage(18);
     setBatchRemarks('');
+    setBatchPaymentStatus('PAID');
+    setBatchPaidAmount('0');
+    setBatchPaymentMode('CASH');
+    setBatchPaymentRef('');
+    setBatchPaymentImage(null);
+    setBatchPaymentNotes('');
     setIsMultiModalOpen(true);
   };
 
@@ -1391,10 +1452,14 @@ export default function ExpensesPage() {
     });
 
     const shipping = Number(batchShipping) || 0;
-    const discount = Number(batchDiscount) || 0;
+    const packing = Number(batchPacking) || 0;
+    const loading = Number(batchLoading) || 0;
     const otherCharges = Number(batchOtherCharges) || 0;
+    const discount = Number(batchDiscount) || 0;
 
     const shippingGst = batchShippingGstApplicable && shipping > 0 ? (shipping * Number(batchShippingGstPercentage) / 100) : 0;
+    const packingGst = batchPackingGstApplicable && packing > 0 ? (packing * Number(batchPackingGstPercentage) / 100) : 0;
+    const loadingGst = batchLoadingGstApplicable && loading > 0 ? (loading * Number(batchLoadingGstPercentage) / 100) : 0;
     const otherGst = batchOtherChargesGstApplicable && otherCharges > 0 ? (otherCharges * Number(batchOtherChargesGstPercentage) / 100) : 0;
 
     const hasAnyInterstate = batchRows.some(r => r.isSupplierExpense && r.isInterState);
@@ -1409,9 +1474,27 @@ export default function ExpensesPage() {
         rate: batchShippingGstPercentage
       });
     }
+    if (packing > 0) {
+      chargesList.push({
+        label: 'Packing Charges',
+        value: packing,
+        applied: true,
+        gstApplicable: batchPackingGstApplicable,
+        rate: batchPackingGstPercentage
+      });
+    }
+    if (loading > 0) {
+      chargesList.push({
+        label: 'Loading & Unloading',
+        value: loading,
+        applied: true,
+        gstApplicable: batchLoadingGstApplicable,
+        rate: batchLoadingGstPercentage
+      });
+    }
     if (otherCharges > 0) {
       chargesList.push({
-        label: batchOtherChargesLabel,
+        label: batchOtherChargesLabel || 'Other Charges',
         value: otherCharges,
         applied: true,
         gstApplicable: batchOtherChargesGstApplicable,
@@ -1425,8 +1508,10 @@ export default function ExpensesPage() {
       isInterState: hasAnyInterstate
     });
 
-    const totalTaxes = totalCgst + totalSgst + totalIgst + shippingGst + otherGst;
-    const unroundedGrandTotal = Math.max(0, itemsSubtotal + totalTaxes + shipping + otherCharges - discount);
+    const totalChargesTaxes = shippingGst + packingGst + loadingGst + otherGst;
+    const totalExtraCharges = shipping + packing + loading + otherCharges;
+    const totalTaxes = totalCgst + totalSgst + totalIgst + totalChargesTaxes;
+    const unroundedGrandTotal = Math.max(0, itemsSubtotal + totalTaxes + totalExtraCharges - discount);
     const grandTotal = Math.round(unroundedGrandTotal);
     const roundOff = Number((grandTotal - unroundedGrandTotal).toFixed(2));
 
@@ -1437,15 +1522,21 @@ export default function ExpensesPage() {
       totalCgst,
       totalSgst,
       totalIgst,
+      shipping,
       shippingGst,
+      packing,
+      packingGst,
+      loading,
+      loadingGst,
+      otherCharges,
       otherGst,
+      totalChargesTaxes,
+      totalExtraCharges,
       totalTaxes,
       hasAnyInterstate,
       grandTotal,
       roundOff,
       discount,
-      shipping,
-      otherCharges,
       gstBreakdown,
       chargesList,
       dummyItemsForBreakdown
@@ -1455,12 +1546,25 @@ export default function ExpensesPage() {
     batchShipping,
     batchShippingGstApplicable,
     batchShippingGstPercentage,
+    batchPacking,
+    batchPackingGstApplicable,
+    batchPackingGstPercentage,
+    batchLoading,
+    batchLoadingGstApplicable,
+    batchLoadingGstPercentage,
     batchOtherCharges,
     batchOtherChargesLabel,
     batchOtherChargesGstApplicable,
     batchOtherChargesGstPercentage,
     batchDiscount
   ]);
+
+  // Synchronize paid amount when grand total changes and status is PAID
+  useEffect(() => {
+    if (batchPaymentStatus === 'PAID') {
+      setBatchPaidAmount(financialSummary.grandTotal.toString());
+    }
+  }, [financialSummary.grandTotal, batchPaymentStatus]);
 
   // Save Batch Expenses to Database
   const handleSaveBatchExpenses = () => {
@@ -1505,7 +1609,28 @@ export default function ExpensesPage() {
         isInterState: Boolean(row.isInterState),
         hsnSacCode: row.hsnSacCode ? row.hsnSacCode.trim() : null,
         notes: [row.notes, batchRemarks].filter(Boolean).join(' | ') || null,
-        attachments: row.attachments && row.attachments.length > 0 ? row.attachments : undefined
+        attachments: row.attachments && row.attachments.length > 0 ? row.attachments : undefined,
+        // Payment settlement fields (from Section 5)
+        paymentMode: batchPaymentMode,
+        paymentStatus: batchPaymentStatus,
+        paidAmount: parseFloat(batchPaidAmount) || (batchPaymentStatus === 'PAID' ? total : 0),
+        paymentRef: batchPaymentRef || null,
+        paymentImage: batchPaymentImage || null,
+        paymentNotes: batchPaymentNotes || null,
+        // Individual charges breakdown with tax rates
+        shippingAmount: Number(batchShipping) || 0,
+        shippingGstApplicable: batchShippingGstApplicable,
+        shippingGstRate: batchShippingGstPercentage,
+        packingAmount: Number(batchPacking) || 0,
+        packingGstApplicable: batchPackingGstApplicable,
+        packingGstRate: batchPackingGstPercentage,
+        loadingAmount: Number(batchLoading) || 0,
+        loadingGstApplicable: batchLoadingGstApplicable,
+        loadingGstRate: batchLoadingGstPercentage,
+        otherCharges: Number(batchOtherCharges) || 0,
+        otherChargesGstApplicable: batchOtherChargesGstApplicable,
+        otherChargesGstRate: batchOtherChargesGstPercentage,
+        discountAmount: Number(batchDiscount) || 0
       };
     });
 
@@ -1573,6 +1698,7 @@ export default function ExpensesPage() {
     const gstRate = expense.gstPercentage != null ? Number(expense.gstPercentage) : 0;
 
     resetEdit({
+      expenseNumber: expense.expenseNumber || '',
       date: new Date(expense.date).toISOString().split('T')[0],
       categoryId: expense.categoryId || activeMasterCategories.find(c => c.name === expense.category)?.id || '',
       category: expense.category,
@@ -1591,7 +1717,13 @@ export default function ExpensesPage() {
       totalAmount: expense.totalAmount || expense.amount,
       isInterState: Boolean(expense.isInterState),
       hsnSacCode: expense.hsnSacCode || '',
-      notes: expense.notes || ''
+      notes: expense.notes || '',
+      // Payment fields
+      paymentMode: expense.paymentMode || 'CASH',
+      paymentStatus: expense.paymentStatus || 'PAID',
+      paidAmount: expense.paidAmount != null ? Number(expense.paidAmount) : Number(expense.totalAmount || expense.amount),
+      paymentRef: expense.paymentRef || '',
+      paymentNotes: expense.paymentNotes || ''
     });
   };
 
@@ -1657,6 +1789,7 @@ export default function ExpensesPage() {
       updateMutation.mutate({
         id: editingExpense.id,
         data: {
+          expenseNumber: data.expenseNumber || undefined,
           date: data.date,
           category: selectedCat ? selectedCat.name : data.category,
           categoryId: selectedCat ? selectedCat.id : data.categoryId,
@@ -1677,7 +1810,13 @@ export default function ExpensesPage() {
           isInterState: isInter,
           hsnSacCode: data.hsnSacCode || null,
           notes: data.notes || null,
-          attachments: editAttachments
+          attachments: editAttachments,
+          // Payment fields
+          paymentMode: data.paymentMode || 'CASH',
+          paymentStatus: data.paymentStatus || 'PAID',
+          paidAmount: parseFloat(data.paidAmount) || (data.paymentStatus === 'PAID' ? total : 0),
+          paymentRef: data.paymentRef || null,
+          paymentNotes: data.paymentNotes || null
         }
       });
     }
@@ -2083,6 +2222,16 @@ export default function ExpensesPage() {
                       </TableHead>
 
                       <TableHead
+                        onClick={() => handleSortToggle('expenseNumber')}
+                        className="w-28 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Expense #</span>
+                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
+                        </div>
+                      </TableHead>
+
+                      <TableHead
                         onClick={() => handleSortToggle('category')}
                         className="w-32 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
                       >
@@ -2126,6 +2275,11 @@ export default function ExpensesPage() {
                           <span>Grand Total (₹)</span>
                           <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
                         </div>
+                      </TableHead>
+
+                      {/* Payment Status & Mode */}
+                      <TableHead className="w-28 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
+                        Payment
                       </TableHead>
 
                       <TableHead className="min-w-[120px] font-bold text-slate-600 dark:text-slate-300 py-2">
@@ -2180,6 +2334,13 @@ export default function ExpensesPage() {
                               month: 'short',
                               year: 'numeric'
                             })}
+                          </TableCell>
+
+                          {/* 1b. Running Expense Number */}
+                          <TableCell className="whitespace-nowrap font-mono text-[11px]">
+                            <span className="font-bold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 shadow-2xs">
+                              {exp.expenseNumber || 'EXP-—'}
+                            </span>
                           </TableCell>
 
                           {/* 2. Category */}
@@ -2254,6 +2415,25 @@ export default function ExpensesPage() {
                           {/* 7. Grand Total Amount */}
                           <TableCell className="text-right font-bold font-mono text-slate-900 dark:text-white whitespace-nowrap text-xs">
                             ₹{Number(exp.totalAmount || exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+
+                          {/* 7b. Payment Status & Mode */}
+                          <TableCell className="text-center whitespace-nowrap">
+                            <div className="space-y-0.5">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
+                                exp.paymentStatus === 'PAID'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                                  : exp.paymentStatus === 'PARTIALLY_PAID'
+                                  ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+                                  : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                              }`}>
+                                {exp.paymentStatus === 'PAID' ? 'PAID' : exp.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIAL' : 'UNPAID'}
+                              </span>
+                              <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1">
+                                <CreditCard className="w-2.5 h-2.5 text-slate-400" />
+                                <span>{PAYMENT_MODES.find(m => m.id === exp.paymentMode)?.label?.split(' ')[0] || exp.paymentMode || 'Cash'}</span>
+                              </div>
+                            </div>
                           </TableCell>
 
                           {/* 8. Notes */}
@@ -2453,6 +2633,10 @@ export default function ExpensesPage() {
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono">
                       FULL SCREEN ENTERPRISE
+                    </span>
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-mono flex items-center gap-1 shadow-2xs">
+                      <Hash className="w-3 h-3 text-purple-500" />
+                      Next No: {candidateExpenseNumber}
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -2745,26 +2929,27 @@ export default function ExpensesPage() {
                 <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6 items-start">
                   {/* Left Column (7 cols): Additional Charges Inputs & Remarks */}
                   <div className="xl:col-span-7 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {/* Discount */}
+                    {/* Individual Charges Cards with Individual GST Checkbox & Rates */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2.5 sm:gap-3">
+                      {/* 1. Discount */}
                       <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
                         <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">Discount (₹)</Label>
                         <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-600 dark:text-emerald-400 select-none">₹</span>
                           <Input 
                             type="number" 
                             min="0"
                             value={batchDiscount} 
                             onChange={(e) => setBatchDiscount(e.target.value)}
-                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
+                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-emerald-400 focus:border-emerald-600 font-semibold shadow-2xs" 
                           />
                         </div>
                       </div>
 
-                      {/* Shipping */}
+                      {/* 2. Shipping & Freight */}
                       <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
                         <div className="flex items-center justify-between">
-                          <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Shipping & Freight (₹)</Label>
+                          <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Shipping (₹)</Label>
                           <label className="inline-flex items-center gap-1 cursor-pointer select-none">
                             <input 
                               type="checkbox" 
@@ -2787,11 +2972,11 @@ export default function ExpensesPage() {
                         </div>
                         {batchShippingGstApplicable && (
                           <div className="flex items-center justify-between gap-1 pt-1">
-                            <span className="text-[10px] text-slate-500 font-semibold">GST Rate:</span>
+                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
                             <select
                               value={batchShippingGstPercentage}
                               onChange={(e) => setBatchShippingGstPercentage(Number(e.target.value))}
-                              className="h-6.5 text-[11px] px-2 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
                             >
                               <option value={0}>0%</option>
                               <option value={5}>5%</option>
@@ -2808,12 +2993,113 @@ export default function ExpensesPage() {
                         )}
                       </div>
 
-                      {/* Loading & Unloading Charges */}
+                      {/* 3. Packing Charges */}
+                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Packing (₹)</Label>
+                          <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                            <input 
+                              type="checkbox" 
+                              checked={batchPackingGstApplicable} 
+                              onChange={(e) => setBatchPackingGstApplicable(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                            />
+                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                          <Input 
+                            type="number" 
+                            min="0"
+                            value={batchPacking} 
+                            onChange={(e) => setBatchPacking(e.target.value)}
+                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
+                          />
+                        </div>
+                        {batchPackingGstApplicable && (
+                          <div className="flex items-center justify-between gap-1 pt-1">
+                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
+                            <select
+                              value={batchPackingGstPercentage}
+                              onChange={(e) => setBatchPackingGstPercentage(Number(e.target.value))}
+                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                            >
+                              <option value={0}>0%</option>
+                              <option value={5}>5%</option>
+                              <option value={12}>12%</option>
+                              <option value={18}>18%</option>
+                              <option value={28}>28%</option>
+                            </select>
+                            {Number(batchPacking) > 0 && (
+                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                                +₹{(Number(batchPacking) * batchPackingGstPercentage / 100).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 4. Loading & Unloading Charges */}
                       <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
                         <div className="flex items-center justify-between">
                           <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                            Loading & Unloading (₹)
+                            Loading (₹)
                           </Label>
+                          <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                            <input 
+                              type="checkbox" 
+                              checked={batchLoadingGstApplicable} 
+                              onChange={(e) => setBatchLoadingGstApplicable(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                            />
+                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                          </label>
+                        </div>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                          <Input 
+                            type="number" 
+                            min="0"
+                            value={batchLoading} 
+                            onChange={(e) => setBatchLoading(e.target.value)}
+                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
+                          />
+                        </div>
+                        {batchLoadingGstApplicable && (
+                          <div className="flex items-center justify-between gap-1 pt-1">
+                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
+                            <select
+                              value={batchLoadingGstPercentage}
+                              onChange={(e) => setBatchLoadingGstPercentage(Number(e.target.value))}
+                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                            >
+                              <option value={0}>0%</option>
+                              <option value={5}>5%</option>
+                              <option value={12}>12%</option>
+                              <option value={18}>18%</option>
+                              <option value={28}>28%</option>
+                            </select>
+                            {Number(batchLoading) > 0 && (
+                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                                +₹{(Number(batchLoading) * batchLoadingGstPercentage / 100).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 5. Other Charges (with custom label) */}
+                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center justify-between">
+                          <Input
+                            type="text"
+                            value={batchOtherChargesLabel}
+                            onChange={(e) => setBatchOtherChargesLabel(e.target.value)}
+                            placeholder="Other Charges"
+                            className="h-5 px-1 py-0 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-0 bg-transparent focus-visible:ring-0 max-w-[110px] p-0"
+                            title="Edit charge title"
+                          />
                           <label className="inline-flex items-center gap-1 cursor-pointer select-none">
                             <input 
                               type="checkbox" 
@@ -2836,11 +3122,11 @@ export default function ExpensesPage() {
                         </div>
                         {batchOtherChargesGstApplicable && (
                           <div className="flex items-center justify-between gap-1 pt-1">
-                            <span className="text-[10px] text-slate-500 font-semibold">GST Rate:</span>
+                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
                             <select
                               value={batchOtherChargesGstPercentage}
                               onChange={(e) => setBatchOtherChargesGstPercentage(Number(e.target.value))}
-                              className="h-6.5 text-[11px] px-2 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
                             >
                               <option value={0}>0%</option>
                               <option value={5}>5%</option>
@@ -2950,11 +3236,20 @@ export default function ExpensesPage() {
                       </div>
                     )}
 
-                    {(financialSummary.shipping > 0 || financialSummary.otherCharges > 0) && (
+                    {financialSummary.totalExtraCharges > 0 && (
                       <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                        <span>Shipping & Extra Charges</span>
+                        <span>Extra Charges (Shipping, Packing, etc.)</span>
                         <span className="font-bold text-slate-800 dark:text-slate-200">
-                          +₹{(financialSummary.shipping + financialSummary.otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          +₹{financialSummary.totalExtraCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+
+                    {financialSummary.totalChargesTaxes > 0 && (
+                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                        <span>Charges Tax (GST)</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                          +₹{financialSummary.totalChargesTaxes.toFixed(2)}
                         </span>
                       </div>
                     )}
@@ -2983,6 +3278,52 @@ export default function ExpensesPage() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* ───────────────────────────────────────────────────────────────────
+                  5. PAYMENT & SETTLEMENT DETAILS (IDENTICAL TO /purchase-orders/create)
+                  ─────────────────────────────────────────────────────────────────── */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5 w-full">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                        5. Payment & Settlement Details
+                      </span>
+                      <p className="text-[11px] text-slate-400">
+                        Record cash, bank transfer, UPI, or cheque payment with transaction ref & proof image
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
+                    batchPaymentStatus === 'PAID'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                      : batchPaymentStatus === 'PARTIALLY_PAID'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+                      : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                  }`}>
+                    {batchPaymentStatus === 'PAID' ? 'Fully Settled' : batchPaymentStatus === 'PARTIALLY_PAID' ? 'Partial Settlement' : 'Unpaid Expense'}
+                  </span>
+                </div>
+
+                <PaymentFieldsSection
+                  paymentStatus={batchPaymentStatus}
+                  setPaymentStatus={setBatchPaymentStatus}
+                  paidAmount={batchPaidAmount}
+                  setPaidAmount={setBatchPaidAmount}
+                  paymentMode={batchPaymentMode}
+                  setPaymentMode={setBatchPaymentMode}
+                  paymentRef={batchPaymentRef}
+                  setPaymentRef={setBatchPaymentRef}
+                  paymentImage={batchPaymentImage}
+                  setPaymentImage={setBatchPaymentImage}
+                  paymentNotes={batchPaymentNotes}
+                  setPaymentNotes={setBatchPaymentNotes}
+                  totalAmount={financialSummary.grandTotal}
+                />
               </div>
             </div>
 
@@ -3099,14 +3440,25 @@ export default function ExpensesPage() {
                       )}
                       <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{file.name || file.originalName}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRowAttachment(rowAttachmentModalIdx, file)}
-                      className="p-1 rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                      title="Remove file from server"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handlePreviewAttachment(file)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition-colors shadow-2xs"
+                        title="View Attachment"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRowAttachment(rowAttachmentModalIdx, file)}
+                        className="p-1 rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        title="Remove file from server"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -3146,6 +3498,19 @@ export default function ExpensesPage() {
             </div>
 
             <form onSubmit={handleSubmitEdit(onEditSubmit)} className="p-5 space-y-3.5 overflow-y-auto text-xs flex-1">
+              {/* 0. Running Expense Number */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-bold text-slate-500 uppercase flex items-center justify-between">
+                  <span>Running Expense #</span>
+                  <span className="text-[9px] font-mono text-slate-400">System Tracked Identifier</span>
+                </Label>
+                <Input
+                  {...registerEdit('expenseNumber')}
+                  placeholder="e.g. EXP-000001"
+                  className="h-8 text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 rounded-lg bg-indigo-50/40 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800"
+                />
+              </div>
+
               {/* 1. Date */}
               <div className="space-y-1">
                 <Label className="text-[10px] font-bold text-slate-500 uppercase">1. Date *</Label>
@@ -3317,6 +3682,57 @@ export default function ExpensesPage() {
                 />
               </div>
 
+              {/* Payment Details */}
+              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 space-y-2.5">
+                <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                  Payment & Settlement Details
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Mode</Label>
+                    <select
+                      {...registerEdit('paymentMode')}
+                      className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
+                    >
+                      {PAYMENT_MODES.map(mode => (
+                        <option key={mode.id} value={mode.id}>{mode.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Status</Label>
+                    <select
+                      {...registerEdit('paymentStatus')}
+                      className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-indigo-600"
+                    >
+                      <option value="PAID">PAID (Settled)</option>
+                      <option value="PARTIALLY_PAID">PARTIALLY PAID</option>
+                      <option value="UNPAID">UNPAID (Pending)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Paid Amount (₹)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      {...registerEdit('paidAmount')}
+                      className="h-8 text-xs font-mono font-bold rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Transaction / UTR / Cheque Ref</Label>
+                    <Input
+                      {...registerEdit('paymentRef')}
+                      placeholder="e.g. UTR12345678"
+                      className="h-8 text-xs font-mono rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Attachments */}
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center justify-between">
@@ -3348,14 +3764,25 @@ export default function ExpensesPage() {
                         key={att.id || aIdx}
                         className="flex items-center justify-between p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-xs"
                       >
-                        <span className="font-medium text-slate-800 dark:text-slate-200 truncate">{att.name || att.originalName}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveEditAttachment(att)}
-                          className="p-1 rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <span className="font-medium text-slate-800 dark:text-slate-200 truncate mr-2">{att.name || att.originalName}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handlePreviewAttachment(att)}
+                            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800"
+                            title="View Attachment"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>View</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveEditAttachment(att)}
+                            className="p-1 rounded text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -3434,14 +3861,22 @@ export default function ExpensesPage() {
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewAttachment(file)}
+                          className="h-7 px-2.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 inline-flex items-center gap-1 transition-colors shadow-2xs"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          View
+                        </button>
                         <a
                           href={fullUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="h-7 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 inline-flex items-center gap-1"
+                          className="h-7 px-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"
+                          title="Open Original in New Window"
                         >
                           <ExternalLink className="w-3 h-3" />
-                          View
                         </a>
                       </div>
                     </div>
@@ -3469,26 +3904,40 @@ export default function ExpensesPage() {
           VIEW EXPENSE DETAILS MODAL
           ========================================================================= */}
       {viewingExpense && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/40 animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                Expense & Tax Breakdown Details
-              </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      Expense Details
+                    </h3>
+                    <span className="font-mono text-xs font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                      {viewingExpense.expenseNumber || 'EXP-000001'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {viewingExpense.date ? new Date(viewingExpense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} • {viewingExpense.category}
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setViewingExpense(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3.5 text-xs overflow-y-auto pr-1 flex-1">
               <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase block">Title / Purpose</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-white">{viewingExpense.title}</p>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Title / Purpose</span>
+                <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">{viewingExpense.title}</p>
               </div>
 
               {/* Supplier Info if available */}
@@ -3521,10 +3970,42 @@ export default function ExpensesPage() {
                   </span>
                 </div>
 
+                {/* Additional breakdown charges */}
+                {Number(viewingExpense.discountAmount || 0) > 0 && (
+                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                    <span>Discount:</span>
+                    <span className="font-mono font-semibold">-₹{Number(viewingExpense.discountAmount).toFixed(2)}</span>
+                  </div>
+                )}
+                {Number(viewingExpense.shippingAmount || 0) > 0 && (
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                    <span>Shipping {viewingExpense.shippingGstApplicable ? `(GST ${viewingExpense.shippingGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span className="font-mono">₹{Number(viewingExpense.shippingAmount).toFixed(2)}</span>
+                  </div>
+                )}
+                {Number(viewingExpense.packingAmount || 0) > 0 && (
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                    <span>Packing {viewingExpense.packingGstApplicable ? `(GST ${viewingExpense.packingGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span className="font-mono">₹{Number(viewingExpense.packingAmount).toFixed(2)}</span>
+                  </div>
+                )}
+                {Number(viewingExpense.loadingAmount || 0) > 0 && (
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                    <span>Loading & Unloading {viewingExpense.loadingGstApplicable ? `(GST ${viewingExpense.loadingGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span className="font-mono">₹{Number(viewingExpense.loadingAmount).toFixed(2)}</span>
+                  </div>
+                )}
+                {Number(viewingExpense.otherCharges || 0) > 0 && (
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                    <span>Other Charges {viewingExpense.otherChargesGstApplicable ? `(GST ${viewingExpense.otherChargesGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span className="font-mono">₹{Number(viewingExpense.otherCharges).toFixed(2)}</span>
+                  </div>
+                )}
+
                 {Number(viewingExpense.gstPercentage || 0) > 0 && (
                   <>
-                    <div className="flex justify-between items-center text-slate-500">
-                      <span>GST Rate ({viewingExpense.isInterState ? 'Interstate IGST' : 'Intrastate CGST+SGST'}):</span>
+                    <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-200/50 dark:border-slate-800/50">
+                      <span>Base GST Rate ({viewingExpense.isInterState ? 'Interstate IGST' : 'Intrastate CGST+SGST'}):</span>
                       <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
                         {viewingExpense.gstPercentage}%
                       </span>
@@ -3564,6 +4045,113 @@ export default function ExpensesPage() {
                 </div>
               </div>
 
+              {/* Payment Details Section */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                    Payment & Settlement
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                      viewingExpense.paymentStatus === 'PAID'
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                        : viewingExpense.paymentStatus === 'PARTIALLY_PAID'
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                        : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
+                    }`}
+                  >
+                    {viewingExpense.paymentStatus || 'UNPAID'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 text-slate-600 dark:text-slate-400">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Payment Mode:</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 capitalize">
+                      {(viewingExpense.paymentMode || 'CASH').replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Paid Amount:</span>
+                    <span className="font-bold font-mono text-slate-800 dark:text-slate-200">
+                      ₹{Number(viewingExpense.paidAmount || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  {viewingExpense.paymentRef && (
+                    <div className="col-span-2">
+                      <span className="text-[10px] text-slate-400 block">Reference / Cheque / UTR:</span>
+                      <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        {viewingExpense.paymentRef}
+                      </span>
+                    </div>
+                  )}
+                  {viewingExpense.paymentNotes && (
+                    <div className="col-span-2">
+                      <span className="text-[10px] text-slate-400 block">Payment Notes:</span>
+                      <span className="text-xs text-slate-700 dark:text-slate-300">
+                        {viewingExpense.paymentNotes}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {viewingExpense.paymentImage && (
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase">Payment Receipt / Proof</span>
+                    <button
+                      type="button"
+                      onClick={() => handlePreviewAttachment({ url: viewingExpense.paymentImage, name: `Receipt-${viewingExpense.expenseNumber || 'EXP'}` })}
+                      className="h-7 px-2.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 inline-flex items-center gap-1.5 transition-colors shadow-2xs"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      View Receipt
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Attachments List */}
+              {viewingExpense.attachments?.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Expense Attachments ({viewingExpense.attachments.length})
+                  </span>
+                  <div className="space-y-1">
+                    {viewingExpense.attachments.map((file, idx) => (
+                      <div
+                        key={file.id || idx}
+                        className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          {file.name || file.originalName || 'Document'}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handlePreviewAttachment(file)}
+                            className="h-6 px-2 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 inline-flex items-center gap-1 shadow-2xs"
+                          >
+                            <Eye className="w-3 h-3" />
+                            View
+                          </button>
+                          <a
+                            href={getFileUrl(file.url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="h-6 px-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center"
+                            title="Open in New Window"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {viewingExpense.notes && (
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Reference / Notes</span>
@@ -3574,11 +4162,11 @@ export default function ExpensesPage() {
               )}
             </div>
 
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
               <Button
                 type="button"
                 onClick={() => setViewingExpense(null)}
-                className="h-8 px-4 text-xs font-bold bg-indigo-600 text-white rounded-lg"
+                className="h-8 px-4 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
               >
                 Close
               </Button>
@@ -3608,6 +4196,17 @@ export default function ExpensesPage() {
             }
             showCustomToast('Supplier Added', `${newSupplier.name} registered and selected.`, 'success');
           }}
+        />
+      )}
+
+      {/* =========================================================================
+          IMAGE / ATTACHMENT PREVIEW MODAL (Just like Purchase Order page)
+          ========================================================================= */}
+      {previewAttachmentUrl && (
+        <ImagePreviewModal
+          src={previewAttachmentUrl}
+          title={previewAttachmentTitle}
+          onClose={() => setPreviewAttachmentUrl(null)}
         />
       )}
     </div>

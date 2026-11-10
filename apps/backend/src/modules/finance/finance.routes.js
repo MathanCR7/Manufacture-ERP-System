@@ -10,6 +10,7 @@ const upload = multer({
 });
 
 router.get('/expenses', controller.getExpenses);
+router.get('/expenses/next-number', controller.getNextExpenseNumber);
 router.post('/expenses', controller.createExpense);
 router.post('/expenses/bulk', controller.createBulkExpenses);
 router.post('/expenses/bulk-delete', controller.deleteBulkExpenses);

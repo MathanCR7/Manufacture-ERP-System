@@ -33,6 +33,40 @@ const resolveCategoryData = async (catInput, catIdInput) => {
   return { categoryId, category: categoryName };
 };
 
+// Helper to get the next running sequential expense number (e.g. EXP-000001, EXP-000002)
+const generateNextExpenseNumber = async (txOrPrisma = prisma) => {
+  try {
+    const query = `SELECT "expenseNumber" FROM "Expense" WHERE "expenseNumber" LIKE 'EXP-%' ORDER BY "expenseNumber" DESC LIMIT 1`;
+    const result = await txOrPrisma.$queryRawUnsafe(query);
+    const lastRecord = Array.isArray(result) && result.length > 0 ? result[0] : null;
+
+    if (!lastRecord || !lastRecord.expenseNumber) {
+      return 'EXP-000001';
+    }
+
+    const parts = lastRecord.expenseNumber.split('-');
+    const lastNumber = parseInt(parts[1], 10);
+    if (isNaN(lastNumber)) {
+      return 'EXP-000001';
+    }
+    const nextNumber = lastNumber + 1;
+    return `EXP-${String(nextNumber).padStart(6, '0')}`;
+  } catch (err) {
+    console.error('Error generating next expense number:', err);
+    return `EXP-${Date.now().toString().slice(-6)}`;
+  }
+};
+
+// API Endpoint to peek next running expense number
+const getNextExpenseNumber = async (req, res, next) => {
+  try {
+    const nextNumber = await generateNextExpenseNumber(prisma);
+    res.json({ success: true, nextNumber });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Formats expense record ensuring attachments is always an array
 const formatExpenseResponse = (exp) => {
   if (!exp) return exp;
@@ -162,10 +196,19 @@ const createExpense = async (req, res, next) => {
     }
 
     const {
+      expenseNumber,
       title, amount, category, categoryId, date, notes, attachments,
       isSupplierExpense, supplierId, supplierName, supplierGstin,
       invoiceNo, invoiceDate, taxableAmount, gstPercentage,
-      cgstAmount, sgstAmount, igstAmount, totalAmount, isInterState, hsnSacCode
+      cgstAmount, sgstAmount, igstAmount, totalAmount, isInterState, hsnSacCode,
+      // Payment fields
+      paymentMode, paymentStatus, paidAmount, paymentRef, paymentImage, paymentNotes,
+      // Breakdown charges with individual tax rates
+      shippingAmount, shippingGstApplicable, shippingGstRate,
+      packingAmount, packingGstApplicable, packingGstRate,
+      loadingAmount, loadingGstApplicable, loadingGstRate,
+      otherCharges, otherChargesGstApplicable, otherChargesGstRate,
+      discountAmount
     } = req.body;
     const userId = req.user.id;
 
@@ -218,8 +261,21 @@ const createExpense = async (req, res, next) => {
         : (typeof attachments === 'string' ? JSON.parse(attachments) : []);
     }
 
+    // Running Expense Number (e.g. EXP-000001)
+    const finalExpenseNumber = (expenseNumber && String(expenseNumber).trim())
+      ? String(expenseNumber).trim()
+      : await generateNextExpenseNumber(prisma);
+
+    // Payment settlement details
+    const finalPaymentStatus = paymentStatus || 'PAID';
+    const finalPaymentMode = paymentMode || 'CASH';
+    const numPaid = (paidAmount !== undefined && paidAmount !== null && paidAmount !== '')
+      ? parseFloat(paidAmount)
+      : (finalPaymentStatus === 'PAID' ? (numTotal || numericAmount) : 0);
+
     const expense = await prisma.expense.create({
       data: {
+        expenseNumber: finalExpenseNumber,
         title: title.trim(),
         amount: numTotal || numericAmount,
         category: resolvedCatName,
@@ -241,6 +297,27 @@ const createExpense = async (req, res, next) => {
         totalAmount: numTotal,
         isInterState: Boolean(isInterState),
         hsnSacCode: hsnSacCode ? String(hsnSacCode).trim() : null,
+        // Payment Mode & Settlement Fields
+        paymentMode: finalPaymentMode,
+        paymentStatus: finalPaymentStatus,
+        paidAmount: isNaN(numPaid) ? 0 : numPaid,
+        paymentRef: paymentRef ? String(paymentRef).trim() : null,
+        paymentImage: paymentImage || null,
+        paymentNotes: paymentNotes ? String(paymentNotes).trim() : null,
+        // Breakdown Charges with Individual GST Rates
+        shippingAmount: parseFloat(shippingAmount) || 0,
+        shippingGstApplicable: Boolean(shippingGstApplicable),
+        shippingGstRate: parseFloat(shippingGstRate) || 18,
+        packingAmount: parseFloat(packingAmount) || 0,
+        packingGstApplicable: Boolean(packingGstApplicable),
+        packingGstRate: parseFloat(packingGstRate) || 18,
+        loadingAmount: parseFloat(loadingAmount) || 0,
+        loadingGstApplicable: Boolean(loadingGstApplicable),
+        loadingGstRate: parseFloat(loadingGstRate) || 18,
+        otherCharges: parseFloat(otherCharges) || 0,
+        otherChargesGstApplicable: Boolean(otherChargesGstApplicable),
+        otherChargesGstRate: parseFloat(otherChargesGstRate) || 18,
+        discountAmount: parseFloat(discountAmount) || 0,
         createdBy: userId
       },
       include: {
@@ -307,6 +384,10 @@ const createBulkExpenses = async (req, res, next) => {
       return res.status(400).json({ error: 'No expenses provided in bulk list.' });
     }
 
+    // Determine sequential running numbers starting from next available
+    const startNextNumStr = await generateNextExpenseNumber(prisma);
+    const startSeq = parseInt(startNextNumStr.split('-')[1], 10) || 1;
+
     const validExpenses = [];
     for (let i = 0; i < rawList.length; i++) {
       const item = rawList[i];
@@ -350,7 +431,20 @@ const createBulkExpenses = async (req, res, next) => {
         ? parseFloat(item.totalAmount)
         : (numAmt || (numTaxable + numCgst + numSgst + numIgst));
 
+      const rowExpenseNumber = (item.expenseNumber && String(item.expenseNumber).trim())
+        ? String(item.expenseNumber).trim()
+        : `EXP-${String(startSeq + i).padStart(6, '0')}`;
+
+      const rowPaymentStatus = item.paymentStatus || req.body.paymentStatus || 'PAID';
+      const rowPaymentMode = item.paymentMode || req.body.paymentMode || 'CASH';
+      const rowPaidAmount = (item.paidAmount !== undefined && item.paidAmount !== null && item.paidAmount !== '')
+        ? parseFloat(item.paidAmount)
+        : (req.body.paidAmount !== undefined && req.body.paidAmount !== null && req.body.paidAmount !== ''
+          ? parseFloat(req.body.paidAmount)
+          : (rowPaymentStatus === 'PAID' ? numTotal : 0));
+
       validExpenses.push({
+        expenseNumber: rowExpenseNumber,
         title: item.title.trim(),
         amount: numTotal || numAmt,
         category: resolvedCatName,
@@ -373,6 +467,27 @@ const createBulkExpenses = async (req, res, next) => {
         totalAmount: numTotal,
         isInterState: Boolean(item.isInterState),
         hsnSacCode: item.hsnSacCode ? String(item.hsnSacCode).trim() : null,
+        // Payment fields
+        paymentMode: rowPaymentMode,
+        paymentStatus: rowPaymentStatus,
+        paidAmount: isNaN(rowPaidAmount) ? 0 : rowPaidAmount,
+        paymentRef: item.paymentRef ? String(item.paymentRef).trim() : (req.body.paymentRef ? String(req.body.paymentRef).trim() : null),
+        paymentImage: item.paymentImage || req.body.paymentImage || null,
+        paymentNotes: item.paymentNotes ? String(item.paymentNotes).trim() : (req.body.paymentNotes ? String(req.body.paymentNotes).trim() : null),
+        // Breakdown charges
+        shippingAmount: parseFloat(item.shippingAmount !== undefined ? item.shippingAmount : req.body.shippingAmount) || 0,
+        shippingGstApplicable: Boolean(item.shippingGstApplicable !== undefined ? item.shippingGstApplicable : req.body.shippingGstApplicable),
+        shippingGstRate: parseFloat(item.shippingGstRate !== undefined ? item.shippingGstRate : req.body.shippingGstRate) || 18,
+        packingAmount: parseFloat(item.packingAmount !== undefined ? item.packingAmount : req.body.packingAmount) || 0,
+        packingGstApplicable: Boolean(item.packingGstApplicable !== undefined ? item.packingGstApplicable : req.body.packingGstApplicable),
+        packingGstRate: parseFloat(item.packingGstRate !== undefined ? item.packingGstRate : req.body.packingGstRate) || 18,
+        loadingAmount: parseFloat(item.loadingAmount !== undefined ? item.loadingAmount : req.body.loadingAmount) || 0,
+        loadingGstApplicable: Boolean(item.loadingGstApplicable !== undefined ? item.loadingGstApplicable : req.body.loadingGstApplicable),
+        loadingGstRate: parseFloat(item.loadingGstRate !== undefined ? item.loadingGstRate : req.body.loadingGstRate) || 18,
+        otherCharges: parseFloat(item.otherCharges !== undefined ? item.otherCharges : req.body.otherCharges) || 0,
+        otherChargesGstApplicable: Boolean(item.otherChargesGstApplicable !== undefined ? item.otherChargesGstApplicable : req.body.otherChargesGstApplicable),
+        otherChargesGstRate: parseFloat(item.otherChargesGstRate !== undefined ? item.otherChargesGstRate : req.body.otherChargesGstRate) || 18,
+        discountAmount: parseFloat(item.discountAmount !== undefined ? item.discountAmount : req.body.discountAmount) || 0,
         createdBy: userId
       });
     }
@@ -525,12 +640,15 @@ const getExpenses = async (req, res, next) => {
 
     if (search) {
       where.OR = [
+        { expenseNumber: { contains: search, mode: 'insensitive' } },
         { title: { contains: search, mode: 'insensitive' } },
         { notes: { contains: search, mode: 'insensitive' } },
         { category: { contains: search, mode: 'insensitive' } },
         { supplierName: { contains: search, mode: 'insensitive' } },
         { supplierGstin: { contains: search, mode: 'insensitive' } },
         { invoiceNo: { contains: search, mode: 'insensitive' } },
+        { paymentMode: { contains: search, mode: 'insensitive' } },
+        { paymentRef: { contains: search, mode: 'insensitive' } },
         { user: { name: { contains: search, mode: 'insensitive' } } }
       ];
     }
@@ -540,6 +658,12 @@ const getExpenses = async (req, res, next) => {
     }
     if (req.query.isSupplierExpense !== undefined && req.query.isSupplierExpense !== '') {
       where.isSupplierExpense = req.query.isSupplierExpense === 'true' || req.query.isSupplierExpense === true;
+    }
+    if (req.query.paymentStatus) {
+      where.paymentStatus = req.query.paymentStatus;
+    }
+    if (req.query.paymentMode) {
+      where.paymentMode = req.query.paymentMode;
     }
 
     const expenses = await prisma.expense.findMany({
@@ -575,10 +699,19 @@ const updateExpense = async (req, res, next) => {
   try {
     const { id } = req.params;
     const {
+      expenseNumber,
       title, amount, category, categoryId, date, notes, attachments,
       isSupplierExpense, supplierId, supplierName, supplierGstin,
       invoiceNo, invoiceDate, taxableAmount, gstPercentage,
-      cgstAmount, sgstAmount, igstAmount, totalAmount, isInterState, hsnSacCode
+      cgstAmount, sgstAmount, igstAmount, totalAmount, isInterState, hsnSacCode,
+      // Payment fields
+      paymentMode, paymentStatus, paidAmount, paymentRef, paymentImage, paymentNotes,
+      // Breakdown charges
+      shippingAmount, shippingGstApplicable, shippingGstRate,
+      packingAmount, packingGstApplicable, packingGstRate,
+      loadingAmount, loadingGstApplicable, loadingGstRate,
+      otherCharges, otherChargesGstApplicable, otherChargesGstRate,
+      discountAmount
     } = req.body;
     const userId = req.user.id;
 
@@ -650,6 +783,7 @@ const updateExpense = async (req, res, next) => {
     const expense = await prisma.expense.update({
       where: { id },
       data: {
+        expenseNumber: expenseNumber !== undefined ? (expenseNumber ? String(expenseNumber).trim() : null) : existing.expenseNumber,
         title: title.trim(),
         amount: numTotal || numericAmount,
         category: resolvedCatName,
@@ -670,7 +804,28 @@ const updateExpense = async (req, res, next) => {
         igstAmount: numIgst,
         totalAmount: numTotal,
         isInterState: isInterState !== undefined ? Boolean(isInterState) : existing.isInterState,
-        hsnSacCode: hsnSacCode !== undefined ? (hsnSacCode ? String(hsnSacCode).trim() : null) : existing.hsnSacCode
+        hsnSacCode: hsnSacCode !== undefined ? (hsnSacCode ? String(hsnSacCode).trim() : null) : existing.hsnSacCode,
+        // Payment Mode & Settlement Fields
+        paymentMode: paymentMode !== undefined ? (paymentMode || 'CASH') : existing.paymentMode,
+        paymentStatus: paymentStatus !== undefined ? (paymentStatus || 'PAID') : existing.paymentStatus,
+        paidAmount: paidAmount !== undefined ? (parseFloat(paidAmount) || 0) : existing.paidAmount,
+        paymentRef: paymentRef !== undefined ? (paymentRef ? String(paymentRef).trim() : null) : existing.paymentRef,
+        paymentImage: paymentImage !== undefined ? (paymentImage || null) : existing.paymentImage,
+        paymentNotes: paymentNotes !== undefined ? (paymentNotes ? String(paymentNotes).trim() : null) : existing.paymentNotes,
+        // Individual charges breakdown with tax rates
+        shippingAmount: shippingAmount !== undefined ? (parseFloat(shippingAmount) || 0) : existing.shippingAmount,
+        shippingGstApplicable: shippingGstApplicable !== undefined ? Boolean(shippingGstApplicable) : existing.shippingGstApplicable,
+        shippingGstRate: shippingGstRate !== undefined ? (parseFloat(shippingGstRate) || 18) : existing.shippingGstRate,
+        packingAmount: packingAmount !== undefined ? (parseFloat(packingAmount) || 0) : existing.packingAmount,
+        packingGstApplicable: packingGstApplicable !== undefined ? Boolean(packingGstApplicable) : existing.packingGstApplicable,
+        packingGstRate: packingGstRate !== undefined ? (parseFloat(packingGstRate) || 18) : existing.packingGstRate,
+        loadingAmount: loadingAmount !== undefined ? (parseFloat(loadingAmount) || 0) : existing.loadingAmount,
+        loadingGstApplicable: loadingGstApplicable !== undefined ? Boolean(loadingGstApplicable) : existing.loadingGstApplicable,
+        loadingGstRate: loadingGstRate !== undefined ? (parseFloat(loadingGstRate) || 18) : existing.loadingGstRate,
+        otherCharges: otherCharges !== undefined ? (parseFloat(otherCharges) || 0) : existing.otherCharges,
+        otherChargesGstApplicable: otherChargesGstApplicable !== undefined ? Boolean(otherChargesGstApplicable) : existing.otherChargesGstApplicable,
+        otherChargesGstRate: otherChargesGstRate !== undefined ? (parseFloat(otherChargesGstRate) || 18) : existing.otherChargesGstRate,
+        discountAmount: discountAmount !== undefined ? (parseFloat(discountAmount) || 0) : existing.discountAmount
       },
       include: {
         expenseCategory: { select: { id: true, name: true, code: true, status: true, expenseWithSupplier: true, defaultGstRate: true, hsnSacCode: true } },
@@ -828,6 +983,7 @@ const getExpensesSummary = async (req, res, next) => {
 };
 
 module.exports = {
+  getNextExpenseNumber,
   createExpense,
   createBulkExpenses,
   deleteBulkExpenses,

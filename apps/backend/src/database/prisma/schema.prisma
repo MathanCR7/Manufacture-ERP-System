@@ -532,37 +532,58 @@ model Customer {
 }
 
 model Expense {
-  id                  String           @id @default(uuid())
-  title               String
-  amount              Decimal
-  category            String
-  categoryId          String?
-  expenseCategory     ExpenseCategory? @relation(fields: [categoryId], references: [id])
-  date                DateTime
-  notes               String?          @db.Text
-  attachments         String?          @db.Text
-  isSupplierExpense   Boolean          @default(false)
-  supplierId          String?
-  supplierName        String?
-  supplierGstin       String?
-  invoiceNo           String?
-  invoiceDate         DateTime?
-  taxableAmount       Decimal?
-  gstPercentage       Decimal?         @default(0)
-  cgstAmount          Decimal?         @default(0)
-  sgstAmount          Decimal?         @default(0)
-  igstAmount          Decimal?         @default(0)
-  totalAmount         Decimal?
-  isInterState        Boolean          @default(false)
-  hsnSacCode          String?
-  createdBy           String
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  id                        String           @id @default(uuid())
+  expenseNumber             String?
+  title                     String
+  amount                    Decimal
+  category                  String
+  categoryId                String?
+  expenseCategory           ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  date                      DateTime
+  notes                     String?          @db.Text
+  attachments               String?          @db.Text
+  isSupplierExpense         Boolean          @default(false)
+  supplierId                String?
+  supplierName              String?
+  supplierGstin             String?
+  invoiceNo                 String?
+  invoiceDate               DateTime?
+  taxableAmount             Decimal?
+  gstPercentage             Decimal?         @default(0)
+  cgstAmount                Decimal?         @default(0)
+  sgstAmount                Decimal?         @default(0)
+  igstAmount                Decimal?         @default(0)
+  totalAmount               Decimal?
+  isInterState              Boolean          @default(false)
+  hsnSacCode                String?
+  paymentMode               String?          @default("CASH")
+  paymentStatus             String?          @default("PAID")
+  paidAmount                Decimal?         @default(0)
+  paymentRef                String?
+  paymentImage              String?          @db.Text
+  paymentNotes              String?          @db.Text
+  shippingAmount            Decimal?         @default(0)
+  shippingGstApplicable     Boolean          @default(false)
+  shippingGstRate           Decimal?         @default(18)
+  packingAmount             Decimal?         @default(0)
+  packingGstApplicable      Boolean          @default(false)
+  packingGstRate            Decimal?         @default(18)
+  loadingAmount             Decimal?         @default(0)
+  loadingGstApplicable      Boolean          @default(false)
+  loadingGstRate            Decimal?         @default(18)
+  otherCharges              Decimal?         @default(0)
+  otherChargesGstApplicable Boolean          @default(false)
+  otherChargesGstRate       Decimal?         @default(18)
+  discountAmount            Decimal?         @default(0)
+  createdBy                 String
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
 
   user User @relation(fields: [createdBy], references: [id])
 
   @@index([categoryId])
   @@index([supplierId])
+  @@index([expenseNumber])
 }
 
 model ExpenseCategory {
