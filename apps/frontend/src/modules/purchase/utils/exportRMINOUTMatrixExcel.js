@@ -95,9 +95,9 @@ export function filterOutDraftTransactions(txList) {
     const status = String(tx.status || tx.batchStatus || '').toLowerCase();
     const type = String(tx.type || '').toUpperCase();
     // Production batches: OUT only if completed (never in progress, running, planned, or draft)
-    if (type.includes('PRODUCTION') || type.includes('USAGE')) {
+    if (type.includes('PRODUCTION') || type.includes('USAGE') || type.includes('WIP')) {
       if (['planned', 'draft', 'scheduled', 'pending', 'cancelled', 'in_progress', 'in progress', 'running'].includes(status)) return false;
-      if (tx.isInProgress) return false;
+      if (tx.isInProgress || tx.flow === 'IN_PROGRESS') return false;
     }
     // Purchase Orders: IN only if confirmed (never pending or draft)
     if (type.includes('PO') || type.includes('PURCHASE')) {

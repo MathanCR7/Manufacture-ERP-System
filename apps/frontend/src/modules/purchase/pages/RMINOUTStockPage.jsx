@@ -987,37 +987,45 @@ export default function RMINOUTStockPage() {
         });
       });
 
-      // Production Usages (OUT)
+      // Production Usages (In-Progress WIP & Completed OUT)
       (hData.productionUsages || []).forEach(u => {
         if (u.isCancelled) return;
         const bStatus = String(u.batchStatus || '').toLowerCase();
-        if (bStatus === 'draft' || Boolean(u.isDraft)) return; // Do not display in OUT if production is draft
-        const isInProgress = bStatus.includes('progress') || bStatus.includes('running') || bStatus.includes('paused');
+        if (bStatus === 'draft' || Boolean(u.isDraft)) return; // Do not display in OUT/WIP if production is draft
+        const isCompletedUsage = String(u.usageStatus || '').toUpperCase() === 'CONSUMED' ||
+          bStatus.includes('complete') ||
+          bStatus.includes('done') ||
+          bStatus.includes('closed');
+        const isInProgress = !isCompletedUsage && (bStatus.includes('progress') || bStatus.includes('running') || bStatus.includes('paused') || bStatus.includes('active') || bStatus.includes('hold'));
         const qty = Number(u.actualUsedQty || u.requiredQty || 0);
-        const batchRef = u.batchNumber || 'Prod Batch';
+        const prodNo = (u.batchReferenceNo && u.batchReferenceNo !== 'N/A') ? u.batchReferenceNo : (u.batchNumber || 'Prod Batch');
+        const batchRef = prodNo;
         const rmBatchTaken = u.batchNoTakenFrom || 'RM Lot';
 
         txList.push({
           id: `usage-${u.id}`,
           date: u.date,
-          flow: 'OUT',
-          type: 'PROD_USAGE',
-          typeLabel: isInProgress ? 'Production Issue (In Progress WIP)' : 'Production Consumption',
+          productionDate: u.date,
+          flow: isInProgress ? 'IN_PROGRESS' : 'OUT',
+          type: isInProgress ? 'PROD_WIP' : 'PROD_USAGE',
+          typeLabel: isInProgress ? 'Production In Progress (WIP)' : 'Production Consumption',
           quantity: qty,
           rate: 0,
           amount: 0,
           referenceNo: batchRef,
+          productionNo: prodNo,
+          batchNo: u.batchNo || u.batchNumber || batchRef,
           batchId: u.batchId,
           batchStatus: isInProgress ? 'IN_PROGRESS' : 'COMPLETED',
           isInProgress,
           rawBatchStatus: u.batchStatus,
           batchNumber: rmBatchTaken,
-          partyName: `Product: ${u.productName}`,
+          partyName: `${isInProgress ? 'In Progress' : 'Product'}: ${u.productName}`,
           user: 'Production Team',
-          labStatus: 'QC_PASSED',
+          labStatus: isInProgress ? 'WIP_RUNNING' : 'QC_PASSED',
           isLabRejected: false,
-          notes: `Status: ${u.batchStatus || 'Completed'}`,
-          compositeComment: `Batch: ${batchRef} | RM Lot: ${rmBatchTaken} | Product: ${u.productName} | Qty: ${qty} | Status: ${u.batchStatus || 'Completed'}`
+          notes: `Production No: ${prodNo} | Status: ${u.batchStatus || 'Completed'}`,
+          compositeComment: `Production No: ${prodNo} | RM Lot: ${rmBatchTaken} | Product: ${u.productName} | Qty: ${qty} | Status: ${u.batchStatus || 'Completed'}`
         });
       });
 
@@ -1157,6 +1165,7 @@ export default function RMINOUTStockPage() {
       let postPeriodIn = 0;
       let postPeriodOut = 0;
       let inProgressStock = 0;
+      let inProgressBatches = [];
       let labRejectedQty = 0;
       let hasLabRejection = false;
       let lastIn = null;
@@ -1167,6 +1176,7 @@ export default function RMINOUTStockPage() {
         cached.txList.forEach(tx => {
           const inRange = isDateInPeriod(tx.date);
           const isAfter = isDateAfterPeriod(tx.date);
+          const isWip = Boolean(tx.isInProgress || tx.flow === 'IN_PROGRESS' || tx.batchStatus === 'IN_PROGRESS');
           if (tx.isLabRejected) {
             hasLabRejection = true;
             labRejectedQty += Number(tx.quantity || 0);
@@ -1177,19 +1187,30 @@ export default function RMINOUTStockPage() {
             }
             if (inRange) periodIn += tx.quantity;
             else if (isAfter) postPeriodIn += tx.quantity;
+          } else if (isWip) {
+            if (!isPeriodFiltered || inRange) {
+              inProgressStock += Number(tx.quantity || 0);
+              const prodNo = tx.productionNo || tx.referenceNo;
+              if (prodNo) {
+                inProgressBatches.push({
+                  batchId: tx.batchId || null,
+                  productionNo: prodNo,
+                  referenceNo: prodNo,
+                  batchNo: tx.batchNo || prodNo,
+                  qty: Number(tx.quantity || 0),
+                  date: tx.date
+                });
+              }
+            }
           } else {
             if (!lastOut || new Date(tx.date) > new Date(lastOut.date)) {
-              lastOut = { date: tx.date, ref: tx.referenceNo, qty: tx.quantity, party: tx.partyName, batchId: tx.batchId, isInProgress: tx.isInProgress };
+              lastOut = { date: tx.date, ref: tx.referenceNo, qty: tx.quantity, party: tx.partyName, batchId: tx.batchId, isInProgress: false };
             }
             if (inRange) periodOut += tx.quantity;
             else if (isAfter) postPeriodOut += tx.quantity;
-
-            if (tx.isInProgress) {
-              inProgressStock += tx.quantity;
-            }
           }
 
-          if (inRange) {
+          if (inRange || (isWip && !isPeriodFiltered)) {
             txs.push(tx);
           }
         });
@@ -1203,7 +1224,7 @@ export default function RMINOUTStockPage() {
         curStock = Math.max(0, Math.round((liveStock - postPeriodIn + postPeriodOut) * 1000) / 1000);
       }
 
-      const inProgress = isPeriodFiltered ? 0 : inProgressStock;
+      const inProgress = inProgressStock;
       const valueWithoutTax = hasPo ? Math.round((curStock * rateWithoutTax) * 100) / 100 : 0;
       const valueWithTax = hasPo ? Math.round((curStock * rateWithTax) * 100) / 100 : 0;
       const taxValue = Math.round((valueWithTax - valueWithoutTax) * 100) / 100;
@@ -1221,7 +1242,8 @@ export default function RMINOUTStockPage() {
         currentStock: curStock,
         liveStock,
         isHistorical,
-        inProgressStock: Math.round(inProgress * 100) / 100,
+        inProgressStock: Math.round(inProgress * 1000) / 1000,
+        inProgressBatches,
         availableStock: Math.round(availableStock * 100) / 100,
         labRejectedQty: Math.round(labRejectedQty * 100) / 100,
         hasLabRejection,
@@ -1250,7 +1272,7 @@ export default function RMINOUTStockPage() {
     });
 
     if (isPeriodFiltered) {
-      return mapped.filter(m => Number(m.periodInQty || 0) > 0 || Number(m.periodOutQty || 0) > 0);
+      return mapped.filter(m => Number(m.periodInQty || 0) > 0 || Number(m.periodOutQty || 0) > 0 || Number(m.inProgressStock || 0) > 0);
     }
     return mapped;
   }, [baseStock, dedicatedData, materialHistoryCache, isDateInPeriod, isDateAfterPeriod, dateRange, period]);
@@ -1361,8 +1383,16 @@ export default function RMINOUTStockPage() {
     item.lastOut?.ref,
     item.lastOut?.party,
     item.uom,
+    ...(item.inProgressBatches || []).flatMap(b => [
+      b.productionNo,
+      b.referenceNo,
+      b.batchNo,
+      b.productName
+    ]),
     ...(item.transactions || []).flatMap(t => [
       t.referenceNo,
+      t.productionNo,
+      t.batchNo,
       t.poReferenceNo,
       t.batchNumber,
       t.partyName,
@@ -1597,12 +1627,13 @@ export default function RMINOUTStockPage() {
 
       // 4. Movement & Status Filters (Interactive from KPI Cards & Charts)
       if (period !== 'all' && movementFilter === 'ALL') {
-        const hasMovement = Number(item.periodInQty || 0) > 0 || Number(item.periodOutQty || 0) > 0;
+        const hasMovement = Number(item.periodInQty || 0) > 0 || Number(item.periodOutQty || 0) > 0 || Number(item.inProgressStock || 0) > 0;
         if (!hasMovement) return false;
       }
 
       if (movementFilter === 'IN_PROGRESS') {
-        if (Number(item.inProgressStock || 0) <= 0) return false;
+        const hasWipTx = (item.transactions || []).some(t => t.isInProgress || t.flow === 'IN_PROGRESS' || t.batchStatus === 'IN_PROGRESS');
+        if (Number(item.inProgressStock || 0) <= 0 && !hasWipTx) return false;
       } else if (movementFilter === 'FREE_AVAILABLE') {
         if (Number(item.availableStock !== undefined ? item.availableStock : Math.max(0, (item.currentStock || 0) - (item.inProgressStock || 0))) <= 0) return false;
       } else if (movementFilter === 'LAB_REJECTED') {
@@ -1699,6 +1730,8 @@ export default function RMINOUTStockPage() {
           tx.rawMaterialName,
           tx.category,
           tx.referenceNo,
+          tx.productionNo,
+          tx.batchNo,
           tx.poReferenceNo,
           tx.batchNumber,
           tx.partyName,
@@ -1722,13 +1755,13 @@ export default function RMINOUTStockPage() {
 
       // 4. Movement Filter
       if (movementFilter === 'IN_PROGRESS') {
-        if (!tx.isInProgress && tx.batchStatus !== 'IN_PROGRESS') return false;
+        if (!tx.isInProgress && tx.batchStatus !== 'IN_PROGRESS' && tx.flow !== 'IN_PROGRESS') return false;
       } else if (movementFilter === 'LAB_REJECTED') {
         if (!tx.isLabRejected && tx.labStatus !== 'LAB_REJECTED') return false;
       } else if (movementFilter === 'IN_ONLY') {
         if (tx.flow !== 'IN') return false;
       } else if (movementFilter === 'OUT_ONLY') {
-        if (tx.flow !== 'OUT') return false;
+        if (tx.flow !== 'OUT' || tx.isInProgress || tx.batchStatus === 'IN_PROGRESS') return false;
       }
 
       return true;
@@ -1861,10 +1894,14 @@ export default function RMINOUTStockPage() {
       const qty = Number(tx.quantity || 0);
       if (qty <= 0) return; // No zero-movement records
 
+      const isWipTx = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS' || tx.flow === 'IN_PROGRESS');
+
       // When Inward Only is selected, ONLY process IN transactions!
       if (movementFilter === 'IN_ONLY' && tx.flow !== 'IN') return;
-      // When Outward Only is selected, ONLY process OUT transactions!
-      if (movementFilter === 'OUT_ONLY' && tx.flow !== 'OUT') return;
+      // When Outward Only is selected, ONLY process completed OUT transactions!
+      if (movementFilter === 'OUT_ONLY' && (tx.flow !== 'OUT' || isWipTx)) return;
+      // When In Progress WIP is selected, ONLY process IN_PROGRESS transactions!
+      if (movementFilter === 'IN_PROGRESS' && !isWipTx) return;
 
       let targetMat = null;
       if (tx.rawMaterialId && filteredMatMap.has(tx.rawMaterialId)) {
@@ -1886,12 +1923,13 @@ export default function RMINOUTStockPage() {
       if (!dStr) return;
 
       // Unique transaction identifier to avoid duplicates between allTransactions and material.transactions
-      const txKey = `${tx.id || ''}_${targetMat.id}_${tx.flow || ''}_${dStr}_${qty}_${tx.referenceNo || ''}_${tx.batchNumber || ''}`;
+      const txKey = `${tx.id || ''}_${targetMat.id}_${tx.flow || ''}_${dStr}_${qty}_${tx.productionNo || tx.referenceNo || ''}_${tx.batchNumber || ''}`;
       if (seenTxKeys.has(txKey)) return;
       seenTxKeys.add(txKey);
 
       relevantTxs.push({
         ...tx,
+        isWipTx,
         resolvedMatId: targetMat.id,
         effectiveDateStr: dStr
       });
@@ -1907,7 +1945,7 @@ export default function RMINOUTStockPage() {
       }
     });
 
-    // Aggregate into a temporary map: materialId -> dateStr -> { inQty, outQty, transactions }
+    // Aggregate into a temporary map: materialId -> dateStr -> { inQty, outQty, wipQty, wipProductionNos, wipBatches, transactions }
     const tempMap = {};
     filteredMaterials.forEach(m => {
       tempMap[m.id] = {};
@@ -1923,12 +1961,25 @@ export default function RMINOUTStockPage() {
         tempMap[matId] = {};
       }
       if (!tempMap[matId][dStr]) {
-        tempMap[matId][dStr] = { inQty: 0, outQty: 0, transactions: [] };
+        tempMap[matId][dStr] = { inQty: 0, outQty: 0, wipQty: 0, wipProductionNos: [], wipBatches: [], transactions: [] };
       }
 
       const qty = Number(tx.quantity || 0);
       if (tx.flow === 'IN') {
         tempMap[matId][dStr].inQty += qty;
+      } else if (tx.isWipTx) {
+        tempMap[matId][dStr].wipQty += qty;
+        const pNo = tx.productionNo || tx.referenceNo;
+        if (pNo && !tempMap[matId][dStr].wipProductionNos.includes(pNo)) {
+          tempMap[matId][dStr].wipProductionNos.push(pNo);
+        }
+        tempMap[matId][dStr].wipBatches.push({
+          productionNo: pNo,
+          batchId: tx.batchId || tx.productionBatchId || null,
+          batchNo: tx.batchNo || pNo,
+          productName: tx.partyName,
+          qty
+        });
       } else {
         tempMap[matId][dStr].outQty += qty;
       }
@@ -1945,14 +1996,15 @@ export default function RMINOUTStockPage() {
       (a, b) => activeDateMap.get(a) - activeDateMap.get(b)
     );
 
-    // Final filter: ensure every date in sortedDates has inQty > 0 || outQty > 0 for at least one filtered material
+    // Final filter: ensure every date in sortedDates has inQty > 0 || outQty > 0 || wipQty > 0 for at least one filtered material
     const finalDates = sortedDates.filter(dStr => {
       return filteredMaterials.some(m => {
         const cell = tempMap[m.id]?.[dStr];
         if (!cell) return false;
         if (movementFilter === 'IN_ONLY') return Number(cell.inQty || 0) > 0;
         if (movementFilter === 'OUT_ONLY') return Number(cell.outQty || 0) > 0;
-        return Number(cell.inQty || 0) > 0 || Number(cell.outQty || 0) > 0;
+        if (movementFilter === 'IN_PROGRESS') return Number(cell.wipQty || 0) > 0;
+        return Number(cell.inQty || 0) > 0 || Number(cell.outQty || 0) > 0 || Number(cell.wipQty || 0) > 0;
       });
     });
 
@@ -1961,7 +2013,7 @@ export default function RMINOUTStockPage() {
     filteredMaterials.forEach(m => {
       finalData[m.id] = {};
       finalDates.forEach(dStr => {
-        finalData[m.id][dStr] = tempMap[m.id]?.[dStr] || { inQty: 0, outQty: 0, transactions: [] };
+        finalData[m.id][dStr] = tempMap[m.id]?.[dStr] || { inQty: 0, outQty: 0, wipQty: 0, wipProductionNos: [], wipBatches: [], transactions: [] };
       });
     });
 
@@ -2027,6 +2079,35 @@ export default function RMINOUTStockPage() {
     navigate('/production/standard');
   };
 
+  // Helper: collect deduplicated In-Progress WIP batches with Production No for a material
+  const getWipBatchesForMaterial = (mat) => {
+    if (!mat) return [];
+    const seen = new Set();
+    const list = [];
+    const pushItem = (b) => {
+      const pNo = b?.productionNo || b?.referenceNo || b?.batchNo;
+      if (!pNo || seen.has(pNo)) return;
+      seen.add(pNo);
+      list.push({
+        batchId: b.batchId || b.productionBatchId || null,
+        productionNo: pNo,
+        batchNo: b.batchNo || pNo,
+        qty: Number(b.qty ?? b.quantity ?? 0),
+        date: b.date || b.productionDate || null,
+        productName: b.productName || ''
+      });
+    };
+    if (Array.isArray(mat.inProgressBatches)) {
+      mat.inProgressBatches.forEach(pushItem);
+    }
+    if (Array.isArray(mat.transactions)) {
+      mat.transactions
+        .filter(t => t.isInProgress || t.flow === 'IN_PROGRESS' || t.batchStatus === 'IN_PROGRESS')
+        .forEach(pushItem);
+    }
+    return list;
+  };
+
   // =========================================================================
   // EXPORT ENGINE (2 Dedicated Types + Master Multi-Sheet Workbook)
   // =========================================================================
@@ -2043,7 +2124,8 @@ export default function RMINOUTStockPage() {
       const lastInBatch = m.lastIn?.ref || 'N/A';
       const qcStatus = m.hasLabRejection ? '❌ LAB REJECTED' : 'APPROVED / QC PASSED';
 
-      const compositeComment = `PO: ${poRef} | Batch: ${lastInBatch} | In-Hand: ${cur} ${m.uom} | WIP: ${wip} | Free: ${free} | Rate: ₹${rate.toFixed(2)} | Valuation: ₹${val.toFixed(2)} | QC: ${qcStatus}`;
+      const wipProdNos = (m.inProgressBatches || []).map(b => b.productionNo).filter(Boolean).join(', ');
+      const compositeComment = `PO: ${poRef} | Batch: ${lastInBatch} | In-Hand: ${cur} ${m.uom} | WIP: ${wip}${wipProdNos ? ` (${wipProdNos})` : ''} | Free: ${free} | Rate: ₹${rate.toFixed(2)} | Valuation: ₹${val.toFixed(2)} | QC: ${qcStatus}`;
 
       return {
         'RM Code': m.code || '—',
@@ -2076,19 +2158,22 @@ export default function RMINOUTStockPage() {
   const generateLedgerExportRows = useCallback(() => {
     return filteredTransactions.map(tx => {
       const isIn = tx.flow === 'IN';
+      const isWipTx = Boolean(tx.isInProgress || tx.flow === 'IN_PROGRESS' || tx.batchStatus === 'IN_PROGRESS');
       const rate = Number(tx.rate || 0);
       const qty = Number(tx.quantity || 0);
       const amt = Number(tx.amount || (rate * qty) || 0);
       const qcStatus = tx.isLabRejected ? '❌ LAB REJECTED' : (tx.labStatus || 'PASSED');
       const invDate = tx.supplierInvoiceDate ? formatDate(tx.supplierInvoiceDate) : '—';
       const invNo = tx.supplierInvoiceNo || '—';
+      const prodNo = tx.productionNo || (tx.batchId || isWipTx ? tx.referenceNo : null) || '—';
 
       const compositeComment = tx.compositeComment || `PO: ${tx.poReferenceNo || 'N/A'}${invDate !== '—' ? ` | Supplier Inv Date: ${invDate}` : ''}${invNo !== '—' ? ` | Inv No: ${invNo}` : ''} | Batch: ${tx.batchNumber || 'N/A'} | Qty: ${qty} ${tx.uom || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amt.toFixed(2)} | QC: ${qcStatus}${tx.rejectionReason ? ` | Rejection: ${tx.rejectionReason}` : ''}`;
 
       return {
         'Date & Time': formatDateTime(tx.date),
-        'Flow Direction': tx.flow === 'IN' ? 'INWARD (IN)' : 'OUTWARD (OUT)',
-        'Batch Status': tx.isInProgress ? '🟡 IN PROGRESS (WIP)' : 'COMPLETED',
+        'Flow Direction': isIn ? 'INWARD (IN)' : isWipTx ? 'IN PROGRESS (WIP)' : 'OUTWARD (OUT)',
+        'Batch Status': isWipTx ? '🟡 IN PROGRESS (WIP)' : 'COMPLETED',
+        'Production No': prodNo,
         'Transaction Type': tx.typeLabel || 'Movement',
         'RM Code': tx.rawMaterialCode || '—',
         'Raw Material Name': tx.rawMaterialName || '—',
@@ -2100,8 +2185,8 @@ export default function RMINOUTStockPage() {
         'Supplier Invoice No': invNo,
         'Batch / Lot Number': tx.batchNumber || '—',
         'Inward Qty (IN)': isIn ? qty : 0,
-        'Outward Qty (OUT)': !isIn ? qty : 0,
-        'Floor WIP Allocated': tx.isInProgress ? qty : 0,
+        'Outward Qty (OUT)': (!isIn && !isWipTx) ? qty : 0,
+        'Floor WIP Allocated': isWipTx ? qty : 0,
         'Unit Rate (₹)': rate,
         'Transaction Amount (₹)': amt,
         'Quality & Lab Decision': qcStatus,
@@ -2139,15 +2224,15 @@ export default function RMINOUTStockPage() {
         if (cell) {
           const hasIn = cell.inQty > 0;
           const hasOut = cell.outQty > 0;
-          if (hasIn && hasOut) {
-            row[dStr] = `+${cell.inQty} / -${cell.outQty}`;
-          } else if (hasIn) {
-            row[dStr] = cell.inQty;
-          } else if (hasOut) {
-            row[dStr] = cell.outQty;
-          } else {
-            row[dStr] = '';
-          }
+          const hasWip = (cell.wipQty || 0) > 0;
+          const wipPart = hasWip
+            ? `WIP ${cell.wipQty}${cell.wipProductionNos?.length ? ` (${cell.wipProductionNos.join(', ')})` : ''}`
+            : '';
+          const parts = [];
+          if (hasIn) parts.push(`+${cell.inQty}`);
+          if (hasOut) parts.push(`-${cell.outQty}`);
+          if (hasWip) parts.push(wipPart);
+          row[dStr] = parts.join(' / ');
         } else {
           row[dStr] = '';
         }
@@ -2317,13 +2402,13 @@ export default function RMINOUTStockPage() {
                 onClick={() => setMovementFilter(movementFilter === 'IN_PROGRESS' ? 'ALL' : 'IN_PROGRESS')}
                 className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border transition-all cursor-pointer ${
                   movementFilter === 'IN_PROGRESS'
-                    ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-1.5 ring-amber-300'
-                    : 'bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                    ? 'bg-yellow-400 text-yellow-950 border-yellow-500 shadow-xs ring-1.5 ring-yellow-300'
+                    : 'bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-950/70 text-yellow-950 dark:text-yellow-300 border-yellow-400 dark:border-yellow-700'
                 }`}
                 title="Click to filter by Floor WIP Run"
               >
-                <span className={`w-1.5 h-1.5 rounded-full ${movementFilter === 'IN_PROGRESS' ? 'bg-white' : 'bg-amber-500'} animate-pulse`} />
-                <span>Floor WIP: {summary.totalInProgressStock}</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${movementFilter === 'IN_PROGRESS' ? 'bg-yellow-950' : 'bg-yellow-500'} animate-pulse`} />
+                <span>In Progress: {summary.totalInProgressStock}</span>
               </button>
             )}
 
@@ -2554,24 +2639,24 @@ export default function RMINOUTStockPage() {
           onClick={() => setMovementFilter(movementFilter === 'IN_PROGRESS' ? 'ALL' : 'IN_PROGRESS')}
           className={`border rounded-lg px-2 sm:px-2.5 py-1.5 transition-all cursor-pointer select-none ${
             movementFilter === 'IN_PROGRESS'
-              ? 'border-amber-500 ring-1.5 ring-amber-500/30 bg-amber-50 dark:bg-amber-950/40 shadow-2xs'
-              : 'border-amber-200/80 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/20 hover:border-amber-300'
+              ? 'border-yellow-500 ring-2 ring-yellow-400/50 bg-yellow-100 dark:bg-yellow-950/50 shadow-2xs'
+              : 'border-yellow-300 dark:border-yellow-800/60 bg-yellow-50/80 dark:bg-yellow-950/25 hover:border-yellow-400'
           }`}
           title="Click to filter materials running on floor WIP"
         >
-          <div className="flex items-center justify-between text-amber-800 dark:text-amber-400 text-[10px]">
+          <div className="flex items-center justify-between text-yellow-900 dark:text-yellow-300 text-[10px]">
             <span className="font-bold flex items-center gap-1 truncate uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
               In-Progress WIP
             </span>
-            <Factory className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+            <Factory className="w-3 h-3 text-yellow-700 dark:text-yellow-400 shrink-0" />
           </div>
-          <div className="text-[13px] sm:text-sm font-bold text-amber-700 dark:text-amber-300 font-mono leading-tight tracking-tight my-0.5">
+          <div className="text-[13px] sm:text-sm font-bold text-yellow-800 dark:text-yellow-200 font-mono leading-tight tracking-tight my-0.5">
             {Number(summary.totalInProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
-          <div className="text-[9px] text-amber-700/80 dark:text-amber-400/80 truncate flex items-center justify-between gap-1 leading-none">
+          <div className="text-[9px] text-yellow-800/80 dark:text-yellow-300/80 truncate flex items-center justify-between gap-1 leading-none">
             <span className="truncate">Active floor batches</span>
-            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 font-medium shrink-0 leading-none">
+            <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-yellow-200 dark:bg-yellow-900/60 text-yellow-950 dark:text-yellow-200 border border-yellow-400 dark:border-yellow-700/60 font-bold shrink-0 leading-none">
               {movementFilter === 'IN_PROGRESS' ? 'Filtered' : periodDisplayText.shortBadge}
             </span>
           </div>
@@ -2714,11 +2799,11 @@ export default function RMINOUTStockPage() {
             className={`h-full bg-rose-500 hover:bg-rose-600 transition-all ${movementFilter === 'OUT_ONLY' ? 'ring-2 ring-white z-10' : ''}`}
             title={`Period Outward: -${summary.totalPeriodOut} (Click to filter)`}
           />
-          {/* Segment 3: Floor WIP (Amber) */}
+          {/* Segment 3: Floor WIP (Yellow) */}
           <div
             onClick={() => setMovementFilter('IN_PROGRESS')}
             style={{ width: `${Math.max(3, ((summary.totalInProgressStock || 0) / totalVolumeCalculated) * 100)}%` }}
-            className={`h-full bg-amber-400 hover:bg-amber-500 transition-all ${movementFilter === 'IN_PROGRESS' ? 'ring-2 ring-white z-10' : ''}`}
+            className={`h-full bg-yellow-400 hover:bg-yellow-500 transition-all ${movementFilter === 'IN_PROGRESS' ? 'ring-2 ring-white z-10' : ''}`}
             title={`Floor WIP: ${summary.totalInProgressStock} (Click to filter)`}
           />
         </div>
@@ -2733,9 +2818,9 @@ export default function RMINOUTStockPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
               <span>Outward ({summary.totalPeriodOut})</span>
             </span>
-            <span onClick={() => setMovementFilter('IN_PROGRESS')} className="flex items-center gap-1 cursor-pointer hover:text-amber-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>Floor WIP ({summary.totalInProgressStock})</span>
+            <span onClick={() => setMovementFilter('IN_PROGRESS')} className="flex items-center gap-1 cursor-pointer hover:text-yellow-700 font-semibold text-yellow-700 dark:text-yellow-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+              <span>In Progress WIP ({summary.totalInProgressStock})</span>
             </span>
           </div>
           <div>
@@ -2923,8 +3008,8 @@ export default function RMINOUTStockPage() {
               </span>
             )}
             {movementFilter === 'IN_PROGRESS' && (
-              <span className="px-2 py-0.2 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold text-[10px]">
-                🟡 In-Progress WIP Floor
+              <span className="px-2 py-0.2 rounded-full bg-yellow-200 text-yellow-950 border border-yellow-400 dark:bg-yellow-900/70 dark:text-yellow-200 dark:border-yellow-700 font-bold text-[10px]">
+                🟡 In-Progress WIP (Production Runs)
               </span>
             )}
             {movementFilter === 'FREE_AVAILABLE' && (
@@ -3161,11 +3246,14 @@ export default function RMINOUTStockPage() {
                     const isLoadingHistory = expandedLoadingIds.has(mat.id);
                     const isLow = mat.status === 'LOW_STOCK';
                     const isOut = mat.status === 'OUT_OF_STOCK';
-                    const hasWip = Number(mat.inProgressStock || 0) > 0;
+                    const wipBatches = getWipBatchesForMaterial(mat);
+                    const hasWip = Number(mat.inProgressStock || 0) > 0 || wipBatches.length > 0;
                     const hasReject = mat.hasLabRejection || mat.labStatus === 'LAB_REJECTED';
                     const pyClass = isCompactDensity ? 'py-1.5' : 'py-2.5';
                     const rowBgClass = isExpanded
                       ? 'bg-slate-100/90 dark:bg-slate-800/60'
+                      : hasWip
+                      ? 'bg-yellow-50/70 dark:bg-yellow-950/20 hover:bg-yellow-100/70 dark:hover:bg-yellow-950/35'
                       : isEven
                       ? 'bg-slate-100/60 dark:bg-slate-800/40 hover:bg-slate-100/90 dark:hover:bg-slate-800/70'
                       : 'bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/40';
@@ -3175,7 +3263,7 @@ export default function RMINOUTStockPage() {
                         {/* Main Item Row */}
                         <TableRow
                           className={`text-xs transition-colors border-b border-slate-200/80 dark:border-slate-800 ${rowBgClass} ${
-                            hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''
+                            hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-yellow-400' : ''
                           }`}
                         >
                           {/* 0. Expand Button */}
@@ -3206,11 +3294,23 @@ export default function RMINOUTStockPage() {
                             </button>
                             <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                               {hasWip && (
-                                <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300">
-                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                                  WIP Run
+                                <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-full bg-yellow-200 dark:bg-yellow-900/70 text-yellow-950 dark:text-yellow-200 font-bold border border-yellow-400">
+                                  <span className="w-1 h-1 rounded-full bg-yellow-600 animate-pulse" />
+                                  IN PROGRESS
                                 </span>
                               )}
+                              {wipBatches.map((b, bIdx) => (
+                                <button
+                                  key={bIdx}
+                                  type="button"
+                                  onClick={() => handleRedirectToBatch(b.batchId, b.productionNo)}
+                                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded bg-yellow-100 hover:bg-yellow-300 dark:bg-yellow-950/80 text-yellow-950 dark:text-yellow-200 font-mono font-extrabold border border-yellow-400 cursor-pointer"
+                                  title={`In-Progress Production No: ${b.productionNo} (${b.qty} ${mat.uom})`}
+                                >
+                                  <span>{b.productionNo}</span>
+                                  <ExternalLink className="w-2 h-2" />
+                                </button>
+                              ))}
                               {hasReject && (
                                 <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 font-bold border border-rose-300">
                                   ❌ Reject
@@ -3255,11 +3355,11 @@ export default function RMINOUTStockPage() {
                             {hasWip ? (
                               <div className="flex flex-col items-end gap-0.5 mt-0.5">
                                 <span
-                                  className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-sm bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300"
+                                  className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-sm bg-yellow-100 dark:bg-yellow-950/70 text-yellow-950 dark:text-yellow-200 font-bold border border-yellow-400"
                                   title="Material committed to active batches on the floor"
                                 >
-                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                                  WIP: {Number(mat.inProgressStock).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                                  <span className="w-1 h-1 rounded-full bg-yellow-500 animate-pulse" />
+                                  WIP: {Number(mat.inProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: Number(mat.inProgressStock || 0) < 1 ? 4 : 1 })}
                                 </span>
                                 <span
                                   className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-sm bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-300 font-bold border border-emerald-300"
@@ -3494,6 +3594,7 @@ export default function RMINOUTStockPage() {
                                           const isIn = tx.flow === 'IN';
                                           const isInProgress = Boolean(
                                             tx.isInProgress ||
+                                            tx.flow === 'IN_PROGRESS' ||
                                             tx.batchStatus === 'IN_PROGRESS' ||
                                             String(tx.typeLabel || '').includes('In Progress')
                                           );
@@ -3502,6 +3603,7 @@ export default function RMINOUTStockPage() {
                                             String(tx.labStatus || '').includes('REJECT') ||
                                             Number(tx.rejectedQty || 0) > 0
                                           );
+                                          const txProdNo = tx.productionNo || tx.referenceNo;
 
                                           return (
                                             <TableRow
@@ -3510,7 +3612,7 @@ export default function RMINOUTStockPage() {
                                                 isTxReject
                                                   ? 'bg-rose-50/70 dark:bg-rose-950/30 border-l-4 border-l-rose-500'
                                                   : isInProgress
-                                                  ? 'bg-amber-50/80 dark:bg-amber-950/30 border-l-4 border-l-amber-500'
+                                                  ? 'bg-yellow-50/90 dark:bg-yellow-950/35 border-l-4 border-l-yellow-500'
                                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border-slate-100 dark:border-slate-800/80'
                                               }`}
                                             >
@@ -3523,9 +3625,9 @@ export default function RMINOUTStockPage() {
                                                     ❌ REJECTED
                                                   </span>
                                                 ) : isInProgress ? (
-                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                                    <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                                                    🟡 WIP RUN
+                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-yellow-200 text-yellow-950 border border-yellow-400">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-600 animate-pulse" />
+                                                    🟡 IN PROGRESS
                                                   </span>
                                                 ) : (
                                                   <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
@@ -3561,12 +3663,15 @@ export default function RMINOUTStockPage() {
                                                   </button>
                                                 ) : tx.batchId || isInProgress ? (
                                                   <button
-                                                    onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                                                    className={`hover:underline flex items-center gap-0.5 font-semibold cursor-pointer ${
-                                                      isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
+                                                    onClick={() => handleRedirectToBatch(tx.batchId, txProdNo)}
+                                                    className={`inline-flex items-center gap-0.5 cursor-pointer ${
+                                                      isInProgress
+                                                        ? 'px-1.5 py-0.5 rounded bg-yellow-200/80 hover:bg-yellow-300 text-yellow-950 border border-yellow-400 font-bold'
+                                                        : 'text-purple-600 hover:underline font-semibold'
                                                     }`}
+                                                    title={isInProgress ? `In-Progress Production No: ${txProdNo}` : `Production No: ${txProdNo}`}
                                                   >
-                                                    <span>{tx.referenceNo}</span>
+                                                    <span>{txProdNo}</span>
                                                     <ExternalLink className="w-2 h-2" />
                                                   </button>
                                                 ) : (
@@ -3577,12 +3682,16 @@ export default function RMINOUTStockPage() {
                                                 {tx.batchNumber || '—'}
                                               </TableCell>
                                               <TableCell className="text-right font-mono font-bold py-1.5 text-emerald-600 dark:text-emerald-400">
-                                                {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
+                                                {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })}` : '—'}
                                               </TableCell>
                                               <TableCell className={`text-right font-mono font-bold py-1.5 ${
-                                                isInProgress ? 'text-amber-700' : 'text-rose-600'
+                                                isInProgress ? 'text-yellow-800 dark:text-yellow-300' : 'text-rose-600'
                                               }`}>
-                                                {!isIn ? `-${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
+                                                {isInProgress
+                                                  ? <span className="px-1.5 py-0.2 rounded bg-yellow-100 border border-yellow-400 text-yellow-950 text-[10px]">WIP {Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })}</span>
+                                                  : !isIn
+                                                  ? `-${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })}`
+                                                  : '—'}
                                               </TableCell>
                                               <TableCell className="text-right font-mono py-1.5 text-slate-700 dark:text-slate-300">
                                                 {tx.rate ? `₹${Number(tx.rate).toFixed(2)}` : '—'}
@@ -3643,7 +3752,8 @@ export default function RMINOUTStockPage() {
                 const isLoadingHistory = expandedLoadingIds.has(mat.id);
                 const isLow = mat.status === 'LOW_STOCK';
                 const isOut = mat.status === 'OUT_OF_STOCK';
-                const hasWip = Number(mat.inProgressStock || 0) > 0;
+                const wipBatches = getWipBatchesForMaterial(mat);
+                const hasWip = Number(mat.inProgressStock || 0) > 0 || wipBatches.length > 0;
                 const hasReject = mat.hasLabRejection || mat.labStatus === 'LAB_REJECTED';
                 const cur = Number(mat.currentStock || 0);
                 const wip = Number(mat.inProgressStock || 0);
@@ -3656,8 +3766,12 @@ export default function RMINOUTStockPage() {
                 return (
                   <div
                     key={mat.id}
-                    className={`p-3 sm:p-4 space-y-2.5 bg-white dark:bg-slate-900 transition-colors ${
-                      hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''
+                    className={`p-3 sm:p-4 space-y-2.5 transition-colors ${
+                      hasReject
+                        ? 'border-l-4 border-l-rose-500 bg-white dark:bg-slate-900'
+                        : hasWip
+                        ? 'border-l-4 border-l-yellow-400 bg-yellow-50/50 dark:bg-yellow-950/20'
+                        : 'bg-white dark:bg-slate-900'
                     }`}
                   >
                     {/* Card Header: Code, Badges, Name, Current Stock & Valuation */}
@@ -3678,11 +3792,22 @@ export default function RMINOUTStockPage() {
                             {formatUOM(mat.uom)}
                           </span>
                           {hasWip && (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300">
-                              <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-                              WIP Run
+                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.2 rounded-full bg-yellow-200 dark:bg-yellow-900/70 text-yellow-950 dark:text-yellow-200 font-bold border border-yellow-400">
+                              <span className="w-1 h-1 rounded-full bg-yellow-600 animate-pulse" />
+                              IN PROGRESS
                             </span>
                           )}
+                          {wipBatches.map((b, bIdx) => (
+                            <button
+                              key={bIdx}
+                              type="button"
+                              onClick={() => handleRedirectToBatch(b.batchId, b.productionNo)}
+                              className="inline-flex items-center gap-0.5 text-[9.5px] px-1.5 py-0.2 rounded bg-yellow-100 hover:bg-yellow-300 text-yellow-950 dark:bg-yellow-950/80 dark:text-yellow-200 font-mono font-extrabold border border-yellow-400 cursor-pointer"
+                            >
+                              <span>{b.productionNo}</span>
+                              <ExternalLink className="w-2 h-2" />
+                            </button>
+                          ))}
                           {hasReject ? (
                             <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 font-bold border border-rose-300">
                               ❌ QC Reject
@@ -3725,10 +3850,10 @@ export default function RMINOUTStockPage() {
                           {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
-                      <div className="p-1 rounded-lg bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
-                        <span className="text-[9px] text-amber-700 dark:text-amber-400 font-semibold block">WIP Floor</span>
-                        <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
-                          {wip.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                      <div className="p-1 rounded-lg bg-yellow-100/80 dark:bg-yellow-950/40 border border-yellow-400/80 dark:border-yellow-700/60">
+                        <span className="text-[9px] text-yellow-900 dark:text-yellow-300 font-bold block">WIP Floor</span>
+                        <span className="font-mono font-bold text-yellow-950 dark:text-yellow-200">
+                          {wip.toLocaleString('en-IN', { maximumFractionDigits: wip > 0 && wip < 1 ? 4 : 1 })}
                         </span>
                       </div>
                       <div className="p-1 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40">
@@ -3804,8 +3929,9 @@ export default function RMINOUTStockPage() {
                         {mat.transactions && mat.transactions.length > 0 ? (
                           mat.transactions.map((tx) => {
                             const isIn = tx.flow === 'IN';
-                            const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
+                            const isInProgress = Boolean(tx.isInProgress || tx.flow === 'IN_PROGRESS' || tx.batchStatus === 'IN_PROGRESS');
                             const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT') || Number(tx.rejectedQty || 0) > 0);
+                            const txProdNo = tx.productionNo || tx.referenceNo;
 
                             return (
                               <div
@@ -3814,7 +3940,7 @@ export default function RMINOUTStockPage() {
                                   isTxReject
                                     ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 border-l-4 border-l-rose-500'
                                     : isInProgress
-                                    ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 border-l-4 border-l-amber-500'
+                                    ? 'bg-yellow-50/90 dark:bg-yellow-950/35 border-yellow-400 dark:border-yellow-700 border-l-4 border-l-yellow-500'
                                     : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800'
                                 }`}
                               >
@@ -3825,8 +3951,8 @@ export default function RMINOUTStockPage() {
                                       ❌ REJECTED
                                     </span>
                                   ) : isInProgress ? (
-                                    <span className="px-1.5 py-0.5 rounded-sm font-bold bg-amber-100 text-amber-900 border border-amber-300 text-[10px]">
-                                      🟡 -{Number(tx.quantity).toLocaleString()} WIP
+                                    <span className="px-1.5 py-0.5 rounded-sm font-bold bg-yellow-200 text-yellow-950 border border-yellow-400 text-[10px]">
+                                      🟡 {Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })} IN PROGRESS
                                     </span>
                                   ) : (
                                     <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
@@ -3848,6 +3974,18 @@ export default function RMINOUTStockPage() {
                                     ) : tx.grnId ? (
                                       <button onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)} className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold">
                                         <span>{tx.referenceNo}</span>
+                                        <ExternalLink className="w-2.5 h-2.5" />
+                                      </button>
+                                    ) : tx.batchId || isInProgress ? (
+                                      <button
+                                        onClick={() => handleRedirectToBatch(tx.batchId, txProdNo)}
+                                        className={`inline-flex items-center gap-0.5 cursor-pointer ${
+                                          isInProgress
+                                            ? 'px-1.5 py-0.5 rounded bg-yellow-200 text-yellow-950 border border-yellow-400 font-bold'
+                                            : 'text-purple-600 hover:underline font-semibold'
+                                        }`}
+                                      >
+                                        <span>{txProdNo}</span>
                                         <ExternalLink className="w-2.5 h-2.5" />
                                       </button>
                                     ) : (
@@ -3988,12 +4126,15 @@ export default function RMINOUTStockPage() {
             </div>
 
             <div className="flex items-center gap-1.5 text-xs flex-wrap justify-between sm:justify-end w-full sm:w-auto">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
                 <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
                   🟢 IN = Green
                 </span>
                 <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
                   🔴 OUT = Red
+                </span>
+                <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-950 dark:bg-yellow-950 dark:text-yellow-300 border border-yellow-400">
+                  🟡 IN PROGRESS = Yellow (with Production No)
                 </span>
               </div>
               <Button
@@ -4229,8 +4370,8 @@ export default function RMINOUTStockPage() {
                         matrixDates.map((dateStr) => (
                           <TableHead
                             key={dateStr}
-                            className="sticky top-0 z-30 bg-slate-100 dark:bg-black w-[64px] min-w-[60px] max-w-[70px] text-center font-bold font-mono text-slate-800 dark:text-white border-r border-b border-slate-200/80 dark:border-neutral-800 px-0.5 py-1 shadow-xs"
-                            title={`Supplier Invoice Date: ${dateStr}`}
+                            className="sticky top-0 z-30 bg-slate-100 dark:bg-black w-[88px] min-w-[82px] max-w-[120px] text-center font-bold font-mono text-slate-800 dark:text-white border-r border-b border-slate-200/80 dark:border-neutral-800 px-0.5 py-1 shadow-xs"
+                            title={`Movement Date: ${dateStr}`}
                           >
                             <div className="text-[10px] font-bold font-mono text-slate-800 dark:text-white tracking-tighter">{dateStr}</div>
                           </TableHead>
@@ -4265,41 +4406,56 @@ export default function RMINOUTStockPage() {
                     ) : (
                       paginatedMaterials.map((mat, rowIdx) => {
                         const isEven = rowIdx % 2 === 1;
-                        const rowBgClass = isEven ? 'bg-slate-100/70 dark:bg-slate-800/40' : 'bg-white dark:bg-slate-900';
-                        const stickyBgClass = isEven ? 'bg-slate-100 dark:bg-slate-800' : 'bg-white dark:bg-slate-900';
                         const cur = Number(mat.currentStock || 0);
                         const wip = Number(mat.inProgressStock || 0);
+                        const wipBatches = getWipBatchesForMaterial(mat);
+                        const hasWipRow = wip > 0 || wipBatches.length > 0;
                         const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
                         const val = Number(mat.valuation || 0);
+                        const rowBgClass = hasWipRow
+                          ? 'bg-yellow-50/75 dark:bg-yellow-950/25 hover:bg-yellow-100/75 dark:hover:bg-yellow-950/40'
+                          : isEven
+                          ? 'bg-slate-100/70 dark:bg-slate-800/40 hover:bg-emerald-50/70 dark:hover:bg-slate-700/60'
+                          : 'bg-white dark:bg-slate-900 hover:bg-emerald-50/70 dark:hover:bg-slate-700/60';
+                        const stickyBgClass = hasWipRow
+                          ? 'bg-yellow-50 dark:bg-yellow-950/40'
+                          : isEven
+                          ? 'bg-slate-100 dark:bg-slate-800'
+                          : 'bg-white dark:bg-slate-900';
 
                         return (
                           <TableRow
                             key={mat.id}
-                            className={`${rowBgClass} hover:bg-emerald-50/70 dark:hover:bg-slate-700/60 border-b border-slate-200/80 dark:border-slate-800 text-xs transition-colors group`}
+                            className={`${rowBgClass} border-b border-slate-200/80 dark:border-slate-800 text-xs transition-colors group`}
                           >
                             {/* 1. Frozen RM Code */}
-                            <TableCell className={`sticky left-0 z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-1 px-1 shadow-xs w-[68px] min-w-[68px] max-w-[68px] truncate text-[10.5px]`}>
+                            <TableCell className={`sticky left-0 z-20 ${stickyBgClass} ${hasWipRow ? 'border-l-4 border-l-yellow-400 group-hover:bg-yellow-100 dark:group-hover:bg-yellow-950/60' : 'group-hover:bg-emerald-50 dark:group-hover:bg-slate-700'} border-r border-slate-200 dark:border-slate-700 font-mono font-bold py-1 px-1 shadow-xs w-[68px] min-w-[68px] max-w-[68px] truncate text-[10.5px]`}>
                               <button
                                 onClick={() => handleOpenHistory(mat.id)}
-                                className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer truncate"
+                                className="text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer truncate block"
                                 title={`Click to view audit timeline for ${mat.code}`}
                               >
                                 {mat.code}
                               </button>
+                              {hasWipRow && (
+                                <span className="inline-block mt-0.5 text-[8px] px-1 py-0 rounded bg-yellow-200 text-yellow-950 border border-yellow-400 font-bold leading-tight">
+                                  WIP
+                                </span>
+                              )}
                             </TableCell>
 
                             {/* 2. Frozen Category Name */}
-                            <TableCell className={`sticky left-[68px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-1 px-1 shadow-xs w-[90px] min-w-[90px] max-w-[90px] truncate text-[10.5px]`} title={mat.category}>
+                            <TableCell className={`sticky left-[68px] z-20 ${stickyBgClass} ${hasWipRow ? 'group-hover:bg-yellow-100 dark:group-hover:bg-yellow-950/60' : 'group-hover:bg-emerald-50 dark:group-hover:bg-slate-700'} border-r border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-1 px-1 shadow-xs w-[90px] min-w-[90px] max-w-[90px] truncate text-[10.5px]`} title={mat.category}>
                               {mat.category || '—'}
                             </TableCell>
 
                             {/* 3. Frozen Raw Material Name */}
-                            <TableCell className={`sticky left-[158px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-1 px-1.5 shadow-xs w-[125px] min-w-[125px] max-w-[125px] truncate text-[10.5px]`} title={mat.name}>
+                            <TableCell className={`sticky left-[158px] z-20 ${stickyBgClass} ${hasWipRow ? 'group-hover:bg-yellow-100 dark:group-hover:bg-yellow-950/60' : 'group-hover:bg-emerald-50 dark:group-hover:bg-slate-700'} border-r border-slate-200 dark:border-slate-700 font-semibold text-slate-900 dark:text-white py-1 px-1.5 shadow-xs w-[125px] min-w-[125px] max-w-[125px] truncate text-[10.5px]`} title={mat.name}>
                               {mat.name}
                             </TableCell>
 
                             {/* 4. Frozen UOM */}
-                            <TableCell className={`sticky left-[283px] z-20 ${stickyBgClass} group-hover:bg-emerald-50 dark:group-hover:bg-slate-700 border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-1 px-1 w-[42px] min-w-[42px] max-w-[42px] truncate text-[10.5px] text-center`}>
+                            <TableCell className={`sticky left-[283px] z-20 ${stickyBgClass} ${hasWipRow ? 'group-hover:bg-yellow-100 dark:group-hover:bg-yellow-950/60' : 'group-hover:bg-emerald-50 dark:group-hover:bg-slate-700'} border-r-2 border-slate-300 dark:border-slate-700 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.1)] font-mono text-slate-500 py-1 px-1 w-[42px] min-w-[42px] max-w-[42px] truncate text-[10.5px] text-center`}>
                               {formatUOM(mat.uom)}
                             </TableCell>
 
@@ -4321,10 +4477,18 @@ export default function RMINOUTStockPage() {
 
                             <TableCell className="text-right font-mono font-bold text-rose-600 dark:text-rose-400 py-1 px-1 w-[68px] min-w-[68px] max-w-[68px] text-[10.5px]">
                               {Number(mat.periodOutQty || 0) > 0 ? (
-                                <span className="text-rose-600 dark:text-rose-400 font-bold">
+                                <span className="text-rose-600 dark:text-rose-400 font-bold block">
                                   {Number(mat.periodOutQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                 </span>
                               ) : '0'}
+                              {wip > 0 && (
+                                <span
+                                  className="inline-block mt-0.5 px-1 py-0 rounded bg-yellow-100 dark:bg-yellow-950/70 text-yellow-950 dark:text-yellow-200 border border-yellow-400 text-[8.5px] font-bold leading-tight"
+                                  title="In Progress WIP (Not deducted until production completes)"
+                                >
+                                  🟡 {wip.toLocaleString('en-IN', { maximumFractionDigits: wip < 1 ? 4 : 1 })}
+                                </span>
+                              )}
                             </TableCell>
 
                             <TableCell
@@ -4351,9 +4515,10 @@ export default function RMINOUTStockPage() {
                               </TableCell>
                             ) : (
                               matrixDates.map((dateStr) => {
-                                const cell = matrixData[mat.id]?.[dateStr] || { inQty: 0, outQty: 0, transactions: [] };
-                                const hasIn = movementFilter === 'OUT_ONLY' ? false : cell.inQty > 0;
-                                const hasOut = movementFilter === 'IN_ONLY' ? false : cell.outQty > 0;
+                                const cell = matrixData[mat.id]?.[dateStr] || { inQty: 0, outQty: 0, wipQty: 0, wipProductionNos: [], transactions: [] };
+                                const hasIn = (movementFilter === 'OUT_ONLY' || movementFilter === 'IN_PROGRESS') ? false : cell.inQty > 0;
+                                const hasOut = (movementFilter === 'IN_ONLY' || movementFilter === 'IN_PROGRESS') ? false : cell.outQty > 0;
+                                const hasWip = (movementFilter === 'IN_ONLY' || movementFilter === 'OUT_ONLY') ? false : (cell.wipQty || 0) > 0;
 
                                 // PO Supplier Invoice No check
                                 const poTx = cell.transactions.find(t => t.supplierInvoiceNo || t.poReferenceNo);
@@ -4362,42 +4527,57 @@ export default function RMINOUTStockPage() {
                                 return (
                                   <TableCell
                                     key={dateStr}
-                                    className={`text-center font-mono py-0.5 px-0.5 border-r border-slate-100 dark:border-slate-800/80 align-middle select-none transition-colors duration-100 w-[64px] min-w-[60px] max-w-[70px] ${
+                                    className={`text-center font-mono py-0.5 px-0.5 border-r border-slate-100 dark:border-slate-800/80 align-middle select-none transition-colors duration-100 w-[88px] min-w-[82px] max-w-[120px] ${
+                                      hasWip ? 'bg-yellow-50/90 dark:bg-yellow-950/30' : ''
+                                    } ${
                                       cell.transactions.length > 0 ? 'cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/70' : ''
                                     }`}
                                     onMouseEnter={(e) => handleCellMouseEnter(e, mat, dateStr, cell)}
                                     onMouseLeave={handleCellMouseLeave}
                                     onClick={(e) => handleCellClick(e, mat, dateStr, cell)}
                                   >
-                                    {hasIn && hasOut ? (
+                                    {(hasIn || hasOut || hasWip) ? (
                                       <div className="flex flex-col items-center gap-0.5">
-                                        <span className="w-full text-center px-0.5 py-0.2 rounded-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 text-[9.5px] leading-tight border border-emerald-200 dark:border-emerald-800/60">
-                                          +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
-                                        </span>
-                                        <span className="w-full text-center px-0.5 py-0.2 rounded-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 text-[9.5px] leading-tight border border-rose-200 dark:border-rose-800/60">
-                                          -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
-                                        </span>
-                                        {invNo && (
-                                          <span className="text-[8px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[56px]" title={`Invoice No: ${invNo}`}>
-                                            #{invNo}
+                                        {hasIn && (
+                                          <div className="w-full inline-flex flex-col items-center">
+                                            <span className={`w-full text-center px-0.5 py-0.2 rounded-xs font-bold text-emerald-600 dark:text-emerald-400 text-[9.5px] leading-tight ${(hasOut || hasWip) ? 'bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60' : ''}`}>
+                                              +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: cell.inQty < 1 ? 4 : 1 })}
+                                            </span>
+                                            {invNo && (
+                                              <span className="text-[8px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[78px]" title={`Invoice No: ${invNo}`}>
+                                                #{invNo}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {hasOut && (
+                                          <span className={`w-full text-center px-0.5 py-0.2 rounded-xs font-bold text-rose-600 dark:text-rose-400 text-[9.5px] leading-tight ${(hasIn || hasWip) ? 'bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/60' : ''}`}>
+                                            -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: cell.outQty < 1 ? 4 : 1 })}
                                           </span>
                                         )}
-                                      </div>
-                                    ) : hasIn ? (
-                                      <div className="inline-flex flex-col items-center">
-                                        <span className="px-1 py-0.2 rounded-xs font-bold text-emerald-600 dark:text-emerald-400 text-[9.5px]">
-                                          +{cell.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
-                                        </span>
-                                        {invNo && (
-                                          <span className="text-[8px] text-emerald-700/80 dark:text-emerald-400/80 font-sans leading-none font-semibold truncate max-w-[56px]" title={`Invoice No: ${invNo}`}>
-                                            #{invNo}
-                                          </span>
+                                        {hasWip && (
+                                          <div className="w-full flex flex-col items-center gap-0.5 rounded bg-yellow-100 dark:bg-yellow-950/85 border border-yellow-400 dark:border-yellow-600 px-1 py-0.5 shadow-2xs">
+                                            <span className="inline-flex items-center justify-center gap-0.5 font-bold text-yellow-950 dark:text-yellow-200 text-[9px] leading-tight">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse shrink-0" />
+                                              <span>{cell.wipQty.toLocaleString('en-IN', { maximumFractionDigits: cell.wipQty < 1 ? 4 : 2 })} WIP</span>
+                                            </span>
+                                            {(cell.wipProductionNos || []).map((pNo, pIdx) => (
+                                              <button
+                                                key={pIdx}
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleRedirectToBatch(null, pNo);
+                                                }}
+                                                className="w-full text-center px-0.5 py-0.2 rounded bg-yellow-300/90 hover:bg-yellow-400 text-yellow-950 dark:bg-yellow-800 dark:text-yellow-100 font-mono font-extrabold text-[8px] leading-tight truncate border border-yellow-500/70 cursor-pointer"
+                                                title={`In-Progress Production No: ${pNo} (Click to open Production)`}
+                                              >
+                                                {pNo}
+                                              </button>
+                                            ))}
+                                          </div>
                                         )}
                                       </div>
-                                    ) : hasOut ? (
-                                      <span className="px-1 py-0.2 rounded-xs font-bold text-rose-600 dark:text-rose-400 text-[9.5px]">
-                                        -{cell.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
-                                      </span>
                                     ) : (
                                       <span className="text-slate-300 dark:text-slate-700 select-none text-[10px]">—</span>
                                     )}
@@ -4428,6 +4608,8 @@ export default function RMINOUTStockPage() {
                   paginatedMaterials.map((mat) => {
                     const cur = Number(mat.currentStock || 0);
                     const wip = Number(mat.inProgressStock || 0);
+                    const wipBatches = getWipBatchesForMaterial(mat);
+                    const hasWipRow = wip > 0 || wipBatches.length > 0;
                     const free = mat.availableStock !== undefined ? Number(mat.availableStock) : Math.max(0, cur - wip);
                     const inQty = Number(mat.periodInQty || 0);
                     const outQty = Number(mat.periodOutQty || 0);
@@ -4439,11 +4621,19 @@ export default function RMINOUTStockPage() {
                       if (!c) return false;
                       if (movementFilter === 'IN_ONLY') return c.inQty > 0;
                       if (movementFilter === 'OUT_ONLY') return c.outQty > 0;
-                      return c.inQty > 0 || c.outQty > 0;
+                      if (movementFilter === 'IN_PROGRESS') return (c.wipQty || 0) > 0;
+                      return c.inQty > 0 || c.outQty > 0 || (c.wipQty || 0) > 0;
                     });
 
                     return (
-                      <div key={mat.id} className="p-3 sm:p-4 space-y-2.5 bg-white dark:bg-slate-900 transition-colors">
+                      <div
+                        key={mat.id}
+                        className={`p-3 sm:p-4 space-y-2.5 transition-colors ${
+                          hasWipRow
+                            ? 'bg-yellow-50/50 dark:bg-yellow-950/20 border-l-4 border-l-yellow-400'
+                            : 'bg-white dark:bg-slate-900'
+                        }`}
+                      >
                         {/* Header Row */}
                         <div className="flex items-start justify-between gap-2">
                           <div className="space-y-0.5 flex-1 min-w-0">
@@ -4460,6 +4650,22 @@ export default function RMINOUTStockPage() {
                               <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
                                 {formatUOM(mat.uom)}
                               </span>
+                              {hasWipRow && (
+                                <span className="text-[9.5px] px-1.5 py-0.2 rounded-full bg-yellow-200 text-yellow-950 border border-yellow-400 font-bold">
+                                  🟡 IN PROGRESS
+                                </span>
+                              )}
+                              {wipBatches.map((b, bIdx) => (
+                                <button
+                                  key={bIdx}
+                                  type="button"
+                                  onClick={() => handleRedirectToBatch(b.batchId, b.productionNo)}
+                                  className="inline-flex items-center gap-0.5 text-[9.5px] px-1.5 py-0.2 rounded bg-yellow-100 hover:bg-yellow-300 text-yellow-950 font-mono font-extrabold border border-yellow-400 cursor-pointer"
+                                >
+                                  <span>{b.productionNo}</span>
+                                  <ExternalLink className="w-2 h-2" />
+                                </button>
+                              ))}
                             </div>
                             <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate" title={mat.name}>
                               {mat.name}
@@ -4477,13 +4683,18 @@ export default function RMINOUTStockPage() {
 
                         {/* Mini Summary Strip */}
                         <div className="flex flex-wrap items-center justify-between gap-1.5 p-1.5 px-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-xs">
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 flex-wrap">
                             <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold">
                               IN: +{inQty.toLocaleString('en-IN')}
                             </span>
                             <span className="text-[11px] text-rose-700 dark:text-rose-400 font-semibold">
                               OUT: -{outQty.toLocaleString('en-IN')}
                             </span>
+                            {wip > 0 && (
+                              <span className="text-[11px] px-1.5 py-0.2 rounded bg-yellow-100 text-yellow-950 border border-yellow-400 font-bold">
+                                🟡 WIP: {wip.toLocaleString('en-IN', { maximumFractionDigits: wip < 1 ? 4 : 2 })}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-500">
                             Valuation: <strong className="font-semibold text-slate-700 dark:text-slate-300">₹{val.toLocaleString('en-IN')}</strong>
@@ -4501,7 +4712,8 @@ export default function RMINOUTStockPage() {
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                               {activeDates.map(dStr => {
-                                const c = matrixData[mat.id]?.[dStr] || { inQty: 0, outQty: 0, transactions: [] };
+                                const c = matrixData[mat.id]?.[dStr] || { inQty: 0, outQty: 0, wipQty: 0, wipProductionNos: [], transactions: [] };
+                                const cellHasWip = (c.wipQty || 0) > 0 && movementFilter !== 'IN_ONLY' && movementFilter !== 'OUT_ONLY';
                                 const poTx = c.transactions?.find(t => t.supplierInvoiceDate || t.supplierInvoiceNo || t.poReferenceNo);
                                 const poNo = poTx?.poReferenceNo || poTx?.poNumber;
                                 const grnNo = poTx?.grnNumber || (poTx?.type === 'GRN' ? poTx?.referenceNo : null);
@@ -4510,12 +4722,16 @@ export default function RMINOUTStockPage() {
                                 return (
                                   <div
                                     key={dStr}
-                                    className="p-2 sm:p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 font-mono space-y-1 cursor-pointer hover:border-emerald-500 hover:shadow-xs transition-all active:scale-[0.98]"
+                                    className={`p-2 sm:p-2.5 rounded-xl border font-mono space-y-1 cursor-pointer hover:shadow-xs transition-all active:scale-[0.98] ${
+                                      cellHasWip
+                                        ? 'bg-yellow-50 dark:bg-yellow-950/40 border-yellow-400 dark:border-yellow-600 hover:border-yellow-500'
+                                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                                    }`}
                                     onClick={(e) => handleCellClick(e, mat, dStr, c)}
                                   >
                                     <div className="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200 border-b border-slate-200/60 dark:border-slate-700/60 pb-1">
                                       <span className="flex items-center gap-1">
-                                        <Calendar className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                        <Calendar className={`w-3 h-3 ${cellHasWip ? 'text-yellow-600' : 'text-emerald-600 dark:text-emerald-400'}`} />
                                         <span>{dStr}</span>
                                       </span>
                                       <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded-full bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
@@ -4525,19 +4741,45 @@ export default function RMINOUTStockPage() {
 
                                     <div className="flex items-center justify-between gap-1 text-xs pt-0.5">
                                       <span className="text-[10px] text-slate-500">Flow:</span>
-                                      <div className="flex items-center gap-1.5">
-                                        {c.inQty > 0 && movementFilter !== 'OUT_ONLY' && (
+                                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                        {c.inQty > 0 && movementFilter !== 'OUT_ONLY' && movementFilter !== 'IN_PROGRESS' && (
                                           <span className="px-1.5 py-0.5 rounded font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 text-xs">
                                             +{c.inQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                           </span>
                                         )}
-                                        {c.outQty > 0 && movementFilter !== 'IN_ONLY' && (
+                                        {c.outQty > 0 && movementFilter !== 'IN_ONLY' && movementFilter !== 'IN_PROGRESS' && (
                                           <span className="px-1.5 py-0.5 rounded font-bold text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 text-xs">
                                             -{c.outQty.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                           </span>
                                         )}
+                                        {cellHasWip && (
+                                          <span className="px-1.5 py-0.5 rounded font-bold text-yellow-950 dark:text-yellow-100 bg-yellow-200 dark:bg-yellow-900 border border-yellow-400 text-xs">
+                                            🟡 {c.wipQty.toLocaleString('en-IN', { maximumFractionDigits: c.wipQty < 1 ? 4 : 2 })} WIP
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
+
+                                    {cellHasWip && c.wipProductionNos?.length > 0 && (
+                                      <div className="pt-0.5 space-y-0.5">
+                                        <span className="text-[9px] text-yellow-800 dark:text-yellow-300 font-bold block">Production No:</span>
+                                        <div className="flex flex-wrap gap-1">
+                                          {c.wipProductionNos.map((pNo, pIdx) => (
+                                            <button
+                                              key={pIdx}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRedirectToBatch(null, pNo);
+                                              }}
+                                              className="px-1.5 py-0.5 rounded bg-yellow-300 hover:bg-yellow-400 text-yellow-950 font-mono font-extrabold text-[10px] border border-yellow-500 cursor-pointer"
+                                            >
+                                              {pNo}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
 
                                     {invDate && (
                                       <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center justify-between pt-0.5">
@@ -4844,10 +5086,11 @@ export default function RMINOUTStockPage() {
                       paginatedTransactions.map((tx, rowIdx) => {
                         const isEven = rowIdx % 2 === 1;
                         const isIn = tx.flow === 'IN';
-                        const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
+                        const isInProgress = Boolean(tx.isInProgress || tx.flow === 'IN_PROGRESS' || tx.batchStatus === 'IN_PROGRESS');
                         const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
                         const pyClass = isCompactDensity ? 'py-1.5' : 'py-2.5';
                         const invDate = tx.supplierInvoiceDate ? formatDate(tx.supplierInvoiceDate) : '—';
+                        const txProdNo = tx.productionNo || tx.referenceNo;
                         const defaultRowBg = isEven
                           ? 'bg-slate-100/60 dark:bg-slate-800/40 hover:bg-slate-100/90 dark:hover:bg-slate-800/70 border-slate-200/80 dark:border-slate-800'
                           : 'bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-slate-200/80 dark:border-slate-800';
@@ -4859,7 +5102,7 @@ export default function RMINOUTStockPage() {
                               isTxReject
                                 ? 'bg-rose-50/70 dark:bg-rose-950/30 border-l-4 border-l-rose-500'
                                 : isInProgress
-                                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-l-4 border-l-amber-500'
+                                ? 'bg-yellow-50/90 dark:bg-yellow-950/30 hover:bg-yellow-100/70 border-l-4 border-l-yellow-500'
                                 : defaultRowBg
                             }`}
                           >
@@ -4872,8 +5115,8 @@ export default function RMINOUTStockPage() {
                                   ❌ REJECTED
                                 </span>
                               ) : isInProgress ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-yellow-200 text-yellow-950 border border-yellow-400 shadow-2xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-600 animate-pulse" />
                                   🟡 IN PROGRESS
                                 </span>
                               ) : (
@@ -4926,12 +5169,15 @@ export default function RMINOUTStockPage() {
                                 </button>
                               ) : tx.batchId || isInProgress ? (
                                 <button
-                                  onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                                  className={`hover:underline flex items-center gap-0.5 font-semibold cursor-pointer ${
-                                    isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
+                                  onClick={() => handleRedirectToBatch(tx.batchId, txProdNo)}
+                                  className={`inline-flex items-center gap-1 cursor-pointer ${
+                                    isInProgress
+                                      ? 'px-1.5 py-0.5 rounded bg-yellow-200 hover:bg-yellow-300 text-yellow-950 border border-yellow-400 font-extrabold shadow-2xs'
+                                      : 'text-purple-600 hover:underline font-semibold'
                                   }`}
+                                  title={`Production No: ${txProdNo}`}
                                 >
-                                  <span>{tx.referenceNo}</span>
+                                  <span>{txProdNo}</span>
                                   <ExternalLink className="w-2.5 h-2.5" />
                                 </button>
                               ) : (
@@ -4942,14 +5188,14 @@ export default function RMINOUTStockPage() {
                             {/* Supplier Invoice Date / Production Date */}
                             <TableCell className={`font-mono text-xs ${pyClass} ${
                               tx.productionDate
-                                ? 'font-bold text-purple-700 dark:text-purple-400'
+                                ? (isInProgress ? 'font-bold text-yellow-800 dark:text-yellow-300' : 'font-bold text-purple-700 dark:text-purple-400')
                                 : invDate !== '—'
                                 ? 'font-bold text-emerald-700 dark:text-emerald-400'
                                 : 'text-slate-400'
                             }`}>
                               {tx.productionDate ? (
                                 <span className="inline-flex items-center gap-1" title={`Production Date (Started): ${formatDate(tx.productionDate)}`}>
-                                  <Factory className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0" />
+                                  <Factory className={`w-3 h-3 shrink-0 ${isInProgress ? 'text-yellow-600 dark:text-yellow-400' : 'text-purple-600 dark:text-purple-400'}`} />
                                   <span>{formatDate(tx.productionDate)}</span>
                                 </span>
                               ) : invDate !== '—' ? (
@@ -4966,10 +5212,14 @@ export default function RMINOUTStockPage() {
                               {tx.batchNumber || '—'}
                             </TableCell>
                             <TableCell className={`text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 ${pyClass}`}>
-                              {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
+                              {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })}` : '—'}
                             </TableCell>
-                            <TableCell className={`text-right font-mono font-bold ${isInProgress ? 'text-amber-700' : 'text-rose-600'} ${pyClass}`}>
-                              {!isIn ? `-${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
+                            <TableCell className={`text-right font-mono font-bold ${isInProgress ? 'text-yellow-800 dark:text-yellow-300' : 'text-rose-600'} ${pyClass}`}>
+                              {isInProgress
+                                ? <span className="px-1.5 py-0.5 rounded bg-yellow-100 border border-yellow-400 text-yellow-950 font-extrabold">WIP {Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })}</span>
+                                : !isIn
+                                ? `-${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 4 })}`
+                                : '—'}
                             </TableCell>
                             <TableCell className={`text-right font-mono text-slate-700 dark:text-slate-300 ${pyClass}`}>
                               {tx.rate ? `₹${Number(tx.rate).toFixed(2)}` : '—'}
@@ -5009,22 +5259,23 @@ export default function RMINOUTStockPage() {
                 ) : (
                   paginatedTransactions.map((tx) => {
                     const isIn = tx.flow === 'IN';
-                    const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
+                    const isInProgress = Boolean(tx.isInProgress || tx.flow === 'IN_PROGRESS' || tx.batchStatus === 'IN_PROGRESS');
                     const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT') || Number(tx.rejectedQty || 0) > 0);
                     const invDate = tx.supplierInvoiceDate ? formatDate(tx.supplierInvoiceDate) : null;
                     const rate = Number(tx.rate || 0);
                     const qty = Number(tx.quantity || 0);
                     const amt = Number(tx.amount || (rate * qty) || 0);
+                    const txProdNo = tx.productionNo || tx.referenceNo;
 
                     return (
                       <div
                         key={tx.id}
-                        className={`p-3 sm:p-4 space-y-2.5 bg-white dark:bg-slate-900 transition-colors ${
+                        className={`p-3 sm:p-4 space-y-2.5 transition-colors ${
                           isTxReject
                             ? 'border-l-4 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20'
                             : isInProgress
-                            ? 'border-l-4 border-l-amber-500 bg-amber-50/40 dark:bg-amber-950/20'
-                            : ''
+                            ? 'border-l-4 border-l-yellow-500 bg-yellow-50/70 dark:bg-yellow-950/25'
+                            : 'bg-white dark:bg-slate-900'
                         }`}
                       >
                         {/* Top Header: Date/Time + Flow Badge */}
@@ -5035,7 +5286,7 @@ export default function RMINOUTStockPage() {
                               ❌ REJECTED
                             </span>
                           ) : isInProgress ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-200 text-yellow-950 dark:bg-yellow-900/70 dark:text-yellow-200 border border-yellow-400">
                               🟡 IN PROGRESS (WIP)
                             </span>
                           ) : (
@@ -5078,8 +5329,8 @@ export default function RMINOUTStockPage() {
                         <div className="grid grid-cols-3 gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-900 text-center font-mono text-xs">
                           <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
                             <span className="text-[9px] text-slate-400 block font-sans">Quantity</span>
-                            <span className={`font-bold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : isInProgress ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                              {isIn ? `+${qty.toLocaleString('en-IN')}` : `-${qty.toLocaleString('en-IN')}`} {formatUOM(tx.uom)}
+                            <span className={`font-bold ${isIn ? 'text-emerald-600 dark:text-emerald-400' : isInProgress ? 'text-yellow-800 dark:text-yellow-300' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {isIn ? `+${qty.toLocaleString('en-IN')}` : isInProgress ? `WIP ${qty.toLocaleString('en-IN', { maximumFractionDigits: qty < 1 ? 4 : 2 })}` : `-${qty.toLocaleString('en-IN')}`} {formatUOM(tx.uom)}
                             </span>
                           </div>
                           <div className="p-1 rounded-lg bg-white dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-700/50">
@@ -5099,7 +5350,7 @@ export default function RMINOUTStockPage() {
                         {/* Document Ref, Invoice Date & QC Status */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
                           <div className="flex items-center gap-2 flex-wrap font-mono">
-                            <span className="text-slate-500">Ref:</span>
+                            <span className="text-slate-500">{isInProgress ? 'Production No:' : 'Ref:'}</span>
                             {tx.poId ? (
                               <button
                                 onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
@@ -5118,12 +5369,14 @@ export default function RMINOUTStockPage() {
                               </button>
                             ) : tx.batchId || isInProgress ? (
                               <button
-                                onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                                className={`hover:underline inline-flex items-center gap-0.5 font-semibold ${
-                                  isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
+                                onClick={() => handleRedirectToBatch(tx.batchId, txProdNo)}
+                                className={`inline-flex items-center gap-0.5 cursor-pointer ${
+                                  isInProgress
+                                    ? 'px-1.5 py-0.5 rounded bg-yellow-200 text-yellow-950 border border-yellow-400 font-extrabold'
+                                    : 'text-purple-600 hover:underline font-semibold'
                                 }`}
                               >
-                                <span>{tx.referenceNo}</span>
+                                <span>{txProdNo}</span>
                                 <ExternalLink className="w-2.5 h-2.5" />
                               </button>
                             ) : (
@@ -5430,7 +5683,7 @@ export default function RMINOUTStockPage() {
 
               {/* Totals Summary Banner for this Cell */}
               <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 rounded-md px-2 py-1 border border-slate-200/80 dark:border-slate-700/60 mb-1.5 text-[10px]">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {activeCellTooltip.cell.inQty > 0 && (
                     <span className="inline-flex items-center gap-0.5 font-bold font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-300/80 dark:border-emerald-800/70 text-[10px]">
                       <ArrowDownLeft className="w-2.5 h-2.5 text-emerald-600" />
@@ -5441,6 +5694,11 @@ export default function RMINOUTStockPage() {
                     <span className="inline-flex items-center gap-0.5 font-bold font-mono text-rose-700 dark:text-rose-300 bg-rose-100/80 dark:bg-rose-950/80 px-1.5 py-0.2 rounded border border-rose-300/80 dark:border-rose-800/70 text-[10px]">
                       <ArrowUpRight className="w-2.5 h-2.5 text-rose-600" />
                       -{Number(activeCellTooltip.cell.outQty).toLocaleString('en-IN', { maximumFractionDigits: 1 })} OUT
+                    </span>
+                  )}
+                  {(activeCellTooltip.cell.wipQty || 0) > 0 && (
+                    <span className="inline-flex items-center gap-0.5 font-bold font-mono text-yellow-950 dark:text-yellow-100 bg-yellow-200 dark:bg-yellow-900 px-1.5 py-0.2 rounded border border-yellow-400 text-[10px]">
+                      🟡 {Number(activeCellTooltip.cell.wipQty).toLocaleString('en-IN', { maximumFractionDigits: activeCellTooltip.cell.wipQty < 1 ? 4 : 2 })} IN PROGRESS
                     </span>
                   )}
                 </div>
@@ -5456,6 +5714,8 @@ export default function RMINOUTStockPage() {
                   const grnNo = t.grnNumber || (t.type === 'GRN' ? t.referenceNo : null);
                   const invDate = t.supplierInvoiceDate ? formatDate(t.supplierInvoiceDate) : null;
                   const isIN = t.flow === 'IN';
+                  const isWip = Boolean(t.isInProgress || t.flow === 'IN_PROGRESS' || t.batchStatus === 'IN_PROGRESS');
+                  const prodNo = t.productionNo || (t.batchId || isWip ? t.referenceNo : null);
 
                   return (
                     <div
@@ -5463,24 +5723,51 @@ export default function RMINOUTStockPage() {
                       className={`space-y-1 rounded-lg p-2 border transition-all shadow-2xs ${
                         isIN
                           ? 'border-l-3 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 border-slate-200/80 dark:border-slate-800'
+                          : isWip
+                          ? 'border-l-3 border-l-yellow-500 bg-yellow-50/90 dark:bg-yellow-950/35 border-yellow-400/80 dark:border-yellow-700'
                           : 'border-l-3 border-l-rose-500 bg-rose-50/40 dark:bg-rose-950/20 border-slate-200/80 dark:border-slate-800'
                       }`}
                     >
                       {/* Flow Quantity & Type Badge */}
                       <div className="flex items-center justify-between gap-1">
                         <span className={`font-bold font-mono text-[11px] flex items-center gap-1 ${
-                          isIN ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                          isIN ? 'text-emerald-700 dark:text-emerald-400' : isWip ? 'text-yellow-900 dark:text-yellow-200' : 'text-rose-700 dark:text-rose-400'
                         }`}>
-                          {isIN ? `+${t.quantity}` : `-${t.quantity}`} {formatUOM(activeCellTooltip.uom)}
+                          {isIN ? `+${t.quantity}` : isWip ? `🟡 ${t.quantity} WIP` : `-${t.quantity}`} {formatUOM(activeCellTooltip.uom)}
                         </span>
                         <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider border ${
                           isIN
                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                            : isWip
+                            ? 'bg-yellow-200 text-yellow-950 dark:bg-yellow-900/80 dark:text-yellow-200 border-yellow-400'
                             : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 border-rose-300 dark:border-rose-800'
                         }`}>
-                          {t.typeLabel || t.type}
+                          {isWip ? 'IN PROGRESS' : (t.typeLabel || t.type)}
                         </span>
                       </div>
+
+                      {/* Production No Highlight */}
+                      {prodNo && prodNo !== '—' && (
+                        <div className={`text-[10px] flex items-center justify-between px-1.5 py-0.5 rounded border ${
+                          isWip
+                            ? 'bg-yellow-200/80 dark:bg-yellow-900/60 border-yellow-400'
+                            : 'bg-white dark:bg-slate-900/90 border-slate-200 dark:border-slate-700/80'
+                        }`}>
+                          <span className={`${isWip ? 'text-yellow-950 dark:text-yellow-200 font-bold' : 'text-slate-600 dark:text-slate-400 font-medium'} flex items-center gap-1`}>
+                            <Factory className={`w-2.5 h-2.5 ${isWip ? 'text-yellow-700' : 'text-purple-600'}`} />
+                            Production No:
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRedirectToBatch(t.batchId, prodNo)}
+                            className={`font-mono font-extrabold truncate max-w-[150px] hover:underline cursor-pointer ${
+                              isWip ? 'text-yellow-950 dark:text-yellow-100' : 'text-purple-700 dark:text-purple-300'
+                            }`}
+                          >
+                            {prodNo}
+                          </button>
+                        </div>
+                      )}
 
                       {/* PO Number Highlight */}
                       {poNo && poNo !== '—' && (

@@ -2778,6 +2778,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     // Deduplicate usages by batchId to ensure exact 1-to-1 sync with production batches
     const uniqueUsagesMap = new Map();
     for (const u of usages) {
+      if (u.batch?.deletedAt) continue;
       const bKey = String(u.batchId || u.batch?.id || u.batch?.batchNo || u.id);
       if (!uniqueUsagesMap.has(bKey)) {
         uniqueUsagesMap.set(bKey, u);
@@ -3192,20 +3193,22 @@ exports.getMaterialHistory = async (req, res, next) => {
           }
         });
       } else {
-        const isCompleted = ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase());
+        const isCompleted = ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase()) ||
+          String(u.usageStatus || '').toUpperCase() === 'CONSUMED';
         timelineEvents.push({
           id: `usage-${u.id}`,
           type: 'PRODUCTION_USAGE',
           title: isCompleted
             ? `Consumed in Production (Yield Completed): ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`
-            : `Allocated for Production (In Progress): ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`,
-          subtitle: `Batch: ${u.batchNumber} • ${u.productName} • Status: ${u.batchStatus}`,
+            : `In Progress (Allocated for Production): ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`,
+          subtitle: `Production No: ${u.batchReferenceNo && u.batchReferenceNo !== 'N/A' ? u.batchReferenceNo : u.batchNumber} • ${u.productName} • Status: ${u.batchStatus}`,
           timestamp: u.date,
           status: isCompleted ? 'YIELD_COMPLETED' : 'IN_PROGRESS',
-          badgeColor: isCompleted ? 'emerald' : 'amber',
+          badgeColor: isCompleted ? 'emerald' : 'yellow',
           user: 'Production System',
           metadata: {
             batchId: u.batchId,
+            productionNo: u.batchReferenceNo && u.batchReferenceNo !== 'N/A' ? u.batchReferenceNo : u.batchNumber,
             batchNumber: u.batchNumber,
             productName: u.productName,
             totalCost: u.totalCost,
@@ -3739,7 +3742,9 @@ async function computeRmStockCore(queryParams = {}) {
       adjustments,
       wasteItems,
       returns,
-      resaleItems
+      resaleItems,
+      rmLines,
+      batchProductAllocs
     ] = await Promise.all([
       prisma.rawMaterial.findMany({
         include: { category: true, uoms: true },
@@ -3789,6 +3794,7 @@ async function computeRmStockCore(queryParams = {}) {
               status: true,
               approvalStatus: true,
               cancelledAt: true,
+              deletedAt: true,
               startDate: true,
               startedAt: true,
               createdAt: true,
@@ -3851,7 +3857,35 @@ async function computeRmStockCore(queryParams = {}) {
           }
         },
         orderBy: { id: 'desc' }
-      })
+      }),
+      prisma.$queryRawUnsafe(`
+        SELECT
+          rl.id, rl.batch_id, rl.raw_material_id, rl.uom, rl.required_qty, rl.taken_qty,
+          pb.batch_no, pb.reference_no, pb.status AS batch_status, pb.approval_status,
+          pb.cancelled_at, pb.deleted_at, pb.start_date, pb.started_at, pb.created_at,
+          pb.started_by, pb.complete_date, pb.completed_at,
+          fp.id AS product_id, fp.name AS product_name, fp.sku AS product_sku
+        FROM production_batch_rm_line rl
+        JOIN production_batches pb ON pb.id = rl.batch_id
+        LEFT JOIN products fp ON fp.id = pb.product_id
+        WHERE pb.deleted_at IS NULL
+      `).catch(() => []),
+      prisma.$queryRawUnsafe(`
+        SELECT
+          pa.id, pa.batch_id, pa.product_id, pa.product_rms,
+          pb.batch_no, pb.reference_no, pb.status AS batch_status, pb.approval_status,
+          pb.cancelled_at, pb.deleted_at, pb.start_date, pb.started_at, pb.created_at,
+          pb.started_by, pb.complete_date, pb.completed_at,
+          fp.name AS product_name, fp.sku AS product_sku
+        FROM production_batch_allocation pa
+        JOIN production_batches pb ON pb.id = pa.batch_id
+        LEFT JOIN products fp ON fp.id = COALESCE(pa.product_id, pb.product_id)
+        WHERE pb.deleted_at IS NULL
+          AND pb.cancelled_at IS NULL
+          AND pb.completed_at IS NULL
+          AND pb.complete_date IS NULL
+          AND LOWER(COALESCE(pb.status, '')) NOT IN ('draft', 'planned', 'scheduled', 'pending', 'cancelled', 'completed')
+      `).catch(() => [])
     ]);
 
     // Build Fast Lookup Maps for Raw Materials (ID, Code, Name)
@@ -3873,6 +3907,7 @@ async function computeRmStockCore(queryParams = {}) {
         lifetimeIn: 0,
         lifetimeOut: 0,
         inProgressStock: 0,
+        inProgressBatches: [],
         labRejectedQty: 0,
         labRejectedCount: 0,
         transactions: [],
@@ -4169,13 +4204,119 @@ async function computeRmStockCore(queryParams = {}) {
       }
     }
 
-    // 3. Process Production Usages (Manufacturing Consumption - OUT)
+    // 3. Process Production Usages (In-Progress WIP in Yellow + Completed Manufacturing Consumption as OUT)
     const seenBatchRmSet = new Set();
-    for (const u of usages) {
-      const rm = findRm(u.rmId) || findRm(u.rawMaterial?.id) || findRm(u.rawMaterial?.code) || findRm(u.rawMaterial?.name);
-      if (!rm) continue;
 
-      const batchKey = `${u.batch?.id || u.batchId || 'batch'}_${rm.id}`;
+    // Prioritize CONSUMED / Completed rows if duplicates exist in production_batch_rm_usage
+    const sortedUsages = [...usages].sort((a, b) => {
+      const aConsumed = String(a.status || '').toUpperCase() === 'CONSUMED' || String(a.batch?.status || '').toLowerCase().includes('complete');
+      const bConsumed = String(b.status || '').toUpperCase() === 'CONSUMED' || String(b.batch?.status || '').toLowerCase().includes('complete');
+      return (bConsumed ? 1 : 0) - (aConsumed ? 1 : 0);
+    });
+
+    const normalizedProdLines = sortedUsages.map(u => ({
+      sourceId: `usage-${u.id}`,
+      rmLookup: [u.rmId, u.rawMaterial?.id, u.rawMaterial?.code, u.rawMaterial?.name],
+      batchId: u.batch?.id || u.batchId || null,
+      batchNo: u.batch?.batchNo || null,
+      referenceNo: u.batch?.referenceNo || null,
+      batchStatus: u.batch?.status || u.batch?.approvalStatus || 'Completed',
+      approvalStatus: u.batch?.approvalStatus || '',
+      isDraft: Boolean(u.batch?.isDraft),
+      cancelledAt: u.batch?.cancelledAt || null,
+      deletedAt: u.batch?.deletedAt || null,
+      usageStatus: u.status || '',
+      requiredQty: Number(u.requiredQty || 0),
+      actualUsedQty: Number(u.actualUsedQty || 0),
+      startDate: u.batch?.startDate || u.batch?.startedAt || u.batch?.createdAt || new Date(),
+      startedAt: u.batch?.startedAt || null,
+      createdAt: u.batch?.createdAt || null,
+      completeDate: u.batch?.completeDate || null,
+      completedAt: u.batch?.completedAt || null,
+      startedBy: u.batch?.startedBy || 'Operator',
+      productName: u.batch?.product?.name || 'Manufactured Item',
+      rmBatchTaken: u.internalBatchNo || u.supplierBatchNo || null
+    }));
+
+    // Fallback: include started/completed production_batch_rm_line entries not yet present in production_batch_rm_usage
+    for (const rl of (rmLines || [])) {
+      normalizedProdLines.push({
+        sourceId: `rmline-${rl.id}`,
+        rmLookup: [rl.raw_material_id],
+        batchId: rl.batch_id,
+        batchNo: rl.batch_no || null,
+        referenceNo: rl.reference_no || null,
+        batchStatus: rl.batch_status || rl.approval_status || 'In Progress',
+        approvalStatus: rl.approval_status || '',
+        isDraft: false,
+        cancelledAt: rl.cancelled_at || null,
+        deletedAt: rl.deleted_at || null,
+        usageStatus: 'ALLOCATED',
+        requiredQty: Number(rl.required_qty || 0),
+        actualUsedQty: Number(rl.taken_qty || rl.required_qty || 0),
+        startDate: rl.start_date || rl.started_at || rl.created_at || new Date(),
+        startedAt: rl.started_at || null,
+        createdAt: rl.created_at || null,
+        completeDate: rl.complete_date || null,
+        completedAt: rl.completed_at || null,
+        startedBy: rl.started_by || 'Operator',
+        productName: rl.product_name || 'Manufactured Item',
+        rmBatchTaken: 'Floor Allocation'
+      });
+    }
+
+    // Fallback: include active in-progress product-specific RM allocations (product_rms) not yet in usages/rm_line
+    for (const pa of (batchProductAllocs || [])) {
+      let prmList = [];
+      if (Array.isArray(pa.product_rms)) {
+        prmList = pa.product_rms;
+      } else if (typeof pa.product_rms === 'string') {
+        try { prmList = JSON.parse(pa.product_rms || '[]'); } catch (_) { prmList = []; }
+      }
+      if (!Array.isArray(prmList)) continue;
+      for (let idx = 0; idx < prmList.length; idx++) {
+        const prm = prmList[idx];
+        const prmQty = Number(prm?.takenQty ?? prm?.qty ?? prm?.quantity ?? 0);
+        if (prmQty <= 0) continue;
+        const firstLot = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches[0]
+          ? (prm.allocatedBatches[0].internalBatchNo || prm.allocatedBatches[0].lotNumber)
+          : null;
+        normalizedProdLines.push({
+          sourceId: `alloc-${pa.id}-${idx}`,
+          rmLookup: [prm.rmId, prm.rawMaterialId, prm.rmCode, prm.rmName],
+          batchId: pa.batch_id,
+          batchNo: pa.batch_no || null,
+          referenceNo: pa.reference_no || null,
+          batchStatus: pa.batch_status || pa.approval_status || 'In Progress',
+          approvalStatus: pa.approval_status || '',
+          isDraft: false,
+          cancelledAt: pa.cancelled_at || null,
+          deletedAt: pa.deleted_at || null,
+          usageStatus: 'ALLOCATED',
+          requiredQty: prmQty,
+          actualUsedQty: prmQty,
+          startDate: pa.start_date || pa.started_at || pa.created_at || new Date(),
+          startedAt: pa.started_at || null,
+          createdAt: pa.created_at || null,
+          completeDate: pa.complete_date || null,
+          completedAt: pa.completed_at || null,
+          startedBy: pa.started_by || 'Operator',
+          productName: pa.product_name || 'Manufactured Item',
+          rmBatchTaken: firstLot || 'Floor Allocation'
+        });
+      }
+    }
+
+    for (const u of normalizedProdLines) {
+      let rm = null;
+      for (const candidate of u.rmLookup) {
+        rm = findRm(candidate);
+        if (rm) break;
+      }
+      if (!rm) continue;
+      if (u.deletedAt) continue;
+
+      const batchKey = `${u.batchId || 'batch'}_${rm.id}`;
       if (seenBatchRmSet.has(batchKey)) {
         continue;
       }
@@ -4183,51 +4324,71 @@ async function computeRmStockCore(queryParams = {}) {
 
       const target = rmTxMap.get(rm.id);
       const isCancelled = Boolean(
-        u.batch?.cancelledAt ||
-        String(u.batch?.status || '').toLowerCase() === 'cancelled' ||
-        String(u.status || '').toLowerCase() === 'cancelled'
+        u.cancelledAt ||
+        String(u.batchStatus || '').toLowerCase() === 'cancelled' ||
+        String(u.usageStatus || '').toLowerCase() === 'cancelled'
       );
       if (isCancelled) continue;
 
-      const rawBatchStatus = u.batch?.status || u.batch?.approvalStatus || 'Completed';
+      const rawBatchStatus = u.batchStatus || u.approvalStatus || 'Completed';
       const statusLower = String(rawBatchStatus).toLowerCase();
-      const approvalLower = String(u.batch?.approvalStatus || '').toLowerCase();
-      const isNotStarted = statusLower === 'draft' ||
-                           statusLower === 'planned' ||
-                           statusLower === 'scheduled' ||
-                           statusLower === 'pending' ||
-                           approvalLower === 'draft' ||
-                           Boolean(u.batch?.isDraft);
+      const approvalLower = String(u.approvalStatus || '').toLowerCase();
+      const usageStatusUpper = String(u.usageStatus || '').toUpperCase();
 
-      // Rule: If production batch is draft / planned / not started, do not display in OUT and do not reduce stock.
+      // Completed if status indicates completion, usage is marked CONSUMED, or completion timestamps are set
+      const isCompleted = statusLower.includes('complete') ||
+                          statusLower.includes('done') ||
+                          statusLower.includes('passed') ||
+                          statusLower.includes('closed') ||
+                          usageStatusUpper === 'CONSUMED' ||
+                          Boolean(u.completedAt || u.completeDate);
+
+      // In Progress ONLY if not already completed consuming raw materials
+      const isInProgress = !isCompleted && (
+        statusLower.includes('progress') ||
+        statusLower.includes('running') ||
+        statusLower.includes('paused') ||
+        statusLower.includes('active') ||
+        statusLower.includes('hold')
+      );
+
+      // Draft/Planned check must NOT suppress batches whose batch status has moved to In Progress or Completed
+      const isNotStarted = !isCompleted && !isInProgress && (
+        statusLower === 'draft' ||
+        statusLower === 'planned' ||
+        statusLower === 'scheduled' ||
+        statusLower === 'pending' ||
+        approvalLower === 'draft' ||
+        Boolean(u.isDraft)
+      );
+
+      // Rule: If production batch is draft / planned / not started, do not display WIP/OUT and do not reduce stock.
       if (isNotStarted) continue;
 
       const qty = Number(u.actualUsedQty || u.requiredQty || 0);
       if (qty <= 0) continue;
 
       // The production start date is the definitive date when production started
-      const prodStartDate = u.batch?.startDate || u.batch?.startedAt || u.batch?.createdAt || new Date();
-
-      const isInProgress = statusLower.includes('progress') ||
-                           statusLower.includes('running') ||
-                           statusLower.includes('paused') ||
-                           statusLower.includes('active') ||
-                           statusLower.includes('hold');
+      const prodStartDate = u.startDate || u.startedAt || u.createdAt || new Date();
+      const productionNo = u.referenceNo || u.batchNo || 'Prod Batch';
+      const batchNoVal = u.batchNo || productionNo;
+      const productName = u.productName || 'Manufactured Item';
+      const rmBatchTaken = u.rmBatchTaken || (isInProgress ? 'Floor Allocation' : 'Floor Issue');
+      const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
+      const amount = Math.round(qty * rate * 100) / 100;
+      const prodDateStr = new Date(prodStartDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
       if (isInProgress) {
-        // While the production is running, raw material usage is strictly tracked as Floor WIP (inProgressStock).
-        // It must NOT display as completed OUT and must NOT reduce stock or periodOut / lifetimeOut.
-        const batchStart = u.batch?.startDate || u.batch?.startedAt || u.batch?.createdAt || prodStartDate;
-        const batchStartMs = batchStart ? new Date(batchStart).getTime() : 0;
-        const batchEnd = u.batch?.completeDate || u.batch?.completedAt || u.batch?.cancelledAt || null;
+        // While production is running, raw material usage is tracked as Floor WIP (inProgressStock + yellow WIP tx with Production No).
+        // It must NOT deduct currentStock or add to completed periodOut / lifetimeOut until Completed.
+        const batchStartMs = prodStartDate ? new Date(prodStartDate).getTime() : 0;
+        const batchEnd = u.completeDate || u.completedAt || u.cancelledAt || null;
         const batchEndMs = batchEnd ? new Date(batchEnd).getTime() : null;
 
         let activeInPeriod = false;
         if (!rangeStart && !rangeEnd) {
-          // All Time: count all active in-progress batches
           activeInPeriod = true;
         } else {
-          // Batch started on or before rangeEnd AND was not finished before rangeStart
           const startedBeforeEnd = !rangeEnd || (batchStartMs <= rangeEnd.getTime());
           const notEndedBeforeStart = !rangeStart || !batchEndMs || (batchEndMs >= rangeStart.getTime());
           activeInPeriod = startedBeforeEnd && notEndedBeforeStart;
@@ -4235,39 +4396,73 @@ async function computeRmStockCore(queryParams = {}) {
 
         if (activeInPeriod) {
           target.inProgressStock += qty;
+          target.inProgressBatches.push({
+            batchId: u.batchId || null,
+            productionNo,
+            referenceNo: productionNo,
+            batchNo: batchNoVal,
+            productName,
+            qty: Math.round(qty * 1000) / 1000,
+            date: prodStartDate,
+            status: rawBatchStatus
+          });
+
+          const wipTx = {
+            id: `${u.sourceId}-wip`,
+            rawMaterialId: rm.id,
+            rawMaterialCode: rm.code,
+            rawMaterialName: rm.name,
+            category: rm.category?.name || 'Uncategorised',
+            uom: rm.unitId,
+            date: prodStartDate,
+            productionDate: prodStartDate,
+            flow: 'IN_PROGRESS',
+            type: 'PROD_WIP',
+            typeLabel: 'Production In Progress (WIP)',
+            isInProgress: true,
+            batchStatus: 'IN_PROGRESS',
+            rawBatchStatus,
+            quantity: qty,
+            rate,
+            amount,
+            referenceNo: productionNo,
+            productionNo,
+            batchNo: batchNoVal,
+            productionBatchId: u.batchId || null,
+            batchId: u.batchId || null,
+            poReferenceNo: null,
+            poId: null,
+            grnId: null,
+            batchNumber: rmBatchTaken,
+            partyName: `In Progress: ${productName}`,
+            productionDateStr: prodDateStr,
+            user: u.startedBy || 'Operator',
+            labStatus: 'WIP_RUNNING',
+            isLabRejected: false,
+            notes: `In Progress | Production No: ${productionNo} | Product: ${productName}`,
+            compositeComment: `Production No: ${productionNo}${batchNoVal && batchNoVal !== productionNo ? ` | Batch: ${batchNoVal}` : ''} | Date: ${prodDateStr} | RM Lot: ${rmBatchTaken} | Product: ${productName} | Qty: ${qty} ${rm.unitId || ''} | Status: In Progress`
+          };
+
+          target.transactions.push(wipTx);
+          allTransactions.push(wipTx);
         }
 
-        // Crucial: continue here so running batches do NOT create OUT transactions or add to lifetimeOut / periodOut!
+        // Crucial: continue here so running batches do NOT create completed OUT transactions or add to lifetimeOut / periodOut!
         continue;
       }
 
-      // Check if batch is completed
-      const isCompleted = statusLower.includes('complete') ||
-                          statusLower.includes('done') ||
-                          statusLower.includes('passed') ||
-                          statusLower.includes('closed') ||
-                          Boolean(u.batch?.completedAt || u.batch?.completeDate);
-
-      // Rule: OUT is displayed ONLY once the production is completed!
+      // Rule: OUT is displayed ONLY once production consumption is completed!
       if (!isCompleted) continue;
 
-      // OUT transaction date is strictly set to the Production Date (when production started)
-      // so operators and accountants can easily identify when the production started.
       const date = prodStartDate;
       const isPeriod = inRange(date);
       const isAfter = isAfterRange(date);
-      const batchRef = u.batch?.batchNo || u.batch?.referenceNo || 'Prod Batch';
-      const productName = u.batch?.product?.name || 'Manufactured Item';
-      const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
+      const batchRef = productionNo;
 
       target.lifetimeOut += qty;
 
-      const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
-      const amount = Math.round(qty * rate * 100) / 100;
-      const prodDateStr = new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-
       const tx = {
-        id: `usage-${u.id}`,
+        id: u.sourceId,
         rawMaterialId: rm.id,
         rawMaterialCode: rm.code,
         rawMaterialName: rm.name,
@@ -4280,27 +4475,30 @@ async function computeRmStockCore(queryParams = {}) {
         typeLabel: 'Production Consumption',
         isInProgress: false,
         batchStatus: 'COMPLETED',
+        rawBatchStatus,
         quantity: qty,
         rate,
         amount,
         referenceNo: batchRef,
-        productionBatchId: u.batchId || u.batch?.id || null,
-        batchId: u.batchId || u.batch?.id || null,
+        productionNo,
+        batchNo: batchNoVal,
+        productionBatchId: u.batchId || null,
+        batchId: u.batchId || null,
         poReferenceNo: null,
         poId: null,
         grnId: null,
         batchNumber: rmBatchTaken,
         partyName: `Production: ${productName}`,
         productionDateStr: prodDateStr,
-        user: u.batch?.startedBy || 'Operator',
+        user: u.startedBy || 'Operator',
         labStatus: 'QC_PASSED',
         isLabRejected: false,
-        notes: `Production Date: ${prodDateStr} | Product: ${productName} (Completed Batch: ${batchRef})`,
-        compositeComment: `Production Date: ${prodDateStr} | Batch: ${batchRef} | Taken From RM Lot: ${rmBatchTaken} | Product: ${productName} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Status: Completed`
+        notes: `Production Date: ${prodDateStr} | Product: ${productName} (Completed Production No: ${productionNo})`,
+        compositeComment: `Production Date: ${prodDateStr} | Production No: ${productionNo}${batchNoVal && batchNoVal !== productionNo ? ` | Batch: ${batchNoVal}` : ''} | Taken From RM Lot: ${rmBatchTaken} | Product: ${productName} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Status: Completed`
       };
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-        target.lastOut = { date, ref: batchRef, qty, party: productName, batchId: u.batchId || u.batch?.id, isInProgress: false };
+        target.lastOut = { date, ref: batchRef, productionNo, qty, party: productName, batchId: u.batchId || null, isInProgress: false };
       }
 
       if (isPeriod) {
@@ -4603,6 +4801,7 @@ async function computeRmStockCore(queryParams = {}) {
         lifetimeIn: 0,
         lifetimeOut: 0,
         inProgressStock: 0,
+        inProgressBatches: [],
         labRejectedQty: 0,
         labRejectedCount: 0,
         transactions: [],
@@ -4615,7 +4814,7 @@ async function computeRmStockCore(queryParams = {}) {
       const liveStock = Number(rm.currentStock || 0);
       const periodIn = Math.round(txData.periodIn * 1000) / 1000;
       const periodOut = Math.round(txData.periodOut * 1000) / 1000;
-      const hasMovementInPeriod = (periodIn > 0 || periodOut > 0);
+      const hasMovementInPeriod = (periodIn > 0 || periodOut > 0 || (txData.inProgressStock || 0) > 0);
 
       // Period Stock Balance:
       // When reviewing lifetime ('all'), curStock reflects physical warehouse stock:
@@ -4729,7 +4928,8 @@ async function computeRmStockCore(queryParams = {}) {
       const gstPercentage = poRateInfo?.gstPercentage || 0;
       const gstApplicable = poRateInfo?.gstApplicable || false;
 
-      const inProgressStock = isPeriodFiltered ? 0 : Math.round((txData.inProgressStock || 0) * 1000) / 1000;
+      const inProgressStock = Math.round((txData.inProgressStock || 0) * 1000) / 1000;
+      const inProgressBatches = Array.isArray(txData.inProgressBatches) ? txData.inProgressBatches : [];
       const availableStock = Math.max(0, Math.round((curStock - inProgressStock) * 1000) / 1000);
       const labRejectedQty = Math.round((txData.labRejectedQty || 0) * 1000) / 1000;
       const hasLabRejection = (txData.labRejectedCount || 0) > 0;
@@ -4773,6 +4973,7 @@ async function computeRmStockCore(queryParams = {}) {
         liveStock,
         isHistorical,
         inProgressStock,
+        inProgressBatches,
         availableStock,
         labRejectedQty,
         hasLabRejection,
@@ -4811,7 +5012,7 @@ async function computeRmStockCore(queryParams = {}) {
     });
 
     const returnedMaterials = isPeriodFiltered
-      ? materials.filter(m => (m.periodInQty > 0 || m.periodOutQty > 0))
+      ? materials.filter(m => (m.periodInQty > 0 || m.periodOutQty > 0 || m.inProgressStock > 0))
       : materials;
 
     return {
