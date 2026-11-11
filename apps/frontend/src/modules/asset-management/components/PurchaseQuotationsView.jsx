@@ -17,6 +17,14 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
+import LineDiscountInput from './LineDiscountInput';
+import {
+  calcLineItemAmounts,
+  getSavedItemBreakdown,
+  getDocumentDiscountSummary,
+  hydrateLineItemDiscount,
+  allocateLegacyHeaderDiscount,
+} from '../utils/assetLinePricing';
 
 function QuotationValidityCell({ pq }) {
   const [timeLeft, setTimeLeft] = useState('');
@@ -123,11 +131,10 @@ const buildPQTaxBreakdown = (pq, companyGstin = null) => {
   if (applyGst) {
     (pq.items || []).forEach(item => {
       const rate = Number(item.gstRate || 18);
-      const base = Number(item.totalBeforeTax || (Number(item.quantity) * Number(item.unitPrice || 0)));
+      const { taxableBase: base, gstAmount: itemGst } = getSavedItemBreakdown(item);
       if (base <= 0) return;
 
-      const storedGst = Number(item.gstAmount || 0);
-      const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
+      const gst = itemGst > 0 ? itemGst : (base * (rate / 100));
 
       if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0, items: [], charges: [] };
       breakdown[rate].taxable += base;
@@ -186,7 +193,7 @@ const buildPQTaxBreakdown = (pq, companyGstin = null) => {
     }
   });
 
-  const totalTaxable = (pq.items || []).reduce((s, i) => s + Number(i.totalBeforeTax || (Number(i.quantity) * Number(i.unitPrice || 0))), 0);
+  const totalTaxable = (pq.items || []).reduce((s, i) => s + getSavedItemBreakdown(i).taxableBase, 0);
   const totalGstFromRows = taxRows.reduce((s, r) => s + r.value, 0);
   return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
 };
@@ -198,7 +205,7 @@ function PQDetailsSection({ pq, onClose, isReadOnly, pos, handleCreatePO }) {
   });
 
   const { taxRows, totalTaxable, applyGst, isInterState } = buildPQTaxBreakdown(pq, taxSettings?.companyGstin);
-  const discount = Number(pq.discount || 0);
+  const { grossSubtotal, lineDiscountTotal, legacyHeaderDiscount } = getDocumentDiscountSummary(pq);
   const shippingCharges = Number(pq.shippingCharges || 0);
   const loadingCharges = Number(pq.loadingCharges || 0);
   const unloadingCharges = Number(pq.unloadingCharges || 0);
@@ -300,27 +307,43 @@ function PQDetailsSection({ pq, onClose, isReadOnly, pos, handleCreatePO }) {
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 dark:bg-slate-800/50">
                     <tr className="border-b border-slate-100 dark:border-slate-800">
-                      {['Item Description', 'HSN/SAC', 'Qty', 'Unit', 'Unit Price', 'GST%', 'GST Amt', 'Total'].map(h => (
-                        <th key={h} className="px-6 py-3.5 text-left font-bold text-slate-400 uppercase tracking-wider">{h}</th>
+                      {['Item Description', 'HSN/SAC', 'Qty', 'Unit', 'Unit Price', 'Discount', 'Taxable Base', 'GST%', 'GST Amt', 'Total'].map(h => (
+                        <th key={h} className="px-4 py-3.5 text-left font-bold text-slate-400 uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {pq.items.map((item, i) => (
-                      <tr key={i} className="hover:bg-slate-500/10 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-semibold text-slate-800 dark:text-slate-200">{item.itemDescription}</p>
-                          {item.remarks && <p className="text-[10px] text-slate-450 italic mt-0.5">Remarks: {item.remarks}</p>}
-                        </td>
-                        <td className="px-6 py-4 font-mono text-slate-500">{item.hsnSac}</td>
-                        <td className="px-6 py-4 font-mono">{item.quantity}</td>
-                        <td className="px-6 py-4 text-slate-500">{item.unit}</td>
-                        <td className="px-6 py-4 font-mono">₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                        <td className="px-6 py-4 font-mono">{item.gstRate}%</td>
-                        <td className="px-6 py-4 font-mono text-slate-500">₹{Number(item.gstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                        <td className="px-6 py-4 font-mono font-bold text-slate-800 dark:text-slate-100">₹{Number(item.totalWithGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      </tr>
-                    ))}
+                    {pq.items.map((item, i) => {
+                      const saved = getSavedItemBreakdown(item);
+                      return (
+                        <tr key={i} className="hover:bg-slate-500/10 transition-colors">
+                          <td className="px-4 py-4">
+                            <p className="font-semibold text-slate-800 dark:text-slate-200">{item.itemDescription}</p>
+                            {item.remarks && <p className="text-[10px] text-slate-450 italic mt-0.5">Remarks: {item.remarks}</p>}
+                          </td>
+                          <td className="px-4 py-4 font-mono text-slate-500">{item.hsnSac}</td>
+                          <td className="px-4 py-4 font-mono">{item.quantity}</td>
+                          <td className="px-4 py-4 text-slate-500">{item.unit}</td>
+                          <td className="px-4 py-4 font-mono">₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-4 font-mono">
+                            {saved.discountAmount > 0 ? (
+                              <span className="text-rose-500 font-semibold">
+                                -₹{saved.discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <span className="block text-[10px] text-rose-400">({Number(saved.discountPercent.toFixed(2))}%)</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 font-mono font-semibold text-slate-700 dark:text-slate-300">
+                            ₹{saved.taxableBase.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-4 font-mono">{item.gstRate}%</td>
+                          <td className="px-4 py-4 font-mono text-slate-500">₹{saved.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-4 font-mono font-bold text-slate-800 dark:text-slate-100">₹{saved.totalWithGst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -336,6 +359,18 @@ function PQDetailsSection({ pq, onClose, isReadOnly, pos, handleCreatePO }) {
             </h3>
             
             <div className="space-y-3.5 text-xs font-semibold text-slate-400">
+              {lineDiscountTotal > 0 && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Gross Items Subtotal:</span>
+                    <span className="font-mono text-slate-300">₹ {grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-rose-400">
+                    <span>Line Discount (Pre-GST):</span>
+                    <span className="font-mono">- ₹ {lineDiscountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span>Taxable Value (Base):</span>
                 <span className="font-mono text-slate-200">₹ {totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -450,10 +485,10 @@ function PQDetailsSection({ pq, onClose, isReadOnly, pos, handleCreatePO }) {
                 </div>
               )}
 
-              {discount > 0 && (
+              {legacyHeaderDiscount > 0 && (
                 <div className="flex justify-between text-rose-500">
-                  <span>Discount Deducted:</span>
-                  <span className="font-mono">- ₹ {discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                  <span>Discount Deducted (Legacy):</span>
+                  <span className="font-mono">- ₹ {legacyHeaderDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
               )}
 
@@ -729,8 +764,6 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     paymentMode: 'Bank Transfer (NEFT)',
     validityDate: null,
     expectedDelivery: null,
-    discount: '',
-    discountType: 'amount',
     shippingCharges: '',
     loadingCharges: '',
     unloadingCharges: '0',
@@ -741,7 +774,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     supplierQuoteRef: '',
     applyGst: true,
     termsAndConditions: DEFAULT_GTC,
-    items: [{ category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18, specMatch: 'Yes', remarks: '' }],
+    items: [{ category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', discountType: 'amount', discountValue: '', gstRate: 18, specMatch: 'Yes', remarks: '' }],
   });
 
   const [chargeGstStates, setChargeGstStates] = useState({
@@ -779,6 +812,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
       const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
       const stateCode = editPQ.stateCode || (editPQ.vendorGstin ? editPQ.vendorGstin.substring(0, 2) : companyStateCode);
       setIsInterState(stateCode !== companyStateCode);
+      const legacyExtras = allocateLegacyHeaderDiscount(editPQ.items || [], editPQ.discount);
       setForm({
         prId: prs.find(p => p.prNo === editPQ.prNo)?.id || '',
         prNo: editPQ.prNo || 'Direct',
@@ -794,8 +828,6 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         paymentMode: editPQ.paymentMode || 'Bank Transfer (NEFT)',
         validityDate: editPQ.validityDate ? new Date(editPQ.validityDate) : null,
         expectedDelivery: editPQ.expectedDelivery ? new Date(editPQ.expectedDelivery) : null,
-        discount: editPQ.discount !== undefined ? String(editPQ.discount) : '',
-        discountType: 'amount',
         shippingCharges: editPQ.shippingCharges !== undefined ? String(editPQ.shippingCharges) : '',
         loadingCharges: editPQ.loadingCharges !== undefined ? String(editPQ.loadingCharges) : '',
         unloadingCharges: '0',
@@ -806,13 +838,14 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         supplierQuoteRef: editPQ.supplierQuoteRef || '',
         applyGst: editPQ.applyGst !== undefined ? Boolean(editPQ.applyGst) : true,
         termsAndConditions: editPQ.termsAndConditions || DEFAULT_GTC,
-        items: editPQ.items?.map(item => ({
+        items: editPQ.items?.map((item, idx) => ({
           category: item.category,
           itemDescription: item.itemDescription || item.description || '',
           hsnSac: item.hsnSac || item.hsnCode || '',
           quantity: item.quantity,
           unit: item.unit || item.uom || 'Nos',
           unitPrice: String(item.unitPrice),
+          ...hydrateLineItemDiscount(item, legacyExtras[idx]),
           gstRate: Number(item.gstRate),
           specMatch: item.specMatch || 'Yes',
           remarks: item.remarks || ''
@@ -869,32 +902,25 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     }
   }, [form.vendorGstin, taxSettings?.companyGstin]);
 
-  const calcTotals = (item) => {
-    const base = Number(item.quantity) * Number(item.unitPrice || 0);
-    const gst = form.applyGst ? base * (Number(item.gstRate) / 100) : 0;
-    return { totalBeforeTax: base, gstAmount: gst, totalWithGst: base + gst };
-  };
+  const calcTotals = (item) => calcLineItemAmounts(item, { applyGst: form.applyGst, isInterState });
 
   const totals = form.items.reduce((acc, item) => {
     const c = calcTotals(item);
     return {
+      gross: acc.gross + c.grossAmount,
+      discount: acc.discount + c.discountAmount,
       taxable: acc.taxable + c.totalBeforeTax,
       gst: acc.gst + c.gstAmount,
       total: acc.total + c.totalWithGst
     };
-  }, { taxable: 0, gst: 0, total: 0 });
+  }, { gross: 0, discount: 0, taxable: 0, gst: 0, total: 0 });
 
   const freight = Number(form.shippingCharges || 0);
   const loadingCharges = Number(form.loadingCharges || 0);
   const packingCharges = Number(form.packingCharges || 0);
   const insurance = Number(form.insurance || 0);
   const otherCharges = Number(form.otherCharges || 0);
-  const discountInput = Number(form.discount || 0);
   const tds = Number(form.tds || 0);
-
-  const discount = form.discountType === 'percent'
-    ? totals.taxable * (discountInput / 100)
-    : discountInput;
 
   const calcChargeGst = (val, key) => {
     const state = chargeGstStates[key];
@@ -914,7 +940,8 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     calcChargeGst(otherCharges, 'otherCharges')
   ) : 0;
 
-  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + packingCharges + insurance + otherCharges - discount - tds;
+  // Discount is already deducted from item base prices before GST; do not subtract it again after tax.
+  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + packingCharges + insurance + otherCharges - tds;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
 
@@ -945,7 +972,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
       ...form,
       stateCode: resolvedStateCode,
       isInterState,
-      discount,
+      discount: totals.discount,
       shippingCharges: freight,
       loadingCharges: loadingCharges,
       unloadingCharges: 0,
@@ -958,12 +985,16 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         const c = calcTotals(i);
         return {
           ...i,
+          discountType: i.discountType || 'amount',
+          discountValue: i.discountValue ?? '',
+          discountAmount: c.discountAmount,
+          discountPercent: c.discountPercent,
           baseAmount: c.totalBeforeTax,
           gstAmount: c.gstAmount,
-          cgst: isInterState ? 0 : c.gstAmount / 2,
-          sgst: isInterState ? 0 : c.gstAmount / 2,
-          igst: isInterState ? c.gstAmount : 0,
-          discountedPrice: Number(i.unitPrice),
+          cgst: c.cgstAmount,
+          sgst: c.sgstAmount,
+          igst: c.igstAmount,
+          discountedPrice: c.discountedUnitPrice,
           lineTotal: c.totalWithGst,
           specMatch: i.specMatch || 'Yes',
           remarks: i.remarks || ''
@@ -984,6 +1015,8 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
       quantity: 1,
       unit: 'Nos',
       unitPrice: '',
+      discountType: 'amount',
+      discountValue: '',
       gstRate: 18,
       specMatch: 'Yes',
       remarks: ''
@@ -1028,6 +1061,8 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           quantity: item.quantity,
           unit: item.uom || 'Nos',
           unitPrice: Number(item.estimatedUnitCost),
+          discountType: 'amount',
+          discountValue: '',
           gstRate: isInterState ? 18 : catDetails.gst,
           specMatch: 'Yes',
           remarks: ''
@@ -1042,6 +1077,8 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         quantity: pr.quantity,
         unit: pr.uom || 'Nos',
         unitPrice: Number(pr.estimatedUnitCost),
+        discountType: 'amount',
+        discountValue: '',
         gstRate: isInterState ? 18 : catDetails.gst,
         specMatch: 'Yes',
         remarks: ''
@@ -1070,7 +1107,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   if (form.applyGst) {
     form.items.forEach(item => {
       const rate = Number(item.gstRate || 0);
-      const base = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+      const { taxableBase: base } = calcTotals(item);
       if (base <= 0) return;
       const gst = base * (rate / 100);
       if (!taxBreakdown[rate]) {
@@ -1146,6 +1183,10 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   }
 
   const summaryItems = [
+    ...(totals.discount > 0 ? [
+      { label: 'Gross Items Subtotal', value: totals.gross },
+      { label: 'Line Discount (Pre-GST)', value: -totals.discount },
+    ] : []),
     { label: 'Taxable Value', value: totals.taxable },
     ...taxRows,
     { label: 'Freight', value: freight },
@@ -1153,7 +1194,6 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     { label: 'Packing Charges', value: packingCharges },
     { label: 'Insurance', value: insurance },
     { label: 'Other Charges', value: otherCharges },
-    { label: 'Discount', value: -discount },
     { label: 'TDS Deduction', value: -tds },
     { label: 'Round Off', value: roundOff },
   ];
@@ -1364,10 +1404,10 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           </div>
           <div className="space-y-3">
             {form.items.map((item, idx) => {
-              const { totalWithGst } = calcTotals(item);
+              const { discountType, discountValue, discountAmount, taxableBase, gstAmount, totalWithGst } = calcTotals(item);
               return (
                 <div key={idx} className="bg-slate-50/60 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-200/60 dark:border-slate-800/60">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs">Category</Label>
                       <div className="relative">
@@ -1382,7 +1422,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                         {!isPrLinked && <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />}
                       </div>
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1 md:col-span-2">
                       <Label className="text-xs">Description <span className="text-rose-500">*</span></Label>
                       <Input
                         disabled={isPrLinked}
@@ -1432,6 +1472,17 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                       <Input type="number" min="0" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', e.target.value)} placeholder="0.00" className="h-9 rounded-lg text-sm" />
                     </div>
                     <div className="space-y-1">
+                      <Label className="text-xs text-rose-600 dark:text-rose-400">Discount (Pre-GST)</Label>
+                      <LineDiscountInput
+                        discountType={item.discountType || discountType}
+                        discountValue={item.discountValue !== undefined ? item.discountValue : (discountValue || '')}
+                        discountAmount={discountAmount}
+                        disabled={isReadOnly}
+                        onTypeChange={t => updateItem(idx, 'discountType', t)}
+                        onValueChange={v => updateItem(idx, 'discountValue', v)}
+                      />
+                    </div>
+                    <div className="space-y-1">
                       <Label className="text-xs">GST Rate</Label>
                       <div className="relative">
                         <select
@@ -1447,9 +1498,13 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Line Total (incl. GST)</Label>
-                      <div className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center text-sm font-bold text-indigo-600 dark:text-indigo-400">
-                        ₹{totalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      <div className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-between text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                        <span>₹{totalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
                       </div>
+                      <p className="text-[10px] text-slate-500 tabular-nums">
+                        Base: ₹{taxableBase.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        {form.applyGst ? ` • GST: ₹${gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : ''}
+                      </p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
@@ -1506,43 +1561,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount</Label>
-                    <div className="flex items-center gap-1 bg-slate-105 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                      <button
-                        type="button"
-                        onClick={() => update('discountType', 'amount')}
-                        className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${form.discountType === 'amount' ? 'bg-white dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
-                      >
-                        Flat
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => update('discountType', 'percent')}
-                        className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${form.discountType === 'percent' ? 'bg-white dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
-                      >
-                        %
-                      </button>
-                    </div>
-                  </div>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.discount}
-                    onChange={e => update('discount', e.target.value)}
-                    placeholder={form.discountType === 'percent' ? '0%' : '0.00'}
-                    className="h-8 rounded-lg text-sm mt-1"
-                  />
-                  {form.discountType === 'percent' && Number(form.discount || 0) > 0 && (
-                    <p className="text-[10px] text-rose-500 font-medium">
-                      Calculated: -₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  )}
-                </div>
-
+              <div className="grid grid-cols-1 gap-3">
                 <div className="bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-amber-900/30 rounded-xl p-3 space-y-2">
                   <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400">TDS Deduction (₹)</Label>
                   <Input
@@ -1590,7 +1609,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                 const formatted = Math.abs(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 let textClass = 'text-slate-800 dark:text-slate-200';
                 let prefix = '₹';
-                if (label === 'Discount' && value < 0) {
+                if (label.includes('Discount') && value < 0) {
                   textClass = 'text-rose-500 font-bold';
                   prefix = '-₹';
                 } else if (label === 'TDS Deduction' && value < 0) {
@@ -1842,14 +1861,14 @@ function CompareQuotationsView({ onBack }) {
                 {[
                   { label: 'Total Cost of Ownership (TCO)', key: 'tco', fmt: v => `₹${Number(v).toLocaleString('en-IN')}`, isBold: true, highlight: true },
                   { label: 'Quote Grand Total', key: 'grandTotal', fmt: v => `₹${Number(v).toLocaleString('en-IN')}`, isBold: true },
-                  { label: 'Subtotal (Excl. Tax & Charges)', key: 'subtotal', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Taxable Value (After Discount)', key: 'subtotal', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'GST Amount', key: 'taxAmount', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'Freight / Shipping', key: 'shippingCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'Loading & Unloading', key: 'loadingCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'Packing Charges', key: 'packingCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'Insurance', key: 'insurance', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'Other Charges', key: 'otherCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
-                  { label: 'Discount Applied', key: 'discount', fmt: v => `-₹${Number(v).toLocaleString('en-IN')}`, textClass: 'text-rose-600 dark:text-rose-400 font-semibold' },
+                  { label: 'Line Discount (Pre-GST)', key: 'discount', fmt: v => `-₹${Number(v).toLocaleString('en-IN')}`, textClass: 'text-rose-600 dark:text-rose-400 font-semibold' },
                   { label: 'TDS Deduction', key: 'tds', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'AMC Cost per Year', key: 'amcCost', fmt: (v, q) => q.amcAvailable ? `₹${Number(v).toLocaleString('en-IN')}` : 'Not Available' },
                 ].map(row => (

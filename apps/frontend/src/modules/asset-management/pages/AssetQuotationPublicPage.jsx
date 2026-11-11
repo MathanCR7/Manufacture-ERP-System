@@ -8,6 +8,12 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import useCompanyStore from '@/app/store/companyStore';
+import LineDiscountInput from '../components/LineDiscountInput';
+import {
+  calcLineItemAmounts,
+  hydrateLineItemDiscount,
+  allocateLegacyHeaderDiscount,
+} from '../utils/assetLinePricing';
 
 const PAYMENT_MODES = [
   'Bank Transfer (NEFT)', 
@@ -35,7 +41,6 @@ export default function AssetQuotationPublicPage() {
 
   // Form State
   const [itemsData, setItemsData] = useState([]);
-  const [discount, setDiscount] = useState(0);
   const [shipping, setShipping] = useState(0);
   const [loadingCharges, setLoadingCharges] = useState(0);
   const [unloadingCharges, setUnloadingCharges] = useState(0);
@@ -112,7 +117,8 @@ export default function AssetQuotationPublicPage() {
 
         // Pre-fill line items
         const rawItems = payload.quotation.items || [];
-        const initializedItems = rawItems.map(qi => ({
+        const legacyExtras = allocateLegacyHeaderDiscount(rawItems, payload.quotation.discount);
+        const initializedItems = rawItems.map((qi, idx) => ({
           id: qi.id,
           description: qi.description || qi.assetName,
           category: qi.category,
@@ -121,6 +127,7 @@ export default function AssetQuotationPublicPage() {
           unit: qi.unit || 'Nos',
           gstApplicable: qi.gstApplicable !== false,
           unitPrice: qi.unitPrice && Number(qi.unitPrice) > 0 ? Number(qi.unitPrice) : '',
+          ...hydrateLineItemDiscount(qi, legacyExtras[idx]),
           gstRate: qi.gstRate !== undefined ? Number(qi.gstRate) : 18,
           specMatch: qi.specMatch || 'Yes',
           remarks: qi.remarks || ''
@@ -130,7 +137,6 @@ export default function AssetQuotationPublicPage() {
 
         // Fill terms if already filled in a draft/previous submission
         if (payload.quotation.status === 'Received' || payload.quotation.status === 'Resubmission Requested') {
-          setDiscount(Number(payload.quotation.discount) || 0);
           setShipping(Number(payload.quotation.shippingCharges) || 0);
           setLoadingCharges(Number(payload.quotation.loadingCharges) || 0);
           setUnloadingCharges(Number(payload.quotation.unloadingCharges) || 0);
@@ -316,18 +322,11 @@ export default function AssetQuotationPublicPage() {
     setItemsData(updated);
   };
 
-  const calculateLineSubtotal = (item) => {
-    const qty = Number(item.quantity) || 0;
-    const price = Number(item.unitPrice) || 0;
-    return qty * price;
-  };
-
-  const calculateLineTax = (item) => {
-    if (!applyGst || !item.gstApplicable) return 0;
-    const sub = calculateLineSubtotal(item);
-    const rate = Number(item.gstRate) || 0;
-    return (sub * rate) / 100;
-  };
+  const calcLinePricing = (item) =>
+    calcLineItemAmounts(item, {
+      applyGst: applyGst && item.gstApplicable,
+      isInterState,
+    });
 
   const calculateChargeTax = (val, key) => {
     const numVal = Number(val || 0);
@@ -339,15 +338,16 @@ export default function AssetQuotationPublicPage() {
     return numVal * (rate / 100);
   };
 
-  const totalSubtotal = itemsData.reduce((acc, it) => acc + calculateLineSubtotal(it), 0);
-  const totalTax = itemsData.reduce((acc, it) => acc + calculateLineTax(it), 0) +
+  const totalGrossSubtotal = itemsData.reduce((acc, it) => acc + calcLinePricing(it).grossAmount, 0);
+  const totalDiscount = itemsData.reduce((acc, it) => acc + calcLinePricing(it).discountAmount, 0);
+  const totalSubtotal = itemsData.reduce((acc, it) => acc + calcLinePricing(it).taxableBase, 0);
+  const totalTax = itemsData.reduce((acc, it) => acc + calcLinePricing(it).gstAmount, 0) +
     calculateChargeTax(shipping, 'shippingCharges') +
     calculateChargeTax(loadingCharges, 'loadingCharges') +
     calculateChargeTax(unloadingCharges, 'unloadingCharges') +
     calculateChargeTax(packingCharges, 'packingCharges') +
     calculateChargeTax(insurance, 'insurance') +
     calculateChargeTax(otherCharges, 'otherCharges');
-  const totalDiscount = Number(discount) || 0;
   const totalShipping = Number(shipping) || 0;
   const totalLoading = Number(loadingCharges) || 0;
   const totalUnloading = Number(unloadingCharges) || 0;
@@ -356,7 +356,8 @@ export default function AssetQuotationPublicPage() {
   const totalOther = Number(otherCharges) || 0;
   const totalTds = Number(tds) || 0;
 
-  const grandTotal = Math.max(0, totalSubtotal + totalTax + totalShipping + totalLoading + totalUnloading + totalPacking + totalInsurance + totalOther - totalDiscount - totalTds);
+  // Discount is already deducted from item base prices before GST calculation.
+  const grandTotal = Math.max(0, totalSubtotal + totalTax + totalShipping + totalLoading + totalUnloading + totalPacking + totalInsurance + totalOther - totalTds);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -401,13 +402,20 @@ export default function AssetQuotationPublicPage() {
         applyGst,
         chargeGstStates,
         stateCode: isInterState ? '99' : '33', // Fake code to identify supply type
-        items: itemsData.map(it => ({
-          id: it.id,
-          unitPrice: Number(it.unitPrice),
-          gstRate: it.gstApplicable ? Number(it.gstRate) : 0,
-          specMatch: it.specMatch,
-          remarks: it.remarks
-        }))
+        items: itemsData.map(it => {
+          const priced = calcLinePricing(it);
+          return {
+            id: it.id,
+            unitPrice: Number(it.unitPrice),
+            discountType: priced.discountType,
+            discountValue: it.discountValue ?? '',
+            discountAmount: priced.discountAmount,
+            discountPercent: priced.discountPercent,
+            gstRate: it.gstApplicable ? Number(it.gstRate) : 0,
+            specMatch: it.specMatch,
+            remarks: it.remarks
+          };
+        })
       };
 
       const res = await api.post(`/asset-management/public/quotations/${pqId}/${token}/submit`, payload);
@@ -736,7 +744,8 @@ export default function AssetQuotationPublicPage() {
                       <th className="py-3 px-4 min-w-[200px]">Asset Name & Spec</th>
                       <th className="py-3 px-4 text-center w-24">Quantity</th>
                       <th className="py-3 px-4 text-center w-24">UOM</th>
-                      <th className="py-3 px-4 w-40">Unit Price (₹)</th>
+                      <th className="py-3 px-4 w-36">Unit Price (₹)</th>
+                      <th className="py-3 px-4 w-44">Discount (Pre-GST)</th>
                       {applyGst && <th className="py-3 px-4 w-28">GST Rate</th>}
                       <th className="py-3 px-4 w-28 text-center">Spec Match?</th>
                       <th className="py-3 px-4 min-w-[150px]">Supplier Remarks</th>
@@ -745,9 +754,8 @@ export default function AssetQuotationPublicPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-850">
                     {itemsData.map((item, idx) => {
-                      const lineSub = calculateLineSubtotal(item);
-                      const lineTax = calculateLineTax(item);
-                      const lineTotal = lineSub + lineTax;
+                      const priced = calcLinePricing(item);
+                      const lineTotal = priced.totalWithGst;
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-900/35 transition-colors">
@@ -774,6 +782,18 @@ export default function AssetQuotationPublicPage() {
                                 className="w-full pl-7 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono text-sm text-slate-200 disabled:opacity-75"
                               />
                             </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <LineDiscountInput
+                              darkSurface
+                              compact
+                              discountType={priced.discountType}
+                              discountValue={item.discountValue !== undefined ? item.discountValue : (priced.discountValue ? String(priced.discountValue) : '')}
+                              discountAmount={priced.discountAmount}
+                              disabled={isReadOnly}
+                              onTypeChange={t => updateItem(idx, 'discountType', t)}
+                              onValueChange={v => updateItem(idx, 'discountValue', v)}
+                            />
                           </td>
                           {applyGst && (
                             <td className="py-4 px-4">
@@ -813,7 +833,12 @@ export default function AssetQuotationPublicPage() {
                             />
                           </td>
                           <td className="py-4 px-4 text-right font-mono font-black text-slate-100 text-sm">
-                            ₹ {lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <span>₹ {lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            {priced.discountAmount > 0 && (
+                              <span className="block text-[10px] font-normal text-slate-400">
+                                Base: ₹ {priced.taxableBase.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -835,22 +860,6 @@ export default function AssetQuotationPublicPage() {
                     Additional Charges & Deductions (INR)
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="space-y-1.5 bg-slate-950/20 border border-slate-850/80 p-3 rounded-2xl">
-                      <label className="text-[11px] text-slate-500 font-bold block">Discount Amount</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs">₹</span>
-                        <input
-                          type="number"
-                          min="0"
-                          disabled={isReadOnly}
-                          value={discount}
-                          onChange={e => setDiscount(e.target.value)}
-                          placeholder="0"
-                          className="w-full pl-6 pr-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono text-sm text-slate-200"
-                        />
-                      </div>
-                    </div>
-
                     {renderChargeField('Freight / Transport Charges', shipping, setShipping, 'shippingCharges')}
                     {renderChargeField('Packing Charges', packingCharges, setPackingCharges, 'packingCharges')}
                     {renderChargeField('Loading Charges', loadingCharges, setLoadingCharges, 'loadingCharges')}
@@ -1087,8 +1096,20 @@ export default function AssetQuotationPublicPage() {
                   </h3>
                   
                   <div className="space-y-3.5 text-xs font-semibold text-slate-400">
+                    {totalDiscount > 0 && (
+                      <>
+                        <div className="flex justify-between">
+                          <span>Gross Items Value:</span>
+                          <span className="font-mono text-slate-300">₹ {totalGrossSubtotal.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-rose-400">
+                          <span>Line Discount (Pre-GST):</span>
+                          <span className="font-mono">- ₹ {totalDiscount.toFixed(2)}</span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex justify-between">
-                      <span>Subtotal (Base Value):</span>
+                      <span>Subtotal (Taxable Base):</span>
                       <span className="font-mono text-slate-200">₹ {totalSubtotal.toFixed(2)}</span>
                     </div>
                     {applyGst && (
@@ -1109,12 +1130,6 @@ export default function AssetQuotationPublicPage() {
                           </div>
                         </>
                       )
-                    )}
-                    {totalDiscount > 0 && (
-                      <div className="flex justify-between text-rose-400">
-                        <span>Discount Deducted:</span>
-                        <span className="font-mono">- ₹ {totalDiscount.toFixed(2)}</span>
-                      </div>
                     )}
                     {totalShipping > 0 && (
                       <div className="flex justify-between">

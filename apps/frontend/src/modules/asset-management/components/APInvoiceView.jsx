@@ -22,6 +22,14 @@ import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 import Pagination from '@/components/ui/Pagination';
 import UniversalUomSelect, { UNIVERSAL_UOM_STRING_LIST } from '@/components/ui/UniversalUomSelect';
+import LineDiscountInput from './LineDiscountInput';
+import {
+  calcLineItemAmounts,
+  getSavedItemBreakdown,
+  getDocumentDiscountSummary,
+  hydrateLineItemDiscount,
+  allocateLegacyHeaderDiscount,
+} from '../utils/assetLinePricing';
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -132,10 +140,9 @@ const buildInvoiceTaxBreakdown = (invoice) => {
   if (applyGst) {
     (invoice.items || []).forEach(item => {
       const rate = Number(item.gstRate || 18);
-      const base = Number(item.totalBeforeTax || (Number(item.quantity) * Number(item.unitPrice || 0)));
+      const { taxableBase: base, gstAmount: storedGst } = getSavedItemBreakdown(item);
       if (base <= 0) return;
 
-      const storedGst = Number(item.gstAmount || (Number(item.cgstAmount || 0) + Number(item.sgstAmount || 0) + Number(item.igstAmount || 0)) || 0);
       const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
 
       if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
@@ -172,9 +179,18 @@ const buildInvoiceTaxBreakdown = (invoice) => {
     }
   });
 
-  const totalTaxable = (invoice.items || []).reduce((s, i) => s + Number(i.totalBeforeTax || (Number(i.quantity) * Number(i.unitPrice || 0))), 0);
+  const { grossSubtotal, taxableSubtotal, lineDiscountTotal, legacyHeaderDiscount } = getDocumentDiscountSummary(invoice);
   const totalGstFromRows = taxRows.reduce((s, r) => s + r.value, 0);
-  return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
+  return {
+    taxRows,
+    grossSubtotal,
+    totalTaxable: taxableSubtotal,
+    lineDiscountTotal,
+    legacyHeaderDiscount,
+    totalGst: totalGstFromRows,
+    isInterState,
+    applyGst,
+  };
 };
 
 const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = null) => {
@@ -189,7 +205,15 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
   const companyPan = taxSettings?.companyPan || storeCompany.companyPan || (companyGstin.length >= 12 ? companyGstin.substring(2, 12) : '');
 
   // Calculate totals
-  const { taxRows, totalTaxable: taxable, isInterState, applyGst } = buildInvoiceTaxBreakdown({
+  const {
+    taxRows,
+    grossSubtotal,
+    totalTaxable: taxable,
+    lineDiscountTotal,
+    legacyHeaderDiscount,
+    isInterState,
+    applyGst,
+  } = buildInvoiceTaxBreakdown({
     ...invoice,
     companyGstin: invoice.companyGstin || companyGstin
   });
@@ -203,8 +227,7 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
   const packingCharges = Number(invoice.packingCharges || 0);
   const insurance = Number(invoice.insurance || 0);
   const otherCharges = Number(invoice.otherCharges || 0);
-  const discount = Number(invoice.discount || 0);
-  const preRoundTotal = taxable + (applyGst ? totalGst : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  const preRoundTotal = taxable + (applyGst ? totalGst : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - legacyHeaderDiscount;
   const grandTotal = invoice.grandTotal ? Number(invoice.grandTotal) : Math.round(preRoundTotal);
   const roundOff = invoice.roundOff !== undefined ? Number(invoice.roundOff) : (grandTotal - preRoundTotal);
 
@@ -419,11 +442,12 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
   doc.setFontSize(8);
   doc.setTextColor(255, 255, 255); // White text
   doc.text('Description', startX + 2, currentY);
-  doc.text('HSN/SAC', startX + 70, currentY);
-  doc.text('Qty', startX + 98, currentY, { align: 'right' });
-  doc.text('Unit', startX + 112, currentY, { align: 'right' });
-  doc.text('Rate', startX + 138, currentY, { align: 'right' });
-  doc.text('GST %', startX + 158, currentY, { align: 'right' });
+  doc.text('HSN/SAC', startX + 62, currentY);
+  doc.text('Qty', startX + 88, currentY, { align: 'right' });
+  doc.text('Unit', startX + 100, currentY, { align: 'right' });
+  doc.text('Rate', startX + 120, currentY, { align: 'right' });
+  doc.text('Disc', startX + 139, currentY, { align: 'right' });
+  doc.text('GST %', startX + 157, currentY, { align: 'right' });
   doc.text('Total (INR)', endX - 2, currentY, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
@@ -437,7 +461,7 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
       const parts = rawDesc.split(' | ');
       printableDesc = parts.join('\n');
     }
-    const descLines = doc.splitTextToSize(printableDesc, 65);
+    const descLines = doc.splitTextToSize(printableDesc, 56);
     const descHeight = descLines.length * 4;
     const rowHeight = Math.max(descHeight, 8);
 
@@ -457,11 +481,12 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
       doc.setFontSize(8);
       doc.setTextColor(255, 255, 255);
       doc.text('Description', startX + 2, currentY);
-      doc.text('HSN/SAC', startX + 70, currentY);
-      doc.text('Qty', startX + 98, currentY, { align: 'right' });
-      doc.text('Unit', startX + 112, currentY, { align: 'right' });
-      doc.text('Rate', startX + 138, currentY, { align: 'right' });
-      doc.text('GST %', startX + 158, currentY, { align: 'right' });
+      doc.text('HSN/SAC', startX + 62, currentY);
+      doc.text('Qty', startX + 88, currentY, { align: 'right' });
+      doc.text('Unit', startX + 100, currentY, { align: 'right' });
+      doc.text('Rate', startX + 120, currentY, { align: 'right' });
+      doc.text('Disc', startX + 139, currentY, { align: 'right' });
+      doc.text('GST %', startX + 157, currentY, { align: 'right' });
       doc.text('Total (INR)', endX - 2, currentY, { align: 'right' });
       
       doc.setFont('helvetica', 'normal');
@@ -478,16 +503,18 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
     doc.setDrawColor(241, 245, 249); // Slate 100
     doc.line(startX, currentY + rowHeight - 5, endX, currentY + rowHeight - 5);
 
+    const itemInfo = getSavedItemBreakdown(item);
     doc.setTextColor(15, 23, 42); // Primary dark
     doc.text(descLines, startX + 2, currentY);
     
     doc.setTextColor(71, 85, 105);
-    doc.text(item.hsnSac || '—', startX + 70, currentY);
-    doc.text(String(item.quantity), startX + 98, currentY, { align: 'right' });
-    doc.text(item.unit || 'Nos', startX + 112, currentY, { align: 'right' });
-    doc.text(Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 }), startX + 138, currentY, { align: 'right' });
-    doc.text(`${item.gstRate}%`, startX + 158, currentY, { align: 'right' });
-    doc.text(Number(item.totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2 }), endX - 2, currentY, { align: 'right' });
+    doc.text(item.hsnSac || '—', startX + 62, currentY);
+    doc.text(String(item.quantity), startX + 88, currentY, { align: 'right' });
+    doc.text(item.unit || 'Nos', startX + 100, currentY, { align: 'right' });
+    doc.text(Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 }), startX + 120, currentY, { align: 'right' });
+    doc.text(itemInfo.discountAmount > 0 ? `-${itemInfo.discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—', startX + 139, currentY, { align: 'right' });
+    doc.text(`${item.gstRate}%`, startX + 157, currentY, { align: 'right' });
+    doc.text(Number(itemInfo.totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2 }), endX - 2, currentY, { align: 'right' });
 
     currentY += rowHeight;
   });
@@ -596,6 +623,10 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
     summaryY += 5;
   };
 
+  if (lineDiscountTotal > 0) {
+    addSummaryRow('GROSS ITEMS TOTAL:', grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+    addSummaryRow('LINE DISCOUNT (PRE-GST):', `-${lineDiscountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, true, [220, 38, 38]);
+  }
   addSummaryRow('SUBTOTAL (TAXABLE):', taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
 
   if (applyGst) {
@@ -615,7 +646,7 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
   if (packingCharges > 0) addSummaryRow('PACKING CHARGES:', packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
   if (insurance > 0) addSummaryRow('INSURANCE:', insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
   if (otherCharges > 0) addSummaryRow('OTHER CHARGES:', otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
-  if (discount > 0) addSummaryRow('DISCOUNT:', `-${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, true, [220, 38, 38]);
+  if (legacyHeaderDiscount > 0) addSummaryRow('DISCOUNT (LEGACY):', `-${legacyHeaderDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, true, [220, 38, 38]);
 
   const formattedRoundOff = (roundOff >= 0 ? '+' : '') + roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   addSummaryRow('ROUND OFF:', formattedRoundOff);
@@ -907,7 +938,15 @@ function APInvoiceDetailModal({ invoice, onClose }) {
     }
   };
 
-  const { taxRows, totalTaxable: taxable, isInterState, applyGst } = buildInvoiceTaxBreakdown(invoice);
+  const {
+    taxRows,
+    grossSubtotal,
+    totalTaxable: taxable,
+    lineDiscountTotal,
+    legacyHeaderDiscount,
+    isInterState,
+    applyGst,
+  } = buildInvoiceTaxBreakdown(invoice);
   const cgst = applyGst ? taxRows.filter(r => r.label.startsWith('CGST')).reduce((sum, r) => sum + r.value, 0) : 0;
   const sgst = applyGst ? taxRows.filter(r => r.label.startsWith('SGST')).reduce((sum, r) => sum + r.value, 0) : 0;
   const igst = applyGst ? taxRows.filter(r => r.label.startsWith('IGST')).reduce((sum, r) => sum + r.value, 0) : 0;
@@ -918,8 +957,7 @@ function APInvoiceDetailModal({ invoice, onClose }) {
   const packingCharges = Number(invoice.packingCharges || 0);
   const insurance = Number(invoice.insurance || 0);
   const otherCharges = Number(invoice.otherCharges || 0);
-  const discount = Number(invoice.discount || 0);
-  const preRoundTotal = taxable + (applyGst ? totalGst : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  const preRoundTotal = taxable + (applyGst ? totalGst : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - legacyHeaderDiscount;
   const grandTotal = invoice.grandTotal ? Number(invoice.grandTotal) : Math.round(preRoundTotal);
   const roundOff = invoice.roundOff !== undefined ? Number(invoice.roundOff) : (grandTotal - preRoundTotal);
   const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
@@ -956,11 +994,17 @@ function APInvoiceDetailModal({ invoice, onClose }) {
     let itemsText = '';
     invoice.items?.forEach((item) => {
       const cleanDesc = item.itemDescription?.split('|')[0]?.trim() || '';
-      itemsText += `• ${cleanDesc} - ${item.quantity} ${item.unit || 'Nos'} @ Rs.${Number(item.unitPrice).toFixed(2)} (GST ${item.gstRate}%)\n`;
+      const info = getSavedItemBreakdown(item);
+      const discNote = info.discountAmount > 0 ? ` | Disc -Rs.${info.discountAmount.toFixed(2)} | Taxable Rs.${info.taxableBase.toFixed(2)}` : '';
+      itemsText += `• ${cleanDesc} - ${item.quantity} ${item.unit || 'Nos'} @ Rs.${Number(item.unitPrice).toFixed(2)}${discNote} (GST ${item.gstRate}%)\n`;
     });
 
     // Compile charges and totals
     let chargesText = '';
+    if (lineDiscountTotal > 0) {
+      chargesText += `Gross Items Total: Rs. ${grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+      chargesText += `Line Discount (Pre-GST): -Rs. ${lineDiscountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    }
     chargesText += `Subtotal (Taxable): Rs. ${taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
     if (applyGst) {
       if (isInterState) {
@@ -976,7 +1020,7 @@ function APInvoiceDetailModal({ invoice, onClose }) {
     if (packingCharges > 0) chargesText += `Packing Charges: Rs. ${packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
     if (insurance > 0) chargesText += `Insurance: Rs. ${insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
     if (otherCharges > 0) chargesText += `Other Charges: Rs. ${otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
-    if (discount > 0) chargesText += `Discount: -Rs. ${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (legacyHeaderDiscount > 0) chargesText += `Discount (Legacy): -Rs. ${legacyHeaderDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
     if (roundOff !== 0) {
       chargesText += `Round Off: ${(roundOff >= 0 ? '+' : '')}Rs. ${roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
     }
@@ -1089,95 +1133,114 @@ Accounts Department`;
               <table className="w-full text-xs">
                 <thead className="bg-indigo-900 dark:bg-indigo-950 text-white">
                   <tr>
-                    {['Description', 'HSN/SAC', 'Qty', 'Unit', 'Rate', 'GST%', 'CGST', 'SGST', 'IGST', 'Line Total'].map(h => (
+                    {['Description', 'HSN/SAC', 'Qty', 'Unit', 'Rate', 'Disc (Pre-GST)', 'Taxable', 'GST%', 'CGST', 'SGST', 'IGST', 'Line Total'].map(h => (
                       <th key={h} className="px-3 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-indigo-100">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {invoice.items.map((item, i) => (
+                  {invoice.items.map((item, i) => {
+                    const info = getSavedItemBreakdown(item);
+                    return (
                     <tr key={i} className={`transition-colors ${i % 2 === 0 ? 'bg-white dark:bg-slate-900/40' : 'bg-slate-50/40 dark:bg-slate-800/10'} hover:bg-slate-100/50 dark:hover:bg-slate-800/30`}>
                       <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200">{item.itemDescription}</td>
                       <td className="px-3 py-3 font-mono text-slate-500">{item.hsnSac || '—'}</td>
                       <td className="px-3 py-3 font-medium text-slate-600 dark:text-slate-400">{item.quantity}</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{item.unit || 'Nos'}</td>
                       <td className="px-3 py-3 text-slate-700 dark:text-slate-300">₹{Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-3 text-slate-700 dark:text-slate-300">{item.gstRate}%</td>
+                      <td className="px-3 py-3 text-rose-600 dark:text-rose-400 font-medium whitespace-nowrap">
+                        {info.discountAmount > 0 ? `-₹${info.discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                      </td>
+                      <td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-300">₹{info.taxableBase.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-3 text-slate-700 dark:text-slate-300">{info.gstRate}%</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-slate-400">₹{Number(item.cgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-slate-400">₹{Number(item.sgstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-slate-400">₹{Number(item.igstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-3 font-bold text-slate-900 dark:text-white">₹{Number(item.totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-3 font-bold text-slate-900 dark:text-white">₹{info.totalWithGst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
+                  {lineDiscountTotal > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Gross Items Subtotal:</td>
+                        <td className="px-3 py-2 font-bold text-slate-800 dark:text-slate-200">₹{grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={11} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Line Discount (Pre-GST):</td>
+                        <td className="px-3 py-2 font-bold text-rose-600">-₹{lineDiscountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    </>
+                  )}
                   <tr>
-                    <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td>
+                    <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td>
                     <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{taxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                   {applyGst ? (
                     taxRows.map((row, rIdx) => (
                       <tr key={rIdx}>
-                        <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">{row.label}:</td>
+                        <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">{row.label}:</td>
                         <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{row.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td>
                       <td className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td>
                     </tr>
                   )}
                   {freight > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight Charges:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight Charges:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{freight.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {loadingCharges > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading Charges:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading Charges:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {unloadingCharges > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Unloading Charges:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Unloading Charges:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {packingCharges > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {insurance > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{insurance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {otherCharges > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
-                  {discount > 0 && (
+                  {legacyHeaderDiscount > 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td>
-                      <td className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Additional Header Discount (Legacy):</td>
+                      <td className="px-3 py-2 font-bold text-rose-600">-₹{legacyHeaderDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {roundOff !== 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td>
+                      <td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td>
                       <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-indigo-50/50 dark:bg-indigo-950/20">
-                    <td colSpan={9} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Invoice Grand Total:</td>
+                    <td colSpan={11} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Invoice Grand Total:</td>
                     <td className="px-3 py-3.5 font-black text-xl text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                   {tdsAmount > 0 && (
@@ -1759,7 +1822,6 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     paymentMethod: 'Bank Transfer',
     paymentType: 'NEFT',
     glAccount: '2310001',
-    discount: '',
     freight: '',
     loadingCharges: '',
     unloadingCharges: '',
@@ -1893,7 +1955,6 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           paymentMethod: parsedPayment.method,
           paymentType: parsedPayment.type,
           glAccount: found.glAccount || '2310001',
-          discount: found.discount !== undefined ? String(found.discount) : '',
           freight: found.freight !== undefined ? String(found.freight) : '',
           loadingCharges: found.loadingCharges !== undefined ? String(found.loadingCharges) : '',
           unloadingCharges: found.unloadingCharges !== undefined ? String(found.unloadingCharges) : '',
@@ -1902,30 +1963,36 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           otherCharges: found.otherCharges !== undefined ? String(found.otherCharges) : '',
           applyGst: found.applyGst !== undefined ? Boolean(found.applyGst) : true,
           narration: found.narration || '',
-          items: found.items?.map(i => {
-            const rawDesc = i.description || i.itemDescription || '';
-            let itemDescription = rawDesc;
-            let category = 'IT Equipment';
-            let specifications = '';
+          items: (() => {
+            const legacyAlloc = allocateLegacyHeaderDiscount(found.items || [], found.discount);
+            return found.items?.map((i, idx) => {
+              const rawDesc = i.description || i.itemDescription || '';
+              let itemDescription = rawDesc;
+              let category = 'IT Equipment';
+              let specifications = '';
 
-            const parts = rawDesc.split(' | ');
-            if (parts.length >= 3) {
-              itemDescription = parts[0];
-              category = parts[1].replace('Category: ', '');
-              specifications = parts[2].replace('Specs: ', '');
-            }
+              const parts = rawDesc.split(' | ');
+              if (parts.length >= 3) {
+                itemDescription = parts[0];
+                category = parts[1].replace('Category: ', '');
+                specifications = parts[2].replace('Specs: ', '');
+              }
 
-            return {
-              itemDescription,
-              category,
-              specifications,
-              hsnSac: i.hsnCode || i.hsnSac || '',
-              quantity: Number(i.quantity || 0),
-              unit: i.uom || i.unit || 'Nos',
-              unitPrice: Number(i.unitPrice || 0),
-              gstRate: Number(i.gstRate || 18),
-            };
-          }) || [],
+              const disc = hydrateLineItemDiscount(i, legacyAlloc[idx] || 0);
+              return {
+                itemDescription,
+                category,
+                specifications,
+                hsnSac: i.hsnCode || i.hsnSac || '',
+                quantity: Number(i.quantity || 0),
+                unit: i.uom || i.unit || 'Nos',
+                unitPrice: Number(i.unitPrice || 0),
+                gstRate: Number(i.gstRate || 18),
+                discountType: disc.discountType,
+                discountValue: disc.discountValue,
+              };
+            }) || [];
+          })(),
           termsAndConditions: found.termsAndConditions || found.termsBlock || DEFAULT_INVOICE_TERMS,
           bankName: found.bankName || 'HDFC Bank',
           bankAccountHolder: found.bankAccountHolder || found.vendorName || '',
@@ -2184,17 +2251,10 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     return () => clearTimeout(delayDebounceFn);
   }, [assetSearch, activeRowIdx]);
 
-  const calcItem = (item) => {
-    const base = Number(item.quantity) * Number(item.unitPrice || 0);
-    const gstTotal = form.applyGst ? base * (Number(item.gstRate) / 100) : 0;
-    return {
-      totalBeforeTax: base,
-      cgstAmount: isInterState ? 0 : gstTotal / 2,
-      sgstAmount: isInterState ? 0 : gstTotal / 2,
-      igstAmount: isInterState ? gstTotal : 0,
-      totalWithGst: base + gstTotal,
-    };
-  };
+  const calcItem = (item) => calcLineItemAmounts(item, {
+    applyGst: form.applyGst,
+    isInterState,
+  });
 
   const getChargeGstApplied = (key) => {
     const state = chargeGstStates[key];
@@ -2215,10 +2275,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     if (form.applyGst) {
       // Items
       form.items.forEach(item => {
-        const rate = Number(item.gstRate || 18);
-        const base = Number(item.quantity) * Number(item.unitPrice || 0);
+        const { gstRate: rate, taxableBase: base, gstAmount: gst } = calcItem(item);
         if (base <= 0) return;
-        const gst = base * (rate / 100);
         if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
         breakdown[rate].taxable += base;
         breakdown[rate].gst += gst;
@@ -2263,7 +2321,6 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
   const packingCharges = Number(form.packingCharges || 0);
   const insurance = Number(form.insurance || 0);
   const otherCharges = Number(form.otherCharges || 0);
-  const discount = Number(form.discount || 0);
 
   const freightGst = calcChargeGst(freight, 'freight');
   const loadingGst = calcChargeGst(loadingCharges, 'loadingCharges');
@@ -2277,13 +2334,15 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
   const totals = form.items.reduce((acc, item) => {
     const c = calcItem(item);
     return {
-      taxable: acc.taxable + c.totalBeforeTax,
+      gross: acc.gross + c.grossAmount,
+      discount: acc.discount + c.discountAmount,
+      taxable: acc.taxable + c.taxableBase,
       cgst: acc.cgst + c.cgstAmount,
       sgst: acc.sgst + c.sgstAmount,
       igst: acc.igst + c.igstAmount,
       total: acc.total + c.totalWithGst,
     };
-  }, { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
+  }, { gross: 0, discount: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
 
   let finalCgst = totals.cgst;
   let finalSgst = totals.sgst;
@@ -2298,7 +2357,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     }
   }
 
-  const preRoundTotal = totals.taxable + (form.applyGst ? (finalCgst + finalSgst + finalIgst) : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  // Discount is applied per line item prior to GST (already excluded from totals.taxable)
+  const preRoundTotal = totals.taxable + (form.applyGst ? (finalCgst + finalSgst + finalIgst) : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
 
@@ -2385,7 +2445,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
       paymentMode,
       isInterState,
       tds: Number(form.tds || 0),
-      discount: Number(form.discount || 0),
+      discount: Number(totals.discount.toFixed(2)),
       freight: Number(form.freight || 0),
       loadingCharges: Number(form.loadingCharges || 0),
       unloadingCharges: Number(form.unloadingCharges || 0),
@@ -2402,6 +2462,10 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
         return {
           ...i,
           ...calculated,
+          discountType: i.discountType || 'amount',
+          discountValue: Number(i.discountValue || 0),
+          discountAmount: Number(calculated.discountAmount.toFixed(2)),
+          discountPercent: Number(calculated.discountPercent.toFixed(4)),
           itemDescription
         };
       }),
@@ -2502,6 +2566,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           unit: 'Nos',
           quantity: 1,
           unitPrice: '',
+          discountType: 'amount',
+          discountValue: '',
           gstRate: 18,
           specifications: ''
         }
@@ -2511,6 +2577,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           quantity: 1,
           unit: 'Nos',
           unitPrice: '',
+          discountType: 'amount',
+          discountValue: '',
           gstRate: 18
         };
     setForm(p => ({ ...p, items: [...p.items, newItem] }));
@@ -2536,6 +2604,10 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     const poGstStates = linkedPO ? (typeof linkedPO.chargeGstStates === 'string' ? JSON.parse(linkedPO.chargeGstStates) : linkedPO.chargeGstStates) : null;
     const parsedPayment = parsePaymentMode(linkedPO?.paymentMode || g.paymentMode);
     
+    const linkedLegacyAlloc = linkedPO
+      ? allocateLegacyHeaderDiscount(linkedPO.items || [], linkedPO.discount)
+      : [];
+
     setForm(prev => ({
       ...prev, grpoId,
       vendorName: g.vendorName,
@@ -2544,7 +2616,6 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
       vendorGstin: s?.gstin || g.vendorGstin || prev.vendorGstin || '',
       vendorPan: s?.pan || prev.vendorPan || '',
       vendorAddress: s?.address || prev.vendorAddress || '',
-      discount: linkedPO ? String(linkedPO.discount) : prev.discount,
       freight: linkedPO ? String(linkedPO.freight) : prev.freight,
       loadingCharges: linkedPO ? String(linkedPO.loadingCharges) : prev.loadingCharges,
       unloadingCharges: linkedPO ? String(linkedPO.unloadingCharges) : prev.unloadingCharges,
@@ -2560,12 +2631,31 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
       paymentMethod: parsedPayment.method,
       paymentType: parsedPayment.type,
       items: g.items?.filter(i => Number(i.acceptedQuantity) > 0).map(i => {
-        const poItem = linkedPO?.items?.find(pi => (pi.itemDescription || pi.description) === (i.itemDescription || i.description));
+        const poItemIdx = linkedPO?.items?.findIndex(pi => (pi.itemDescription || pi.description) === (i.itemDescription || i.description)) ?? -1;
+        const poItem = poItemIdx >= 0 ? linkedPO.items[poItemIdx] : null;
+        const acceptedQty = Number(i.acceptedQuantity);
+        const poQty = Number(poItem?.quantity || poItem?.orderedQty || acceptedQty || 1);
+        const qtyRatio = poQty > 0 ? Math.min(1, acceptedQty / poQty) : 1;
+        const disc = poItem
+          ? hydrateLineItemDiscount(
+              {
+                ...poItem,
+                quantity: acceptedQty,
+                orderedQty: acceptedQty,
+                baseAmount: poItem.baseAmount !== undefined ? Number(poItem.baseAmount) * qtyRatio : undefined,
+                totalBeforeTax: poItem.totalBeforeTax !== undefined ? Number(poItem.totalBeforeTax) * qtyRatio : undefined,
+                taxableValue: poItem.taxableValue !== undefined ? Number(poItem.taxableValue) * qtyRatio : undefined,
+              },
+              (linkedLegacyAlloc[poItemIdx] || 0) * qtyRatio
+            )
+          : { discountType: 'amount', discountValue: '' };
         return {
           itemDescription: i.itemDescription,
           hsnSac: poItem?.hsnSac || poItem?.hsnCode || '',
-          quantity: Number(i.acceptedQuantity), unit: i.unit || 'Nos',
+          quantity: acceptedQty, unit: i.unit || 'Nos',
           unitPrice: poItem ? Number(poItem.unitPrice) : (i.unitPrice || ''),
+          discountType: disc.discountType,
+          discountValue: disc.discountValue,
           gstRate: poItem ? Number(poItem.gstRate) : Number(i.gstRate || 18),
         };
       }) || prev.items,
@@ -3043,8 +3133,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           </div>
           <div className="space-y-5">
             {form.items.map((item, idx) => {
-              const { totalWithGst, cgstAmount, sgstAmount, igstAmount } = calcItem(item);
-              const totalCost = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+              const { grossAmount, discountAmount, taxableBase, totalWithGst, cgstAmount, sgstAmount, igstAmount } = calcItem(item);
 
               if (form.isDirect) {
                 return (
@@ -3169,8 +3258,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       </div>
                     </div>
 
-                    {/* Row 3: UOM, Quantity, Est Unit Price, Total Cost */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {/* Row 3: UOM, Quantity, Est Unit Price, Pre-GST Discount, Taxable Base */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                       <div className="space-y-1.5">
                         <Label>Unit of Measure <span className="text-rose-500">*</span></Label>
                         <UniversalUomSelect
@@ -3210,9 +3299,24 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       </div>
 
                       <div className="space-y-1.5">
-                        <Label>Total Cost</Label>
-                        <div className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-800/40 text-slate-500 flex items-center text-sm font-semibold select-none">
-                          ₹{totalCost.toLocaleString('en-IN')}
+                        <Label>Discount (Pre-GST)</Label>
+                        <LineDiscountInput
+                          discountType={item.discountType}
+                          discountValue={item.discountValue}
+                          discountAmount={discountAmount}
+                          disabled={!!editInvoiceId}
+                          onTypeChange={t => updateItem(idx, 'discountType', t)}
+                          onValueChange={v => updateItem(idx, 'discountValue', v)}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Taxable Base (Excl. GST)</Label>
+                        <div className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/50 dark:bg-slate-800/40 text-slate-700 dark:text-slate-200 flex items-center justify-between text-sm font-semibold select-none">
+                          <span>₹{taxableBase.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                          {discountAmount > 0 && (
+                            <span className="text-[10px] text-slate-400 line-through">₹{grossAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3317,6 +3421,18 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       />
                     </div>
                     <div className="space-y-1">
+                      <Label className="text-xs">Discount (Pre-GST)</Label>
+                      <LineDiscountInput
+                        compact
+                        discountType={item.discountType}
+                        discountValue={item.discountValue}
+                        discountAmount={discountAmount}
+                        disabled={isGrpoLinked || !!editInvoiceId}
+                        onTypeChange={t => updateItem(idx, 'discountType', t)}
+                        onValueChange={v => updateItem(idx, 'discountValue', v)}
+                      />
+                    </div>
+                    <div className="space-y-1">
                       <Label className="text-xs">GST%</Label>
                       <div className="relative">
                         <select
@@ -3337,8 +3453,16 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <p className="text-xs text-slate-500">Line Total (incl. GST): <span className="font-bold text-indigo-600 dark:text-indigo-400">₹{totalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span></p>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                      {discountAmount > 0 && (
+                        <span>
+                          Gross: <span className="line-through">₹{grossAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                          {' • '}Taxable: <span className="font-semibold text-slate-700 dark:text-slate-200">₹{taxableBase.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                        </span>
+                      )}
+                      <p>Line Total (incl. GST): <span className="font-bold text-indigo-600 dark:text-indigo-400">₹{totalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span></p>
+                    </div>
                     {!isGrpoLinked && !editInvoiceId && form.items.length > 1 && (
                       <button type="button" onClick={() => removeItem(idx)} className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                         <Trash2 className="w-4 h-4" />
@@ -3407,14 +3531,13 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
 
             {/* Charges inputs */}
             <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Discount (₹)</Label>
-                  <Input type="number" min="0" disabled={isFinanceLocked || isFormFieldsDisabled} value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-9 rounded-xl bg-white dark:bg-slate-950 disabled:opacity-60" />
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400">TDS Deduction (₹)</Label>
                   <Input type="number" min="0" step="0.01" disabled={isFinanceLocked || isFormFieldsDisabled} value={form.tds} onChange={e => update('tds', e.target.value)} placeholder="0.00" className="h-9 rounded-xl bg-white dark:bg-slate-950 disabled:opacity-60" />
+                </div>
+                <div className="h-9 px-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/50 flex items-center text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  Discounts are applied per line item prior to GST.
                 </div>
               </div>
 
@@ -3449,6 +3572,10 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
 
           <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-2xl p-4 space-y-2 text-sm h-fit">
             {[
+              ...(totals.discount > 0 ? [
+                { label: 'Gross Items Subtotal', value: totals.gross },
+                { label: 'Line Discount (Pre-GST)', value: -totals.discount },
+              ] : []),
               { label: 'Taxable Value', value: totals.taxable },
               ...(form.applyGst ? currentTaxBreakdown : [{ label: 'GST (Exempted)', value: 0 }]),
               { label: 'Freight Charges', value: freight },
@@ -3457,13 +3584,12 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               { label: 'Packing Charges', value: packingCharges },
               { label: 'Insurance', value: insurance },
               { label: 'Other Charges', value: otherCharges },
-              { label: 'Discount', value: -discount },
               { label: 'Round Off', value: roundOff },
             ].map(({ label, value }) => {
               const formatted = Math.abs(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               let textClass = 'text-slate-800 dark:text-slate-200';
               let prefix = '₹';
-              if (label === 'Discount' && value < 0) {
+              if (label.includes('Discount') && value < 0) {
                 textClass = 'text-rose-500 font-bold';
                 prefix = '-₹';
               } else if (label === 'Round Off') {

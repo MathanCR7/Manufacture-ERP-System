@@ -21,6 +21,14 @@ import { jsPDF } from 'jspdf';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 import Pagination from '@/components/ui/Pagination';
 import UniversalUomSelect, { UNIVERSAL_UOM_STRING_LIST } from '@/components/ui/UniversalUomSelect';
+import LineDiscountInput from './LineDiscountInput';
+import {
+  calcLineItemAmounts,
+  getSavedItemBreakdown,
+  getDocumentDiscountSummary,
+  hydrateLineItemDiscount,
+  allocateLegacyHeaderDiscount,
+} from '../utils/assetLinePricing';
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -86,11 +94,10 @@ const buildTaxBreakdown = (po, companyGstin = null) => {
     // Use stored per-item gstRate + stored gstAmount (cgst+sgst or igst) for accuracy
     (po.items || []).forEach(item => {
       const rate = Number(item.gstRate || 18);
-      const base = Number(item.totalBeforeTax || (Number(item.quantity) * Number(item.unitPrice || 0)));
+      const { taxableBase: base, gstAmount: storedGst } = getSavedItemBreakdown(item);
       if (base <= 0) return;
 
       // Use the stored tax amount if available, else calculate
-      const storedGst = Number(item.gstAmount || 0);
       const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
 
       if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0, items: [], charges: [] };
@@ -146,7 +153,7 @@ const buildTaxBreakdown = (po, companyGstin = null) => {
     }
   });
 
-  const totalTaxable = (po.items || []).reduce((s, i) => s + Number(i.totalBeforeTax || (Number(i.quantity) * Number(i.unitPrice || 0))), 0);
+  const totalTaxable = (po.items || []).reduce((s, i) => s + getSavedItemBreakdown(i).taxableBase, 0);
   const totalGstFromRows = taxRows.reduce((s, r) => s + r.value, 0);
   return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
 };
@@ -162,13 +169,13 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
 
   const doc = new jsPDF();
   const { taxRows, totalTaxable, isInterState, applyGst } = buildTaxBreakdown(po, companyGstin);
+  const { grossSubtotal, lineDiscountTotal, legacyHeaderDiscount } = getDocumentDiscountSummary(po);
   const freight = Number(po.freight || po.shippingCharges || po.freightCharges || 0);
   const loadingCharges = Number(po.loadingCharges || 0);
   const unloadingCharges = Number(po.unloadingCharges || 0);
   const packingCharges = Number(po.packingCharges || 0);
   const insurance = Number(po.insurance || 0);
   const otherCharges = Number(po.otherCharges || 0);
-  const discount = Number(po.discount || 0);
   const tds = Number(po.tds || 0);
   const totalTaxAmt = taxRows.reduce((s, r) => s + r.value, 0);
 
@@ -177,7 +184,7 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
   let finalSgst = isInterState ? 0 : totalTaxAmt / 2;
   let finalIgst = isInterState ? totalTaxAmt : 0;
 
-  const preRoundTotal = totalTaxable + totalTaxAmt + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount - tds;
+  const preRoundTotal = totalTaxable + totalTaxAmt + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - legacyHeaderDiscount - tds;
   const grandTotal = po.grandTotal ? Number(po.grandTotal) : Math.round(preRoundTotal);
   const roundOff = po.roundOff !== undefined ? Number(po.roundOff) : (grandTotal - preRoundTotal);
 
@@ -240,16 +247,18 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
   doc.setFontSize(8);
   doc.setTextColor(255, 255, 255);
   doc.text('Description', 16, currentY);
-  doc.text('HSN/SAC', 75, currentY);
-  doc.text('Qty', 105, currentY, { align: 'right' });
-  doc.text('Rate', 125, currentY, { align: 'right' });
-  doc.text('GST %', 145, currentY, { align: 'right' });
+  doc.text('HSN/SAC', 66, currentY);
+  doc.text('Qty', 94, currentY, { align: 'right' });
+  doc.text('Rate', 115, currentY, { align: 'right' });
+  doc.text('Disc', 135, currentY, { align: 'right' });
+  doc.text('GST %', 153, currentY, { align: 'right' });
   doc.text('Total (INR)', 194, currentY, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
   currentY += 9;
   po.items?.forEach((item, index) => {
-    const descLines = doc.splitTextToSize(item.itemDescription || '', 55);
+    const saved = getSavedItemBreakdown(item);
+    const descLines = doc.splitTextToSize(item.itemDescription || '', 48);
     const descHeight = descLines.length * 4.5;
     const rowHeight = Math.max(descHeight, 8);
     if (currentY + rowHeight > 265) {
@@ -263,10 +272,11 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
       doc.setFontSize(8);
       doc.setTextColor(255, 255, 255);
       doc.text('Description', 16, currentY);
-      doc.text('HSN/SAC', 75, currentY);
-      doc.text('Qty', 105, currentY, { align: 'right' });
-      doc.text('Rate', 125, currentY, { align: 'right' });
-      doc.text('GST %', 145, currentY, { align: 'right' });
+      doc.text('HSN/SAC', 66, currentY);
+      doc.text('Qty', 94, currentY, { align: 'right' });
+      doc.text('Rate', 115, currentY, { align: 'right' });
+      doc.text('Disc', 135, currentY, { align: 'right' });
+      doc.text('GST %', 153, currentY, { align: 'right' });
       doc.text('Total (INR)', 194, currentY, { align: 'right' });
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(71, 85, 105);
@@ -276,11 +286,12 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
     doc.setTextColor(30, 41, 59);
     doc.text(descLines, 16, currentY);
     doc.setTextColor(71, 85, 105);
-    doc.text(item.hsnSac || '—', 75, currentY);
-    doc.text(String(item.quantity), 105, currentY, { align: 'right' });
-    doc.text(Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 125, currentY, { align: 'right' });
-    doc.text(`${item.gstRate}%`, 145, currentY, { align: 'right' });
-    doc.text(Number(item.totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 194, currentY, { align: 'right' });
+    doc.text(item.hsnSac || '—', 66, currentY);
+    doc.text(String(item.quantity), 94, currentY, { align: 'right' });
+    doc.text(Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 115, currentY, { align: 'right' });
+    doc.text(saved.discountAmount > 0 ? `-${saved.discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—', 135, currentY, { align: 'right' });
+    doc.text(`${item.gstRate}%`, 153, currentY, { align: 'right' });
+    doc.text(Number(saved.totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2 }), 194, currentY, { align: 'right' });
     doc.setDrawColor(241, 245, 249);
     doc.line(14, currentY + rowHeight - 5, 196, currentY + rowHeight - 5);
     currentY += rowHeight;
@@ -289,14 +300,23 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
   doc.line(14, currentY - 2, 196, currentY - 2);
   currentY += 6;
   if (currentY + 60 > 265) { doc.addPage(); currentY = 20; doc.setFillColor(79, 70, 229); doc.rect(0, 0, 210, 8, 'F'); }
-  const calcX = 130;
+  const calcX = 126;
   const valX = 196;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  doc.text('TAXABLE VALUE:', calcX, currentY);
-  doc.text(totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY, { align: 'right' });
-  let offset = 6;
+  let offset = 0;
+  if (lineDiscountTotal > 0) {
+    doc.text('GROSS ITEMS SUBTOTAL:', calcX, currentY + offset);
+    doc.text(grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
+    offset += 6;
+    doc.text('LINE DISCOUNT (PRE-GST):', calcX, currentY + offset);
+    doc.text(`-${lineDiscountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' });
+    offset += 6;
+  }
+  doc.text('TAXABLE VALUE:', calcX, currentY + offset);
+  doc.text(totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
+  offset += 6;
 
   // Grouped GST rows for PDF (displaying summed CGST, SGST, or IGST without per-rate suffix)
   if (applyGst && taxRows.length > 0) {
@@ -336,7 +356,7 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
   if (packingCharges > 0) { doc.text('PACKING:', calcX, currentY + offset); doc.text(packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (insurance > 0) { doc.text('INSURANCE:', calcX, currentY + offset); doc.text(insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (otherCharges > 0) { doc.text('OTHER CHARGES:', calcX, currentY + offset); doc.text(otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
-  if (discount > 0) { doc.text('DISCOUNT:', calcX, currentY + offset); doc.text(`-${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' }); offset += 6; }
+  if (legacyHeaderDiscount > 0) { doc.text('DISCOUNT:', calcX, currentY + offset); doc.text(`-${legacyHeaderDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (tds > 0) { doc.text('TDS DEDUCTION:', calcX, currentY + offset); doc.text(`-${tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' }); offset += 6; }
   doc.text('ROUND OFF:', calcX, currentY + offset);
   doc.text((roundOff >= 0 ? '+' : '') + roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
@@ -469,6 +489,7 @@ function PODetailModal({ po, onClose }) {
   });
 
   const { taxRows, totalTaxable, applyGst, isInterState } = buildTaxBreakdown(po, taxSettings?.companyGstin);
+  const { grossSubtotal, lineDiscountTotal, legacyHeaderDiscount } = getDocumentDiscountSummary(po);
   const totalTaxAmt = taxRows.reduce((s, r) => s + r.value, 0);
   const freight = Number(po.freight || po.shippingCharges || po.freightCharges || 0);
   const loadingCharges = Number(po.loadingCharges || 0);
@@ -476,9 +497,8 @@ function PODetailModal({ po, onClose }) {
   const packingCharges = Number(po.packingCharges || 0);
   const insurance = Number(po.insurance || 0);
   const otherCharges = Number(po.otherCharges || 0);
-  const discount = Number(po.discount || 0);
   const tds = Number(po.tds || 0);
-  const preRoundTotal = totalTaxable + totalTaxAmt + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount - tds;
+  const preRoundTotal = totalTaxable + totalTaxAmt + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - legacyHeaderDiscount - tds;
   const grandTotal = po.grandTotal ? Number(po.grandTotal) : Math.round(preRoundTotal);
   const roundOff = po.roundOff !== undefined ? Number(po.roundOff) : (grandTotal - preRoundTotal);
   const combinedLoading = loadingCharges + unloadingCharges;
@@ -533,14 +553,15 @@ function PODetailModal({ po, onClose }) {
               <table className="w-full text-xs">
                 <thead className="bg-indigo-900 dark:bg-indigo-950 text-white">
                   <tr>
-                    {['#', 'Description', 'HSN/SAC', 'Qty', 'Unit', 'Rate (₹)', 'GST%', applyGst ? (isInterState ? 'IGST' : 'CGST') : 'CGST', applyGst ? (isInterState ? '—' : 'SGST') : 'SGST', 'Total (₹)'].map(h => (
+                    {['#', 'Description', 'HSN/SAC', 'Qty', 'Unit', 'Rate (₹)', 'Discount', 'Taxable (₹)', 'GST%', applyGst ? (isInterState ? 'IGST' : 'CGST') : 'CGST', applyGst ? (isInterState ? '—' : 'SGST') : 'SGST', 'Total (₹)'].map(h => (
                       <th key={h} className="px-3 py-3 text-left font-bold uppercase tracking-wider text-[10px] text-indigo-100">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                   {po.items.map((item, i) => {
-                    const gst = applyGst ? Number(item.gstAmount || 0) : 0;
+                    const saved = getSavedItemBreakdown(item);
+                    const gst = applyGst ? saved.gstAmount : 0;
                     return (
                       <tr key={i} className={`transition-colors ${i % 2 === 0 ? 'bg-white dark:bg-slate-900/40' : 'bg-slate-50/40 dark:bg-slate-800/10'} hover:bg-slate-100/50 dark:hover:bg-slate-800/30`}>
                         <td className="px-3 py-3 text-slate-400">{i + 1}</td>
@@ -549,6 +570,19 @@ function PODetailModal({ po, onClose }) {
                         <td className="px-3 py-3 font-medium text-slate-650 dark:text-slate-400">{item.quantity}</td>
                         <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{item.unit || 'Nos'}</td>
                         <td className="px-3 py-3 text-slate-700 dark:text-slate-300">₹{Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-3 py-3 font-mono">
+                          {saved.discountAmount > 0 ? (
+                            <span className="text-rose-500 font-semibold">
+                              -₹{saved.discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              <span className="block text-[10px] text-rose-400">({Number(saved.discountPercent.toFixed(2))}%)</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 font-mono font-semibold text-slate-700 dark:text-slate-300">
+                          ₹{saved.taxableBase.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
                         <td className="px-3 py-3 text-slate-700 dark:text-slate-300">{item.gstRate}%</td>
                         <td className="px-3 py-3 text-slate-600 dark:text-slate-400">
                           ₹{applyGst ? (isInterState ? gst : gst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
@@ -557,19 +591,25 @@ function PODetailModal({ po, onClose }) {
                           {applyGst ? (isInterState ? '—' : `₹${(gst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`) : '₹0.00'}
                         </td>
                         <td className="px-3 py-3 font-bold text-slate-900 dark:text-white">
-                          ₹{(Number(item.totalBeforeTax || (item.quantity * item.unitPrice)) + gst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ₹{(saved.taxableBase + gst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
-                  <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                  {lineDiscountTotal > 0 && (
+                    <>
+                      <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Gross Items Subtotal:</td><td className="px-3 py-2 font-bold text-slate-700 dark:text-slate-300">₹{grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                      <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Line Discount (Pre-GST):</td><td className="px-3 py-2 font-bold text-rose-600">-₹{lineDiscountTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                    </>
+                  )}
+                  <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
                   {applyGst && taxRows.length > 0 ? taxRows.map((row, ri) => {
                     const hasBreakdown = row.breakdown && (row.breakdown.items.length > 0 || row.breakdown.charges.length > 0);
                     return (
                       <tr key={ri}>
-                        <td colSpan={9} className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400 text-xs relative z-10 hover:z-30">
+                        <td colSpan={11} className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400 text-xs relative z-10 hover:z-30">
                           <span className="inline-flex items-center gap-1 justify-end w-full relative group hover:z-50">
                             <span>{row.label}</span>
                             {hasBreakdown && (
@@ -631,18 +671,18 @@ function PODetailModal({ po, onClose }) {
                       </tr>
                     );
                   }) : !applyGst && (
-                    <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td><td className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td></tr>
+                    <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td><td className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td></tr>
                   )}
-                  {freight > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {combinedLoading > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading & Unloading:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{combinedLoading.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {packingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {insurance > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {otherCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {discount > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td><td className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {tds > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-amber-500 text-xs">TDS Deduction:</td><td className="px-3 py-2 font-bold text-amber-600">-₹{tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {roundOff !== 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{Math.abs(roundOff).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {freight > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {combinedLoading > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading & Unloading:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{combinedLoading.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {packingCharges > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {insurance > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {otherCharges > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {legacyHeaderDiscount > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Additional Header Discount (Legacy):</td><td className="px-3 py-2 font-bold text-rose-600">-₹{legacyHeaderDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {tds > 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-amber-500 text-xs">TDS Deduction:</td><td className="px-3 py-2 font-bold text-amber-600">-₹{tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {roundOff !== 0 && <tr><td colSpan={11} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{Math.abs(roundOff).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-indigo-50/50 dark:bg-indigo-950/20">
-                    <td colSpan={9} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Grand Total:</td>
+                    <td colSpan={11} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Grand Total:</td>
                     <td className="px-3 py-3.5 font-black text-xl text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
@@ -866,7 +906,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     unloadingCharges: '0',
     packingCharges: '',
     insurance: '',
-    discount: '',
     otherCharges: '',
     tds: '',
     supplierQuoteRef: '',
@@ -943,6 +982,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       } else {
         setPoMode('pr');
       }
+      const legacyExtras = allocateLegacyHeaderDiscount(editPO.items || [], editPO.discount);
       setForm({
         prId: prs.find(p => p.prNo === editPO.prNo)?.id || '',
         prNo: editPO.prNo || '',
@@ -965,14 +1005,13 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         unloadingCharges: '0',
         packingCharges: editPO.packingCharges !== undefined ? String(editPO.packingCharges) : '',
         insurance: editPO.insurance !== undefined ? String(editPO.insurance) : '',
-        discount: editPO.discount !== undefined ? String(editPO.discount) : '',
         otherCharges: editPO.otherCharges !== undefined ? String(editPO.otherCharges) : '',
         tds: editPO.tds !== undefined ? String(editPO.tds) : '',
         supplierQuoteRef: editPO.supplierQuoteRef || '',
         isInterState: editPO.isInterState,
         applyGst: editPO.applyGst !== undefined ? Boolean(editPO.applyGst) : true,
         termsAndConditions: editPO.termsBlock || editPO.termsAndConditions || '',
-        items: editPO.items?.map(i => ({
+        items: editPO.items?.map((i, idx) => ({
           itemCode: i.itemCode,
           category: i.category || 'IT Equipment',
           itemDescription: i.itemDescription || i.description || '',
@@ -980,6 +1019,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           quantity: Number(i.quantity !== undefined ? i.quantity : (i.orderedQty !== undefined ? i.orderedQty : 1)) || 1,
           unit: i.unit || i.uom || 'Nos',
           unitPrice: String(i.unitPrice !== undefined ? i.unitPrice : ''),
+          ...hydrateLineItemDiscount(i, legacyExtras[idx]),
           gstRate: Number(i.gstRate !== undefined ? i.gstRate : 18),
         })) || [],
       });
@@ -1037,13 +1077,15 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       const isInterState = pq.stateCode ? pq.stateCode !== companyStateCode : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== companyStateCode : false);
       setOriginalIsInterState(isInterState);
       
-      const items = (pq.items || []).map(i => ({
+      const legacyExtras = allocateLegacyHeaderDiscount(pq.items || [], pq.discount);
+      const items = (pq.items || []).map((i, idx) => ({
         category: i.category || 'IT Equipment',
         itemDescription: i.itemDescription || i.description || '',
         hsnSac: i.hsnSac || i.hsnCode || CATEGORY_MAP[i.category]?.hsn || '8471',
         quantity: Number(i.quantity) || 1,
         unit: i.unit || i.uom || 'Nos',
         unitPrice: Number(i.unitPrice || 0),
+        ...hydrateLineItemDiscount(i, legacyExtras[idx]),
         gstRate: Number(i.gstRate || 18),
       }));
 
@@ -1066,7 +1108,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         packingCharges: pq.packingCharges !== undefined ? String(pq.packingCharges) : '',
         insurance: pq.insurance !== undefined ? String(pq.insurance) : '',
         otherCharges: pq.otherCharges !== undefined ? String(pq.otherCharges) : '',
-        discount: pq.discount !== undefined ? String(pq.discount) : '',
         tds: pq.tds !== undefined ? String(pq.tds) : '',
         supplierQuoteRef: pq.supplierQuoteRef || '',
         termsAndConditions: pq.termsAndConditions || '',
@@ -1109,16 +1150,21 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     queryFn: () => api.get('/parties/suppliers').then(r => r.data?.data || r.data || []),
   });
 
-  const calcTotals = (item) => {
-    const base = Number(item.quantity) * Number(item.unitPrice || 0);
-    const gst = form.applyGst ? base * (Number(item.gstRate) / 100) : 0;
-    return { totalBeforeTax: base, gstAmount: gst, totalWithGst: base + gst };
-  };
+  const calcTotals = (item) => calcLineItemAmounts(item, {
+    applyGst: form.applyGst,
+    isInterState: form.isInterState,
+  });
 
   const totals = form.items.reduce((acc, item) => {
     const c = calcTotals(item);
-    return { taxable: acc.taxable + c.totalBeforeTax, gst: acc.gst + c.gstAmount, total: acc.total + c.totalWithGst };
-  }, { taxable: 0, gst: 0, total: 0 });
+    return {
+      gross: acc.gross + c.grossAmount,
+      discount: acc.discount + c.discountAmount,
+      taxable: acc.taxable + c.taxableBase,
+      gst: acc.gst + c.gstAmount,
+      total: acc.total + c.totalWithGst,
+    };
+  }, { gross: 0, discount: 0, taxable: 0, gst: 0, total: 0 });
 
   const freight = Number(form.freight || 0);
   const loadingCharges = Number(form.loadingCharges || 0);
@@ -1126,7 +1172,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const packingCharges = Number(form.packingCharges || 0);
   const insurance = Number(form.insurance || 0);
   const otherCharges = Number(form.otherCharges || 0);
-  const discount = Number(form.discount || 0);
   const tds = Number(form.tds || 0);
 
   const calcChargeGst = (val, key) => {
@@ -1148,7 +1193,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     calcChargeGst(otherCharges, 'otherCharges')
   ) : 0;
 
-  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount - tds;
+  // Discount is deducted per line item prior to GST (stored inside totals.discount, already subtracted from totals.taxable)
+  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
 
@@ -1197,7 +1243,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       pqId: poMode === 'direct' ? '' : form.pqId,
       pqNo: poMode === 'direct' ? '' : form.pqNo,
       isDirect: poMode === 'direct',
-      discount: Number(form.discount || 0),
+      discount: totals.discount,
       freight: Number(form.freight || 0),
       loadingCharges: Number(form.loadingCharges || 0),
       unloadingCharges: 0,
@@ -1209,13 +1255,25 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       isInterState: Boolean(form.isInterState),
       applyGst: Boolean(form.applyGst),
       chargeGstStates,
-      items: form.items.map(i => ({ ...i, ...calcTotals(i) }))
+      items: form.items.map(i => {
+        const c = calcTotals(i);
+        return {
+          ...i,
+          discountType: i.discountType || 'amount',
+          discountValue: i.discountValue ?? '',
+          discountAmount: c.discountAmount,
+          discountPercent: c.discountPercent,
+          totalBeforeTax: c.totalBeforeTax,
+          gstAmount: c.gstAmount,
+          totalWithGst: c.totalWithGst,
+        };
+      })
     });
   };
 
   const update = (f, v) => setForm(p => ({ ...p, [f]: v }));
   const updateItem = (idx, f, v) => setForm(p => ({ ...p, items: p.items.map((item, i) => i === idx ? { ...item, [f]: v } : item) }));
-  const addItem = () => setForm(p => ({ ...p, items: [...p.items, { category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18 }] }));
+  const addItem = () => setForm(p => ({ ...p, items: [...p.items, { category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', discountType: 'amount', discountValue: '', gstRate: 18 }] }));
   const removeItem = idx => setForm(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }));
 
   useEffect(() => {
@@ -1258,7 +1316,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         packingCharges: '',
         insurance: '',
         otherCharges: '',
-        discount: '',
         tds: '',
         supplierQuoteRef: '',
         termsAndConditions: '',
@@ -1284,13 +1341,15 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       const isInterState = pq.stateCode ? pq.stateCode !== companyStateCode : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== companyStateCode : false);
       setOriginalIsInterState(isInterState);
       
-      const items = (pq.items || []).map(i => ({
+      const legacyExtras = allocateLegacyHeaderDiscount(pq.items || [], pq.discount);
+      const items = (pq.items || []).map((i, idx) => ({
         category: i.category || 'IT Equipment',
         itemDescription: i.itemDescription || i.description || '',
         hsnSac: i.hsnSac || i.hsnCode || CATEGORY_MAP[i.category]?.hsn || '8471',
         quantity: Number(i.quantity) || 1,
         unit: i.unit || i.uom || 'Nos',
         unitPrice: Number(i.unitPrice || 0),
+        ...hydrateLineItemDiscount(i, legacyExtras[idx]),
         gstRate: Number(i.gstRate || 18),
       }));
 
@@ -1313,7 +1372,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         packingCharges: pq.packingCharges !== undefined ? String(pq.packingCharges) : '',
         insurance: pq.insurance !== undefined ? String(pq.insurance) : '',
         otherCharges: pq.otherCharges !== undefined ? String(pq.otherCharges) : '',
-        discount: pq.discount !== undefined ? String(pq.discount) : '',
         tds: pq.tds !== undefined ? String(pq.tds) : '',
         supplierQuoteRef: pq.supplierQuoteRef || '',
         termsAndConditions: pq.termsAndConditions || '',
@@ -1357,6 +1415,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           quantity: Number(i.quantity) || 1,
           unit: i.uom || i.unit || 'Nos',
           unitPrice: Number(i.unitPrice || i.estimatedUnitCost || 0) || '',
+          discountType: 'amount',
+          discountValue: '',
           gstRate: Number(i.gstRate || 18),
         }));
       } else {
@@ -1368,6 +1428,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           quantity: Number(pr.quantity) || 1,
           unit: 'Nos',
           unitPrice: Number(pr.estimatedUnitCost) || '',
+          discountType: 'amount',
+          discountValue: '',
           gstRate: catMap.gst || 18,
         }];
       }
@@ -1421,7 +1483,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   if (form.applyGst) {
     form.items.forEach(item => {
       const rate = Number(item.gstRate || 0);
-      const base = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+      const { taxableBase: base } = calcTotals(item);
       if (base <= 0) return;
       const gst = base * (rate / 100);
       if (!taxBreakdown[rate]) {
@@ -1498,6 +1560,10 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   }
 
   const summaryItems = [
+    ...(totals.discount > 0 ? [
+      { label: 'Gross Items Subtotal', value: totals.gross },
+      { label: 'Line Discount (Pre-GST)', value: -totals.discount },
+    ] : []),
     { label: 'Taxable Value', value: totals.taxable },
     ...taxRows,
     { label: 'Freight', value: freight },
@@ -1505,7 +1571,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     { label: 'Packing Charges', value: packingCharges },
     { label: 'Insurance', value: insurance },
     { label: 'Other Charges', value: otherCharges },
-    { label: 'Discount', value: -discount },
     { label: 'TDS Deduction', value: -tds },
     { label: 'Round Off', value: roundOff },
   ];
@@ -1805,10 +1870,10 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           ) : (
             <div className="space-y-3">
               {form.items.map((item, idx) => {
-                const { totalWithGst } = calcTotals(item);
+                const { discountType, discountValue, discountAmount, taxableBase, gstAmount, totalWithGst } = calcTotals(item);
                 return (
                   <div key={idx} className="bg-slate-50/60 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-200/60 dark:border-slate-800/60">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                       <div className="space-y-1 col-span-2">
                         <Label className="text-xs">Description <span className="text-rose-500">*</span></Label>
                         <Input value={item.itemDescription} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'itemDescription', e.target.value)} className="h-9 rounded-lg text-sm" />
@@ -1845,6 +1910,17 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                         <Input type="number" min="0" step="0.01" value={item.unitPrice} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'unitPrice', e.target.value)} className="h-9 rounded-lg text-sm" />
                       </div>
                       <div className="space-y-1">
+                        <Label className="text-xs text-rose-600 dark:text-rose-400">Discount (Pre-GST)</Label>
+                        <LineDiscountInput
+                          discountType={discountType}
+                          discountValue={item.discountValue !== undefined ? item.discountValue : (discountValue ? String(discountValue) : '')}
+                          discountAmount={discountAmount}
+                          disabled={isFinanceLocked}
+                          onTypeChange={t => updateItem(idx, 'discountType', t)}
+                          onValueChange={v => updateItem(idx, 'discountValue', v)}
+                        />
+                      </div>
+                      <div className="space-y-1">
                         <Label className="text-xs">GST Rate</Label>
                         <div className="relative">
                           <select value={item.gstRate} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
@@ -1858,6 +1934,10 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                         <div className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center text-sm font-bold text-indigo-600 dark:text-indigo-400">
                           ₹{totalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                         </div>
+                        <p className="text-[10px] text-slate-500 tabular-nums">
+                          Base: ₹{taxableBase.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          {form.applyGst ? ` • GST: ₹${gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : ''}
+                        </p>
                       </div>
                     </div>
                     {!isFinanceLocked && form.items.length > 1 && (
@@ -1906,11 +1986,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3">
-                  <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount (₹)</Label>
-                  <Input type="number" min="0" step="0.01" value={form.discount} disabled={isFinanceLocked} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
-                </div>
+              <div className="grid grid-cols-1 gap-3">
                 <div className="bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-amber-900/30 rounded-xl p-3">
                   <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400">TDS Deduction (₹)</Label>
                   <Input type="number" min="0" step="0.01" value={form.tds} disabled={isFinanceLocked} onChange={e => update('tds', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
@@ -1943,7 +2019,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                 const formatted = Math.abs(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 let textClass = 'text-slate-800 dark:text-slate-200';
                 let prefix = '₹';
-                if (label === 'Discount' && value < 0) { textClass = 'text-rose-500 font-bold'; prefix = '-₹'; }
+                if (label.includes('Discount') && value < 0) { textClass = 'text-rose-500 font-bold'; prefix = '-₹'; }
                 else if (label === 'TDS Deduction' && value < 0) { textClass = 'text-amber-500 font-bold'; prefix = '-₹'; }
                 else if (label === 'Round Off') { if (value > 0) prefix = '+₹'; else if (value < 0) prefix = '-₹'; }
                 const hasBreakdown = breakdown && (breakdown.items.length > 0 || breakdown.charges.length > 0);

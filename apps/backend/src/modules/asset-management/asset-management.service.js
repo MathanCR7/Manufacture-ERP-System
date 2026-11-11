@@ -44,6 +44,101 @@ const CATEGORY_MAP = {
   'Intangible Assets': { hsn: '99730000', gst: 18, life: 3, rate: 31.67 }
 };
 
+/**
+ * Computes line-item pre-GST discount, discounted taxable base amount, GST split, and line total.
+ * Ensures GST is never charged on the discount amount.
+ */
+function calculateLinePricing(item = {}, { quantityOverride = null, applyGst = true, isInterState = false } = {}) {
+  const quantity = quantityOverride !== null
+    ? Math.max(0, Number(quantityOverride))
+    : Math.max(0, Number(item.quantity ?? item.orderedQty ?? 1));
+  const unitPrice = Math.max(0, Number(item.unitPrice || 0));
+  const grossAmount = quantity * unitPrice;
+
+  let discountAmount = 0;
+  let discountPercent = 0;
+
+  if (item.discountType === 'amount' && (item.discountValue !== undefined || item.discountAmount !== undefined)) {
+    const flatVal = Math.max(0, Number(item.discountValue ?? item.discountAmount ?? 0));
+    discountAmount = Math.min(grossAmount, flatVal);
+    discountPercent = grossAmount > 0 ? (discountAmount / grossAmount) * 100 : 0;
+  } else if (item.discountType === 'percent' && item.discountValue !== undefined) {
+    const pct = Math.min(100, Math.max(0, Number(item.discountValue || 0)));
+    discountAmount = grossAmount * (pct / 100);
+    discountPercent = grossAmount > 0 ? pct : 0;
+  } else if (item.discountAmount !== undefined && item.discountAmount !== null && item.discountAmount !== '' && Number(item.discountAmount) > 0) {
+    discountAmount = Math.min(grossAmount, Math.max(0, Number(item.discountAmount)));
+    discountPercent = grossAmount > 0 ? (discountAmount / grossAmount) * 100 : 0;
+  } else if (item.discountPercent !== undefined && item.discountPercent !== null && Number(item.discountPercent) > 0) {
+    const pct = Math.min(100, Math.max(0, Number(item.discountPercent || 0)));
+    discountAmount = grossAmount * (pct / 100);
+    discountPercent = grossAmount > 0 ? pct : 0;
+  } else if (
+    (item.taxableValue !== undefined || item.baseAmount !== undefined || item.totalBeforeTax !== undefined) &&
+    grossAmount > 0
+  ) {
+    const explicitBase = item.taxableValue ?? item.baseAmount ?? item.totalBeforeTax;
+    if (explicitBase !== null && explicitBase !== '') {
+      const clampedBase = Math.min(grossAmount, Math.max(0, Number(explicitBase)));
+      discountAmount = grossAmount - clampedBase;
+      discountPercent = (discountAmount / grossAmount) * 100;
+    }
+  }
+
+  const baseAmount = Math.max(0, grossAmount - discountAmount);
+  const discountedPrice = quantity > 0 ? baseAmount / quantity : 0;
+  const gstRate = Math.max(0, Number(item.gstRate ?? 18));
+  const gstAmount = applyGst ? baseAmount * (gstRate / 100) : 0;
+  const cgst = applyGst && !isInterState ? gstAmount / 2 : 0;
+  const sgst = applyGst && !isInterState ? gstAmount / 2 : 0;
+  const igst = applyGst && isInterState ? gstAmount : 0;
+
+  return {
+    quantity,
+    unitPrice,
+    grossAmount,
+    discountAmount,
+    discountPercent,
+    discountedPrice,
+    baseAmount,
+    gstRate,
+    gstAmount,
+    cgst,
+    sgst,
+    igst,
+    lineTotal: baseAmount + gstAmount,
+  };
+}
+
+/**
+ * Computes total GST across ancillary charges based on per-charge GST configuration.
+ */
+function calculateChargesTaxTotal(charges = {}, chargeGstStates = {}, isInterState = false) {
+  const getState = (key) => {
+    if (key === 'freight' || key === 'shippingCharges') {
+      return chargeGstStates.freight || chargeGstStates.shippingCharges;
+    }
+    return chargeGstStates[key];
+  };
+  const calc = (val, key) => {
+    const state = getState(key);
+    const numVal = Number(val || 0);
+    if (!state || numVal <= 0) return 0;
+    const isApplied = state === true || state === 'true' || (typeof state === 'object' && (state.applied === true || state.applied === 'true'));
+    if (!isApplied) return 0;
+    const rate = isInterState ? 18 : Number(state?.rate ?? 18);
+    return numVal * (rate / 100);
+  };
+  return (
+    calc(charges.freight ?? charges.shippingCharges, 'freight') +
+    calc(charges.loadingCharges, 'loadingCharges') +
+    calc(charges.unloadingCharges, 'unloadingCharges') +
+    calc(charges.packingCharges, 'packingCharges') +
+    calc(charges.insurance, 'insurance') +
+    calc(charges.otherCharges, 'otherCharges')
+  );
+}
+
 // Indian number formatting to words helper
 function numberToWordsIndian(num) {
   if (num === 0) return 'Zero Rupees';
@@ -683,7 +778,6 @@ class AssetManagementService {
     const pqNo = await this.getNextDocNumber('PQ');
 
     let subtotal = 0;
-    let taxAmount = 0;
     let totalCgst = 0;
     let totalSgst = 0;
     let totalIgst = 0;
@@ -694,38 +788,24 @@ class AssetManagementService {
     const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
     const stateCode = data.stateCode || (data.vendorGstin && data.vendorGstin.trim().length >= 2 ? data.vendorGstin.trim().substring(0, 2) : companyStateCode);
     const isIntrastate = stateCode === companyStateCode;
+    const isInterState = !isIntrastate;
+    const applyGst = data.applyGst !== false;
 
     const lineItemsData = [];
     const itemsList = data.items || [];
 
     for (const item of itemsList) {
-      const quantity = parseInt(item.quantity, 10);
-      const unitPrice = Number(item.unitPrice);
-      const discountPercent = Number(item.discountPercent || 0);
-      
-      const discountedPrice = unitPrice * (1 - discountPercent / 100);
-      const baseAmount = quantity * discountedPrice;
-      const gstRate = Number(item.gstRate || 18);
-      
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
+      const priced = calculateLinePricing(item, {
+        quantityOverride: parseInt(item.quantity, 10),
+        applyGst,
+        isInterState,
+      });
 
-      if (isIntrastate) {
-        cgst = baseAmount * (gstRate / 2 / 100);
-        sgst = baseAmount * (gstRate / 2 / 100);
-      } else {
-        igst = baseAmount * (gstRate / 100);
-      }
-
-      const lineTotal = baseAmount + cgst + sgst + igst;
-
-      subtotal += quantity * unitPrice;
-      totalDiscount += quantity * unitPrice * (discountPercent / 100);
-      taxAmount += cgst + sgst + igst;
-      totalCgst += cgst;
-      totalSgst += sgst;
-      totalIgst += igst;
+      subtotal += priced.baseAmount;
+      totalDiscount += priced.discountAmount;
+      totalCgst += priced.cgst;
+      totalSgst += priced.sgst;
+      totalIgst += priced.igst;
 
       lineItemsData.push({
         lineNo: item.lineNo || 1,
@@ -734,16 +814,16 @@ class AssetManagementService {
         category: item.category || 'IT Equipment',
         hsnCode: item.hsnCode || item.hsnSac || '84713010',
         uom: item.uom || item.unit || 'Nos',
-        quantity,
-        unitPrice,
-        discountPercent,
-        discountedPrice,
-        baseAmount,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal,
+        quantity: priced.quantity,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountedPrice: priced.discountedPrice,
+        baseAmount: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal,
         specMatch: item.specMatch || 'Yes',
         remarks: item.remarks || ''
       });
@@ -755,31 +835,15 @@ class AssetManagementService {
     const packingCharges = Number(data.packingCharges || 0);
     const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
-    const discountVal = Number(data.discount || 0) || totalDiscount;
-    const applyGst = data.applyGst !== false;
-    const isInterState = !isIntrastate;
+    // Line-item discounts are already deducted from each item's baseAmount (subtotal) before GST.
+    const discountVal = totalDiscount;
 
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      if (!isIntrastate) {
-        return Number(val) * 0.18; // Force 18% for IGST
-      }
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(shippingCharges, 'freight');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { shippingCharges, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = totalCgst;
     let finalSgst = totalSgst;
@@ -797,7 +861,7 @@ class AssetManagementService {
     const finalTaxAmount = finalCgst + finalSgst + finalIgst;
     const tds = Number(data.tds || 0);
     const supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
-    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
+    const preRoundTotal = subtotal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -900,7 +964,6 @@ class AssetManagementService {
     }
 
     let subtotal = 0;
-    let taxAmount = 0;
     let totalCgst = 0;
     let totalSgst = 0;
     let totalIgst = 0;
@@ -911,38 +974,24 @@ class AssetManagementService {
     const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
     const stateCode = data.stateCode || (data.vendorGstin && data.vendorGstin.trim().length >= 2 ? data.vendorGstin.trim().substring(0, 2) : companyStateCode);
     const isIntrastate = stateCode === companyStateCode;
+    const isInterState = !isIntrastate;
+    const applyGst = data.applyGst !== false;
 
     const lineItemsData = [];
     const itemsList = data.items || [];
 
     for (const item of itemsList) {
-      const quantity = parseInt(item.quantity, 10);
-      const unitPrice = Number(item.unitPrice);
-      const discountPercent = Number(item.discountPercent || 0);
-      
-      const discountedPrice = unitPrice * (1 - discountPercent / 100);
-      const baseAmount = quantity * discountedPrice;
-      const gstRate = Number(item.gstRate || 18);
-      
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
+      const priced = calculateLinePricing(item, {
+        quantityOverride: parseInt(item.quantity, 10),
+        applyGst,
+        isInterState,
+      });
 
-      if (isIntrastate) {
-        cgst = baseAmount * (gstRate / 2 / 100);
-        sgst = baseAmount * (gstRate / 2 / 100);
-      } else {
-        igst = baseAmount * (gstRate / 100);
-      }
-
-      const lineTotal = baseAmount + cgst + sgst + igst;
-
-      subtotal += quantity * unitPrice;
-      totalDiscount += quantity * unitPrice * (discountPercent / 100);
-      taxAmount += cgst + sgst + igst;
-      totalCgst += cgst;
-      totalSgst += sgst;
-      totalIgst += igst;
+      subtotal += priced.baseAmount;
+      totalDiscount += priced.discountAmount;
+      totalCgst += priced.cgst;
+      totalSgst += priced.sgst;
+      totalIgst += priced.igst;
 
       lineItemsData.push({
         lineNo: item.lineNo || 1,
@@ -951,16 +1000,16 @@ class AssetManagementService {
         category: item.category || 'IT Equipment',
         hsnCode: item.hsnCode || item.hsnSac || '84713010',
         uom: item.uom || item.unit || 'Nos',
-        quantity,
-        unitPrice,
-        discountPercent,
-        discountedPrice,
-        baseAmount,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal,
+        quantity: priced.quantity,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountedPrice: priced.discountedPrice,
+        baseAmount: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal,
         specMatch: item.specMatch || 'Yes',
         remarks: item.remarks || ''
       });
@@ -972,31 +1021,15 @@ class AssetManagementService {
     const packingCharges = Number(data.packingCharges || 0);
     const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
-    const discountVal = Number(data.discount || 0) || totalDiscount;
-    const applyGst = data.applyGst !== false;
-    const isInterState = !isIntrastate;
+    // Line-item discounts are already deducted from each item's baseAmount (subtotal) before GST.
+    const discountVal = totalDiscount;
 
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      if (!isIntrastate) {
-        return Number(val) * 0.18; // Force 18% for IGST
-      }
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(shippingCharges, 'freight');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { shippingCharges, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = totalCgst;
     let finalSgst = totalSgst;
@@ -1014,7 +1047,7 @@ class AssetManagementService {
     const finalTaxAmount = finalCgst + finalSgst + finalIgst;
     const tds = Number(data.tds || 0);
     const supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
-    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
+    const preRoundTotal = subtotal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -1258,7 +1291,6 @@ class AssetManagementService {
 
     // Recalculate totals
     let subtotal = 0;
-    let taxAmount = 0;
     let totalCgst = 0;
     let totalSgst = 0;
     let totalIgst = 0;
@@ -1269,6 +1301,8 @@ class AssetManagementService {
     const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
     const stateCode = data.stateCode || pq.stateCode || companyStateCode;
     const isIntrastate = stateCode === companyStateCode;
+    const isInterState = !isIntrastate;
+    const applyGst = data.applyGst !== false;
 
     const updatedItems = [];
 
@@ -1276,45 +1310,29 @@ class AssetManagementService {
       const dbItem = pq.items.find(i => i.id === item.id);
       if (!dbItem) continue;
 
-      const quantity = parseInt(dbItem.quantity, 10) || 1;
-      const unitPrice = Number(item.unitPrice) || 0;
-      const discountPercent = Number(item.discountPercent || 0);
+      const priced = calculateLinePricing(item, {
+        quantityOverride: parseInt(dbItem.quantity, 10) || 1,
+        applyGst,
+        isInterState,
+      });
 
-      const discountedPrice = unitPrice * (1 - discountPercent / 100);
-      const baseAmount = quantity * discountedPrice;
-      const gstRate = Number(item.gstRate || 18);
-
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
-
-      if (isIntrastate) {
-        cgst = baseAmount * (gstRate / 2 / 100);
-        sgst = baseAmount * (gstRate / 2 / 100);
-      } else {
-        igst = baseAmount * (gstRate / 100);
-      }
-
-      const lineTotal = baseAmount + cgst + sgst + igst;
-
-      subtotal += quantity * unitPrice;
-      totalDiscount += quantity * unitPrice * (discountPercent / 100);
-      taxAmount += cgst + sgst + igst;
-      totalCgst += cgst;
-      totalSgst += sgst;
-      totalIgst += igst;
+      subtotal += priced.baseAmount;
+      totalDiscount += priced.discountAmount;
+      totalCgst += priced.cgst;
+      totalSgst += priced.sgst;
+      totalIgst += priced.igst;
 
       updatedItems.push({
         id: dbItem.id,
-        unitPrice,
-        discountPercent,
-        discountedPrice,
-        baseAmount,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountedPrice: priced.discountedPrice,
+        baseAmount: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal,
         specMatch: item.specMatch || 'Yes',
         remarks: item.remarks || ''
       });
@@ -1326,31 +1344,15 @@ class AssetManagementService {
     const packingCharges = Number(data.packingCharges || 0);
     const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
-    const discountVal = Number(data.discount || 0) || totalDiscount;
-    const applyGst = data.applyGst !== false;
-    const isInterState = !isIntrastate;
+    // Line-item discounts are already deducted from each item's baseAmount (subtotal) before GST.
+    const discountVal = totalDiscount;
 
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      if (isInterState) {
-        return Number(val) * 0.18; // Force 18% for IGST
-      }
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(shippingCharges, 'shippingCharges');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { shippingCharges, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = totalCgst;
     let finalSgst = totalSgst;
@@ -1368,7 +1370,7 @@ class AssetManagementService {
     const finalTaxAmount = finalCgst + finalSgst + finalIgst;
     const tds = Number(data.tds || 0);
     const supplierQuoteRef = data.supplierQuoteRef || '';
-    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
+    const preRoundTotal = subtotal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -1728,25 +1730,11 @@ class AssetManagementService {
 
     const poItems = (data.items || []).map((item, idx) => {
       const orderedQty = parseInt(item.quantity || item.orderedQty || 1, 10);
-      const unitPrice = Number(item.unitPrice || 0);
-      const discountPercent = Number(item.discountPercent || 0);
-      const baseAmount = Number(item.totalBeforeTax || item.baseAmount || (orderedQty * unitPrice * (1 - discountPercent/100)));
-      const gstRate = Number(item.gstRate || 18);
-      const gstAmount = applyGst ? Number(item.gstAmount || (baseAmount * gstRate / 100)) : 0;
-      const lineTotal = Number(item.totalWithGst || item.lineTotal || (baseAmount + gstAmount));
-
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
-
-      if (applyGst) {
-        if (isInterState) {
-          igst = gstAmount;
-        } else {
-          cgst = gstAmount / 2;
-          sgst = gstAmount / 2;
-        }
-      }
+      const priced = calculateLinePricing(item, {
+        quantityOverride: orderedQty,
+        applyGst,
+        isInterState,
+      });
 
       return {
         lineNo: item.lineNo || (idx + 1),
@@ -1754,17 +1742,18 @@ class AssetManagementService {
         description: item.itemDescription || item.description || '',
         hsnCode: item.hsnCode || item.hsnSac || '84713010',
         uom: item.uom || item.unit || 'Nos',
-        orderedQty,
+        orderedQty: priced.quantity,
         receivedQty: 0,
-        pendingQty: orderedQty,
-        unitPrice,
-        discountPercent,
-        baseAmount,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal,
+        pendingQty: priced.quantity,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountAmount: priced.discountAmount,
+        baseAmount: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal,
         targetDeliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
         remarks: item.remarks || ''
       };
@@ -1774,6 +1763,9 @@ class AssetManagementService {
     const cgstTotal = poItems.reduce((s, i) => s + i.cgst, 0);
     const sgstTotal = poItems.reduce((s, i) => s + i.sgst, 0);
     const igstTotal = poItems.reduce((s, i) => s + i.igst, 0);
+    // Sum of pre-GST line-item discounts for storage/audit; already deducted from subtotal.
+    const discountTotal = poItems.reduce((s, i) => s + i.discountAmount, 0);
+    const poItemsForDb = poItems.map(({ discountAmount, ...dbFields }) => dbFields);
 
     const freight = Number(data.freight || 0);
     const loadingCharges = Number(data.loadingCharges || 0);
@@ -1781,30 +1773,14 @@ class AssetManagementService {
     const packingCharges = Number(data.packingCharges || 0);
     const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
-    const discountTotal = Number(data.discount || 0);
 
     // Dynamic tax calculation on charges based on chargeGstStates
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      if (isInterState) {
-        return Number(val) * 0.18; // Force 18% for IGST
-      }
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(freight, 'freight');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { freight, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = cgstTotal;
     let finalSgst = sgstTotal;
@@ -1820,7 +1796,7 @@ class AssetManagementService {
     }
 
     const taxAmount = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal - tds;
+    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -1916,7 +1892,7 @@ class AssetManagementService {
           bankUpi: data.bankUpi || null,
           createdById: userId,
           items: {
-            create: poItems
+            create: poItemsForDb
           }
         },
         include: { items: true }
@@ -2315,26 +2291,11 @@ class AssetManagementService {
 
     const invoiceItems = (data.items || []).map((item, idx) => {
       const quantity = parseInt(item.quantity, 10);
-      const unitPrice = Number(item.unitPrice);
-      const discountPercent = Number(item.discountPercent || 0);
-      const taxableValue = Number(item.taxableValue || item.totalBeforeTax || (quantity * unitPrice));
-      const gstRate = Number(item.gstRate || 18);
-      
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
-
-      if (applyGst) {
-        const gstAmount = taxableValue * (gstRate / 100);
-        if (isInterState) {
-          igst = gstAmount;
-        } else {
-          cgst = gstAmount / 2;
-          sgst = gstAmount / 2;
-        }
-      }
-
-      const lineTotal = taxableValue + cgst + sgst + igst;
+      const priced = calculateLinePricing(item, {
+        quantityOverride: quantity,
+        applyGst,
+        isInterState,
+      });
 
       return {
         lineNo: item.lineNo || (idx + 1),
@@ -2342,15 +2303,16 @@ class AssetManagementService {
         description: item.description || item.itemDescription || '',
         hsnCode: item.hsnCode || item.hsnSac || '84713010',
         uom: item.uom || item.unit || 'Nos',
-        quantity,
-        unitPrice,
-        discountPercent,
-        taxableValue,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal
+        quantity: priced.quantity,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountAmount: priced.discountAmount,
+        taxableValue: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal
       };
     });
 
@@ -2372,7 +2334,7 @@ class AssetManagementService {
 
         const poPrice = Number(poLine.unitPrice);
         const invPrice = Number(item.unitPrice);
-        const priceVariance = Math.abs(poPrice - invPrice) / poPrice;
+        const priceVariance = poPrice > 0 ? Math.abs(poPrice - invPrice) / poPrice : (invPrice > 0 ? 1 : 0);
         if (priceVariance > 0.02) {
           throw new Error(`3-Way Match Exception: Price variance exceeds 2% (PO Price: ₹${poPrice.toLocaleString('en-IN')}, Invoice Price: ₹${invPrice.toLocaleString('en-IN')}) on "${item.description}".`);
         }
@@ -2387,8 +2349,10 @@ class AssetManagementService {
     const totalCgst = invoiceItems.reduce((s, i) => s + i.cgst, 0);
     const totalSgst = invoiceItems.reduce((s, i) => s + i.sgst, 0);
     const totalIgst = invoiceItems.reduce((s, i) => s + i.igst, 0);
+    // Sum of pre-GST line-item discounts for storage/audit; already deducted from taxableAmount.
+    const discount = invoiceItems.reduce((s, i) => s + i.discountAmount, 0);
+    const invoiceItemsForDb = invoiceItems.map(({ discountAmount, ...dbFields }) => dbFields);
 
-    const discount = Number(data.discount || 0);
     const freight = Number(data.freight || 0);
     const loadingCharges = Number(data.loadingCharges || 0);
     const unloadingCharges = Number(data.unloadingCharges || 0);
@@ -2397,23 +2361,11 @@ class AssetManagementService {
     const otherCharges = Number(data.otherCharges || 0);
 
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(freight, 'freight');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { freight, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = totalCgst;
     let finalSgst = totalSgst;
@@ -2429,7 +2381,7 @@ class AssetManagementService {
     }
 
     const totalTax = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = taxableAmount + totalTax + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+    const preRoundTotal = taxableAmount + totalTax + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -2503,7 +2455,7 @@ class AssetManagementService {
         signatoryBlock: 'For Company Authorized Signatory',
         status: 'Posted',
         items: {
-          create: invoiceItems
+          create: invoiceItemsForDb
         }
       },
       include: { items: true }
@@ -3299,25 +3251,11 @@ class AssetManagementService {
 
     const poItems = (data.items || []).map((item, idx) => {
       const orderedQty = parseInt(item.quantity || item.orderedQty || 1, 10);
-      const unitPrice = Number(item.unitPrice || 0);
-      const discountPercent = Number(item.discountPercent || 0);
-      const baseAmount = orderedQty * unitPrice * (1 - discountPercent/100);
-      const gstRate = Number(item.gstRate || 18);
-      const gstAmount = applyGst ? (baseAmount * gstRate / 100) : 0;
-      const lineTotal = baseAmount + gstAmount;
-
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
-
-      if (applyGst) {
-        if (isInterState) {
-          igst = gstAmount;
-        } else {
-          cgst = gstAmount / 2;
-          sgst = gstAmount / 2;
-        }
-      }
+      const priced = calculateLinePricing(item, {
+        quantityOverride: orderedQty,
+        applyGst,
+        isInterState,
+      });
 
       return {
         lineNo: item.lineNo || (idx + 1),
@@ -3325,17 +3263,18 @@ class AssetManagementService {
         description: item.itemDescription || item.description || '',
         hsnCode: item.hsnCode || item.hsnSac || '84713010',
         uom: item.uom || item.unit || 'Nos',
-        orderedQty,
+        orderedQty: priced.quantity,
         receivedQty: 0,
-        pendingQty: orderedQty,
-        unitPrice,
-        discountPercent,
-        baseAmount,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal,
+        pendingQty: priced.quantity,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountAmount: priced.discountAmount,
+        baseAmount: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal,
         targetDeliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
         remarks: item.remarks || ''
       };
@@ -3358,7 +3297,8 @@ class AssetManagementService {
         const newItem = newMap.get(extItem.itemCode);
         const qtyChanged = extItem.orderedQty !== newItem.orderedQty;
         const priceChanged = Number(extItem.unitPrice) !== Number(newItem.unitPrice);
-        if (qtyChanged || priceChanged) {
+        const baseChanged = Math.abs(Number(extItem.baseAmount) - Number(newItem.baseAmount)) > 0.01;
+        if (qtyChanged || priceChanged || baseChanged) {
           updatedItems.push(newItem);
         }
       }
@@ -3374,6 +3314,9 @@ class AssetManagementService {
     const cgstTotal = poItems.reduce((s, i) => s + i.cgst, 0);
     const sgstTotal = poItems.reduce((s, i) => s + i.sgst, 0);
     const igstTotal = poItems.reduce((s, i) => s + i.igst, 0);
+    // Sum of pre-GST line-item discounts for storage/audit; already deducted from subtotal.
+    const discountTotal = poItems.reduce((s, i) => s + i.discountAmount, 0);
+    const poItemsForDb = poItems.map(({ discountAmount, ...dbFields }) => dbFields);
 
     const freight = Number(data.freight || 0);
     const loadingCharges = Number(data.loadingCharges || 0);
@@ -3381,29 +3324,13 @@ class AssetManagementService {
     const packingCharges = Number(data.packingCharges || 0);
     const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
-    const discountTotal = Number(data.discount || 0);
 
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      if (isInterState) {
-        return Number(val) * 0.18; // Force 18% for IGST
-      }
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(freight, 'freight');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { freight, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = cgstTotal;
     let finalSgst = sgstTotal;
@@ -3421,7 +3348,7 @@ class AssetManagementService {
     const taxAmount = finalCgst + finalSgst + finalIgst;
     const tds = Number(data.tds || 0);
     const supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
-    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal - tds;
+    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -3489,7 +3416,7 @@ class AssetManagementService {
           supplierQuoteRef,
           termsBlock: data.termsAndConditions || data.termsBlock || existing.termsBlock,
           items: {
-            create: poItems
+            create: poItemsForDb
           }
         },
         include: { items: true }
@@ -3901,24 +3828,11 @@ class AssetManagementService {
 
     const invoiceItems = (data.items || []).map((item, idx) => {
       const quantity = parseInt(item.quantity, 10);
-      const unitPrice = Number(item.unitPrice);
-      const discountPercent = Number(item.discountPercent || 0);
-      const taxableValue = quantity * unitPrice * (1 - discountPercent / 100);
-      const gstRate = Number(item.gstRate || 18);
-      
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
-
-      if (applyGst) {
-        const gstAmount = taxableValue * (gstRate / 100);
-        if (isInterState) {
-          igst = gstAmount;
-        } else {
-          cgst = gstAmount / 2;
-          sgst = gstAmount / 2;
-        }
-      }
+      const priced = calculateLinePricing(item, {
+        quantityOverride: quantity,
+        applyGst,
+        isInterState,
+      });
 
       return {
         lineNo: item.lineNo || (idx + 1),
@@ -3926,15 +3840,16 @@ class AssetManagementService {
         description: item.description || item.itemDescription || '',
         hsnCode: item.hsnCode || item.hsnSac || '84713010',
         uom: item.uom || item.unit || 'Nos',
-        quantity,
-        unitPrice,
-        discountPercent,
-        taxableValue,
-        gstRate,
-        cgst,
-        sgst,
-        igst,
-        lineTotal: taxableValue + cgst + sgst + igst
+        quantity: priced.quantity,
+        unitPrice: priced.unitPrice,
+        discountPercent: priced.discountPercent,
+        discountAmount: priced.discountAmount,
+        taxableValue: priced.baseAmount,
+        gstRate: priced.gstRate,
+        cgst: priced.cgst,
+        sgst: priced.sgst,
+        igst: priced.igst,
+        lineTotal: priced.lineTotal
       };
     });
 
@@ -3942,8 +3857,10 @@ class AssetManagementService {
     const totalCgst = invoiceItems.reduce((s, i) => s + i.cgst, 0);
     const totalSgst = invoiceItems.reduce((s, i) => s + i.sgst, 0);
     const totalIgst = invoiceItems.reduce((s, i) => s + i.igst, 0);
+    // Sum of pre-GST line-item discounts for storage/audit; already deducted from taxableAmount.
+    const discount = invoiceItems.reduce((s, i) => s + i.discountAmount, 0);
+    const invoiceItemsForDb = invoiceItems.map(({ discountAmount, ...dbFields }) => dbFields);
 
-    const discount = Number(data.discount || 0);
     const freight = Number(data.freight || 0);
     const loadingCharges = Number(data.loadingCharges || 0);
     const unloadingCharges = Number(data.unloadingCharges || 0);
@@ -3952,23 +3869,11 @@ class AssetManagementService {
     const otherCharges = Number(data.otherCharges || 0);
 
     const chargeGstStates = data.chargeGstStates || {};
-    const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
-      if (!state) return 0;
-      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
-      if (!isApplied) return 0;
-      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
-      return Number(val) * (customRate / 100);
-    };
-
-    const freightGst = calculateChargeGst(freight, 'freight');
-    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
-    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
-    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
-    const insuranceGst = calculateChargeGst(insurance, 'insurance');
-    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
-
-    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+    const totalChargesGst = calculateChargesTaxTotal(
+      { freight, loadingCharges, unloadingCharges, packingCharges, insurance, otherCharges },
+      chargeGstStates,
+      isInterState
+    );
 
     let finalCgst = totalCgst;
     let finalSgst = totalSgst;
@@ -3984,7 +3889,7 @@ class AssetManagementService {
     }
 
     const totalTax = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = taxableAmount + totalTax + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+    const preRoundTotal = taxableAmount + totalTax + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -4042,7 +3947,7 @@ class AssetManagementService {
         bankUpi: data.bankUpi !== undefined ? data.bankUpi : existing.bankUpi,
         narration: data.narration || existing.narration,
         items: {
-          create: invoiceItems
+          create: invoiceItemsForDb
         }
       },
       include: { items: true }
@@ -4095,22 +4000,30 @@ function mapPOToFrontend(po) {
     paymentMode: po.paymentMode || '',
     paymentTerms: po.paymentTerms || '',
     termsAndConditions: po.termsBlock,
-    items: po.items?.map(item => ({
-      ...item,
-      itemDescription: item.description,
-      hsnSac: item.hsnCode,
-      unit: item.uom,
-      quantity: Number(item.orderedQty),
-      unitPrice: Number(item.unitPrice),
-      gstRate: Number(item.gstRate || 18),        // explicit number — avoids Prisma Decimal serialization issues
-      totalBeforeTax: Number(item.baseAmount),
-      gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
-      totalWithGst: Number(item.lineTotal),
-      // individual tax components for per-rate breakdown
-      cgst: Number(item.cgst || 0),
-      sgst: Number(item.sgst || 0),
-      igst: Number(item.igst || 0),
-    }))
+    items: po.items?.map(item => {
+      const quantity = Number(item.orderedQty);
+      const unitPrice = Number(item.unitPrice);
+      const grossAmount = quantity * unitPrice;
+      const baseAmount = Number(item.baseAmount);
+      return {
+        ...item,
+        itemDescription: item.description,
+        hsnSac: item.hsnCode,
+        unit: item.uom,
+        quantity,
+        unitPrice,
+        discountPercent: Number(item.discountPercent || 0),
+        discountAmount: Math.max(0, grossAmount - baseAmount),
+        gstRate: Number(item.gstRate || 18),        // explicit number — avoids Prisma Decimal serialization issues
+        totalBeforeTax: baseAmount,
+        gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
+        totalWithGst: Number(item.lineTotal),
+        // individual tax components for per-rate breakdown
+        cgst: Number(item.cgst || 0),
+        sgst: Number(item.sgst || 0),
+        igst: Number(item.igst || 0),
+      };
+    })
   };
 }
 
@@ -4136,15 +4049,26 @@ function mapPQToFrontend(pq) {
     paymentMode: pq.paymentMode || '',
     paymentTerms: pq.paymentTerms || '',
     termsAndConditions: pq.termsBlock || '',
-    items: pq.items?.map(item => ({
-      ...item,
-      itemDescription: item.description,
-      hsnSac: item.hsnCode,
-      unit: item.uom,
-      totalBeforeTax: Number(item.baseAmount),
-      gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
-      totalWithGst: Number(item.lineTotal)
-    }))
+    items: pq.items?.map(item => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const grossAmount = quantity * unitPrice;
+      const baseAmount = Number(item.baseAmount);
+      return {
+        ...item,
+        itemDescription: item.description,
+        hsnSac: item.hsnCode,
+        unit: item.uom,
+        quantity,
+        unitPrice,
+        discountPercent: Number(item.discountPercent || 0),
+        discountAmount: Math.max(0, grossAmount - baseAmount),
+        discountedPrice: Number(item.discountedPrice || (quantity > 0 ? baseAmount / quantity : 0)),
+        totalBeforeTax: baseAmount,
+        gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
+        totalWithGst: Number(item.lineTotal)
+      };
+    })
   };
 }
 
@@ -4199,17 +4123,27 @@ function mapInvoiceToFrontend(inv) {
     igst: Number(inv.totalIgst || 0),
     tdsAmount: Number(inv.tdsAmount || 0),
     netPayable: Number(inv.netPayable || 0),
-    items: inv.items?.map(item => ({
-      ...item,
-      itemDescription: item.description,
-      hsnSac: item.hsnCode,
-      unit: item.uom,
-      cgstAmount: Number(item.cgst),
-      sgstAmount: Number(item.sgst),
-      igstAmount: Number(item.igst),
-      totalBeforeTax: Number(item.taxableValue),
-      totalWithGst: Number(item.lineTotal)
-    }))
+    items: inv.items?.map(item => {
+      const quantity = Number(item.quantity || 0);
+      const unitPrice = Number(item.unitPrice || 0);
+      const grossAmount = quantity * unitPrice;
+      const taxableValue = Number(item.taxableValue);
+      return {
+        ...item,
+        itemDescription: item.description,
+        hsnSac: item.hsnCode,
+        unit: item.uom,
+        quantity,
+        unitPrice,
+        discountPercent: Number(item.discountPercent || 0),
+        discountAmount: Math.max(0, grossAmount - taxableValue),
+        cgstAmount: Number(item.cgst),
+        sgstAmount: Number(item.sgst),
+        igstAmount: Number(item.igst),
+        totalBeforeTax: taxableValue,
+        totalWithGst: Number(item.lineTotal)
+      };
+    })
   };
 }
 
