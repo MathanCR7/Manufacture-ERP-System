@@ -568,6 +568,7 @@ class AssetManagementService {
         hsnCode: data.hsnCode || '84713010',
         hsnDescription: data.hsnDescription || '',
         specifications: data.specifications || '',
+        remarks: data.remarks || '',
         quantity: parseInt(data.quantity, 10) || 1,
         estimatedUnitCost: Number(data.estimatedUnitCost) || 0
       }];
@@ -1212,7 +1213,7 @@ class AssetManagementService {
               igst: 0,
               lineTotal: 0,
               specMatch: 'Yes',
-              remarks: item.specifications || ''
+              remarks: item.remarks || item.specifications || ''
             }))
           }
         },
@@ -2312,7 +2313,8 @@ class AssetManagementService {
         cgst: priced.cgst,
         sgst: priced.sgst,
         igst: priced.igst,
-        lineTotal: priced.lineTotal
+        lineTotal: priced.lineTotal,
+        remarks: item.remarks || ''
       };
     });
 
@@ -3156,6 +3158,7 @@ class AssetManagementService {
         hsnCode: data.hsnCode || '84713010',
         hsnDescription: data.hsnDescription || '',
         specifications: data.specifications || '',
+        remarks: data.remarks || '',
         quantity: parseInt(data.quantity, 10) || 1,
         estimatedUnitCost: Number(data.estimatedUnitCost) || 0
       }];
@@ -3849,7 +3852,8 @@ class AssetManagementService {
         cgst: priced.cgst,
         sgst: priced.sgst,
         igst: priced.igst,
-        lineTotal: priced.lineTotal
+        lineTotal: priced.lineTotal,
+        remarks: item.remarks || ''
       };
     });
 
@@ -4022,6 +4026,7 @@ function mapPOToFrontend(po) {
         cgst: Number(item.cgst || 0),
         sgst: Number(item.sgst || 0),
         igst: Number(item.igst || 0),
+        remarks: item.remarks || '',
       };
     })
   };
@@ -4066,7 +4071,8 @@ function mapPQToFrontend(pq) {
         discountedPrice: Number(item.discountedPrice || (quantity > 0 ? baseAmount / quantity : 0)),
         totalBeforeTax: baseAmount,
         gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
-        totalWithGst: Number(item.lineTotal)
+        totalWithGst: Number(item.lineTotal),
+        remarks: item.remarks || ''
       };
     })
   };
@@ -4088,7 +4094,8 @@ function mapGRPOToFrontend(grpo) {
       receivedQuantity: Number(item.receivedQty),
       acceptedQuantity: Number(item.acceptedQty),
       rejectedQuantity: Number(item.rejectedQty),
-      inspectionRemarks: item.remarks,
+      inspectionRemarks: item.remarks || '',
+      remarks: item.remarks || '',
       unitPrice: Number(item.unitPrice || 0),
       gstRate: Number(item.gstRate || 0)
     }))
@@ -4141,7 +4148,8 @@ function mapInvoiceToFrontend(inv) {
         sgstAmount: Number(item.sgst),
         igstAmount: Number(item.igst),
         totalBeforeTax: taxableValue,
-        totalWithGst: Number(item.lineTotal)
+        totalWithGst: Number(item.lineTotal),
+        remarks: item.remarks || ''
       };
     })
   };

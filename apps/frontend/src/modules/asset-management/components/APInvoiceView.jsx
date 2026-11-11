@@ -30,6 +30,10 @@ import {
   hydrateLineItemDiscount,
   allocateLegacyHeaderDiscount,
 } from '../utils/assetLinePricing';
+import AssetDraftBanner from './AssetDraftBanner';
+import { readAssetDraft, useAssetFormDraft, useAssetPageSession } from '../utils/assetDraftStore';
+
+const INVOICE_DATE_FIELDS = ['invoiceDate', 'dueDate'];
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -462,7 +466,8 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
       printableDesc = parts.join('\n');
     }
     const descLines = doc.splitTextToSize(printableDesc, 56);
-    const descHeight = descLines.length * 4;
+    const remarksLines = item.remarks ? doc.splitTextToSize(`Remarks: ${item.remarks}`, 56) : [];
+    const descHeight = descLines.length * 4 + (remarksLines.length > 0 ? remarksLines.length * 3.5 + 1 : 0);
     const rowHeight = Math.max(descHeight, 8);
 
     // Page overflow check
@@ -506,6 +511,12 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
     const itemInfo = getSavedItemBreakdown(item);
     doc.setTextColor(15, 23, 42); // Primary dark
     doc.text(descLines, startX + 2, currentY);
+    if (remarksLines.length > 0) {
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(remarksLines, startX + 2, currentY + descLines.length * 4 + 0.5);
+      doc.setFontSize(8);
+    }
     
     doc.setTextColor(71, 85, 105);
     doc.text(item.hsnSac || '—', startX + 62, currentY);
@@ -996,7 +1007,8 @@ function APInvoiceDetailModal({ invoice, onClose }) {
       const cleanDesc = item.itemDescription?.split('|')[0]?.trim() || '';
       const info = getSavedItemBreakdown(item);
       const discNote = info.discountAmount > 0 ? ` | Disc -Rs.${info.discountAmount.toFixed(2)} | Taxable Rs.${info.taxableBase.toFixed(2)}` : '';
-      itemsText += `• ${cleanDesc} - ${item.quantity} ${item.unit || 'Nos'} @ Rs.${Number(item.unitPrice).toFixed(2)}${discNote} (GST ${item.gstRate}%)\n`;
+      const remarksNote = item.remarks ? ` | Remarks: ${item.remarks}` : '';
+      itemsText += `• ${cleanDesc} - ${item.quantity} ${item.unit || 'Nos'} @ Rs.${Number(item.unitPrice).toFixed(2)}${discNote} (GST ${item.gstRate}%)${remarksNote}\n`;
     });
 
     // Compile charges and totals
@@ -1143,7 +1155,14 @@ Accounts Department`;
                     const info = getSavedItemBreakdown(item);
                     return (
                     <tr key={i} className={`transition-colors ${i % 2 === 0 ? 'bg-white dark:bg-slate-900/40' : 'bg-slate-50/40 dark:bg-slate-800/10'} hover:bg-slate-100/50 dark:hover:bg-slate-800/30`}>
-                      <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200">{item.itemDescription}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                        {item.itemDescription}
+                        {item.remarks && (
+                          <p className="text-[11px] font-normal italic text-slate-500 dark:text-slate-400 mt-0.5">
+                            Remarks: {item.remarks}
+                          </p>
+                        )}
+                      </td>
                       <td className="px-3 py-3 font-mono text-slate-500">{item.hsnSac || '—'}</td>
                       <td className="px-3 py-3 font-medium text-slate-600 dark:text-slate-400">{item.quantity}</td>
                       <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{item.unit || 'Nos'}</td>
@@ -1806,7 +1825,9 @@ function ChargeRow({ label, fieldKey, value, gstState, isInterState, disabled, o
 }
 
 function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoiceId, taxSettings }) {
-  const [form, setForm] = useState({
+  const user = useAuthStore(s => s.user);
+  const [savedDraft] = useState(() => readAssetDraft('invoice', user?.id, editInvoiceId, INVOICE_DATE_FIELDS));
+  const [form, setForm] = useState(() => savedDraft?.form || {
     isDirect: false,
     grpoId: '',
     poId: '',
@@ -1842,10 +1863,18 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     tds: '',
   });
 
-  const [isInterState, setIsInterState] = useState(false);
-  const [isInvoiceNoDirty, setIsInvoiceNoDirty] = useState(false);
+  const [isInterState, setIsInterState] = useState(() => savedDraft?.extras?.isInterState ?? false);
+  const [isInvoiceNoDirty, setIsInvoiceNoDirty] = useState(() => savedDraft?.extras?.isInvoiceNoDirty ?? false);
+
+  const hydratedVendorGstinRef = React.useRef(savedDraft ? (savedDraft.form?.vendorGstin || '') : undefined);
 
   React.useEffect(() => {
+    if (hydratedVendorGstinRef.current !== undefined) {
+      if ((form.vendorGstin || '') === hydratedVendorGstinRef.current) {
+        return;
+      }
+      hydratedVendorGstinRef.current = undefined;
+    }
     if (!taxSettings?.companyGstin) return;
     const vendorGstin = form.vendorGstin || '';
     const companyGstin = taxSettings.companyGstin;
@@ -1868,7 +1897,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const selectedAssetsRef = React.useRef({});
 
-  const [chargeGstStates, setChargeGstStates] = useState({
+  const [chargeGstStates, setChargeGstStates] = useState(() => savedDraft?.extras?.chargeGstStates || {
     freight: { applied: false, rate: 18 },
     loadingCharges: { applied: false, rate: 18 },
     unloadingCharges: { applied: false, rate: 18 },
@@ -1878,13 +1907,22 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
   });
 
   const [activeChargeGstEdit, setActiveChargeGstEdit] = useState(null);
-  const [originalIsInterState, setOriginalIsInterState] = useState(null);
+  const [originalIsInterState, setOriginalIsInterState] = useState(() => savedDraft?.extras?.originalIsInterState ?? null);
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
   const isGrpoLinked = !!form.grpoId;
   const isFinanceLocked = !form.isDirect && (isGrpoLinked || !!editInvoiceId);
   const isFormFieldsDisabled = !form.isDirect && !isGrpoLinked;
+
+  const draft = useAssetFormDraft({
+    moduleKey: 'invoice',
+    userId: user?.id,
+    editId: editInvoiceId,
+    savedDraft,
+    form,
+    extras: { isInterState, isInvoiceNoDirty, chargeGstStates, originalIsInterState },
+  });
 
   const handleIsInterStateChange = (newVal) => {
     setIsInterState(newVal);
@@ -1936,8 +1974,11 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
 
   React.useEffect(() => {
     if (editInvoiceId && invoices.length > 0) {
+      if (draft.hasSavedOrEditedDraft()) return;
       const found = invoices.find(inv => inv.id === editInvoiceId);
       if (found) {
+        draft.beginServerHydration();
+        hydratedVendorGstinRef.current = found.vendorGstin || '';
         const parsedPayment = parsePaymentMode(found.paymentMode);
         setForm({
           isDirect: found.grpoNo === 'Direct' || !found.grpoId,
@@ -1990,6 +2031,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                 gstRate: Number(i.gstRate || 18),
                 discountType: disc.discountType,
                 discountValue: disc.discountValue,
+                remarks: i.remarks || '',
               };
             }) || [];
           })(),
@@ -2377,6 +2419,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
       }
     },
     onSuccess: () => {
+      draft.clearDraftOnSubmit();
       qc.invalidateQueries({ queryKey: ['asset-ap-invoices'] });
       Swal.fire({
         icon: 'success',
@@ -2569,7 +2612,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           discountType: 'amount',
           discountValue: '',
           gstRate: 18,
-          specifications: ''
+          specifications: '',
+          remarks: ''
         }
       : {
           itemDescription: '',
@@ -2579,7 +2623,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           unitPrice: '',
           discountType: 'amount',
           discountValue: '',
-          gstRate: 18
+          gstRate: 18,
+          remarks: ''
         };
     setForm(p => ({ ...p, items: [...p.items, newItem] }));
   };
@@ -2657,6 +2702,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           discountType: disc.discountType,
           discountValue: disc.discountValue,
           gstRate: poItem ? Number(poItem.gstRate) : Number(i.gstRate || 18),
+          remarks: poItem?.remarks || i.inspectionRemarks || i.remarks || '',
         };
       }) || prev.items,
     }));
@@ -2837,8 +2883,11 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                     unit: 'Nos',
                     quantity: 1,
                     unitPrice: '',
+                    discountType: 'amount',
+                    discountValue: '',
                     gstRate: 18,
-                    specifications: ''
+                    specifications: '',
+                    remarks: ''
                   }
                 ]
               }));
@@ -3335,6 +3384,17 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       />
                     </div>
 
+                    <div className="space-y-1.5 col-span-full">
+                      <Label>Item Remarks</Label>
+                      <Input
+                        disabled={isReadOnly}
+                        value={item.remarks || ''}
+                        onChange={e => updateItem(idx, 'remarks', e.target.value)}
+                        placeholder="Add line-item remarks, batch notes, invoice discrepancies..."
+                        className="h-9 rounded-lg text-sm bg-white dark:bg-slate-950"
+                      />
+                    </div>
+
                     {/* GST Calc and details under item */}
                     <div className="flex flex-wrap items-center justify-between border-t border-dashed border-slate-200 dark:border-slate-800 pt-3 text-xs gap-3">
                       <div className="flex gap-4">
@@ -3452,6 +3512,16 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                         ₹{(isInterState ? igstAmount : cgstAmount + sgstAmount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                       </div>
                     </div>
+                  </div>
+                  <div className="mt-3 pt-2.5 border-t border-slate-200/70 dark:border-slate-800/70 space-y-1">
+                    <Label className="text-xs font-semibold text-slate-500">Item Remarks</Label>
+                    <Input
+                      disabled={isReadOnly}
+                      value={item.remarks || ''}
+                      onChange={e => updateItem(idx, 'remarks', e.target.value)}
+                      placeholder="Add line-item remarks, batch notes, invoice discrepancies..."
+                      className="h-9 rounded-lg text-sm bg-white dark:bg-slate-900"
+                    />
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
@@ -3670,11 +3740,19 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
 export default function APInvoiceView() {
   const user = useAuthStore(s => s.user);
   const isReadOnly = user?.role === 'SUPERVISOR';
-  const [view, setView] = useState('list');
+  const {
+    view,
+    editId: editInvoiceId,
+    openCreate,
+    openEdit,
+    closeForm,
+    discardDraft,
+    resumeDraft,
+    latestDraftInfo,
+  } = useAssetPageSession('invoice', user?.id);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedInvoice, setSelectedInvoice] = useState(null);
-  const [editInvoiceId, setEditInvoiceId] = useState(null);
   const [sortBy, setSortBy] = useState('recent');
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -3773,7 +3851,7 @@ export default function APInvoiceView() {
   const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
   const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  if (view === 'create') return <CreateAPInvoiceForm onBack={() => { setView('list'); setEditInvoiceId(null); }} isReadOnly={isReadOnly} invoicesCount={invoices.length} editInvoiceId={editInvoiceId} taxSettings={taxSettings} />;
+  if (view === 'create') return <CreateAPInvoiceForm key={editInvoiceId || 'new'} onBack={closeForm} isReadOnly={isReadOnly} invoicesCount={invoices.length} editInvoiceId={editInvoiceId} taxSettings={taxSettings} />;
 
   const totalInvoiced = invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
   const totalPaid = invoices.filter(i => i.status === 'Paid').reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
@@ -3790,11 +3868,18 @@ export default function APInvoiceView() {
           <p className="text-sm text-slate-500 mt-0.5">Book vendor invoices with full GST/ITC compliance (Step 5/8)</p>
         </div>
         {!isReadOnly && (
-          <Button onClick={() => { setEditInvoiceId(null); setView('create'); }} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+          <Button onClick={openCreate} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
             <Plus className="w-4 h-4" /> Book Invoice
           </Button>
         )}
       </div>
+
+      <AssetDraftBanner
+        draftInfo={latestDraftInfo}
+        entityLabel="AP Invoice"
+        onResume={resumeDraft}
+        onDiscard={discardDraft}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -3909,7 +3994,7 @@ export default function APInvoiceView() {
                             variant="ghost"
                             size="icon"
                             disabled={inv.status === 'Paid'}
-                            onClick={() => { setEditInvoiceId(inv.id); setView('create'); }}
+                            onClick={() => openEdit(inv.id)}
                             className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650 disabled:opacity-40 disabled:cursor-not-allowed"
                             title={inv.status === 'Paid' ? "Paid invoice cannot be edited" : "Edit Invoice"}
                           >

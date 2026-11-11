@@ -2028,6 +2028,7 @@ model AssetAPInvoiceItem {
   igst            Decimal
   cess            Decimal        @default(0.00)
   lineTotal       Decimal        @map("line_total")
+  remarks         String?
 
   @@map("asset_ap_invoice_items")
 }

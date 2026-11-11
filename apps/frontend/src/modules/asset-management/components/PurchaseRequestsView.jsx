@@ -19,6 +19,10 @@ import {
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
 import UniversalUomSelect, { UNIVERSAL_UOM_STRING_LIST } from '@/components/ui/UniversalUomSelect';
+import AssetDraftBanner from './AssetDraftBanner';
+import { readAssetDraft, useAssetFormDraft, useAssetPageSession } from '../utils/assetDraftStore';
+
+const PR_DATE_FIELDS = ['requiredByDate'];
 
 const DEPARTMENTS = ['IT', 'Manufacturing', 'Admin', 'Logistics', 'Finance', 'HR', 'Sales'];
 const CATEGORIES = [
@@ -115,6 +119,7 @@ function PRDetailModal({ pr, onClose }) {
                       <th className="px-3 py-2.5 text-left">Category</th>
                       <th className="px-3 py-2.5 text-left">HSN/SAC</th>
                       <th className="px-3 py-2.5 text-left">Specifications</th>
+                      <th className="px-3 py-2.5 text-left">Remarks</th>
                       <th className="px-3 py-2.5 text-right">Qty</th>
                       <th className="px-3 py-2.5 text-right">Est. Unit Cost</th>
                       <th className="px-3 py-2.5 text-right">Est. Total</th>
@@ -128,6 +133,7 @@ function PRDetailModal({ pr, onClose }) {
                         <td className="px-3 py-2.5">{item.category}</td>
                         <td className="px-3 py-2.5 font-mono">{item.hsnCode || '—'}</td>
                         <td className="px-3 py-2.5 max-w-xs truncate" title={item.specifications}>{item.specifications}</td>
+                        <td className="px-3 py-2.5 max-w-xs truncate text-slate-600 dark:text-slate-400" title={item.remarks}>{item.remarks || '—'}</td>
                         <td className="px-3 py-2.5 text-right">{item.quantity} {item.uom || 'EA'}</td>
                         <td className="px-3 py-2.5 text-right">₹{Number(item.estimatedUnitCost).toLocaleString('en-IN')}</td>
                         <td className="px-3 py-2.5 text-right font-bold text-slate-900 dark:text-white">₹{(item.quantity * Number(item.estimatedUnitCost)).toLocaleString('en-IN')}</td>
@@ -143,6 +149,7 @@ function PRDetailModal({ pr, onClose }) {
                 { label: 'Asset Name', value: pr.assetName },
                 { label: 'Category', value: pr.category },
                 { label: 'Specifications', value: pr.specifications },
+                { label: 'Remarks', value: pr.remarks || '—' },
                 { label: 'HSN Code', value: pr.hsnCode || '—' },
                 { label: 'Quantity', value: `${pr.quantity} ${pr.uom || 'EA'}` },
                 { label: 'Est. Unit Cost', value: `₹${Number(pr.estimatedUnitCost).toLocaleString('en-IN')}` },
@@ -271,7 +278,8 @@ function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
 function CreatePRForm({ onBack, isReadOnly, editPRId }) {
   const user = useAuthStore(s => s.user);
   const qc = useQueryClient();
-  const [form, setForm] = useState({
+  const [savedDraft] = useState(() => readAssetDraft('requests', user?.id, editPRId, PR_DATE_FIELDS));
+  const [form, setForm] = useState(() => savedDraft?.form || {
     requesterName: user?.name || '',
     requesterEmpId: user?.empId || '',
     department: 'IT',
@@ -287,12 +295,21 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
       hsnDescription: '',
       uom: 'EA',
       specifications: '',
+      remarks: '',
       quantity: 1,
       estimatedUnitCost: ''
     }]
   });
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
+
+  const draft = useAssetFormDraft({
+    moduleKey: 'requests',
+    userId: user?.id,
+    editId: editPRId,
+    savedDraft,
+    form,
+  });
 
   const { data: existingPR, isLoading: isLoadingPR } = useQuery({
     queryKey: ['asset-pr', editPRId],
@@ -302,6 +319,8 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
 
   useEffect(() => {
     if (existingPR) {
+      if (draft.hasSavedOrEditedDraft()) return;
+      draft.beginServerHydration();
       setForm({
         requesterName: existingPR.requesterName || '',
         requesterEmpId: existingPR.requesterEmpId || '',
@@ -318,6 +337,7 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
           hsnDescription: item.hsnDescription || '',
           uom: item.uom || 'EA',
           specifications: item.specifications || '',
+          remarks: item.remarks || '',
           quantity: item.quantity || 1,
           estimatedUnitCost: item.estimatedUnitCost !== undefined ? String(item.estimatedUnitCost) : ''
         })) : [{
@@ -327,12 +347,13 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
           hsnDescription: '',
           uom: 'EA',
           specifications: '',
+          remarks: '',
           quantity: 1,
           estimatedUnitCost: ''
         }]
       });
     }
-  }, [existingPR]);
+  }, [existingPR, draft]);
 
   const [activeRowIdx, setActiveRowIdx] = useState(null);
   const [assetSearch, setAssetSearch] = useState('');
@@ -375,6 +396,7 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
         hsnDescription: '',
         uom: 'EA',
         specifications: '',
+        remarks: '',
         quantity: 1,
         estimatedUnitCost: ''
       }]
@@ -400,13 +422,17 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
   };
 
   useEffect(() => {
-    if (user?.name) {
-      update('requesterName', user.name);
-    }
-    if (user?.empId) {
-      update('requesterEmpId', user.empId);
-    }
-  }, [user]);
+    if (editPRId || draft.hasSavedOrEditedDraft()) return;
+    const needsName = !form.requesterName && user?.name;
+    const needsEmpId = !form.requesterEmpId && user?.empId;
+    if (!needsName && !needsEmpId) return;
+    draft.beginServerHydration();
+    setForm(p => ({
+      ...p,
+      requesterName: p.requesterName || user?.name || '',
+      requesterEmpId: p.requesterEmpId || user?.empId || '',
+    }));
+  }, [user, editPRId, draft, form.requesterName, form.requesterEmpId]);
 
   // Fetch autocomplete suggestions on typing
   useEffect(() => {
@@ -537,6 +563,7 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
       return api.post('/asset-management/requests', data).then(r => r.data);
     },
     onSuccess: (res) => {
+      draft.clearDraftOnSubmit();
       qc.invalidateQueries({ queryKey: ['asset-prs'] });
       if (editPRId) {
         qc.invalidateQueries({ queryKey: ['asset-pr', editPRId] });
@@ -781,6 +808,16 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
                         rows={2} placeholder="Detailed technical specifications required for procurement..."
                         className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none" />
                     </div>
+
+                    <div className="md:col-span-2 space-y-1.5">
+                      <Label>Item Remarks</Label>
+                      <Input
+                        value={item.remarks || ''}
+                        onChange={e => updateItem(idx, 'remarks', e.target.value)}
+                        placeholder="Optional line-item notes, model preference, delivery remarks..."
+                        className="h-10 rounded-xl"
+                      />
+                    </div>
                   </div>
                 </div>
               );
@@ -997,8 +1034,16 @@ function SendRFQModal({ pr, onClose, onSuccess }) {
 export default function PurchaseRequestsView() {
   const user = useAuthStore(s => s.user);
   const isReadOnly = user?.role === 'SUPERVISOR';
-  const [view, setView] = useState('list');
-  const [editPRId, setEditPRId] = useState(null);
+  const {
+    view,
+    editId: editPRId,
+    openCreate,
+    openEdit,
+    closeForm,
+    discardDraft,
+    resumeDraft,
+    latestDraftInfo,
+  } = useAssetPageSession('requests', user?.id);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedPR, setSelectedPR] = useState(null);
@@ -1078,10 +1123,8 @@ export default function PurchaseRequestsView() {
   if (view === 'create') {
     return (
       <CreatePRForm
-        onBack={() => {
-          setView('list');
-          setEditPRId(null);
-        }}
+        key={editPRId || 'new'}
+        onBack={closeForm}
         isReadOnly={isReadOnly}
         editPRId={editPRId}
       />
@@ -1112,11 +1155,18 @@ export default function PurchaseRequestsView() {
           <p className="text-sm text-slate-500 mt-0.5">Initiate asset procurement via internal requests (PR)</p>
         </div>
         {!isReadOnly && (
-          <Button onClick={() => setView('create')} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+          <Button onClick={openCreate} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
             <Plus className="w-4 h-4" /> New Request
           </Button>
         )}
       </div>
+
+      <AssetDraftBanner
+        draftInfo={latestDraftInfo}
+        entityLabel="Purchase Request"
+        onResume={resumeDraft}
+        onDiscard={discardDraft}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard icon={FileText} label="Total PRs" value={prs.length} bg="bg-indigo-50 dark:bg-indigo-950/30" iconColor="text-indigo-600 dark:text-indigo-400" borderColor="border-slate-200/60 dark:border-slate-800/60" />
@@ -1230,10 +1280,7 @@ export default function PurchaseRequestsView() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => {
-                                setEditPRId(pr.id);
-                                setView('create');
-                              }}
+                              onClick={() => openEdit(pr.id)}
                               disabled={pqs.some(pq => pq.prNo === pr.prNo)}
                               className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 disabled:opacity-40 disabled:hover:text-slate-400"
                               title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot edit: Quotation already raised" : "Edit Request"}
@@ -1330,10 +1377,7 @@ export default function PurchaseRequestsView() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => {
-                            setEditPRId(pr.id);
-                            setView('create');
-                          }}
+                          onClick={() => openEdit(pr.id)}
                           disabled={pqs.some(pq => pq.prNo === pr.prNo)}
                           className="h-9 w-9 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40"
                           title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot edit: Quotation already raised" : "Edit Request"}

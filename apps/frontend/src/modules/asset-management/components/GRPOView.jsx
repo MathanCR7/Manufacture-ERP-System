@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
+import AssetDraftBanner from './AssetDraftBanner';
+import { readAssetDraft, useAssetFormDraft, useAssetPageSession } from '../utils/assetDraftStore';
+
+const GRPO_DATE_FIELDS = ['receivedDate'];
 
 const STATUS_STYLES = {
   Draft: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
@@ -197,7 +201,9 @@ function POSelect({ pos = [], value, onChange, disabled }) {
 }
 
 function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
-  const [form, setForm] = useState({
+  const user = useAuthStore(s => s.user);
+  const [savedDraft] = useState(() => readAssetDraft('grpo', user?.id, editGRPOId, GRPO_DATE_FIELDS));
+  const [form, setForm] = useState(() => savedDraft?.form || {
     poId: '',
     vendorName: '',
     receivedDate: null,
@@ -212,6 +218,14 @@ function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
   const [error, setError] = useState('');
   const qc = useQueryClient();
   const isPoLinked = !!form.poId;
+
+  const draft = useAssetFormDraft({
+    moduleKey: 'grpo',
+    userId: user?.id,
+    editId: editGRPOId,
+    savedDraft,
+    form,
+  });
 
   const { data: pos = [] } = useQuery({
     queryKey: ['asset-pos-open'],
@@ -230,8 +244,10 @@ function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
 
   React.useEffect(() => {
     if (editGRPOId && grpos.length > 0 && allPOs.length > 0) {
+      if (draft.hasSavedOrEditedDraft()) return;
       const found = grpos.find(g => g.id === editGRPOId);
       if (found) {
+        draft.beginServerHydration();
         const linkedPO = allPOs.find(p => p.poNo === found.poNo);
         setForm({
           poId: linkedPO?.id || '',
@@ -259,7 +275,7 @@ function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
         });
       }
     }
-  }, [editGRPOId, grpos, allPOs]);
+  }, [editGRPOId, grpos, allPOs, draft]);
 
   const mutation = useMutation({
     mutationFn: data => {
@@ -270,6 +286,7 @@ function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
       }
     },
     onSuccess: () => {
+      draft.clearDraftOnSubmit();
       qc.invalidateQueries({ queryKey: ['asset-grpos'] });
       qc.invalidateQueries({ queryKey: ['asset-pos-open'] });
       qc.invalidateQueries({ queryKey: ['asset-pos'] });
@@ -327,7 +344,7 @@ function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
       items: po.items?.map(i => ({
         itemDescription: i.itemDescription, hsnSac: i.hsnSac,
         poQuantity: Number(i.quantity), receivedQuantity: 0, acceptedQuantity: 0, rejectedQuantity: 0,
-        condition: 'Good', serialNo: '', assetTagNo: '', inspectionRemarks: '',
+        condition: 'Good', serialNo: '', assetTagNo: '', inspectionRemarks: i.remarks || '',
       })) || prev.items,
     }));
   };
@@ -521,10 +538,18 @@ function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
 export default function GRPOView() {
   const user = useAuthStore(s => s.user);
   const isReadOnly = user?.role === 'SUPERVISOR';
-  const [view, setView] = useState('list');
+  const {
+    view,
+    editId: editGRPOId,
+    openCreate,
+    openEdit,
+    closeForm,
+    discardDraft,
+    resumeDraft,
+    latestDraftInfo,
+  } = useAssetPageSession('grpo', user?.id);
   const [search, setSearch] = useState('');
   const [selectedGRPO, setSelectedGRPO] = useState(null);
-  const [editGRPOId, setEditGRPOId] = useState(null);
   const [sortBy, setSortBy] = useState('recent');
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -616,7 +641,7 @@ export default function GRPOView() {
   const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
   const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  if (view === 'create') return <CreateGRPOForm onBack={() => { setView('list'); setEditGRPOId(null); }} isReadOnly={isReadOnly} editGRPOId={editGRPOId} />;
+  if (view === 'create') return <CreateGRPOForm key={editGRPOId || 'new'} onBack={closeForm} isReadOnly={isReadOnly} editGRPOId={editGRPOId} />;
 
   const acceptedItems = grpos.reduce((s, g) => s + (g.items?.reduce((a, i) => a + Number(i.acceptedQuantity || 0), 0) || 0), 0);
   const rejectedItems = grpos.reduce((s, g) => s + (g.items?.reduce((a, i) => a + Number(i.rejectedQuantity || 0), 0) || 0), 0);
@@ -631,11 +656,18 @@ export default function GRPOView() {
           <p className="text-sm text-slate-500 mt-0.5">Record asset delivery with quality inspection (Step 4/8)</p>
         </div>
         {!isReadOnly && (
-          <Button onClick={() => { setEditGRPOId(null); setView('create'); }} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+          <Button onClick={openCreate} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
             <Plus className="w-4 h-4" /> Record Receipt
           </Button>
         )}
       </div>
+
+      <AssetDraftBanner
+        draftInfo={latestDraftInfo}
+        entityLabel="GRPO Receipt"
+        onResume={resumeDraft}
+        onDiscard={discardDraft}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -729,7 +761,7 @@ export default function GRPOView() {
                             variant="ghost"
                             size="icon"
                             disabled={hasInvoice}
-                            onClick={() => { setEditGRPOId(grpo.id); setView('create'); }}
+                            onClick={() => openEdit(grpo.id)}
                             className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650 disabled:opacity-40 disabled:cursor-not-allowed"
                             title={hasInvoice ? "Cannot edit - AP Invoice exists" : "Edit GRPO"}
                           >

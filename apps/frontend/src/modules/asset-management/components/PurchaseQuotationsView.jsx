@@ -25,6 +25,10 @@ import {
   hydrateLineItemDiscount,
   allocateLegacyHeaderDiscount,
 } from '../utils/assetLinePricing';
+import AssetDraftBanner from './AssetDraftBanner';
+import { readAssetDraft, useAssetFormDraft, useAssetPageSession } from '../utils/assetDraftStore';
+
+const PQ_DATE_FIELDS = ['validityDate', 'expectedDelivery'];
 
 function QuotationValidityCell({ pq }) {
   const [timeLeft, setTimeLeft] = useState('');
@@ -742,14 +746,16 @@ function ChargeRow({ label, fieldKey, value, gstState, isInterState, onChange, o
   );
 }
 function CreatePQForm({ onBack, isReadOnly, editPQId }) {
+  const user = useAuthStore(s => s.user);
+  const [savedDraft] = useState(() => readAssetDraft('quotations', user?.id, editPQId, PQ_DATE_FIELDS));
   const { data: taxSettings } = useQuery({
     queryKey: ['tax-settings'],
     queryFn: () => api.get('/setup/tax').then(r => r.data),
   });
-  const [isInterState, setIsInterState] = useState(true);
+  const [isInterState, setIsInterState] = useState(() => savedDraft?.extras?.isInterState ?? true);
   const [activeChargeGstEdit, setActiveChargeGstEdit] = useState(null);
   
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => savedDraft?.form || {
     prId: '',
     prNo: 'Direct',
     vendorName: '',
@@ -777,7 +783,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     items: [{ category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', discountType: 'amount', discountValue: '', gstRate: 18, specMatch: 'Yes', remarks: '' }],
   });
 
-  const [chargeGstStates, setChargeGstStates] = useState({
+  const [chargeGstStates, setChargeGstStates] = useState(() => savedDraft?.extras?.chargeGstStates || {
     shippingCharges: { applied: false, rate: 18 },
     loadingCharges: { applied: false, rate: 18 },
     packingCharges: { applied: false, rate: 18 },
@@ -789,6 +795,16 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
   const isPrLinked = form.prNo && form.prNo !== 'Direct';
+
+  const draft = useAssetFormDraft({
+    moduleKey: 'quotations',
+    userId: user?.id,
+    editId: editPQId,
+    savedDraft,
+    form,
+    extras: { isInterState, chargeGstStates },
+  });
+  const hydratedVendorGstinRef = React.useRef(savedDraft ? (savedDraft.form?.vendorGstin || '') : undefined);
 
   const { data: prs = [] } = useQuery({
     queryKey: ['asset-prs-approved'],
@@ -808,9 +824,12 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
 
   useEffect(() => {
     if (editPQ) {
+      if (draft.hasSavedOrEditedDraft()) return;
+      draft.beginServerHydration();
       const supplier = suppliers.find(s => s.name.toLowerCase() === editPQ.vendorName.toLowerCase());
       const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
       const stateCode = editPQ.stateCode || (editPQ.vendorGstin ? editPQ.vendorGstin.substring(0, 2) : companyStateCode);
+      hydratedVendorGstinRef.current = editPQ.vendorGstin || supplier?.gstin || '';
       setIsInterState(stateCode !== companyStateCode);
       const legacyExtras = allocateLegacyHeaderDiscount(editPQ.items || [], editPQ.discount);
       setForm({
@@ -877,9 +896,15 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         }
       }
     }
-  }, [editPQ, prs, suppliers]);
+  }, [editPQ, prs, suppliers, draft]);
 
   useEffect(() => {
+    if (hydratedVendorGstinRef.current !== undefined) {
+      if ((form.vendorGstin || '') === hydratedVendorGstinRef.current) {
+        return;
+      }
+      hydratedVendorGstinRef.current = undefined;
+    }
     const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
     if (form.vendorGstin && form.vendorGstin.trim().length >= 2) {
       const stateCode = form.vendorGstin.trim().substring(0, 2);
@@ -893,7 +918,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           }));
         }
       }
-    } else {
+    } else if (isInterState === false) {
       setIsInterState(true);
       setForm(prev => ({
         ...prev,
@@ -953,6 +978,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
       return api.post('/asset-management/quotations', data).then(r => r.data);
     },
     onSuccess: () => {
+      draft.clearDraftOnSubmit();
       qc.invalidateQueries({ queryKey: ['asset-pqs'] });
       const text = editPQId ? 'Purchase Quotation updated successfully.' : 'Purchase Quotation recorded successfully.';
       Swal.fire({ icon: 'success', title: editPQId ? 'Quotation Updated!' : 'Quotation Saved!', text, confirmButtonColor: '#4f46e5' }).then(() => onBack());
@@ -1065,7 +1091,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           discountValue: '',
           gstRate: isInterState ? 18 : catDetails.gst,
           specMatch: 'Yes',
-          remarks: ''
+          remarks: item.remarks || ''
         };
       });
     } else {
@@ -1081,7 +1107,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         discountValue: '',
         gstRate: isInterState ? 18 : catDetails.gst,
         specMatch: 'Yes',
-        remarks: ''
+        remarks: pr.remarks || ''
       }];
     }
 
@@ -2093,11 +2119,19 @@ function CompareQuotationsView({ onBack }) {
 export default function PurchaseQuotationsView() {
   const user = useAuthStore(s => s.user);
   const isReadOnly = user?.role === 'SUPERVISOR';
-  const [view, setView] = useState('list');
+  const {
+    view,
+    setView,
+    editId: editPQId,
+    openCreate,
+    openEdit,
+    closeForm,
+    discardDraft,
+    resumeDraft,
+    latestDraftInfo,
+  } = useAssetPageSession('quotations', user?.id);
   const [search, setSearch] = useState('');
   const [selectedPQ, setSelectedPQ] = useState(null);
-
-  const [editPQId, setEditPQId] = useState(null);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
@@ -2185,7 +2219,7 @@ export default function PurchaseQuotationsView() {
     pq.prNo?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (view === 'create') return <CreatePQForm onBack={() => { setView('list'); setEditPQId(null); }} isReadOnly={isReadOnly} editPQId={editPQId} />;
+  if (view === 'create') return <CreatePQForm key={editPQId || 'new'} onBack={closeForm} isReadOnly={isReadOnly} editPQId={editPQId} />;
   if (view === 'compare') return <CompareQuotationsView onBack={() => setView('list')} />;
 
   if (selectedPQ) {
@@ -2230,12 +2264,19 @@ export default function PurchaseQuotationsView() {
             <BarChart3 className="w-4 h-4" /> Compare Quotes
           </Button>
           {!isReadOnly && (
-            <Button onClick={() => setView('create')} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+            <Button onClick={openCreate} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
               <Plus className="w-4 h-4" /> New Quotation
             </Button>
           )}
         </div>
       </div>
+
+      <AssetDraftBanner
+        draftInfo={latestDraftInfo}
+        entityLabel="Purchase Quotation"
+        onResume={resumeDraft}
+        onDiscard={discardDraft}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -2346,7 +2387,7 @@ export default function PurchaseQuotationsView() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => { setEditPQId(pq.id); setView('create'); }}
+                                onClick={() => openEdit(pq.id)}
                                 disabled={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled')}
                                 className="h-8 w-8 rounded-lg text-slate-400 hover:text-amber-600 disabled:opacity-40"
                                 title={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled') ? "Cannot edit: PO already issued" : "Edit Quotation"}

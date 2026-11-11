@@ -29,6 +29,10 @@ import {
   hydrateLineItemDiscount,
   allocateLegacyHeaderDiscount,
 } from '../utils/assetLinePricing';
+import AssetDraftBanner from './AssetDraftBanner';
+import { readAssetDraft, useAssetFormDraft, useAssetPageSession } from '../utils/assetDraftStore';
+
+const PO_DATE_FIELDS = ['poDate', 'deliveryDate'];
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -259,7 +263,8 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
   po.items?.forEach((item, index) => {
     const saved = getSavedItemBreakdown(item);
     const descLines = doc.splitTextToSize(item.itemDescription || '', 48);
-    const descHeight = descLines.length * 4.5;
+    const remarksLines = item.remarks ? doc.splitTextToSize(`Remarks: ${item.remarks}`, 48) : [];
+    const descHeight = descLines.length * 4.5 + (remarksLines.length > 0 ? remarksLines.length * 3.5 + 1 : 0);
     const rowHeight = Math.max(descHeight, 8);
     if (currentY + rowHeight > 265) {
       doc.addPage();
@@ -285,6 +290,12 @@ const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
     if (index % 2 === 1) { doc.setFillColor(248, 250, 252); doc.rect(14, currentY - 5, 182, rowHeight, 'F'); }
     doc.setTextColor(30, 41, 59);
     doc.text(descLines, 16, currentY);
+    if (remarksLines.length > 0) {
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(remarksLines, 16, currentY + descLines.length * 4.5 + 0.5);
+      doc.setFontSize(8);
+    }
     doc.setTextColor(71, 85, 105);
     doc.text(item.hsnSac || '—', 66, currentY);
     doc.text(String(item.quantity), 94, currentY, { align: 'right' });
@@ -565,7 +576,14 @@ function PODetailModal({ po, onClose }) {
                     return (
                       <tr key={i} className={`transition-colors ${i % 2 === 0 ? 'bg-white dark:bg-slate-900/40' : 'bg-slate-50/40 dark:bg-slate-800/10'} hover:bg-slate-100/50 dark:hover:bg-slate-800/30`}>
                         <td className="px-3 py-3 text-slate-400">{i + 1}</td>
-                        <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200">{item.itemDescription}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                          {item.itemDescription}
+                          {item.remarks && (
+                            <p className="text-[11px] font-normal italic text-slate-500 dark:text-slate-400 mt-0.5">
+                              Remarks: {item.remarks}
+                            </p>
+                          )}
+                        </td>
                         <td className="px-3 py-3 font-mono text-slate-500">{item.hsnSac || '—'}</td>
                         <td className="px-3 py-3 font-medium text-slate-650 dark:text-slate-400">{item.quantity}</td>
                         <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{item.unit || 'Nos'}</td>
@@ -883,8 +901,18 @@ function ChargeRow({ label, fieldKey, value, gstState, isInterState, disabled, o
 
 // ─── Create PO Form ───────────────────────────────────────────────────────────
 function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
-  const [poMode, setPoMode] = useState(prefillFromPQ ? 'pr' : 'pr'); // 'pr' or 'direct'
-  const [form, setForm] = useState({
+  const user = useAuthStore(s => s.user);
+  const [rawSavedDraft] = useState(() => readAssetDraft('orders', user?.id, editPOId, PO_DATE_FIELDS));
+  const hasMatchingPrefillDraft = Boolean(
+    !editPOId &&
+    rawSavedDraft &&
+    (!prefillFromPQ || rawSavedDraft.extras?.sourcePqId === prefillFromPQ.id)
+  );
+  const savedDraft = editPOId ? rawSavedDraft : (hasMatchingPrefillDraft ? rawSavedDraft : null);
+
+  const [poMode, setPoMode] = useState(() => savedDraft?.extras?.poMode || 'pr'); // 'pr' or 'direct'
+  const [sourcePqId, setSourcePqId] = useState(() => savedDraft?.extras?.sourcePqId || prefillFromPQ?.id || null);
+  const [form, setForm] = useState(() => savedDraft?.form || {
     prId: '',
     prNo: '',
     pqId: '',
@@ -915,7 +943,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     items: [],
   });
 
-  const [chargeGstStates, setChargeGstStates] = useState({
+  const [chargeGstStates, setChargeGstStates] = useState(() => savedDraft?.extras?.chargeGstStates || {
     freight: { applied: false, rate: 18 },
     loadingCharges: { applied: false, rate: 18 },
     unloadingCharges: { applied: false, rate: 18 },
@@ -924,11 +952,22 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     otherCharges: { applied: false, rate: 18 },
   });
 
-  const [originalIsInterState, setOriginalIsInterState] = useState(null);
+  const [originalIsInterState, setOriginalIsInterState] = useState(() => savedDraft?.extras?.originalIsInterState ?? null);
   const [activeChargeGstEdit, setActiveChargeGstEdit] = useState(null);
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
+
+  const draft = useAssetFormDraft({
+    moduleKey: 'orders',
+    userId: user?.id,
+    editId: editPOId,
+    savedDraft,
+    form,
+    extras: { poMode, chargeGstStates, originalIsInterState, sourcePqId },
+  });
+  const hydratedVendorGstinRef = React.useRef(savedDraft ? (savedDraft.form?.vendorGstin || '') : undefined);
+  const appliedPrefillPqIdRef = React.useRef(hasMatchingPrefillDraft && prefillFromPQ ? prefillFromPQ.id : null);
 
   const isFinanceLocked = Boolean(isReadOnly);
 
@@ -977,6 +1016,9 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
 
   useEffect(() => {
     if (editPO) {
+      if (draft.hasSavedOrEditedDraft()) return;
+      draft.beginServerHydration();
+      hydratedVendorGstinRef.current = editPO.vendorGstin || '';
       if (editPO.prNo === 'Direct' || !editPO.prNo) {
         setPoMode('direct');
       } else {
@@ -1021,6 +1063,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           unitPrice: String(i.unitPrice !== undefined ? i.unitPrice : ''),
           ...hydrateLineItemDiscount(i, legacyExtras[idx]),
           gstRate: Number(i.gstRate !== undefined ? i.gstRate : 18),
+          remarks: i.remarks || '',
         })) || [],
       });
 
@@ -1070,7 +1113,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
 
   useEffect(() => {
     if (prefillFromPQ && prs.length > 0) {
+      if (appliedPrefillPqIdRef.current === prefillFromPQ.id) return;
+      appliedPrefillPqIdRef.current = prefillFromPQ.id;
       const pq = prefillFromPQ;
+      hydratedVendorGstinRef.current = pq.vendorGstin || '';
+      setSourcePqId(pq.id);
+      draft.markDirty();
       const linkedPR = prs.find(p => p.prNo === pq.prNo);
       
       const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
@@ -1087,6 +1135,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         unitPrice: Number(i.unitPrice || 0),
         ...hydrateLineItemDiscount(i, legacyExtras[idx]),
         gstRate: Number(i.gstRate || 18),
+        remarks: i.remarks || '',
       }));
 
       setForm(prev => ({
@@ -1206,6 +1255,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       return api.post('/asset-management/orders', data).then(r => r.data);
     },
     onSuccess: () => {
+      draft.clearDraftOnSubmit();
       qc.invalidateQueries({ queryKey: ['asset-pos'] });
       qc.invalidateQueries({ queryKey: ['asset-prs'] });
       if (editPOId) {
@@ -1273,11 +1323,16 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
 
   const update = (f, v) => setForm(p => ({ ...p, [f]: v }));
   const updateItem = (idx, f, v) => setForm(p => ({ ...p, items: p.items.map((item, i) => i === idx ? { ...item, [f]: v } : item) }));
-  const addItem = () => setForm(p => ({ ...p, items: [...p.items, { category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', discountType: 'amount', discountValue: '', gstRate: 18 }] }));
+  const addItem = () => setForm(p => ({ ...p, items: [...p.items, { category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', discountType: 'amount', discountValue: '', gstRate: 18, remarks: '' }] }));
   const removeItem = idx => setForm(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }));
 
   useEffect(() => {
     if (!taxSettings?.companyGstin) return;
+    if (hydratedVendorGstinRef.current !== undefined && hydratedVendorGstinRef.current === (form.vendorGstin || '')) {
+      hydratedVendorGstinRef.current = undefined;
+      return;
+    }
+    hydratedVendorGstinRef.current = undefined;
     const vendorGstin = form.vendorGstin || '';
     const companyGstin = taxSettings.companyGstin;
     const vState = vendorGstin.trim().substring(0, 2);
@@ -1351,6 +1406,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         unitPrice: Number(i.unitPrice || 0),
         ...hydrateLineItemDiscount(i, legacyExtras[idx]),
         gstRate: Number(i.gstRate || 18),
+        remarks: i.remarks || '',
       }));
 
       setForm(prev => ({
@@ -1418,6 +1474,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           discountType: 'amount',
           discountValue: '',
           gstRate: Number(i.gstRate || 18),
+          remarks: i.remarks || '',
         }));
       } else {
         const catMap = CATEGORY_MAP[pr.category] || { hsn: '8471', gst: 18 };
@@ -1431,6 +1488,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           discountType: 'amount',
           discountValue: '',
           gstRate: catMap.gst || 18,
+          remarks: pr.remarks || '',
         }];
       }
 
@@ -1940,6 +1998,16 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                         </p>
                       </div>
                     </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-1">
+                      <Label className="text-xs font-semibold text-slate-500">Item Remarks</Label>
+                      <Input
+                        value={item.remarks || ''}
+                        disabled={isFinanceLocked}
+                        onChange={e => updateItem(idx, 'remarks', e.target.value)}
+                        placeholder="Add line-item remarks, brand/spec notes, delivery instructions..."
+                        className="h-9 rounded-lg text-sm bg-white dark:bg-slate-900"
+                      />
+                    </div>
                     {!isFinanceLocked && form.items.length > 1 && (
                       <div className="flex justify-end mt-2">
                         <button type="button" onClick={() => removeItem(idx)} className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
@@ -2127,8 +2195,16 @@ export default function PurchaseOrdersView() {
   const isReadOnly = user?.role === 'SUPERVISOR';
   const location = useLocation();
   const navigate = useNavigate();
-  const [view, setView] = useState('list');
-  const [editPOId, setEditPOId] = useState(null);
+  const {
+    view,
+    editId: editPOId,
+    openCreate,
+    openEdit,
+    closeForm,
+    discardDraft,
+    resumeDraft,
+    latestDraftInfo,
+  } = useAssetPageSession('orders', user?.id);
   const [search, setSearch] = useState('');
   const [selectedPO, setSelectedPO] = useState(null);
   const [sortBy, setSortBy] = useState('recent');
@@ -2141,9 +2217,9 @@ export default function PurchaseOrdersView() {
 
   useEffect(() => {
     if (location.state?.openCreate) {
-      setView('create');
+      openCreate();
     }
-  }, [location]);
+  }, [location, openCreate]);
 
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['asset-pos'],
@@ -2219,10 +2295,10 @@ export default function PurchaseOrdersView() {
 
   if (view === 'create') return (
     <CreatePOForm
+      key={editPOId || location.state?.prefillFromPQ?.id || 'new'}
       onBack={() => {
         navigate(location.pathname, { replace: true, state: {} });
-        setView('list');
-        setEditPOId(null);
+        closeForm();
       }}
       isReadOnly={isReadOnly}
       prefillFromPQ={location.state?.prefillFromPQ}
@@ -2243,11 +2319,18 @@ export default function PurchaseOrdersView() {
           <p className="text-sm text-slate-500 mt-0.5">Issue and manage GST-compliant purchase orders (Step 3/8)</p>
         </div>
         {!isReadOnly && (
-          <Button onClick={() => setView('create')} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+          <Button onClick={openCreate} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
             <Plus className="w-4 h-4" /> Issue PO
           </Button>
         )}
       </div>
+
+      <AssetDraftBanner
+        draftInfo={latestDraftInfo}
+        entityLabel="Purchase Order"
+        onResume={resumeDraft}
+        onDiscard={discardDraft}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
@@ -2332,7 +2415,7 @@ export default function PurchaseOrdersView() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => { setEditPOId(po.id); setView('create'); }}
+                            onClick={() => openEdit(po.id)}
                             disabled={grpos.some(g => g.poNo === po.poNo)}
                             className="h-8 w-8 rounded-lg text-slate-400 hover:text-amber-600 disabled:opacity-40"
                             title={grpos.some(g => g.poNo === po.poNo) ? "Cannot edit: GRPO already created" : "Edit PO"}

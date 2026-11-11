@@ -16,6 +16,10 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
+import AssetDraftBanner from './AssetDraftBanner';
+import { readAssetDraft, useAssetFormDraft, useAssetPageSession } from '../utils/assetDraftStore';
+
+const REGISTER_DATE_FIELDS = ['purchaseDate', 'warrantyExpiry'];
 
 const DEPARTMENTS = ['IT', 'Manufacturing', 'Admin', 'Logistics', 'Finance', 'HR', 'Sales'];
 const CATEGORIES = [
@@ -270,7 +274,9 @@ function APInvoiceSelect({ invoices = [], value, onChange }) {
 }
 
 function CapitalizeAssetForm({ onBack, isReadOnly }) {
-  const [form, setForm] = useState({
+  const user = useAuthStore(s => s.user);
+  const [savedDraft] = useState(() => readAssetDraft('register', user?.id, null, REGISTER_DATE_FIELDS));
+  const [form, setForm] = useState(() => savedDraft?.form || {
     apInvoiceId: '',
     grpoId: '',
     assetName: '',
@@ -298,6 +304,14 @@ function CapitalizeAssetForm({ onBack, isReadOnly }) {
   const [error, setError] = useState('');
   const qc = useQueryClient();
 
+  const draft = useAssetFormDraft({
+    moduleKey: 'register',
+    userId: user?.id,
+    editId: null,
+    savedDraft,
+    form,
+  });
+
   const { data: invoices = [] } = useQuery({
     queryKey: ['asset-ap-invoices-posted'],
     queryFn: () => api.get('/asset-management/ap-invoices').then(r => r.data.filter(i => ['Posted', 'Paid'].includes(i.status))),
@@ -306,6 +320,7 @@ function CapitalizeAssetForm({ onBack, isReadOnly }) {
   const mutation = useMutation({
     mutationFn: data => api.post('/asset-management/assets', data).then(r => r.data),
     onSuccess: (res) => {
+      draft.clearDraftOnSubmit();
       qc.invalidateQueries({ queryKey: ['asset-register'] });
       Swal.fire({
         icon: 'success',
@@ -542,7 +557,14 @@ function CapitalizeAssetForm({ onBack, isReadOnly }) {
 export default function AssetRegisterView() {
   const user = useAuthStore(s => s.user);
   const isReadOnly = user?.role === 'SUPERVISOR';
-  const [view, setView] = useState('list');
+  const {
+    view,
+    openCreate,
+    closeForm,
+    discardDraft,
+    resumeDraft,
+    latestDraftInfo,
+  } = useAssetPageSession('register', user?.id, { createViewName: 'capitalize' });
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -606,7 +628,7 @@ export default function AssetRegisterView() {
   const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
   const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  if (view === 'capitalize') return <CapitalizeAssetForm onBack={() => setView('list')} isReadOnly={isReadOnly} />;
+  if (view === 'capitalize') return <CapitalizeAssetForm onBack={closeForm} isReadOnly={isReadOnly} />;
 
   const totalBookValue = assets.reduce((s, a) => {
     const pv = Number(a.purchaseValue || 0);
@@ -631,11 +653,18 @@ export default function AssetRegisterView() {
           <p className="text-sm text-slate-500 mt-0.5">Fixed Asset Register — capitalization, depreciation & lifecycle tracking</p>
         </div>
         {!isReadOnly && (
-          <Button onClick={() => setView('capitalize')} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+          <Button onClick={openCreate} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
             <Plus className="w-4 h-4" /> Capitalize Asset
           </Button>
         )}
       </div>
+
+      <AssetDraftBanner
+        draftInfo={latestDraftInfo}
+        entityLabel="Asset Capitalization"
+        onResume={resumeDraft}
+        onDiscard={discardDraft}
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
