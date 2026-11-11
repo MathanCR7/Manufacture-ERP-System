@@ -1801,19 +1801,57 @@ export default function RMINOUTStockPage() {
     return result;
   }, [unifiedAllTransactions, searchTerm, categoryFilter, codeFilter, movementFilter, sortBy, matchesAdvancedSearch]);
 
-  // Pagination for Materials
-  const totalMaterialPages = Math.ceil(filteredMaterials.length / itemsPerPage) || 1;
+  // Pagination for Materials (Full Screen displays all entries at once without pagination slicing)
+  const totalMaterialPages = isFullscreen ? 1 : (Math.ceil(filteredMaterials.length / itemsPerPage) || 1);
   const paginatedMaterials = useMemo(() => {
+    if (isFullscreen) return filteredMaterials;
     const start = (currentPage - 1) * itemsPerPage;
     return filteredMaterials.slice(start, start + itemsPerPage);
-  }, [filteredMaterials, currentPage, itemsPerPage]);
+  }, [filteredMaterials, currentPage, itemsPerPage, isFullscreen]);
 
-  // Pagination for Transactions (Ledger View)
-  const totalTransactionPages = Math.ceil(filteredTransactions.length / itemsPerPage) || 1;
+  // Pagination for Transactions (Ledger View; Full Screen displays all entries at once)
+  const totalTransactionPages = isFullscreen ? 1 : (Math.ceil(filteredTransactions.length / itemsPerPage) || 1);
   const paginatedTransactions = useMemo(() => {
+    if (isFullscreen) return filteredTransactions;
     const start = (currentPage - 1) * itemsPerPage;
     return filteredTransactions.slice(start, start + itemsPerPage);
-  }, [filteredTransactions, currentPage, itemsPerPage]);
+  }, [filteredTransactions, currentPage, itemsPerPage, isFullscreen]);
+
+  // Shared pagination bar — hidden in Full Screen so all entries display directly without "Per page: 10"
+  const renderPaginationBar = (totalPagesCount, totalRecordsCount) => {
+    if (isFullscreen) return null;
+    return (
+      <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2 px-3 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="font-medium text-[11px]">Per page:</span>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => {
+              setItemsPerPage(Number(e.target.value));
+              setCurrentPage(1);
+            }}
+            className="h-7 px-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+          >
+            <option value={10}>10</option>
+            <option value={15}>15</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+
+        <div className="flex-1 w-full sm:w-auto">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPagesCount}
+            totalRecords={totalRecordsCount}
+            pageSize={itemsPerPage}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
+        </div>
+      </div>
+    );
+  };
 
   // Safe UOM Formatter to prevent any UUID leakage
   const formatUOM = (uom) => {
@@ -3086,7 +3124,7 @@ export default function RMINOUTStockPage() {
 
           {/* Desktop Table View with Sticky Top Header & Clickable Column Sorting */}
           <div className={`hidden lg:block overflow-auto ${
-            isFullscreen ? 'flex-1 min-h-0 max-h-[calc(100vh-135px)]' : 'max-h-[70vh]'
+            isFullscreen ? 'flex-1 min-h-0' : 'max-h-[70vh]'
           } relative border-b border-slate-200 dark:border-slate-800`}>
             <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
               <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
@@ -3736,7 +3774,7 @@ export default function RMINOUTStockPage() {
           </div>
 
           {/* Mobile & Tablet Responsive Cards View */}
-          <div className="lg:hidden divide-y divide-slate-200 dark:divide-slate-800">
+          <div className={`lg:hidden divide-y divide-slate-200 dark:divide-slate-800 ${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : ''}`}>
             {isAnyLoading ? (
               Array.from({ length: 4 }).map((_, idx) => (
                 <div key={idx} className="p-3.5 space-y-2.5">
@@ -4016,36 +4054,8 @@ export default function RMINOUTStockPage() {
             )}
           </div>
 
-          {/* Pagination Controls with Page Size Dropdown (Just like rm/stock) */}
-          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2 px-3 flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="font-medium text-[11px]">Per page:</span>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="h-7 px-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-              >
-                <option value={10}>10</option>
-                <option value={15}>15</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
-
-            <div className="flex-1 w-full sm:w-auto">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalMaterialPages}
-                totalRecords={filteredMaterials.length}
-                pageSize={itemsPerPage}
-                onPageChange={(page) => setCurrentPage(page)}
-              />
-            </div>
-          </div>
+          {/* Pagination Controls with Page Size Dropdown (Hidden in Full Screen) */}
+          {renderPaginationBar(totalMaterialPages, filteredMaterials.length)}
         </Card>
       ) : (
         /* MODE 2: DATE-WISE LEDGER & MOVEMENT MATRIX (WITH MATRIX & STREAM SUB-MODES) */
@@ -4239,7 +4249,7 @@ export default function RMINOUTStockPage() {
 
               {/* Desktop Table (and Tablet Table if tabletViewMode === 'table') with Sticky Header & Sticky Left Columns */}
               <div className={`${tabletViewMode === 'table' ? 'block' : 'hidden lg:block'} overflow-auto ${
-                isFullscreen ? 'flex-1 min-h-0 max-h-[calc(100vh-135px)]' : 'max-h-[70vh]'
+                isFullscreen ? 'flex-1 min-h-0' : 'max-h-[70vh]'
               } relative border-b border-slate-200 dark:border-slate-800`}>
                 <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
@@ -4594,7 +4604,7 @@ export default function RMINOUTStockPage() {
               </div>
 
               {/* Mobile & Tablet Responsive View for Matrix */}
-              <div className={`${tabletViewMode === 'table' ? 'hidden' : 'lg:hidden'} divide-y divide-slate-200 dark:divide-slate-800`}>
+              <div className={`${tabletViewMode === 'table' ? 'hidden' : 'lg:hidden'} divide-y divide-slate-200 dark:divide-slate-800 ${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : ''}`}>
                 {isAnyLoading ? (
                   Array.from({ length: 4 }).map((_, idx) => (
                     <div key={idx} className="p-3.5 space-y-2.5">
@@ -4811,36 +4821,8 @@ export default function RMINOUTStockPage() {
                 )}
               </div>
 
-              {/* Pagination Controls with Page Size Dropdown for Matrix */}
-              <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2 px-3 flex flex-col sm:flex-row items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span className="font-medium text-[11px]">Per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="h-7 px-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                  >
-                    <option value={10}>10</option>
-                    <option value={15}>15</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </div>
-
-                <div className="flex-1 w-full sm:w-auto">
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={totalMaterialPages}
-                    totalRecords={filteredMaterials.length}
-                    pageSize={itemsPerPage}
-                    onPageChange={(page) => setCurrentPage(page)}
-                  />
-                </div>
-              </div>
+              {/* Pagination Controls with Page Size Dropdown for Matrix (Hidden in Full Screen) */}
+              {renderPaginationBar(totalMaterialPages, filteredMaterials.length)}
             </Card>
           ) : (
             /* SUB-MODE B: CHRONOLOGICAL DETAILED TRANSACTION STREAM */
@@ -4897,7 +4879,7 @@ export default function RMINOUTStockPage() {
 
               {/* Desktop Table View */}
               <div className={`hidden lg:block overflow-auto ${
-                isFullscreen ? 'flex-1 min-h-0 max-h-[calc(100vh-135px)]' : 'max-h-[70vh]'
+                isFullscreen ? 'flex-1 min-h-0' : 'max-h-[70vh]'
               } relative border-b border-slate-200 dark:border-slate-800`}>
                 <Table containerClassName="none" className="border-separate border-spacing-0 w-full">
                   <TableHeader className="sticky top-0 z-30 bg-slate-100 dark:bg-black shadow-xs border-b border-slate-200 dark:border-neutral-800">
@@ -5246,7 +5228,7 @@ export default function RMINOUTStockPage() {
               </div>
 
               {/* Mobile & Tablet Ledger Cards View */}
-              <div className="lg:hidden divide-y divide-slate-200 dark:divide-slate-800">
+              <div className={`lg:hidden divide-y divide-slate-200 dark:divide-slate-800 ${isFullscreen ? 'flex-1 min-h-0 overflow-y-auto' : ''}`}>
                 {isAnyLoading ? (
                   Array.from({ length: 4 }).map((_, idx) => (
                     <div key={idx} className="p-3.5 space-y-2">
@@ -5413,36 +5395,8 @@ export default function RMINOUTStockPage() {
                 )}
               </div>
 
-              {/* Pagination Controls with Page Size Dropdown for Stream */}
-              <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2 px-3 flex flex-col sm:flex-row items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span className="font-medium text-[11px]">Per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="h-7 px-2 text-xs font-semibold rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
-                  >
-                    <option value={10}>10</option>
-                    <option value={15}>15</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </div>
-
-                <div className="flex-1 w-full sm:w-auto">
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={totalTransactionPages}
-                    totalRecords={filteredTransactions.length}
-                    pageSize={itemsPerPage}
-                    onPageChange={(page) => setCurrentPage(page)}
-                  />
-                </div>
-              </div>
+              {/* Pagination Controls with Page Size Dropdown for Stream (Hidden in Full Screen) */}
+              {renderPaginationBar(totalTransactionPages, filteredTransactions.length)}
             </Card>
           )}
         </div>
