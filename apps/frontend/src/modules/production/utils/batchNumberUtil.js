@@ -91,3 +91,74 @@ export function formatNewBatchReference(dateVal = new Date(), sequence = 1) {
   const day = String(valid.getDate()).padStart(2, '0');
   return `PROD${year}${month}${day}-${String(sequence).padStart(4, '0')}`;
 }
+
+/**
+ * Formats date input into 6-char DDMMYY string (last 2 digits of year), e.g. 121126.
+ */
+export function formatDateToDDMMYY(dateVal = new Date()) {
+  if (typeof dateVal === 'string') {
+    const iso = dateVal.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) {
+      return `${iso[3]}${iso[2]}${iso[1].slice(-2)}`;
+    }
+    const dmy = dateVal.trim().match(/^(\d{2})[-/](\d{2})[-/](\d{2,4})$/);
+    if (dmy) {
+      return `${dmy[1]}${dmy[2]}${dmy[3].slice(-2)}`;
+    }
+  }
+  const d = dateVal ? new Date(dateVal) : new Date();
+  const valid = isNaN(d.getTime()) ? new Date() : d;
+  const dd = String(valid.getDate()).padStart(2, '0');
+  const mm = String(valid.getMonth() + 1).padStart(2, '0');
+  const yy = String(valid.getFullYear()).slice(-2);
+  return `${dd}${mm}${yy}`;
+}
+
+/**
+ * Sanitizes uppercase alphanumeric token (company/product/batch code).
+ */
+export function sanitizeBatchToken(raw, maxLen = 32, fallback = 'ITEM') {
+  const cleaned = String(raw || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return cleaned.slice(0, maxLen) || fallback;
+}
+
+/**
+ * Parses a DDMMYY string into a readable date string DD/MM/YY.
+ */
+export function parseDDMMYY(code) {
+  const m = String(code || '').trim().match(/^(\d{2})(\d{2})(\d{2})/);
+  if (!m) return null;
+  return `${m[1]}/${m[2]}/20${m[3]}`;
+}
+
+/**
+ * Builds per-product batch number:
+ *   <EditableHeaderDDMMYY>-<PRODUCTNAME>-<DDMMYY>
+ * Example: 121126-VANILLA-121126
+ */
+export function buildProductBatchNo(arg1, arg2, arg3) {
+  let headerBatchCode;
+  let productName;
+  let dateVal;
+  if (arg1 && typeof arg1 === 'object' && !(arg1 instanceof Date)) {
+    ({ headerBatchCode, productName, dateVal = new Date() } = arg1);
+  } else {
+    headerBatchCode = arg1;
+    productName = arg2;
+    dateVal = arg3 || new Date();
+  }
+  const ddmmyy = formatDateToDDMMYY(dateVal);
+  const left = sanitizeBatchToken(headerBatchCode || ddmmyy, 24, ddmmyy);
+  const prod = sanitizeBatchToken(productName || 'PRODUCT', 32, 'PRODUCT');
+  return `${left}-${prod}-${ddmmyy}`;
+}
+
+/**
+ * Formats an 8-digit per-product serial preview:
+ *   <COMPANY>-<PRODUCTNAME>-00000001
+ */
+export function formatProductSerialPreview(companyName, productName, seq = 1) {
+  const company = sanitizeBatchToken(companyName || 'COMPANY', 24, 'COMPANY');
+  const prod = sanitizeBatchToken(productName || 'PRODUCT', 32, 'PRODUCT');
+  return `${company}-${prod}-${String(Math.max(1, Number(seq || 1))).padStart(8, '0')}`;
+}

@@ -465,6 +465,18 @@ export default function BatchAllocationGrid({
 
       setAvailableLots(lots);
 
+      // Prune stale/orphan lot keys so Allocate Remaining never subtracts invisible phantom quantities
+      const reconciledMap = {};
+      Object.entries(currentAllocMap).forEach(([rawKey, rawQty]) => {
+        const qtyVal = Number(rawQty || 0);
+        if (qtyVal <= 0) return;
+        const matched = lots.find(l => String(l.id) === String(rawKey) || String(l.internalBatchNo) === String(rawKey));
+        if (matched) {
+          reconciledMap[matched.id] = Number(Math.min(Number(matched.availableQty ?? matched.netQty ?? qtyVal), (reconciledMap[matched.id] || 0) + qtyVal).toFixed(4));
+        }
+      });
+      setLotAllocations(reconciledMap);
+
       // 1. Resolve latest PO number for this responsive raw material
       let resolvedPo = meta?.latestPoNumber;
       if (!resolvedPo || resolvedPo === 'PO-OPENING' || resolvedPo === 'PO-MANUAL-OVERRIDE') {
@@ -592,13 +604,21 @@ export default function BatchAllocationGrid({
   };
 
   const handleFillRemaining = (lotId, maxAvail) => {
-    const currentOtherTotal = Object.entries(lotAllocations).reduce((sum, [id, val]) => {
-      return id === lotId ? sum : sum + Number(val || 0);
-    }, 0);
+    const cleanAllocMap = {};
+    let currentOtherTotal = 0;
+    availableLots.forEach(lot => {
+      if (String(lot.id) === String(lotId)) return;
+      const val = Number(lotAllocations[lot.id] || 0);
+      if (val > 0) {
+        cleanAllocMap[lot.id] = val;
+        currentOtherTotal += val;
+      }
+    });
     const required = Number(rawMaterials[activeItemIndex]?.baseRequiredQty || rawMaterials[activeItemIndex]?.requiredQty || 0);
     const remainingNeeded = Math.max(0, required - currentOtherTotal);
     const toAlloc = Math.min(maxAvail, Number(remainingNeeded.toFixed(4)));
-    handleSetLotQty(lotId, toAlloc, maxAvail);
+    cleanAllocMap[lotId] = toAlloc;
+    setLotAllocations(cleanAllocMap);
   };
 
   const uniqueGrnList = useMemo(() => {
@@ -645,8 +665,13 @@ export default function BatchAllocationGrid({
   }, [availableLots, selectedGrnFilter, lotSearchTerm]);
 
   const totalAllocatedInModal = useMemo(() => {
-    return Object.values(lotAllocations).reduce((sum, v) => sum + Number(v || 0), 0);
-  }, [lotAllocations]);
+    if (!Array.isArray(availableLots) || availableLots.length === 0) {
+      return Object.values(lotAllocations).reduce((sum, v) => sum + Number(v || 0), 0);
+    }
+    return Number(
+      availableLots.reduce((sum, lot) => sum + Number(lotAllocations[lot.id] || 0), 0).toFixed(4)
+    );
+  }, [lotAllocations, availableLots]);
 
   const handleSaveAllocations = async () => {
     if (activeItemIndex === null) return;

@@ -388,9 +388,53 @@ router.get('/search', authenticateToken, async (req, res, next) => {
     ]);
 
     const batchMap = {};
+    const lotCoveredBatchProduct = new Set();
+
+    // Multi-Day / Multi-Product Sellable Stock Lots (includes Day 1 pushed lots while Day 2 runs)
+    if (productIds.length > 0) {
+      try {
+        const sellableLots = await prisma.$queryRawUnsafe(`
+          SELECT l.id AS lot_id, l.batch_id, l.product_id, l.product_batch_no, l.product_serial_no,
+                 l.reference_no, l.remaining_qty, l.expiry_date, l.day_no
+          FROM finished_product_stock_lots l
+          LEFT JOIN production_batches pb ON pb.id = l.batch_id
+          WHERE l.product_id = ANY($1::text[])
+            AND l.is_sellable = TRUE
+            AND l.remaining_qty > 0
+            AND pb.deleted_at IS NULL
+          ORDER BY l.expiry_date ASC NULLS LAST, l.created_at ASC;
+        `, productIds);
+
+        for (const l of sellableLots || []) {
+          if (!batchMap[l.product_id]) batchMap[l.product_id] = [];
+          lotCoveredBatchProduct.add(`${l.batch_id}::${l.product_id}`);
+          batchMap[l.product_id].push({
+            id: l.batch_id,
+            lotId: l.lot_id,
+            productId: l.product_id,
+            batchNo: l.product_batch_no,
+            productSerialNo: l.product_serial_no,
+            referenceNo: l.reference_no,
+            dayNo: Number(l.day_no || 1),
+            remainingQty: l.remaining_qty,
+            expiryDate: l.expiry_date
+          });
+        }
+      } catch (_) {}
+    }
+
     batches.forEach(b => {
+      if (lotCoveredBatchProduct.has(`${b.id}::${b.productId}`)) return;
       if (!batchMap[b.productId]) batchMap[b.productId] = [];
       batchMap[b.productId].push(b);
+    });
+
+    Object.keys(batchMap).forEach(pid => {
+      batchMap[pid].sort((a, b) => {
+        const ea = a.expiryDate ? new Date(a.expiryDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const eb = b.expiryDate ? new Date(b.expiryDate).getTime() : Number.MAX_SAFE_INTEGER;
+        return ea - eb;
+      });
     });
 
     const netMovements = {};
@@ -443,7 +487,10 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         activeBatchesCount: pBatches.length,
         nextExpiringBatch: nextBatch ? {
           batchId: nextBatch.id,
+          lotId: nextBatch.lotId || null,
+          dayNo: nextBatch.dayNo || 1,
           batchNo: nextBatch.batchNo || nextBatch.referenceNo,
+          productSerialNo: nextBatch.productSerialNo || null,
           expiryDate: nextBatch.expiryDate,
           remainingQty: Number(nextBatch.remainingQty)
         } : null,

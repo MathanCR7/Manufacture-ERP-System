@@ -13,6 +13,7 @@ export default function BatchLabelModal({
 }) {
   const [labelData, setLabelData] = useState(null);
   const [companyProfile, setCompanyProfile] = useState(null);
+  const [selectedDayOutputId, setSelectedDayOutputId] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -24,14 +25,26 @@ export default function BatchLabelModal({
     Boolean(labelData?.isCancelled);
 
   useEffect(() => {
+    if (!isOpen) {
+      setSelectedDayOutputId('');
+    }
+  }, [isOpen, batchId]);
+
+  useEffect(() => {
     if (isOpen && batchId) {
       setLoading(true);
+      const labelUrl = selectedDayOutputId
+        ? `/production/batches-redesign/${batchId}/label?dayOutputId=${encodeURIComponent(selectedDayOutputId)}`
+        : `/production/batches-redesign/${batchId}/label`;
       Promise.all([
-        api.get(`/production/batches-redesign/${batchId}/label`),
+        api.get(labelUrl),
         api.get('/setup/tax').catch(() => ({ data: null }))
       ])
         .then(([labelRes, taxRes]) => {
           setLabelData(labelRes.data);
+          if (!selectedDayOutputId && Array.isArray(labelRes.data?.dayOutputs) && labelRes.data.dayOutputs.length > 0) {
+            setSelectedDayOutputId(labelRes.data.dayOutputs[0].id);
+          }
           if (taxRes && taxRes.data) {
             setCompanyProfile(taxRes.data);
           }
@@ -41,7 +54,7 @@ export default function BatchLabelModal({
         })
         .finally(() => setLoading(false));
     }
-  }, [isOpen, batchId]);
+  }, [isOpen, batchId, selectedDayOutputId]);
 
   // Live PostgreSQL Business Profile resolution directly from /setup/tax
   const liveManufacturer = companyProfile?.companyName || labelData?.manufacturer || 'Leonex';
@@ -54,6 +67,8 @@ export default function BatchLabelModal({
   // Live GS1 Scannable QR Payload
   const dynamicQrPayload = labelData ? JSON.stringify({
     batch: labelData?.batchNo,
+    serial: labelData?.serialNo || undefined,
+    dayNo: labelData?.dayNo || undefined,
     product: labelData?.productName,
     code: labelData?.productCode,
     gtin: labelData?.gtin,
@@ -150,6 +165,25 @@ export default function BatchLabelModal({
             </div>
           )}
 
+          {Array.isArray(labelData?.dayOutputs) && labelData.dayOutputs.length > 0 && (
+            <div className="w-full mb-3 p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 space-y-1">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                Select Day &amp; Product Output Lot ({labelData.dayOutputs.length})
+              </label>
+              <select
+                value={selectedDayOutputId}
+                onChange={(e) => setSelectedDayOutputId(e.target.value)}
+                className="w-full h-8 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 px-2 text-xs font-mono font-bold text-slate-900 dark:text-white cursor-pointer"
+              >
+                {labelData.dayOutputs.map(opt => (
+                  <option key={opt.id} value={opt.id}>
+                    Day {opt.dayNo} • {opt.productName} • {opt.productBatchNo} • {opt.productSerialNo} ({opt.actualYield} {opt.uom})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {loading ? (
             <div className="py-12 text-center text-slate-400 text-xs">
               Generating barcode data...
@@ -195,6 +229,15 @@ export default function BatchLabelModal({
                       {labelData.batchNo}
                     </span>
                   </div>
+
+                  {labelData.serialNo && (
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-slate-600 uppercase text-[10px]">Product Serial No:</span>
+                      <span className="font-mono font-black text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">
+                        {labelData.serialNo}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-slate-600 uppercase text-[10px]">Mfg Date (Production Date):</span>

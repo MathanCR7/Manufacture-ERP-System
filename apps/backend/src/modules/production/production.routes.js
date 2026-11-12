@@ -6,6 +6,7 @@ const roleMiddleware = require('../../middlewares/role.middleware');
 const notificationService = require('../notifications/notifications.service');
 const stockReservationService = require('../../services/stockReservation.service');
 const { getNextBatchForRM } = require('../grn/grn.helper');
+const { syncParentBatchAggregate } = require('./services/standardProductionDay.service');
 
 const router = express.Router();
 
@@ -154,12 +155,53 @@ const checkAndNotifyStockAlerts = async (productId, tx) => {
   }
 };
 
-// GET /api/production/qc-queue - Batches pending QC
+// GET /api/production/qc-queue - Batches & multi-day runs pending QC
 router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR', 'PRODUCTION_STAFF']), async (req, res, next) => {
   try {
+    // Also detect any batches that have a Day awaiting QC (including Paused multi-day runs)
+    let pendingDayBatchIds = [];
+    let pendingDaysByBatch = {};
+    try {
+      const pendingDayRows = await prisma.$queryRawUnsafe(`
+        SELECT d.id, d.batch_id, d.day_no, d.day_label, d.day_batch_code, d.total_output_qty,
+               COALESCE(
+                 json_agg(json_build_object(
+                   'id', o.id,
+                   'productId', o.product_id,
+                   'productName', o.product_name,
+                   'uom', o.uom,
+                   'productBatchNo', o.product_batch_no,
+                   'productSerialNo', o.product_serial_no,
+                   'actualYield', o.actual_yield
+                 ) ORDER BY o.seq) FILTER (WHERE o.id IS NOT NULL),
+                 '[]'::json
+               ) AS outputs
+        FROM production_batch_days d
+        LEFT JOIN production_batch_day_outputs o ON o.day_id = d.id
+        WHERE d.qc_status = 'PENDING'
+        GROUP BY d.id
+        ORDER BY d.batch_id, d.day_no ASC;
+      `);
+      for (const r of pendingDayRows || []) {
+        pendingDayBatchIds.push(r.batch_id);
+        if (!pendingDaysByBatch[r.batch_id]) pendingDaysByBatch[r.batch_id] = [];
+        pendingDaysByBatch[r.batch_id].push({
+          dayId: r.id,
+          dayNo: Number(r.day_no),
+          dayLabel: r.day_label || `Day ${r.day_no}`,
+          dayBatchCode: r.day_batch_code,
+          totalOutputQty: Number(r.total_output_qty || 0),
+          outputs: Array.isArray(r.outputs) ? r.outputs : []
+        });
+      }
+    } catch (_) {}
+
     const batches = await prisma.productionBatchNew.findMany({
       where: {
-        status: { in: ['Lab Test In Progress', 'Completed'] },
+        OR: [
+          { status: { in: ['Lab Test In Progress', 'Completed'] } },
+          ...(pendingDayBatchIds.length > 0 ? [{ id: { in: pendingDayBatchIds } }] : [])
+        ],
         deletedAt: null
       },
       include: {
@@ -180,6 +222,9 @@ router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_A
     }
 
     const pendingBatches = batches.filter(b => {
+      if (pendingDaysByBatch[b.id] && pendingDaysByBatch[b.id].length > 0) {
+        return true;
+      }
       const extra = extraMap[b.id] || {};
       if (extra.qc_status === 'EXEMPT' || extra.qc_status === 'APPROVED' || extra.qc_status === 'REJECTED') {
         return false;
@@ -187,7 +232,8 @@ router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_A
       return true;
     }).map(b => ({
       ...b,
-      extra: extraMap[b.id] || {}
+      extra: extraMap[b.id] || {},
+      pendingDays: pendingDaysByBatch[b.id] || []
     }));
 
     res.json(pendingBatches);
@@ -208,7 +254,8 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
       safety: z.string().min(1),
       appearance: z.string().min(1),
       weightPortion: z.string().min(1),
-      customParams: z.record(z.any()).optional()
+      customParams: z.record(z.any()).optional(),
+      dayId: z.string().optional().nullable()
     });
 
     const data = schema.parse(req.body);
@@ -220,27 +267,121 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
         include: { product: { include: { unit: true } } }
       });
 
-      if (!batch || (batch.status !== 'Completed' && batch.status !== 'Lab Test In Progress')) {
+      const pendingLots = await tx.$queryRawUnsafe(`
+        SELECT * FROM finished_product_stock_lots
+        WHERE batch_id = $1
+          AND qc_status = 'PENDING'
+          ${data.dayId ? 'AND day_id = $2::uuid' : ''}
+        ORDER BY day_no ASC, created_at ASC;
+      `, ...(data.dayId ? [id, data.dayId] : [id])).catch(() => []);
+
+      if (!batch || (batch.status !== 'Completed' && batch.status !== 'Lab Test In Progress' && (!pendingLots || pendingLots.length === 0))) {
         throw new Error('Batch not found or not in QC testing queue');
       }
 
       const expDate = new Date(data.expiryDate);
 
-      // 1. Update batch status
-      await tx.productionBatchNew.update({
-        where: { id },
-        data: {
-          status: 'Completed',
-          approvalStatus: 'QC_PASSED',
-          expiryDate: expDate
-        }
-      });
+      // Multi-day / Multi-product lot QC approval path
+      if (pendingLots && pendingLots.length > 0) {
+        const dayIdsTouched = [...new Set(pendingLots.map(l => l.day_id).filter(Boolean))];
+        for (const lot of pendingLots) {
+          const lotQty = Number(lot.initial_qty || lot.remaining_qty || 0);
+          await tx.$executeRawUnsafe(`
+            UPDATE finished_product_stock_lots
+            SET qc_status = 'APPROVED', is_sellable = TRUE, expiry_date = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1::uuid;
+          `, lot.id, expDate);
 
-      // Update extended table columns
-      await tx.$executeRawUnsafe(
-        `UPDATE "production_batches" SET qc_status = 'APPROVED', approval_status = 'QC_PASSED', quarantine_stock = 0 WHERE id = $1`,
-        id
-      );
+          if (lot.day_output_id) {
+            await tx.$executeRawUnsafe(`
+              UPDATE production_batch_day_outputs
+              SET qc_status = 'APPROVED', pushed_to_sales = TRUE, updated_at = CURRENT_TIMESTAMP
+              WHERE id = $1::uuid;
+            `, lot.day_output_id).catch(() => {});
+          }
+
+          if (lotQty > 0 && lot.product_id) {
+            await tx.finishedProduct.update({
+              where: { id: lot.product_id },
+              data: { currentStock: { increment: lotQty } }
+            });
+            await tx.productStockMovement.create({
+              data: {
+                productId: lot.product_id,
+                batchId: id,
+                type: 'production_in',
+                quantity: lotQty,
+                direction: 1,
+                note: `QC Approved (Day ${lot.day_no || 1} | Batch: ${lot.product_batch_no} | Serial: ${lot.product_serial_no || '-'}). ${data.qcNotes || ''}`,
+                createdBy: req.user.id
+              }
+            });
+            await stockReservationService.allocateStockToWaitingOrders(lot.product_id, lotQty, batch.orderId, tx);
+            await notificationService.checkProductStockAlerts(lot.product_id, tx);
+          }
+        }
+
+        for (const dId of dayIdsTouched) {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batch_days
+            SET qc_status = 'APPROVED', status = 'COMPLETED', pushed_to_sales = TRUE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1::uuid;
+          `, dId).catch(() => {});
+        }
+
+        await syncParentBatchAggregate(tx, id);
+
+        const remainingPending = await tx.$queryRawUnsafe(`
+          SELECT COUNT(*)::int AS cnt FROM production_batch_days WHERE batch_id = $1 AND qc_status = 'PENDING';
+        `, id).catch(() => [{ cnt: 0 }]);
+
+        if (Number(remainingPending?.[0]?.cnt || 0) === 0 && batch.status !== 'Paused') {
+          await tx.productionBatchNew.update({
+            where: { id },
+            data: { status: 'Completed', approvalStatus: 'QC_PASSED', expiryDate: expDate }
+          });
+          await tx.$executeRawUnsafe(
+            `UPDATE "production_batches" SET qc_status = 'APPROVED', approval_status = 'QC_PASSED', quarantine_stock = 0 WHERE id = $1`,
+            id
+          );
+        }
+      } else {
+        // Legacy single-product QC approval path (100% preserved)
+        await tx.productionBatchNew.update({
+          where: { id },
+          data: {
+            status: 'Completed',
+            approvalStatus: 'QC_PASSED',
+            expiryDate: expDate
+          }
+        });
+
+        await tx.$executeRawUnsafe(
+          `UPDATE "production_batches" SET qc_status = 'APPROVED', approval_status = 'QC_PASSED', quarantine_stock = 0 WHERE id = $1`,
+          id
+        );
+
+        const stockQty = batch.actualOutput !== null ? Number(batch.actualOutput) : Number(batch.quantity);
+        await tx.productStockMovement.create({
+          data: {
+            productId: batch.productId,
+            batchId: id,
+            type: 'production_in',
+            quantity: stockQty,
+            direction: 1,
+            note: `QC Approved. Released to stock. Notes: ${data.qcNotes || 'None'}`,
+            createdBy: req.user.id
+          }
+        });
+
+        await tx.finishedProduct.update({
+          where: { id: batch.productId },
+          data: { currentStock: { increment: stockQty } }
+        });
+
+        await stockReservationService.allocateStockToWaitingOrders(batch.productId, stockQty, batch.orderId, tx);
+        await notificationService.checkProductStockAlerts(batch.productId, tx);
+      }
 
       const qcParams = {
         texture: data.texture,
@@ -251,7 +392,6 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
         customParams: data.customParams || {}
       };
 
-      // 2. Insert lab test result
       await tx.labProductionTestNew.create({
         data: {
           productionBatchId: id,
@@ -264,31 +404,9 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
         }
       });
 
-      // 3. Add batch actual output quantity to stock
-      const stockQty = batch.actualOutput !== null ? Number(batch.actualOutput) : Number(batch.quantity);
-      await tx.productStockMovement.create({
-        data: {
-          productId: batch.productId,
-          batchId: id,
-          type: 'production_in',
-          quantity: stockQty,
-          direction: 1,
-          note: `QC Approved. Released to stock. Notes: ${data.qcNotes || 'None'}`,
-          createdBy: req.user.id
-        }
-      });
-
-      // 4. Update FinishedProduct stock counter directly
-      await tx.finishedProduct.update({
-        where: { id: batch.productId },
-        data: { currentStock: { increment: stockQty } }
-      });
-
-      // 5. Auto-allocate newly produced finished stock to waiting sales orders (linked order first, then FIFO backlog)
-      await stockReservationService.allocateStockToWaitingOrders(batch.productId, stockQty, batch.orderId, tx);
-
-      // Run stock levels check
-      await notificationService.checkProductStockAlerts(batch.productId, tx);
+      const stockQty = (pendingLots && pendingLots.length > 0)
+        ? pendingLots.reduce((s, l) => s + Number(l.initial_qty || 0), 0)
+        : (batch.actualOutput !== null ? Number(batch.actualOutput) : Number(batch.quantity));
 
       // 6. Fire SSE notification to Sales
       const formattedDate = expDate.toLocaleDateString('en-GB');
@@ -344,7 +462,8 @@ router.post('/qc-queue/:id/reject', authenticateToken, roleMiddleware(['MAIN_MAS
       safety: z.string().optional(),
       appearance: z.string().optional(),
       weightPortion: z.string().optional(),
-      customParams: z.record(z.any()).optional()
+      customParams: z.record(z.any()).optional(),
+      dayId: z.string().optional().nullable()
     });
     const data = schema.parse(req.body);
     const id = req.params.id;
@@ -355,21 +474,58 @@ router.post('/qc-queue/:id/reject', authenticateToken, roleMiddleware(['MAIN_MAS
         include: { product: true }
       });
 
-      if (!batch || (batch.status !== 'Completed' && batch.status !== 'Lab Test In Progress')) {
+      const pendingLots = await tx.$queryRawUnsafe(`
+        SELECT * FROM finished_product_stock_lots
+        WHERE batch_id = $1 AND qc_status = 'PENDING' ${data.dayId ? 'AND day_id = $2::uuid' : ''};
+      `, ...(data.dayId ? [id, data.dayId] : [id])).catch(() => []);
+
+      if (!batch || (batch.status !== 'Completed' && batch.status !== 'Lab Test In Progress' && (!pendingLots || pendingLots.length === 0))) {
         throw new Error('Batch not found or not in QC testing queue');
       }
 
-      // 1. Update status
-      await tx.productionBatchNew.update({
-        where: { id },
-        data: { status: 'qc_failed' }
-      });
+      if (pendingLots && pendingLots.length > 0) {
+        await tx.$executeRawUnsafe(`
+          UPDATE finished_product_stock_lots
+          SET qc_status = 'REJECTED', is_sellable = FALSE, updated_at = CURRENT_TIMESTAMP
+          WHERE batch_id = $1 AND qc_status = 'PENDING' ${data.dayId ? 'AND day_id = $2::uuid' : ''};
+        `, ...(data.dayId ? [id, data.dayId] : [id]));
 
-      // Update extended table columns
-      await tx.$executeRawUnsafe(
-        `UPDATE "production_batches" SET qc_status = 'REJECTED', approval_status = 'QC_FAILED', quarantine_stock = 0 WHERE id = $1`,
-        id
-      );
+        await tx.$executeRawUnsafe(`
+          UPDATE production_batch_day_outputs
+          SET qc_status = 'REJECTED', pushed_to_sales = FALSE, updated_at = CURRENT_TIMESTAMP
+          WHERE batch_id = $1 AND qc_status = 'PENDING' ${data.dayId ? 'AND day_id = $2::uuid' : ''};
+        `, ...(data.dayId ? [id, data.dayId] : [id])).catch(() => {});
+
+        await tx.$executeRawUnsafe(`
+          UPDATE production_batch_days
+          SET qc_status = 'REJECTED', status = 'QC_FAILED', pushed_to_sales = FALSE, updated_at = CURRENT_TIMESTAMP
+          WHERE batch_id = $1 AND qc_status = 'PENDING' ${data.dayId ? 'AND id = $2::uuid' : ''};
+        `, ...(data.dayId ? [id, data.dayId] : [id])).catch(() => {});
+
+        await syncParentBatchAggregate(tx, id);
+        if (batch.status !== 'Paused') {
+          await tx.productionBatchNew.update({
+            where: { id },
+            data: { status: 'qc_failed' }
+          });
+          await tx.$executeRawUnsafe(
+            `UPDATE "production_batches" SET qc_status = 'REJECTED', approval_status = 'QC_FAILED', quarantine_stock = 0 WHERE id = $1`,
+            id
+          );
+        }
+      } else {
+        // 1. Legacy reject status
+        await tx.productionBatchNew.update({
+          where: { id },
+          data: { status: 'qc_failed' }
+        });
+
+        // Update extended table columns
+        await tx.$executeRawUnsafe(
+          `UPDATE "production_batches" SET qc_status = 'REJECTED', approval_status = 'QC_FAILED', quarantine_stock = 0 WHERE id = $1`,
+          id
+        );
+      }
 
       const qcParams = {
         texture: data.texture || 'Fail',
@@ -868,6 +1024,7 @@ const standardProductionController = require('./standardProduction.controller');
 router.get('/standard/moulds', authenticateToken, (req, res, next) => standardProductionController.getMoulds(req, res, next));
 router.get('/standard/raw-materials-catalog', authenticateToken, (req, res, next) => standardProductionController.getRawMaterialsCatalog(req, res, next));
 router.get('/standard/products-catalog', authenticateToken, (req, res, next) => standardProductionController.getProductsCatalog(req, res, next));
+router.get('/standard/serial-preview', authenticateToken, (req, res, next) => standardProductionController.getSerialPreview(req, res, next));
 router.post('/standard', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.createDraft(req, res, next));
 router.put('/standard/:id/draft', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDraft(req, res, next));
 router.post('/standard/:id/start', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.startProduction(req, res, next));
@@ -875,6 +1032,10 @@ router.put('/standard/:id/process', authenticateToken, roleMiddleware(['MAIN_MAS
 router.put('/standard/:id/allocations', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.saveAllocations(req, res, next));
 router.put('/standard/:id/stages', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateStages(req, res, next));
 router.post('/standard/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.completeProduction(req, res, next));
+router.post('/standard/:id/complete-day', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.completeDay(req, res, next));
+router.post('/standard/:id/days/start-next', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.startNextDay(req, res, next));
+router.put('/standard/:id/days/:dayId/costs', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDayCosts(req, res, next));
+router.put('/standard/:id/days/:dayId/update', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDayFull(req, res, next));
 router.post('/standard/:id/reopen', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.reopenProduction(req, res, next));
 router.post('/standard/:id/pause', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.pauseProduction(req, res, next));
 router.post('/standard/:id/resume', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.resumeProduction(req, res, next));

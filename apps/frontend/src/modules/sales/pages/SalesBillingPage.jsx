@@ -1330,6 +1330,11 @@ export default function SalesBillingPage() {
                                   <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold">
                                     ⚡ FEFO: {nextBatch.batchNo}
                                   </span>
+                                  {nextBatch.productSerialNo && (
+                                    <span className="block text-[8.5px] font-mono text-indigo-600 dark:text-indigo-400 font-bold truncate" title={nextBatch.productSerialNo}>
+                                      # {nextBatch.productSerialNo}
+                                    </span>
+                                  )}
                                   {isExpDate && (
                                     <span className="block text-[9px] font-mono text-slate-400">
                                       Exp: {isExpDate} ({nextBatch.remainingQty} pcs)

@@ -1093,11 +1093,18 @@ export default function StandardProductionListPage() {
                           <div className="font-black text-indigo-600 dark:text-indigo-400 text-xs">
                             {displayRefNo}
                           </div>
-                          {batchAnalysis?.isValid && (
-                            <span className="inline-block text-[9.5px] font-mono font-medium text-slate-400 dark:text-slate-500">
-                              PROD • #{batchAnalysis.sequenceFormatted}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                            {b.shortBatchCode && (
+                              <span className="inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                {b.shortBatchCode}
+                              </span>
+                            )}
+                            {batchAnalysis?.isValid && (
+                              <span className="inline-block text-[9.5px] font-mono font-medium text-slate-400 dark:text-slate-500">
+                                PROD • #{batchAnalysis.sequenceFormatted}
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* 2. Date & Shift */}
@@ -1159,27 +1166,35 @@ export default function StandardProductionListPage() {
 
                         {/* 6. Status */}
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                            b.status === 'Completed' || b.status === 'qc_passed'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                              : b.status === 'Lab Test In Progress'
-                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-pulse'
-                              : b.status === 'In Progress'
-                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                              : b.status === 'Paused'
-                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200'
-                              : b.status === 'qc_failed'
-                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                              : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                          }`}>
-                            {b.status === 'Lab Test In Progress'
-                              ? '🔬 In QC Queue'
-                              : b.status === 'qc_passed'
-                              ? 'Completed'
-                              : b.status === 'qc_failed'
-                              ? 'QC Failed'
-                              : b.status}
-                          </span>
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                              b.status === 'Completed' || b.status === 'qc_passed'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                : b.status === 'Lab Test In Progress'
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-pulse'
+                                : b.status === 'In Progress'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                : b.status === 'Paused'
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200'
+                                : b.status === 'qc_failed'
+                                ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                                : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                            }`}>
+                              {b.status === 'Lab Test In Progress'
+                                ? '🔬 In QC Queue'
+                                : b.status === 'qc_passed'
+                                ? 'Completed'
+                                : b.status === 'qc_failed'
+                                ? 'QC Failed'
+                                : b.status}
+                            </span>
+                            {(Number(b.completedDaysCount || 0) > 0 || Number(b.remainingMixBalanceMl || 0) > 1) && (
+                              <span className="text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                {Number(b.completedDaysCount || 0) > 0 ? `${b.completedDaysCount} Day${b.completedDaysCount > 1 ? 's' : ''} Done` : `Day ${b.activeDayNo || 1}`}
+                                {Number(b.remainingMixBalanceMl || 0) > 1 && !b.isFinalized ? ` • ${Math.round(b.remainingMixBalanceMl)} ml left` : ''}
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* 7 & 8. Grand Total & Cost/Unit */}
@@ -1243,25 +1258,25 @@ export default function StandardProductionListPage() {
                               </>
                             )}
 
-                            {b.status === 'In Progress' && (
+                            {(b.status === 'In Progress' || b.status === 'Paused') && (
                               <Button
                                 size="sm"
                                 onClick={() => handleOpenCockpit(b, 'STEPS', false)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-3 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
-                                title="Open Floor Execution Cockpit (Evaporation & Mould Math)"
+                                className={`${b.status === 'Paused' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl text-xs font-bold h-7 px-3 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0`}
+                                title={b.status === 'Paused' ? 'Resume Paused Production / Start Next Day or Edit Completed Day Costs' : 'Open Floor Execution Cockpit (Evaporation & Mould Math)'}
                               >
                                 <Sliders className="w-3 h-3 shrink-0" />
-                                <span>Floor Run</span>
+                                <span>{b.status === 'Paused' ? `Continue (Day ${(b.completedDaysCount || 0) + 1})` : 'Floor Run'}</span>
                               </Button>
                             )}
 
-                            {(b.status === 'Completed' || b.status === 'qc_passed') && (
+                            {(b.status === 'Completed' || b.status === 'qc_passed' || Number(b.completedDaysCount || 0) > 0) && (
                               <>
                                 <Button
                                   size="sm"
                                   onClick={() => handleOpenCleanSheet(b)}
                                   className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
-                                  title="Open Executive Clean Sheet, Yields, PO Raw Material Consumption & Cost Ledger"
+                                  title="Open Executive Clean Sheet, Day-by-Day Yields, PO Raw Material Consumption & Cost Ledger"
                                 >
                                   <FileText className="w-3 h-3 shrink-0" />
                                   Clean Sheet
@@ -1272,15 +1287,17 @@ export default function StandardProductionListPage() {
                                   size="sm"
                                   onClick={() => handleOpenLabelModal(b)}
                                   className="rounded-xl border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                                  title="Print GST Compliance & GS1 Product Label"
+                                  title="Print GST Compliance, Product Batch & 8-Digit Serial Label"
                                 >
                                   <Printer className="w-3 h-3 text-indigo-500 shrink-0" />
                                   GST Label
                                 </Button>
 
-                                <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
-                                  {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                                </span>
+                                {(b.status === 'Completed' || b.status === 'qc_passed') && (
+                                  <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
+                                    {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                                  </span>
+                                )}
                               </>
                             )}
 

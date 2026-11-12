@@ -172,15 +172,17 @@ class ItemSetupRepository {
 
   // Expense Category (Expense Master)
   async createExpenseCategory(data) {
+    const parsedGst = (data.defaultGstRate !== undefined && data.defaultGstRate !== null && data.defaultGstRate !== '')
+      ? parseFloat(data.defaultGstRate)
+      : 0;
     const formattedData = {
-      ...data,
-      name: data.name ? data.name.trim() : data.name,
-      code: data.code ? data.code.trim().toUpperCase() : undefined,
-      description: data.description ? data.description.trim() : null,
+      name: data.name ? String(data.name).trim() : data.name,
+      code: data.code && String(data.code).trim() ? String(data.code).trim().toUpperCase() : undefined,
+      description: data.description ? String(data.description).trim() : null,
       status: data.status || 'ACTIVE',
       expenseWithSupplier: Boolean(data.expenseWithSupplier),
-      defaultGstRate: (data.defaultGstRate !== undefined && data.defaultGstRate !== null && data.defaultGstRate !== '') ? parseFloat(data.defaultGstRate) : 0,
-      hsnSacCode: data.hsnSacCode ? data.hsnSacCode.trim() : null,
+      defaultGstRate: Number.isFinite(parsedGst) ? parsedGst : 0,
+      hsnSacCode: data.hsnSacCode && String(data.hsnSacCode).trim() ? String(data.hsnSacCode).trim() : null,
       expenseType: data.expenseType || 'INDIRECT'
     };
     return prisma.expenseCategory.create({ data: formattedData });
@@ -210,19 +212,21 @@ class ItemSetupRepository {
     });
   }
   async updateExpenseCategory(id, data) {
-    const { id: _, createdAt, updatedAt, expenses, _count, ...updateData } = data;
-    if (updateData.name) updateData.name = updateData.name.trim();
-    if (updateData.code) updateData.code = updateData.code.trim().toUpperCase();
-    if (updateData.description !== undefined) updateData.description = updateData.description ? updateData.description.trim() : null;
-    if (updateData.expenseWithSupplier !== undefined) updateData.expenseWithSupplier = Boolean(updateData.expenseWithSupplier);
-    if (updateData.defaultGstRate !== undefined && updateData.defaultGstRate !== null && updateData.defaultGstRate !== '') {
-      updateData.defaultGstRate = parseFloat(updateData.defaultGstRate);
+    const updateData = {};
+    if (data.name !== undefined) updateData.name = data.name ? String(data.name).trim() : data.name;
+    if (data.code !== undefined) updateData.code = data.code && String(data.code).trim() ? String(data.code).trim().toUpperCase() : null;
+    if (data.description !== undefined) updateData.description = data.description ? String(data.description).trim() : null;
+    if (data.status !== undefined) updateData.status = data.status || 'ACTIVE';
+    if (data.expenseWithSupplier !== undefined) updateData.expenseWithSupplier = Boolean(data.expenseWithSupplier);
+    if (data.defaultGstRate !== undefined) {
+      const parsed = (data.defaultGstRate !== null && data.defaultGstRate !== '') ? parseFloat(data.defaultGstRate) : 0;
+      updateData.defaultGstRate = Number.isFinite(parsed) ? parsed : 0;
     }
-    if (updateData.hsnSacCode !== undefined) {
-      updateData.hsnSacCode = updateData.hsnSacCode ? updateData.hsnSacCode.trim() : null;
+    if (data.hsnSacCode !== undefined) {
+      updateData.hsnSacCode = data.hsnSacCode && String(data.hsnSacCode).trim() ? String(data.hsnSacCode).trim() : null;
     }
-    if (updateData.expenseType !== undefined) {
-      updateData.expenseType = updateData.expenseType || 'INDIRECT';
+    if (data.expenseType !== undefined) {
+      updateData.expenseType = data.expenseType || 'INDIRECT';
     }
     return prisma.expenseCategory.update({ where: { id }, data: updateData });
   }

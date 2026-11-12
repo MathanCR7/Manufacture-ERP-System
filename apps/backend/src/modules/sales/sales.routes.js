@@ -50,11 +50,46 @@ const generateReturnReference = async (tx) => {
 
 // FIFO Allocation Helper Function
 const allocateFIFOStock = async (productId, quantity, tx) => {
-  // Find all QC-passed batches for this product ordered by expiry date (oldest first)
+  const allocations = [];
+  let remainingToAllocate = Number(quantity);
+  const coveredBatchIds = new Set();
+
+  // 1. Multi-Day / Multi-Product Sellable Stock Lots (FEFO order)
+  try {
+    const lots = await tx.$queryRawUnsafe(`
+      SELECT l.id AS lot_id, l.batch_id, l.product_batch_no, l.reference_no, l.remaining_qty
+      FROM finished_product_stock_lots l
+      LEFT JOIN production_batches pb ON pb.id = l.batch_id
+      WHERE l.product_id = $1
+        AND l.is_sellable = TRUE
+        AND l.remaining_qty > 0
+        AND pb.deleted_at IS NULL
+      ORDER BY l.expiry_date ASC NULLS LAST, l.created_at ASC;
+    `, productId);
+
+    for (const l of lots || []) {
+      coveredBatchIds.add(l.batch_id);
+      if (remainingToAllocate <= 0) break;
+      const avail = Number(l.remaining_qty || 0);
+      if (avail > 0) {
+        const allocateQty = Math.min(avail, remainingToAllocate);
+        allocations.push({
+          batchId: l.batch_id,
+          lotId: l.lot_id,
+          batchNo: l.product_batch_no,
+          quantity: allocateQty,
+          referenceNo: l.reference_no || l.product_batch_no
+        });
+        remainingToAllocate -= allocateQty;
+      }
+    }
+  } catch (_) {}
+
+  // 2. Fallback to legacy single-product QC-passed / Completed batches
   const batches = await tx.productionBatchNew.findMany({
     where: {
       productId,
-      status: 'qc_passed',
+      status: { in: ['qc_passed', 'Completed'] },
       deletedAt: null
     },
     orderBy: {
@@ -62,11 +97,9 @@ const allocateFIFOStock = async (productId, quantity, tx) => {
     }
   });
 
-  const allocations = [];
-  let remainingToAllocate = Number(quantity);
-
   for (const batch of batches) {
     if (remainingToAllocate <= 0) break;
+    if (coveredBatchIds.has(batch.id)) continue;
 
     // Calculate net stock in this batch
     const sumIn = await tx.productStockMovement.aggregate({
@@ -86,6 +119,8 @@ const allocateFIFOStock = async (productId, quantity, tx) => {
       const allocateQty = Math.min(batchAvailable, remainingToAllocate);
       allocations.push({
         batchId: batch.id,
+        lotId: null,
+        batchNo: batch.batchNo || batch.referenceNo,
         quantity: allocateQty,
         referenceNo: batch.referenceNo
       });
@@ -186,8 +221,16 @@ router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEA
         // Allocate using FIFO
         const allocations = await allocateFIFOStock(item.productId, item.quantity, tx);
 
-        // Record stock movements for each batch allocation
+        // Record stock movements & decrement lot/product counters for each allocation
         for (const alloc of allocations) {
+          if (alloc.lotId) {
+            await tx.$executeRawUnsafe(`
+              UPDATE finished_product_stock_lots
+              SET remaining_qty = GREATEST(0, remaining_qty - $1), updated_at = CURRENT_TIMESTAMP
+              WHERE id = $2::uuid;
+            `, Number(alloc.quantity || 0), alloc.lotId).catch(() => {});
+          }
+
           await tx.productStockMovement.create({
             data: {
               productId: item.productId,
@@ -195,7 +238,7 @@ router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEA
               type: 'order_allocation',
               quantity: alloc.quantity,
               direction: -1,
-              note: `POS sale checkout (Batch ${alloc.referenceNo})`,
+              note: `POS sale checkout (Batch ${alloc.batchNo || alloc.referenceNo})`,
               createdBy: req.user.id
             }
           });

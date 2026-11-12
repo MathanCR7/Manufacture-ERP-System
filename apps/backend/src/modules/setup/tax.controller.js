@@ -24,7 +24,7 @@ const getTaxSettingsData = async () => {
     if (prisma.companyDetails) {
       try {
         const details = await prisma.companyDetails.findFirst({
-          orderBy: { updatedAt: 'desc' }
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }]
         });
         if (details) {
           return {
@@ -53,7 +53,7 @@ const getTaxSettingsData = async () => {
 
     // 2. Direct PostgreSQL query fallback
     const rows = await prisma.$queryRawUnsafe(
-      'SELECT id, company_name, company_address, company_gstin, company_pan, company_mobile FROM company_details ORDER BY updated_at DESC LIMIT 1'
+      'SELECT id, company_name, company_address, company_gstin, company_pan, company_mobile FROM company_details ORDER BY updated_at DESC, id DESC LIMIT 1'
     );
     if (rows && rows.length > 0) {
       const r = rows[0];
@@ -108,7 +108,9 @@ class TaxController {
       // 1. Try Prisma model if available
       if (prisma.companyDetails) {
         try {
-          const existing = await prisma.companyDetails.findFirst();
+          const existing = await prisma.companyDetails.findFirst({
+            orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }]
+          });
           if (existing) {
             savedRecord = await prisma.companyDetails.update({
               where: { id: existing.id },
@@ -138,7 +140,7 @@ class TaxController {
 
       // 2. Direct PostgreSQL query fallback
       if (!savedRecord) {
-        const rows = await prisma.$queryRawUnsafe('SELECT id FROM company_details LIMIT 1');
+        const rows = await prisma.$queryRawUnsafe('SELECT id FROM company_details ORDER BY updated_at DESC, id DESC LIMIT 1');
         if (rows && rows.length > 0) {
           await prisma.$executeRawUnsafe(
             'UPDATE company_details SET company_name = $1, company_address = $2, company_gstin = $3, company_pan = $4, company_mobile = $5, updated_at = NOW() WHERE id = $6',

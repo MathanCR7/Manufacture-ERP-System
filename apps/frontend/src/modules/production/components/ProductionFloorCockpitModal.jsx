@@ -6,7 +6,8 @@ import {
   Plus, Trash2, ChevronRight, HardHat, FileSpreadsheet, Eye,
   DollarSign, TrendingDown, Package, HelpCircle, ArrowDownRight, Layers2,
   Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, ChevronLeft,
-  Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon, Zap, Users, Search
+  Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon, Zap, Users, Search,
+  Edit3, History
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,11 @@ import {
   formatCleanUom,
   isPackagingMaterial
 } from '../utils/productionCalculation';
+import {
+  formatDateToDDMMYY,
+  buildProductBatchNo,
+  formatProductSerialPreview
+} from '../utils/batchNumberUtil';
 import ProductionMouldPickerModal from './ProductionMouldPickerModal';
 import ProductionItemSearchModal from './ProductionItemSearchModal';
 import ProductionCleanReportView from './ProductionCleanReportView';
@@ -33,6 +39,10 @@ import { getProductionDraft } from '../services/productionDraftStore';
 const formatDateDMY = (dateVal) => {
   if (!dateVal) return 'dd-mm-yyyy';
   try {
+    if (typeof dateVal === 'string') {
+      const iso = dateVal.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+    }
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return String(dateVal).split('T')[0];
     const day = String(d.getDate()).padStart(2, '0');
@@ -187,21 +197,54 @@ function getCoverForMould(mouldCode, mouldName, modelNumber) {
   return getPackagingForMould(mouldCode, mouldName, modelNumber)?.cover || null;
 }
 
-function createPackagingItem(def, pieces, existing = null) {
+function createPackagingItem(def, pieces, existing = null, master = null) {
   const qty = pieces > 0 ? pieces : (Number(existing?.takenQty ?? existing?.qty) || 1);
-  const rate = Number(existing?.unitRate ?? def.rate ?? 0.25);
+  const rate = Number(master?.ratePerUnit || existing?.unitRate || def.rate || 0.25);
   const totalCost = Number((rate * qty).toFixed(2));
-  const rawLot = existing?.allocatedBatches?.[0]?.lotNumber || existing?.allocatedBatches?.[0]?.internalBatchNo || existing?.lotBatchNo || `BATCH-${def.code}-001`;
-  const cleanBatch = String(rawLot).replace(/^#+/, '');
-  const lotNo = `#${cleanBatch}`;
+  const isUuidStr = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
+
+  const existingRealBatches = Array.isArray(existing?.allocatedBatches)
+    ? existing.allocatedBatches.filter(b => b && (isUuidStr(b.batchId) || b.isManualOverride === true))
+    : [];
+
+  let allocatedBatches = [];
+  if (existingRealBatches.length > 0) {
+    allocatedBatches = existingRealBatches.map(b => ({
+      ...b,
+      allocatedQty: qty,
+      unitRate: Number(b.unitRate || rate),
+      allocatedAmount: Number((Number(b.unitRate || rate) * qty).toFixed(2))
+    }));
+  } else if (Array.isArray(master?.availableBatches) && master.availableBatches.length > 0) {
+    let rem = qty;
+    for (const lot of master.availableBatches) {
+      if (rem <= 0) break;
+      const avail = Number(lot.remainingQty ?? lot.availableQty ?? 0);
+      if (avail <= 0) continue;
+      const take = Math.min(avail, rem);
+      allocatedBatches.push({
+        batchId: lot.id,
+        lotNumber: lot.batchNo,
+        internalBatchNo: lot.batchNo,
+        allocatedQty: Number(take.toFixed(6)),
+        availableQty: avail,
+        remainingQty: Math.max(0, Number((avail - take).toFixed(6))),
+        expiryDate: lot.expiryDate || null,
+        unitRate: rate,
+        allocatedAmount: Number((take * rate).toFixed(2)),
+        uom: 'pcs'
+      });
+      rem = Number((rem - take).toFixed(6));
+    }
+  }
 
   return {
-    rmId: def.id,
-    rawMaterialId: def.id,
-    rmName: def.name,
-    rawMaterialName: def.name,
-    rmCode: def.code,
-    rawMaterialCode: def.code,
+    rmId: master?.id || def.id,
+    rawMaterialId: master?.id || def.id,
+    rmName: master?.printName || master?.name || def.name,
+    rawMaterialName: master?.printName || master?.name || def.name,
+    rmCode: master?.code || def.code,
+    rawMaterialCode: master?.code || def.code,
     uom: 'pcs',
     primaryUom: 'pcs',
     hasAlternateUom: false,
@@ -214,20 +257,8 @@ function createPackagingItem(def, pieces, existing = null) {
     addToMix: false,
     unitRate: rate,
     totalCost: totalCost,
-    currentStock: def.stock || 50000,
-    allocatedBatches: [
-      {
-        batchId: cleanBatch,
-        lotNumber: cleanBatch,
-        internalBatchNo: cleanBatch,
-        allocatedQty: qty,
-        remainingQty: Math.max(0, (def.stock || 50000) - qty),
-        expiryDate: '2028-12-31',
-        unitRate: rate,
-        allocatedAmount: totalCost,
-        uom: 'pcs'
-      }
-    ]
+    currentStock: Number(master?.currentStock ?? def.stock ?? 50000),
+    allocatedBatches
   };
 }
 
@@ -439,6 +470,29 @@ export default function ProductionFloorCockpitModal({
   const SUB_BATCH_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
   const currentSubRunLetter = SUB_BATCH_LETTERS[completedSubBatches.length] || `Run-${completedSubBatches.length + 1}`;
 
+  // Multi-Day Execution & Day-Wise Costing / Additive DDMMYY Batch & Serial State
+  const [daysHistory, setDaysHistory] = useState([]);
+  const [activeDayNo, setActiveDayNo] = useState(1);
+  const [liveActiveDayNo, setLiveActiveDayNo] = useState(1);
+  const [selectedDayNo, setSelectedDayNo] = useState(null);
+  const selectedDayNoRef = useRef(null);
+  const [dayProductionDate, setDayProductionDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [dayBatchCode, setDayBatchCode] = useState(() => formatDateToDDMMYY(new Date()));
+  const [dayBatchCodeCustomized, setDayBatchCodeCustomized] = useState(false);
+  const [baseRmDeducted, setBaseRmDeducted] = useState(false);
+  const [isFinalized, setIsFinalized] = useState(false);
+  const [serialPreviewMap, setSerialPreviewMap] = useState({});
+  const [resolvedCompanyPrefix, setResolvedCompanyPrefix] = useState('LEONEX');
+  const [savingCompletedDay, setSavingCompletedDay] = useState(false);
+  const [nextDayLoading, setNextDayLoading] = useState(false);
+  const [inspectingDay, setInspectingDay] = useState(null);
+
+  const currentDayRec = useMemo(() => {
+    return (Array.isArray(daysHistory) ? daysHistory : []).find(d => Number(d.dayNo) === Number(activeDayNo)) || null;
+  }, [daysHistory, activeDayNo]);
+  const isEditingCompletedDay = Boolean(currentDayRec && currentDayRec.status !== 'IN_PROGRESS');
+  const step1And2Locked = Boolean(isViewMode || Number(activeDayNo) !== 1);
+
   // Live Raw Material Masters (Synced from /api/production/standard/raw-materials-catalog or item setup)
   const [rawMaterialMasters, setRawMaterialMasters] = useState([]);
 
@@ -512,16 +566,28 @@ export default function ProductionFloorCockpitModal({
   }, [availableLots, selectedGrnFilter, lotSearchTerm]);
 
   const totalAllocatedInModal = useMemo(() => {
-    return Object.values(lotAllocations).reduce((sum, v) => sum + Number(v || 0), 0);
-  }, [lotAllocations]);
+    if (!Array.isArray(availableLots) || availableLots.length === 0) {
+      return Object.values(lotAllocations).reduce((sum, v) => sum + Number(v || 0), 0);
+    }
+    return Number(
+      availableLots.reduce((sum, lot, idx) => {
+        const lid = lot.id || lot.internalBatchNo || `lot-${idx}`;
+        const val = lotAllocations[lid] ?? lotAllocations[lot.id] ?? lotAllocations[lot.internalBatchNo] ?? 0;
+        return sum + Number(val || 0);
+      }, 0).toFixed(6)
+    );
+  }, [lotAllocations, availableLots]);
 
   // ── Fetch Master Data & Batch Details from /api/production/standard/:id ──
-  const fetchAllData = useCallback(async (forceReportMode = false) => {
+  const fetchAllData = useCallback(async (forceReportMode = false, overrideDayNo = undefined) => {
     if (!batchId) return;
     try {
       setLoading(true);
+      const targetDayNo = overrideDayNo !== undefined ? overrideDayNo : selectedDayNoRef.current;
       const [detailRes, mouldsRes, productsRes, rmCatalogRes] = await Promise.all([
-        api.get(`/production/standard/${batchId}`).catch(() => api.get(`/production/batches-redesign/${batchId}`)),
+        api.get(`/production/standard/${batchId}`, {
+          params: targetDayNo ? { dayNo: targetDayNo } : undefined
+        }).catch(() => api.get(`/production/batches-redesign/${batchId}`)),
         api.get('/production/standard/moulds?all=1').catch(() => api.get('/production/moulds')),
         api.get('/production/standard/products-catalog').catch(() => api.get('/products?limit=100')),
         api.get('/production/standard/raw-materials-catalog').catch(() => ({ data: { data: [] } }))
@@ -529,10 +595,30 @@ export default function ProductionFloorCockpitModal({
 
       const liveRmCatalog = Array.isArray(rmCatalogRes.data?.data) ? rmCatalogRes.data.data : (Array.isArray(rmCatalogRes.data) ? rmCatalogRes.data : []);
       setRawMaterialMasters(liveRmCatalog);
+      const findLiveMaster = (item) => {
+        if (!item || !liveRmCatalog.length) return null;
+        const targetId = item.rmId || item.rawMaterialId || item.id;
+        const targetCode = (item.rmCode || item.rawMaterialCode || item.code || '').trim().toLowerCase();
+        const targetName = (item.rmName || item.rawMaterialName || item.name || '').trim().toLowerCase();
+        return liveRmCatalog.find(m =>
+          (targetId && (m.id === targetId || m.rawMaterialId === targetId)) ||
+          (targetCode && m.code && m.code.toLowerCase() === targetCode) ||
+          (targetName && ((m.name && m.name.toLowerCase() === targetName) || (m.printName && m.printName.toLowerCase() === targetName)))
+        ) || null;
+      };
 
       const b = detailRes.data.batch || detailRes.data;
       setBatch(b);
-      setActualYieldPieces(Number(b.actualOutput || b.quantity || 2000));
+      const fetchedDays = Array.isArray(detailRes.data.days) ? detailRes.data.days : [];
+      const srvActiveDayNo = Math.max(1, Number(b.activeDayNo ?? b.active_day_no ?? 1));
+      const srvViewingDayNo = targetDayNo ? Number(targetDayNo) : Math.max(1, Number(b.viewingDayNo ?? srvActiveDayNo));
+      setLiveActiveDayNo(srvActiveDayNo);
+      const activeDayRecPre = fetchedDays.find(d => Number(d.dayNo) === srvViewingDayNo) || null;
+      if (fetchedDays.length > 0 && activeDayRecPre) {
+        setActualYieldPieces(Number(activeDayRecPre.totalOutputQty || 0));
+      } else {
+        setActualYieldPieces(Number(b.actualOutput || b.quantity || 2000));
+      }
       const batchFinished = b.status === 'Completed' || b.status === 'qc_passed' || String(b.status || '').toLowerCase().includes('finish') || String(b.status || '').toLowerCase().includes('complet');
       if (forceReportMode || initialViewMode === 'REPORT' || batchFinished) {
         setViewMode('REPORT');
@@ -625,6 +711,7 @@ export default function ProductionFloorCockpitModal({
             merged: line.merged !== undefined && line.merged !== null ? Boolean(line.merged) : true,
             unitRate,
             lotBatchNo: lotBatchNo || null,
+            expiryDate: line.lot_expiry_date || line.lotExpiryDate || allocatedBatches.find(ab => ab.expiryDate)?.expiryDate || null,
             availableBatches: line.available_batches || [],
             allocatedBatches
           };
@@ -710,10 +797,11 @@ export default function ProductionFloorCockpitModal({
             warehouseStock: rawStock,
             requiredQty: reqQty,
             takenQty,
-            evaporates: rm.evaporates !== undefined ? Boolean(rm.evaporates) : defaultEvap,
-            merged: rm.merged !== undefined ? Boolean(rm.merged) : true,
+            evaporates: u.evaporates !== undefined ? Boolean(u.evaporates) : defaultEvap,
+            merged: u.merged !== undefined ? Boolean(u.merged) : true,
             unitRate,
             lotBatchNo,
+            expiryDate: u.lot_expiry_date || u.lotExpiryDate || allocatedBatches.find(ab => ab.expiryDate)?.expiryDate || null,
             availableBatches: u.availableBatches || [],
             allocatedBatches
           };
@@ -784,6 +872,7 @@ export default function ProductionFloorCockpitModal({
             merged: true,
             unitRate: Number(rm.unitRate || rm.rate || 0),
             lotBatchNo,
+            expiryDate: rm.expiryDate || allocatedBatches.find(ab => ab.expiryDate)?.expiryDate || null,
             availableBatches: rm.allocatedBatches || [],
             allocatedBatches
           };
@@ -855,14 +944,74 @@ export default function ProductionFloorCockpitModal({
         setIsSlideMerged(true);
       }
 
-      // Allocations
-      const serverAllocs = detailRes.data.allocations || [];
+      // Multi-Day context FIRST so Steps 3, 4, and 5 isolate Day 2+ cleanly from Day 1
+      const completedDaysFromSrv = fetchedDays.filter(d => d.status !== 'IN_PROGRESS');
+      const activeDayRec = activeDayRecPre;
+      const isMultiDaySession = fetchedDays.length > 0;
+      const isFreshMultiDay = Boolean(
+        activeDayRec &&
+        activeDayRec.status === 'IN_PROGRESS' &&
+        (srvViewingDayNo > 1 || completedDaysFromSrv.length > 0)
+      );
+
+      setDaysHistory(fetchedDays);
+      setActiveDayNo(srvViewingDayNo);
+      setBaseRmDeducted(Boolean(b.baseRmDeducted ?? b.base_rm_deducted));
+      setIsFinalized(Boolean(b.isFinalized ?? b.is_finalized) || b.status === 'Completed' || b.status === 'qc_passed');
+      const effDayDate = activeDayRec?.productionDate
+        ? String(activeDayRec.productionDate).split('T')[0]
+        : (b.status === 'In Progress' || b.status === 'Paused' ? new Date().toISOString().split('T')[0] : (b.startDate ? String(b.startDate).split('T')[0] : new Date().toISOString().split('T')[0]));
+      setDayProductionDate(effDayDate);
+      const resolvedShortCode = activeDayRec?.dayBatchCode || b.shortBatchCode || b.short_batch_code || formatDateToDDMMYY(effDayDate);
+      setDayBatchCode(resolvedShortCode);
+      setDayBatchCodeCustomized(resolvedShortCode !== formatDateToDDMMYY(effDayDate));
+      if (detailRes.data.companyDetails?.companyPrefix) {
+        setResolvedCompanyPrefix(detailRes.data.companyDetails.companyPrefix);
+      }
+
+      // Allocations (strictly scoped to requested Day; fallback to activeDayRec.outputs when viewing a completed Day so existing products ALWAYS display)
+      const rawServerAllocs = Array.isArray(detailRes.data.allocations) ? detailRes.data.allocations : [];
+      const srvReturnedDayNo = Number(b.viewingDayNo ?? b.activeDayNo ?? b.active_day_no ?? 1);
+      const dayOutputsFallback = (activeDayRec && activeDayRec.status !== 'IN_PROGRESS' && Array.isArray(activeDayRec.outputs) && activeDayRec.outputs.length > 0)
+        ? activeDayRec.outputs.map(o => ({
+            seq: o.seq,
+            day_no: activeDayRec.dayNo,
+            product_id: o.productId,
+            product_name: o.productName,
+            product_code: o.productCode || 'FP',
+            product_unit: o.uom || 'pcs',
+            use_mould: Boolean(o.useMould),
+            bulkUom: o.bulkUom || o.uom || 'Liter',
+            mould_id: o.mouldId || null,
+            mould_code: o.mouldCode || '',
+            mould_name: o.mouldName || '',
+            capacity_ml: Number(o.capacityMl || 0),
+            cavities: Number(o.cavities || 1),
+            trays: Number(o.trays || 0),
+            waste_mode: o.wasteMode || 'PERCENT',
+            waste_value: Number(o.wasteValue || 0),
+            allocatedBaseMl: Number(o.allocatedBaseMl || 0),
+            mix_used_ml: Number(o.allocatedBaseMl || 0),
+            waste_ml: Number(o.wasteMl || 0),
+            good_pieces: Number(o.theoreticalQty || 0),
+            actualYield: Number(o.actualYield || 0),
+            rejectOutput: Number(o.rejectOutput || 0),
+            productBatchNo: o.productBatchNo || '',
+            productSerialNo: o.productSerialNo || '',
+            productRms: Array.isArray(o.productRms) ? o.productRms : []
+          }))
+        : [];
+      const serverAllocs = (rawServerAllocs.length > 0 && srvReturnedDayNo === srvViewingDayNo)
+        ? rawServerAllocs
+        : (dayOutputsFallback.length > 0 ? dayOutputsFallback : rawServerAllocs);
       let savedMAllocs = [];
-      try {
-        if (typeof b.mould_allocations === 'string') savedMAllocs = JSON.parse(b.mould_allocations || '[]');
-        else if (Array.isArray(b.mould_allocations)) savedMAllocs = b.mould_allocations;
-        else if (Array.isArray(b.mouldAllocations)) savedMAllocs = b.mouldAllocations;
-      } catch (_) {}
+      if (!isFreshMultiDay || serverAllocs.length > 0) {
+        try {
+          if (typeof b.mould_allocations === 'string') savedMAllocs = JSON.parse(b.mould_allocations || '[]');
+          else if (Array.isArray(b.mould_allocations)) savedMAllocs = b.mould_allocations;
+          else if (Array.isArray(b.mouldAllocations)) savedMAllocs = b.mouldAllocations;
+        } catch (_) {}
+      }
 
       if (serverAllocs.length > 0) {
         setAllocations(serverAllocs.map((a, idx) => {
@@ -918,36 +1067,42 @@ export default function ProductionFloorCockpitModal({
             const baseMl = Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0);
             const mixLimit = (cap > 0 && baseMl > 0) ? Math.floor(baseMl / cap) : 0;
             const trayLimit = (trays > 0 && cav > 0) ? (trays * cav) : 0;
-            let pieces = 0;
+            let pieces;
             if (mixLimit > 0 && trayLimit > 0) pieces = Math.min(mixLimit, trayLimit);
             else if (mixLimit > 0) pieces = mixLimit;
             else if (trayLimit > 0) pieces = trayLimit;
             else pieces = Number(a.goodPieces || a.good_pieces || cav || 1);
 
             if (stickDef) {
+              const stickMaster = findLiveMaster({ rmId: stickDef.id, rmCode: stickDef.code, rmName: stickDef.name });
               const stickIdx = productRms.findIndex(p => p.rmCode === stickDef.code || (isPackagingMaterial(p) && p.rmName && p.rmName.toLowerCase().includes('stick')));
               if (stickIdx >= 0) {
                 if (!productRms[stickIdx].takenQty || Number(productRms[stickIdx].takenQty) <= 0 || Number(productRms[stickIdx].takenQty) !== pieces) {
-                  productRms[stickIdx] = createPackagingItem(stickDef, pieces, productRms[stickIdx]);
+                  productRms[stickIdx] = createPackagingItem(stickDef, pieces, productRms[stickIdx], stickMaster);
                 }
               } else {
-                productRms.push(createPackagingItem(stickDef, pieces));
+                productRms.push(createPackagingItem(stickDef, pieces, null, stickMaster));
               }
             }
             if (coverDef) {
+              const coverMaster = findLiveMaster({ rmId: coverDef.id, rmCode: coverDef.code, rmName: coverDef.name });
               const coverIdx = productRms.findIndex(p => 
                 p.rmCode === coverDef.code || 
                 (isPackagingMaterial(p) && p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
               );
               if (coverIdx >= 0) {
                 if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0 || Number(productRms[coverIdx].takenQty) !== pieces) {
-                  productRms[coverIdx] = createPackagingItem(coverDef, pieces, productRms[coverIdx]);
+                  productRms[coverIdx] = createPackagingItem(coverDef, pieces, productRms[coverIdx], coverMaster);
                 }
               } else {
-                productRms.push(createPackagingItem(coverDef, pieces));
+                productRms.push(createPackagingItem(coverDef, pieces, null, coverMaster));
               }
             }
           }
+          const srvYields = Array.isArray(detailRes.data.productYields) ? detailRes.data.productYields : [];
+          const yieldMatch = srvYields.find(y => y.productId === (a.product_id || a.productId) || Number(y.seq) === Number(a.seq));
+          const resolvedActualYield = a.actualYield ?? a.actual_yield ?? yieldMatch?.actualGoodOutput ?? yieldMatch?.actualOutput ?? matched.actualYield;
+          const resolvedRejectOutput = Number(a.rejectOutput ?? a.reject_output ?? yieldMatch?.rejectOutput ?? matched.rejectOutput ?? 0);
           return {
             seq: a.seq || (idx + 1),
             productId: a.product_id || a.productId,
@@ -956,7 +1111,7 @@ export default function ProductionFloorCockpitModal({
             productUom: prodUom,
             useMould: a.use_mould !== undefined ? Boolean(a.use_mould) : (matched.useMould !== undefined ? Boolean(matched.useMould) : true),
             bulkUom: a.bulkUom || matched.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom),
-            allocatedBaseMl: Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0),
+            allocatedBaseMl: Number(a.allocatedBaseMl ?? a.allocated_base_ml ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0),
             mouldId: a.mould_id || a.mouldId || null,
             mouldCode: a.mould_code || a.mouldCode || '',
             mouldName: a.mould_name || a.mouldName || '',
@@ -965,11 +1120,20 @@ export default function ProductionFloorCockpitModal({
             trays: Number(a.trays || 0),
             wasteMode: a.waste_mode || a.wasteMode || 'PERCENT',
             wasteValue: Number(a.waste_value ?? a.wasteValue ?? 0),
+            actualYield: resolvedActualYield !== undefined && resolvedActualYield !== null ? resolvedActualYield : undefined,
+            rejectOutput: resolvedRejectOutput,
+            productBatchNo: a.productBatchNo || a.product_batch_no || matched.productBatchNo || '',
+            productBatchNoCustomized: Boolean(a.productBatchNo || a.product_batch_no || matched.productBatchNo),
+            productSerialNo: a.productSerialNo || a.product_serial_no || matched.productSerialNo || '',
             productRms
           };
         }));
+      } else if (srvViewingDayNo > 1 || completedDaysFromSrv.length > 0) {
+        // Day 2+ starts with an empty product queue — operator adds products cleanly without Day 1 bleed
+        setAllocations([]);
+        setSelectedStep3Index(0);
       } else {
-        // Initialize from batch planned products
+        // Initialize from batch planned products (Day 1 initial open only)
         let batchProds = Array.isArray(b.products) && b.products.length > 0 ? b.products : (b.selectedProducts || []);
         if (batchProds.length === 0 && b.product) {
           batchProds = [b.product];
@@ -994,52 +1158,95 @@ export default function ProductionFloorCockpitModal({
               trays: 0,
               wasteMode: 'PERCENT',
               wasteValue: 0,
+              productBatchNo: '',
+              productBatchNoCustomized: false,
+              productSerialNo: '',
               productRms: []
             };
           }));
+        } else {
+          setAllocations([]);
         }
       }
 
-      // Costing & Overhead Charges
+      // Costing & Overhead Charges (scoped strictly to active Day when multi-day)
       if (detailRes.data.costingSummary) {
         setCostingData(detailRes.data.costingSummary);
       }
-      const rawLabour = Number(b.labour_total_cost ?? detailRes.data.costingSummary?.labourCost ?? 0);
+      const rawLabour = activeDayRec
+        ? Number(activeDayRec.labourTotalCost || 0)
+        : Number(b.labour_total_cost ?? detailRes.data.costingSummary?.labourCost ?? 0);
       setLabourCost(rawLabour);
-      const rawEb = Number(b.eb_total_cost ?? detailRes.data.costingSummary?.utilityCost ?? 0);
+      const rawEb = activeDayRec
+        ? Number(activeDayRec.ebTotalCost || 0)
+        : Number(b.eb_total_cost ?? detailRes.data.costingSummary?.utilityCost ?? 0);
       setElectricityCost(rawEb);
-      if (b.eb_units_kwh) setEbEndReading(String(b.eb_units_kwh));
-      if (b.eb_rate_per_unit) setEbRatePerUnit(Number(b.eb_rate_per_unit));
 
-      // Overhead Cost & Live Company Details
-      if (b.overhead_amt || b.overheadAmt) {
-        setOverheadCost(Number(b.overhead_amt || b.overheadAmt));
-      } else if (detailRes.data.costingSummary?.overheadCost) {
-        setOverheadCost(Number(detailRes.data.costingSummary.overheadCost));
+      if (activeDayRec) {
+        setEbStartReading(activeDayRec.ebStartReading ? String(activeDayRec.ebStartReading) : '');
+        setEbEndReading(
+          activeDayRec.ebEndReading
+            ? String(activeDayRec.ebEndReading)
+            : (activeDayRec.ebUnitsKwh ? String(activeDayRec.ebUnitsKwh) : '')
+        );
+        setEbRatePerUnit(Number(activeDayRec.ebRatePerUnit || 8.5));
+        setOverheadCost(Number(activeDayRec.overheadAmt || 0));
       } else {
-        setOverheadCost(1069.12);
+        setEbStartReading('');
+        setEbEndReading(b.eb_units_kwh ? String(b.eb_units_kwh) : '');
+        setEbRatePerUnit(Number(b.eb_rate_per_unit || 8.5));
+        if (b.overhead_amt || b.overheadAmt) {
+          setOverheadCost(Number(b.overhead_amt || b.overheadAmt));
+        } else if (detailRes.data.costingSummary?.overheadCost) {
+          setOverheadCost(Number(detailRes.data.costingSummary.overheadCost));
+        } else {
+          setOverheadCost(1069.12);
+        }
       }
+
+      if (activeDayRec && Array.isArray(activeDayRec.outputs) && activeDayRec.outputs.length > 0) {
+        const nextLabMap = {};
+        activeDayRec.outputs.forEach(o => {
+          if (o.productId) nextLabMap[o.productId] = Number(o.allocatedLabourCost || 0);
+        });
+        setProductLabourMap(nextLabMap);
+      } else {
+        setProductLabourMap({});
+      }
+
       if (detailRes.data.companyDetails) {
         setCompanyDetails(detailRes.data.companyDetails);
       } else if (b.companyDetails) {
         setCompanyDetails(b.companyDetails);
       }
 
-      // Factory Timeline Stages & Product Stages Map
-      const stagesFromBatch = b.timeline_stages || b.timelineStages || detailRes.data.timelineStages;
-      const productStagesFromBatch = b.productStagesMap || detailRes.data.productStagesMap;
-      if (productStagesFromBatch && typeof productStagesFromBatch === 'object' && Object.keys(productStagesFromBatch).length > 0) {
-        setProductStagesMap(productStagesFromBatch);
-      } else if (stagesFromBatch && typeof stagesFromBatch === 'object' && !Array.isArray(stagesFromBatch) && stagesFromBatch.productStagesMap) {
-        setProductStagesMap(stagesFromBatch.productStagesMap);
-      }
-
-      if (Array.isArray(stagesFromBatch) && stagesFromBatch.length > 0) {
-        setTimelineStages(stagesFromBatch);
-      } else if (stagesFromBatch && typeof stagesFromBatch === 'object' && Array.isArray(stagesFromBatch.stages)) {
-        setTimelineStages(stagesFromBatch.stages);
+      // Factory Timeline Stages & Product Stages Map (never bleed Day 1 into Day 2+)
+      setSelectedProductStageTab('ALL');
+      if (isMultiDaySession && activeDayRec) {
+        const dayStages = Array.isArray(activeDayRec.timelineStages) ? activeDayRec.timelineStages : [];
+        const dayProdStages = (activeDayRec.productStagesMap && typeof activeDayRec.productStagesMap === 'object')
+          ? activeDayRec.productStagesMap
+          : {};
+        setProductStagesMap(dayProdStages);
+        setTimelineStages(dayStages.length > 0 ? dayStages : DEFAULT_FACTORY_STAGES);
       } else {
-        setTimelineStages(DEFAULT_FACTORY_STAGES);
+        const stagesFromBatch = detailRes.data.timelineStages || b.timeline_stages || b.timelineStages;
+        const productStagesFromBatch = detailRes.data.productStagesMap || b.productStagesMap;
+        if (productStagesFromBatch && typeof productStagesFromBatch === 'object' && Object.keys(productStagesFromBatch).length > 0) {
+          setProductStagesMap(productStagesFromBatch);
+        } else if (stagesFromBatch && typeof stagesFromBatch === 'object' && !Array.isArray(stagesFromBatch) && stagesFromBatch.productStagesMap) {
+          setProductStagesMap(stagesFromBatch.productStagesMap);
+        } else {
+          setProductStagesMap({});
+        }
+
+        if (Array.isArray(stagesFromBatch) && stagesFromBatch.length > 0) {
+          setTimelineStages(stagesFromBatch);
+        } else if (stagesFromBatch && typeof stagesFromBatch === 'object' && Array.isArray(stagesFromBatch.stages) && stagesFromBatch.stages.length > 0) {
+          setTimelineStages(stagesFromBatch.stages);
+        } else {
+          setTimelineStages(DEFAULT_FACTORY_STAGES);
+        }
       }
 
       // QC Lab Test Requirement (false = direct to stock, true = quarantine hold)
@@ -1051,21 +1258,44 @@ export default function ProductionFloorCockpitModal({
         setLabTestRequired(false);
       }
 
-      // Saved Product Yields from Step 5
-      const savedYields = b.product_yields || b.productYields || detailRes.data.productYields;
-      let parsedYields = [];
-      try {
-        if (typeof savedYields === 'string') parsedYields = JSON.parse(savedYields || '[]');
-        else if (Array.isArray(savedYields)) parsedYields = savedYields;
-      } catch (_) {}
-      if (parsedYields.length > 0) {
-        setProductYields(parsedYields);
-      }
-      if (b.actual_output || b.actualOutput || b.good_quantity || b.goodQuantity) {
-        setActualYieldPieces(Number(b.actual_output || b.actualOutput || b.good_quantity || b.goodQuantity));
-      }
-      if (b.note) {
-        setCompletionNotes(b.note);
+      // Saved Product Yields & Notes (strictly scoped to viewing Day on multi-day runs)
+      if (isMultiDaySession && activeDayRec) {
+        const srvYieldsList = (Array.isArray(detailRes.data.productYields) && srvReturnedDayNo === srvViewingDayNo)
+          ? detailRes.data.productYields
+          : [];
+        const dayYields = srvYieldsList.length > 0
+          ? srvYieldsList
+          : (Array.isArray(activeDayRec.outputs)
+              ? activeDayRec.outputs.map(o => ({
+                  seq: o.seq,
+                  productId: o.productId,
+                  productName: o.productName,
+                  productCode: o.productCode,
+                  uom: o.uom,
+                  allocatedBaseMl: Number(o.allocatedBaseMl || 0),
+                  calculatedYield: Number(o.theoreticalQty || o.actualYield || 0),
+                  actualGoodOutput: Number(o.actualYield || 0),
+                  actualOutput: Number(o.actualYield || 0),
+                  rejectOutput: Number(o.rejectOutput || 0),
+                  productBatchNo: o.productBatchNo,
+                  productSerialNo: o.productSerialNo
+                }))
+              : []);
+        setProductYields(dayYields);
+        setActualYieldPieces(Number(activeDayRec.totalOutputQty || 0));
+        setCompletionNotes(activeDayRec.notes || '');
+      } else {
+        const savedYields = detailRes.data.productYields || b.product_yields || b.productYields;
+        let parsedYields = [];
+        try {
+          if (typeof savedYields === 'string') parsedYields = JSON.parse(savedYields || '[]');
+          else if (Array.isArray(savedYields)) parsedYields = savedYields;
+        } catch (_) {}
+        setProductYields(parsedYields.length > 0 ? parsedYields : []);
+        if (b.actual_output || b.actualOutput || b.good_quantity || b.goodQuantity) {
+          setActualYieldPieces(Number(b.actual_output || b.actualOutput || b.good_quantity || b.goodQuantity));
+        }
+        setCompletionNotes(b.note || '');
       }
     } catch (err) {
       console.error('Failed to load standard production details:', err);
@@ -1077,9 +1307,11 @@ export default function ProductionFloorCockpitModal({
 
   useEffect(() => {
     if (isOpen) {
-      fetchAllData();
+      selectedDayNoRef.current = null;
+      setSelectedDayNo(null);
+      fetchAllData(false, null);
     }
-  }, [isOpen, fetchAllData]);
+  }, [isOpen, batchId, fetchAllData]);
 
   // ── CLIENT-SIDE SHARED MATH CALCULATION ──
   const liveEvaporationResult = useMemo(() => {
@@ -1102,8 +1334,8 @@ export default function ProductionFloorCockpitModal({
     return usedOnly.length > 0 ? usedOnly : rmRows;
   }, [isViewMode, rmRows]);
 
-  // Available mix for moulding allocation
-  const availableMixMl = useMemo(() => {
+  // Net evaporated tank mix & multi-day carry-forward accounting
+  const netBatchPostEvapMl = useMemo(() => {
     if (liveEvaporationResult.mixAfterEvapMl > 0) {
       return liveEvaporationResult.mixAfterEvapMl;
     }
@@ -1113,11 +1345,94 @@ export default function ProductionFloorCockpitModal({
     return 0;
   }, [liveEvaporationResult.mixAfterEvapMl, liveEvaporationResult.totalBeforeEvapMl]);
 
-  // Live sequential product mould allocation math
+  const hasOpenInProgressDay = useMemo(() => {
+    return (Array.isArray(daysHistory) ? daysHistory : []).some(d => d.status === 'IN_PROGRESS');
+  }, [daysHistory]);
+
+  const completedDaysList = useMemo(() => {
+    return (Array.isArray(daysHistory) ? daysHistory : []).filter(d => d.status !== 'IN_PROGRESS');
+  }, [daysHistory]);
+
+  const previousDaysAllocatedMl = useMemo(() => {
+    const completedBeforeActive = completedDaysList
+      .filter(d => Number(d.dayNo) < Number(activeDayNo))
+      .reduce((s, d) => s + Number(d.allocatedMixMl || 0), 0);
+    if (completedDaysList.length > 0) return round2(completedBeforeActive);
+    return round2(Number(batch?.previousDaysAllocatedMl || 0));
+  }, [completedDaysList, activeDayNo, batch?.previousDaysAllocatedMl]);
+
+  const totalCompletedDaysAllocatedMl = useMemo(() => {
+    return round2(completedDaysList.reduce((s, d) => s + Number(d.allocatedMixMl || 0), 0));
+  }, [completedDaysList]);
+
+  const remainingTankMixAfterCompletedMl = useMemo(() => {
+    return Math.max(0, round2(netBatchPostEvapMl - totalCompletedDaysAllocatedMl));
+  }, [netBatchPostEvapMl, totalCompletedDaysAllocatedMl]);
+
+  const awaitingNextDayStart = useMemo(() => {
+    return Boolean(
+      !isCompleted &&
+      !isEditingCompletedDay &&
+      completedDaysList.length > 0 &&
+      !hasOpenInProgressDay &&
+      remainingTankMixAfterCompletedMl > 1
+    );
+  }, [isCompleted, isEditingCompletedDay, completedDaysList.length, hasOpenInProgressDay, remainingTankMixAfterCompletedMl]);
+
+  const addDaysToIso = useCallback((isoDate, offsetDays = 1) => {
+    const base = isoDate && /^\d{4}-\d{2}-\d{2}/.test(isoDate) ? isoDate.slice(0, 10) : new Date().toISOString().split('T')[0];
+    const dt = new Date(`${base}T12:00:00Z`);
+    if (isNaN(dt.getTime())) return new Date().toISOString().split('T')[0];
+    dt.setUTCDate(dt.getUTCDate() + Number(offsetDays || 0));
+    return dt.toISOString().split('T')[0];
+  }, []);
+
+  const handleDayDateChange = useCallback((nextDate) => {
+    if (!nextDate) return;
+    const prevAutoCode = formatDateToDDMMYY(dayProductionDate);
+    setDayProductionDate(nextDate);
+    if (!dayBatchCodeCustomized || !dayBatchCode || dayBatchCode === prevAutoCode) {
+      setDayBatchCode(formatDateToDDMMYY(nextDate));
+      setDayBatchCodeCustomized(false);
+    }
+    setAllocations(prev => prev.map(a => a.productBatchNoCustomized ? a : { ...a, productBatchNo: '' }));
+  }, [dayProductionDate, dayBatchCode, dayBatchCodeCustomized]);
+
+  // Available mix opening balance for the currently active Day (Carry-Forward Tank Mix)
+  const availableMixMl = useMemo(() => {
+    return Math.max(0, round2(netBatchPostEvapMl - previousDaysAllocatedMl));
+  }, [netBatchPostEvapMl, previousDaysAllocatedMl]);
+
+  // Live serial preview fetch (per-product 8-digit sequence from Tax Settings company name)
+  const allocProductIdsKey = useMemo(() => {
+    return [...new Set((allocations || []).map(a => a.productId).filter(Boolean))].sort().join(',');
+  }, [allocations]);
+
+  useEffect(() => {
+    if (!isOpen || !allocProductIdsKey) return;
+    let active = true;
+    api.get('/production/standard/serial-preview', {
+      params: {
+        productIds: allocProductIdsKey,
+        dayBatchCode: dayBatchCode || formatDateToDDMMYY(dayProductionDate),
+        date: dayProductionDate
+      }
+    })
+      .then(res => {
+        if (!active || !res.data) return;
+        if (res.data.companyPrefix) setResolvedCompanyPrefix(res.data.companyPrefix);
+        if (res.data.products) setSerialPreviewMap(res.data.products);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isOpen, allocProductIdsKey, dayBatchCode, dayProductionDate]);
+
+  // Live sequential product mould allocation math (already scoped to active Day opening balance)
   const liveAllocationsResult = useMemo(() => {
     return calculateAllocations({
       availableMixMl,
       totalMixMl: availableMixMl,
+      previousDaysAllocatedMl: 0,
       allocations
     });
   }, [availableMixMl, allocations]);
@@ -1274,25 +1589,33 @@ export default function ProductionFloorCockpitModal({
   }, [rmRows]);
 
   const baseCostPerMl = useMemo(() => {
-    const postMl = liveEvaporationResult.mixAfterEvapMl > 0 ? liveEvaporationResult.mixAfterEvapMl : (liveEvaporationResult.totalBeforeEvapMl || 1);
+    const postMl = netBatchPostEvapMl > 0 ? netBatchPostEvapMl : (liveEvaporationResult.totalBeforeEvapMl || 1);
     return postMl > 0 ? (totalBaseMixCost / postMl) : 0;
-  }, [totalBaseMixCost, liveEvaporationResult.mixAfterEvapMl, liveEvaporationResult.totalBeforeEvapMl]);
+  }, [totalBaseMixCost, netBatchPostEvapMl, liveEvaporationResult.totalBeforeEvapMl]);
 
   const totalAllocatedBaseMl = useMemo(() => {
     return allocations.reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
   }, [allocations]);
 
   const unallocatedRemainingMl = useMemo(() => {
-    return availableMixMl - totalAllocatedBaseMl;
+    return round2(availableMixMl - totalAllocatedBaseMl);
   }, [availableMixMl, totalAllocatedBaseMl]);
+
+  const hasRemainingForNextDay = useMemo(() => {
+    return unallocatedRemainingMl > 1;
+  }, [unallocatedRemainingMl]);
 
   const totalProcessWasteMl = useMemo(() => {
     return liveAllocationsResult.allocations.reduce((sum, a) => sum + Number(a.wasteMl || 0), 0);
   }, [liveAllocationsResult.allocations]);
 
   const totalWastageMl = useMemo(() => {
+    // Carry-forward balance left for Day 2/3 is NOT treated as wastage unless entire production is finalized
+    if (!isFinalized && hasRemainingForNextDay) {
+      return totalProcessWasteMl;
+    }
     return Math.max(0, unallocatedRemainingMl) + totalProcessWasteMl;
-  }, [unallocatedRemainingMl, totalProcessWasteMl]);
+  }, [unallocatedRemainingMl, totalProcessWasteMl, isFinalized, hasRemainingForNextDay]);
 
   const totalWastageCost = useMemo(() => {
     return totalWastageMl * baseCostPerMl;
@@ -1393,6 +1716,27 @@ export default function ProductionFloorCockpitModal({
       }
       setAvailableLots(lots);
 
+      // Reconcile pre-saved allocations strictly against visible lots so stale/phantom keys never inflate allocated sum or zero out "Allocate Remaining"
+      const reconciledAllocMap = {};
+      const reconciledSupplierMap = {};
+      Object.entries(currentAllocMap).forEach(([rawKey, rawQty]) => {
+        const qtyVal = Number(rawQty || 0);
+        if (qtyVal <= 0) return;
+        const matchedLot = lots.find(l =>
+          String(l.id) === String(rawKey) ||
+          (l.internalBatchNo && String(l.internalBatchNo) === String(rawKey)) ||
+          (l.batchNumber && String(l.batchNumber) === String(rawKey))
+        );
+        if (matchedLot) {
+          const canonicalId = matchedLot.id || matchedLot.internalBatchNo;
+          const avail = Number(matchedLot.availableQty ?? matchedLot.netQty ?? qtyVal);
+          reconciledAllocMap[canonicalId] = Number(Math.min(avail, (reconciledAllocMap[canonicalId] || 0) + qtyVal).toFixed(6));
+          if (currentSupplierMap[rawKey]) {
+            reconciledSupplierMap[canonicalId] = currentSupplierMap[rawKey];
+          }
+        }
+      });
+
       // Resolve latest PO & continuing batch number
       const meta = metaRes?.data || null;
       let resolvedPo = meta?.latestPoNumber;
@@ -1431,8 +1775,8 @@ export default function ProductionFloorCockpitModal({
         unitRate: meta?.latestRate || defaultRate
       });
 
-      // Auto-allocate warehouse batch lots precisely matching required quantity if unallocated
-      let currentAllocSum = Object.values(currentAllocMap).reduce((s, v) => s + Number(v || 0), 0);
+      // Auto-allocate warehouse batch lots precisely matching required quantity if unallocated or mismatched after reconciliation
+      const currentAllocSum = Object.values(reconciledAllocMap).reduce((s, v) => s + Number(v || 0), 0);
       if (lots.length > 0 && reqQty > 0 && (currentAllocSum === 0 || Math.abs(currentAllocSum - reqQty) > 0.0001)) {
         let rem = reqQty;
         const autoAlloc = {};
@@ -1443,14 +1787,20 @@ export default function ProductionFloorCockpitModal({
         });
         for (const lot of sortedLots) {
           if (rem <= 0) break;
-          const avail = Number(lot.availableQty || lot.netQty || 0);
+          const lid = lot.id || lot.internalBatchNo;
+          const avail = Number(lot.availableQty ?? lot.netQty ?? 0);
           if (avail > 0) {
             const take = Math.min(avail, rem);
-            autoAlloc[lot.id] = Number(take.toFixed(6));
+            autoAlloc[lid] = Number(take.toFixed(6));
             rem = Number((rem - take).toFixed(6));
           }
         }
         setLotAllocations(autoAlloc);
+      } else {
+        setLotAllocations(reconciledAllocMap);
+      }
+      if (Object.keys(reconciledSupplierMap).length > 0) {
+        setManualSupplierBatches(reconciledSupplierMap);
       }
     } catch (err) {
       console.warn('Could not fetch warehouse lots for row:', err);
@@ -1504,18 +1854,28 @@ export default function ProductionFloorCockpitModal({
     const row = getActiveLotTargetRow();
     if (!row) return;
     const targetQty = Number(row.takenQty ?? row.requiredQty ?? row.qty ?? 0);
+    const foundLot = availableLots.find(l => String(l.id) === String(lotId) || String(l.internalBatchNo) === String(lotId));
 
-    const currentOtherTotal = Object.entries(lotAllocations).reduce((sum, [id, val]) => {
-      const foundLot = availableLots.find(l => String(l.id) === String(lotId) || String(l.internalBatchNo) === String(lotId));
-      if (id === lotId || (foundLot && (id === String(foundLot.id) || id === String(foundLot.internalBatchNo)))) {
-        return sum;
+    // Only sum allocations belonging to actually visible lots (excluding target lot)
+    const cleanAllocMap = {};
+    let currentOtherTotal = 0;
+    availableLots.forEach((lot, idx) => {
+      const lid = lot.id || lot.internalBatchNo || `lot-${idx}`;
+      const val = Number(lotAllocations[lid] ?? lotAllocations[lot.id] ?? lotAllocations[lot.internalBatchNo] ?? 0);
+      const isTarget =
+        String(lid) === String(lotId) ||
+        (foundLot && (String(lot.id) === String(foundLot.id) || (lot.internalBatchNo && String(lot.internalBatchNo) === String(foundLot.internalBatchNo))));
+      if (isTarget) return;
+      if (val > 0) {
+        cleanAllocMap[lid] = val;
+        currentOtherTotal += val;
       }
-      return sum + Number(val || 0);
-    }, 0);
+    });
 
     const remainingNeeded = Math.max(0, targetQty - currentOtherTotal);
     const toAlloc = Math.min(maxAvail, Number(remainingNeeded.toFixed(6)));
-    handleSetLotQty(lotId, toAlloc, maxAvail);
+    cleanAllocMap[lotId] = toAlloc;
+    setLotAllocations(cleanAllocMap);
   };
 
   const handleAutoAllocateFEFO = () => {
@@ -1657,18 +2017,11 @@ export default function ProductionFloorCockpitModal({
     let totalAllocQty = 0;
     let weightedAmountSum = 0;
 
-    for (const [lotId, qtyVal] of Object.entries(lotAllocations)) {
-      const qty = Number(qtyVal || 0);
+    for (let lIdx = 0; lIdx < availableLots.length; lIdx++) {
+      const lot = availableLots[lIdx];
+      const lid = lot.id || lot.internalBatchNo || `lot-${lIdx}`;
+      const qty = Number(lotAllocations[lid] ?? lotAllocations[lot.id] ?? lotAllocations[lot.internalBatchNo] ?? 0);
       if (qty <= 0) continue;
-
-      const lot = availableLots.find(l => String(l.id) === String(lotId) || String(l.internalBatchNo) === String(lotId)) || {
-        id: lotId,
-        internalBatchNo: overrideForm.internalBatchNo,
-        supplierBatchNo: manualSupplierBatches[lotId] || overrideForm.supplierBatchNo,
-        expiryDate: overrideForm.expiryDate,
-        poNumber: overrideForm.poNumber,
-        unitCost: overrideForm.unitRate
-      };
 
       totalAllocQty += qty;
 
@@ -1687,7 +2040,7 @@ export default function ProductionFloorCockpitModal({
         batchId: lot.id,
         lotNumber: lot.internalBatchNo || lot.batchNumber || `#LOT-${String(lot.id).slice(-4)}`,
         internalBatchNo: lot.internalBatchNo || lot.batchNumber || `#LOT-${String(lot.id).slice(-4)}`,
-        supplierBatchNo: lot.supplierBatchNo || 'BATCH-01',
+        supplierBatchNo: manualSupplierBatches[lid] || lot.supplierBatchNo || 'BATCH-01',
         expiryDate: lot.expiryDate || null,
         mfgDate: lot.mfgDate || null,
         grnNumber: lot.grnNumber || lot.grnRef || null,
@@ -1697,7 +2050,8 @@ export default function ProductionFloorCockpitModal({
         remainingQty: Number(Math.max(0, Number(lot.availableQty || lot.netQty || 0) - qty).toFixed(6)),
         unitRate,
         allocatedAmount: Number(lotAmount.toFixed(2)),
-        uom: row?.uom || 'units'
+        uom: row?.uom || 'units',
+        isManualOverride: Boolean(lot.isManualOverride || lot.source === 'MANUAL_OVERRIDE' || (lot.id && String(lot.id).startsWith('manual-')))
       });
     }
 
@@ -1863,24 +2217,14 @@ export default function ProductionFloorCockpitModal({
               lotNumber: topBatch.batchNo,
               internalBatchNo: topBatch.batchNo,
               allocatedQty: initialQty,
+              availableQty: Number(topBatch.remainingQty || topBatch.availableQty || initialQty),
               remainingQty: topBatch.remainingQty,
               expiryDate: topBatch.expiryDate,
               unitRate: unitRate,
               allocatedAmount: Number((initialQty * unitRate).toFixed(2)),
               uom: initialUom
             }
-          ] : [
-            {
-              batchId: `BATCH-${rm.code || 'RM'}-001`,
-              lotNumber: `#BATCH-${rm.code || 'RM'}-001`,
-              internalBatchNo: `#BATCH-${rm.code || 'RM'}-001`,
-              allocatedQty: initialQty,
-              remainingQty: Math.max(0, Number(rm.currentStock || 100) - initialQty),
-              unitRate: unitRate,
-              allocatedAmount: Number((initialQty * unitRate).toFixed(2)),
-              uom: initialUom
-            }
-          ]
+          ] : []
         };
       });
 
@@ -2189,20 +2533,27 @@ export default function ProductionFloorCockpitModal({
 
   // Factory Stages Persistence to PUT /api/production/standard/:id/stages
   const handleSaveFactoryStages = async () => {
+    if (isEditingCompletedDay && currentDayRec?.id) {
+      await handleSaveCompletedDayChanges();
+      return;
+    }
     try {
       setSavingStages(true);
       const ebKwh = ebEndReading && ebStartReading ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2))) : (Number(ebEndReading) || 0);
       await api.put(`/production/standard/${batchId}/stages`, { 
+        dayNo: activeDayNo,
         timelineStages,
         productStagesMap,
         labourTotalCost: labourCost,
         ebTotalCost: electricityCost,
+        ebStartReading: ebStartReading ? Number(ebStartReading) : null,
+        ebEndReading: ebEndReading ? Number(ebEndReading) : null,
         ebUnitsKwh: ebKwh,
         ebRatePerUnit,
         overheadCost
       });
       Swal.fire({
-        title: 'Factory Stages & Costs Saved!',
+        title: `Day ${activeDayNo} Stages & Operational Costs Saved!`,
         text: `Persisted factory stages, labour cost (₹${labourCost.toLocaleString('en-IN')}) and power cost (₹${electricityCost.toLocaleString('en-IN')}) to database.`,
         icon: 'success',
         timer: 1800
@@ -2220,9 +2571,10 @@ export default function ProductionFloorCockpitModal({
   const autoSaveStep = async (stepToSave) => {
     if (isCompleted || isViewMode) return;
     try {
-      if (stepToSave === 1 || stepToSave === 2) {
+      if ((stepToSave === 1 || stepToSave === 2) && Number(activeDayNo) === 1) {
         setSavingProcess(true);
         await api.put(`/production/standard/${batchId}/process`, {
+          dayNo: 1,
           mergeStage,
           evaporationPct,
           evaporationApplied,
@@ -2230,9 +2582,19 @@ export default function ProductionFloorCockpitModal({
           isSlideMerged: stepToSave === 2 ? true : isSlideMerged
         });
       } else if (stepToSave === 3) {
+        if (awaitingNextDayStart) return;
+        if (isEditingCompletedDay && currentDayRec?.id) {
+          if (liveAllocationsResult.isValid) {
+            await handleSaveCompletedDayChanges({ silent: true, includeBaseProcess: false });
+          }
+          return;
+        }
         setSavingAllocations(true);
         const validAllocations = allocations.filter(a => a.productId);
         await api.put(`/production/standard/${batchId}/allocations`, {
+          dayNo: activeDayNo,
+          dayBatchCode,
+          productionDate: dayProductionDate,
           allocations: validAllocations.map(a => ({
             seq: a.seq,
             productId: a.productId,
@@ -2256,18 +2618,33 @@ export default function ProductionFloorCockpitModal({
               ? a.actualYield
               : (liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0)),
             actualYield: (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '') ? Number(a.actualYield) : null,
+            productBatchNo: a.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate),
             productRms: Array.isArray(a.productRms) ? a.productRms : []
           }))
         });
       } else if (stepToSave === 4) {
+        if (awaitingNextDayStart) return;
+        if (isEditingCompletedDay && currentDayRec?.id) {
+          if (liveAllocationsResult.isValid) {
+            await handleSaveCompletedDayChanges({ silent: true, includeBaseProcess: false });
+          }
+          return;
+        }
         setSavingStages(true);
         const ebKwh = ebEndReading && ebStartReading ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2))) : (Number(ebEndReading) || 0);
         await api.put(`/production/standard/${batchId}/stages`, {
+          dayNo: activeDayNo,
+          dayBatchCode,
+          productionDate: dayProductionDate,
           timelineStages,
+          productStagesMap,
           labourTotalCost: labourCost,
           ebTotalCost: electricityCost,
+          ebStartReading: ebStartReading ? Number(ebStartReading) : null,
+          ebEndReading: ebEndReading ? Number(ebEndReading) : null,
           ebUnitsKwh: ebKwh,
-          ebRatePerUnit
+          ebRatePerUnit,
+          overheadCost
         });
       }
       if (onBatchUpdated) onBatchUpdated();
@@ -2447,24 +2824,35 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
-  // Save Section A & B via PUT /api/production/standard/:id/process
+  // Save Section A & B via PUT /api/production/standard/:id/process (Day 1 Only)
   const handleSaveProcess = async () => {
+    if (Number(activeDayNo) !== 1) {
+      Swal.fire({
+        title: 'Base Tank Locked on Day 2+',
+        text: 'Step 1 (Base Raw Materials) & Step 2 (Evaporation) can only be modified on Day 1. Switch to Day 1 using the header Day 1 chip to edit.',
+        icon: 'warning'
+      });
+      return;
+    }
     try {
       setSavingProcess(true);
       await api.put(`/production/standard/${batchId}/process`, {
+        dayNo: 1,
         mergeStage,
         evaporationPct,
         evaporationApplied,
+        isSlideMerged,
         lines: rmRows
       });
 
       Swal.fire({
-        title: 'Floor Process Saved!',
+        title: 'Day 1 Base Tank Process Saved!',
         text: 'Raw materials, batch allocations, merge volume and evaporation parameters persisted successfully.',
         icon: 'success',
         timer: 1800
       });
 
+      await fetchAllData(false, activeDayNo);
       if (onBatchUpdated) onBatchUpdated();
     } catch (err) {
       console.error('Failed to save process:', err);
@@ -2479,6 +2867,11 @@ export default function ProductionFloorCockpitModal({
   const handleUpdateAllocation = (index, field, value) => {
     setAllocations(prev => {
       const copy = [...prev];
+      if (!copy[index]) return prev;
+      if (field === 'productBatchNo') {
+        copy[index] = { ...copy[index], productBatchNo: value, productBatchNoCustomized: Boolean(String(value || '').trim()) };
+        return copy;
+      }
       const target = { ...copy[index], [field]: value };
 
       if (field === 'useMould') {
@@ -2617,12 +3010,14 @@ export default function ProductionFloorCockpitModal({
       const nonPkgPrms = (currentAlloc.productRms || []).filter(p => !isPackagingMaterial(p));
       const updatedPrms = [...nonPkgPrms];
 
-      // Automatically add Wooden Stick and Packing Cover ONLY on mould spec selection
+      // Automatically add Wooden Stick and Packing Cover ONLY on mould spec selection (matched to real FEFO warehouse stock)
       if (stickDef) {
-        updatedPrms.push(createPackagingItem(stickDef, packagingPieces));
+        const stickMaster = findMaster({ rmId: stickDef.id, rmCode: stickDef.code, rmName: stickDef.name });
+        updatedPrms.push(createPackagingItem(stickDef, packagingPieces, null, stickMaster));
       }
       if (coverDef) {
-        updatedPrms.push(createPackagingItem(coverDef, packagingPieces));
+        const coverMaster = findMaster({ rmId: coverDef.id, rmCode: coverDef.code, rmName: coverDef.name });
+        updatedPrms.push(createPackagingItem(coverDef, packagingPieces, null, coverMaster));
       }
 
       copy[targetAllocIndex] = {
@@ -2645,13 +3040,14 @@ export default function ProductionFloorCockpitModal({
   // Callback when user selects a single product from ProductionItemSearchModal
   const handleSelectProductForAlloc = (product) => {
     const nextSeq = allocations.length + 1;
+    const prodName = product.name || product.productName;
     setAllocations(prev => {
       const next = [
         ...prev,
         {
           seq: nextSeq,
           productId: product.id,
-          productName: product.name || product.productName,
+          productName: prodName,
           productCode: product.code || product.systemCode,
           useMould: true,
           bulkUom: 'Liter',
@@ -2665,6 +3061,9 @@ export default function ProductionFloorCockpitModal({
           goodPieces: 0,
           wasteMode: 'PERCENT',
           wasteValue: 0,
+          productBatchNo: '',
+          productBatchNoCustomized: false,
+          productSerialNo: serialPreviewMap[product.id]?.serialNo || '',
           productRms: [] // Empty until user selects Mould Spec!
         }
       ];
@@ -2681,8 +3080,28 @@ export default function ProductionFloorCockpitModal({
     });
   };
 
-  // Save Section C via PUT /api/production/standard/:id/allocations
+  // Save Section C via PUT /api/production/standard/:id/allocations (or completed Day update)
   const handleSaveAllocations = async () => {
+    if (isEditingCompletedDay && currentDayRec?.id) {
+      await handleSaveCompletedDayChanges();
+      return;
+    }
+    if (awaitingNextDayStart) {
+      const nextNo = completedDaysList.length + 1;
+      const ask = await Swal.fire({
+        title: `Day ${activeDayNo} Already Submitted`,
+        text: `Remaining tank mix (${formatIndian(remainingTankMixAfterCompletedMl)} ml) must be allocated under Day ${nextNo}. Start Day ${nextNo} now?`,
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: `Start Day ${nextNo}`,
+        confirmButtonColor: '#4f46e5'
+      });
+      if (ask.isConfirmed) {
+        await handleStartNextDay();
+      }
+      return;
+    }
+
     if (!isSlideMerged || availableMixMl <= 0) {
       Swal.fire({
         title: 'Mix Required',
@@ -2706,6 +3125,9 @@ export default function ProductionFloorCockpitModal({
       setSavingAllocations(true);
       const validAllocations = allocations.filter(a => a.productId);
       await api.put(`/production/standard/${batchId}/allocations`, {
+        dayNo: activeDayNo,
+        dayBatchCode,
+        productionDate: dayProductionDate,
         allocations: validAllocations.map(a => ({
           seq: a.seq,
           productId: a.productId,
@@ -2729,6 +3151,7 @@ export default function ProductionFloorCockpitModal({
             ? a.actualYield
             : (liveAllocationsResult.allocations.find(la => la.productId === a.productId)?.goodPieces ?? a.goodPieces ?? 0)),
           actualYield: (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '') ? Number(a.actualYield) : null,
+          productBatchNo: a.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate),
           productRms: Array.isArray(a.productRms) ? a.productRms : []
         }))
       });
@@ -2788,9 +3211,22 @@ export default function ProductionFloorCockpitModal({
   const handleResume = async () => {
     try {
       setActionLoading(true);
-      await api.post(`/production/standard/${batchId}/resume`);
-      Swal.fire({ title: 'Floor Run Resumed', text: 'Batch is now active In Progress.', icon: 'success', timer: 1500 });
-      fetchAllData();
+      const res = await api.post(`/production/standard/${batchId}/resume`, {
+        productionDate: dayProductionDate,
+        dayBatchCode
+      });
+      const startedNext = Boolean(res.data?.startedNextDay);
+      const startedDayNo = res.data?.data?.dayNo || (completedDaysList.length + 1);
+      Swal.fire({
+        title: startedNext ? `Day ${startedDayNo} Started!` : 'Floor Run Resumed',
+        text: res.data?.message || 'Batch is now active In Progress.',
+        icon: 'success',
+        timer: 1800
+      });
+      await fetchAllData();
+      if (startedNext) {
+        setActiveStep(3);
+      }
       if (onBatchUpdated) onBatchUpdated();
     } catch (err) {
       console.error('Failed to resume floor run:', err);
@@ -2924,9 +3360,17 @@ export default function ProductionFloorCockpitModal({
     });
   }, [liveAllocationsResult.allocations, allocations, productYields, batch, actualYieldPieces, availableProducts]);
 
-  const handleOpenYieldModal = () => {
-    const defaultYields = buildDefaultYields();
+  const [submitFinalizeFlag, setSubmitFinalizeFlag] = useState(false);
+
+  const handleOpenYieldModal = (finalizeNow = null) => {
+    const defaultYields = buildDefaultYields().map(p => ({
+      ...p,
+      productBatchNo:
+        allocations.find(a => a.productId === p.productId)?.productBatchNo ||
+        buildProductBatchNo(dayBatchCode, p.productName, dayProductionDate)
+    }));
     setProductYields(defaultYields);
+    setSubmitFinalizeFlag(finalizeNow !== null ? Boolean(finalizeNow) : !hasRemainingForNextDay);
     setShowYieldModal(true);
   };
 
@@ -2939,7 +3383,295 @@ export default function ProductionFloorCockpitModal({
     });
   };
 
-  const handleCompleteBatchSubmit = async (customYieldsList = null) => {
+  // Start next day (Day 2, Day 3...) when carry-forward mix remains in tank
+  const handleStartNextDay = async () => {
+    const nextDayNum = completedDaysList.length + 1;
+    const todayIso = new Date().toISOString().split('T')[0];
+    const lastCompletedDay = completedDaysList[completedDaysList.length - 1];
+    const lastCompletedIso = lastCompletedDay?.productionDate
+      ? String(lastCompletedDay.productionDate).split('T')[0]
+      : (dayProductionDate || todayIso);
+    const tomorrowIso = addDaysToIso(lastCompletedIso, 1);
+    const defaultDate = dayProductionDate && dayProductionDate !== lastCompletedIso ? dayProductionDate : todayIso;
+    const defaultCode = formatDateToDDMMYY(defaultDate);
+
+    const promptRes = await Swal.fire({
+      title: `Start Day ${nextDayNum} Production`,
+      html: `
+        <div style="text-align:left;font-size:12.5px;line-height:1.5;display:flex;flex-direction:column;gap:10px;">
+          <div style="padding:8px 10px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81;">
+            Carry-Forward Remaining Mix: <strong style="font-family:monospace;">${formatIndian(remainingTankMixAfterCompletedMl, 2)} ml</strong>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <label for="swal-next-day-date" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#475569;">Day ${nextDayNum} Date</label>
+              <button type="button" id="swal-btn-next-cal-day" style="font-size:10.5px;font-weight:700;color:#4f46e5;background:#e0e7ff;border:1px solid #a5b4fc;border-radius:4px;padding:1px 6px;cursor:pointer;">
+                Use Next Date (${tomorrowIso})
+              </button>
+            </div>
+            <input id="swal-next-day-date" type="date" value="${defaultDate}" class="swal2-input" style="margin:0;width:100%;height:36px;font-size:13px;font-family:monospace;" />
+          </div>
+          <div>
+            <label for="swal-next-day-code" style="display:block;font-weight:700;font-size:11px;text-transform:uppercase;color:#475569;margin-bottom:4px;">Day ${nextDayNum} Batch Code (DDMMYY or Custom)</label>
+            <input id="swal-next-day-code" type="text" value="${defaultCode}" class="swal2-input" style="margin:0;width:100%;height:36px;font-size:13px;font-family:monospace;text-transform:uppercase;font-weight:700;" />
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: `Start Day ${nextDayNum}`,
+      confirmButtonColor: '#4f46e5',
+      didOpen: () => {
+        const dateEl = document.getElementById('swal-next-day-date');
+        const codeEl = document.getElementById('swal-next-day-code');
+        const nextBtn = document.getElementById('swal-btn-next-cal-day');
+        let codeEditedManually = false;
+        const ddmmyyFromIso = (iso) => {
+          const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+          return m ? `${m[3]}${m[2]}${m[1].slice(-2)}` : defaultCode;
+        };
+        if (codeEl) {
+          codeEl.addEventListener('input', () => {
+            codeEl.value = codeEl.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+            codeEditedManually = true;
+          });
+        }
+        if (dateEl) {
+          dateEl.addEventListener('change', () => {
+            if (!codeEditedManually && codeEl && dateEl.value) {
+              codeEl.value = ddmmyyFromIso(dateEl.value);
+            }
+          });
+        }
+        if (nextBtn && dateEl) {
+          nextBtn.addEventListener('click', () => {
+            dateEl.value = tomorrowIso;
+            if (!codeEditedManually && codeEl) {
+              codeEl.value = ddmmyyFromIso(tomorrowIso);
+            }
+          });
+        }
+      },
+      preConfirm: () => {
+        const dateVal = document.getElementById('swal-next-day-date')?.value || todayIso;
+        const rawCode = document.getElementById('swal-next-day-code')?.value || '';
+        const cleanCode = rawCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+        return {
+          productionDate: dateVal,
+          dayBatchCode: cleanCode || formatDateToDDMMYY(dateVal)
+        };
+      }
+    });
+
+    if (!promptRes.isConfirmed || !promptRes.value) return;
+
+    try {
+      setNextDayLoading(true);
+      const { productionDate: chosenDate, dayBatchCode: chosenCode } = promptRes.value;
+      const res = await api.post(`/production/standard/${batchId}/days/start-next`, {
+        productionDate: chosenDate,
+        dayBatchCode: chosenCode
+      });
+      const started = res.data?.data || {};
+      // Immediately clear Day 1 working states so Day 2 workspace starts cleanly with carry-forward mix only
+      setAllocations([]);
+      setSelectedStep3Index(0);
+      setProductStagesMap({});
+      setTimelineStages(DEFAULT_FACTORY_STAGES);
+      setSelectedProductStageTab('ALL');
+      setProductYields([]);
+      setProductLabourMap({});
+      setLabourCost(0);
+      setElectricityCost(0);
+      setEbStartReading('');
+      setEbEndReading('');
+      setOverheadCost(0);
+      setActualYieldPieces(0);
+      setCompletionNotes('');
+      Swal.fire({
+        title: `Day ${started.dayNo || nextDayNum} Started!`,
+        html: `
+          <div style="text-align:left;font-size:13px;line-height:1.6;">
+            <p><strong>Carry-Forward Mix Ready:</strong> <span style="font-family:monospace;font-weight:bold;color:#4f46e5;">${formatIndian(started.openingMixMl || remainingTankMixAfterCompletedMl)} ml</span></p>
+            <p><strong>Day Date:</strong> <span style="font-family:monospace;font-weight:bold;">${chosenDate}</span></p>
+            <p><strong>Day Batch No (DDMMYY):</strong> <span style="font-family:monospace;font-weight:bold;">${started.dayBatchCode || chosenCode}</span></p>
+            <p>Allocate base mix, flavours, moulds, and Day ${started.dayNo || nextDayNum}&apos;s operational costs (EB &amp; Labour).</p>
+          </div>
+        `,
+        icon: 'success',
+        timer: 2200
+      });
+      selectedDayNoRef.current = null;
+      setSelectedDayNo(null);
+      await fetchAllData(false, null);
+      setActiveStep(3);
+      if (onBatchUpdated) onBatchUpdated();
+    } catch (err) {
+      console.error('Failed to start next day:', err);
+      Swal.fire({
+        title: 'Cannot Start Next Day',
+        text: err.response?.data?.error || 'Failed to open next production day.',
+        icon: 'error'
+      });
+    } finally {
+      setNextDayLoading(false);
+    }
+  };
+
+  // Switch the main 5-Step Cockpit directly into any Day (Day 1 edits Steps 1-5; Day 2+ edits Steps 3-5)
+  const handleSwitchDay = async (targetDayNo, preferredStep = null) => {
+    const num = Number(targetDayNo);
+    if (!Number.isFinite(num) || num < 1) return;
+    selectedDayNoRef.current = num;
+    setSelectedDayNo(num);
+    setSelectedStep3Index(0);
+    setInspectingDay(null);
+    setViewMode('STEPS');
+    await fetchAllData(false, num);
+    if (preferredStep) {
+      setActiveStep(preferredStep);
+    } else if (num === 1 && activeStep > 2) {
+      setActiveStep(1);
+    } else if (num > 1 && activeStep < 3) {
+      setActiveStep(3);
+    }
+  };
+
+  const handleReturnToActiveDay = async () => {
+    selectedDayNoRef.current = null;
+    setSelectedDayNo(null);
+    await fetchAllData(false, null);
+    setActiveStep(liveActiveDayNo > 1 ? 3 : activeStep);
+  };
+
+  // Save full edits for an already-completed Day (Day 1: optional Step 1 & 2 + Steps 3-5; Day 2+: Steps 3-5 only)
+  const handleSaveCompletedDayChanges = async ({ silent = false, includeBaseProcess = true } = {}) => {
+    if (!currentDayRec?.id || isViewMode) return;
+    if (!liveAllocationsResult.isValid) {
+      if (!silent) {
+        Swal.fire({
+          title: 'Cannot Save Day Changes',
+          text: liveAllocationsResult.errors.map(e => e.message).join('\n'),
+          icon: 'error'
+        });
+      }
+      return;
+    }
+
+    try {
+      setSavingCompletedDay(true);
+
+      // On Day 1 only, persist Step 1 Base Raw Materials & Step 2 Evaporation with net stock delta
+      if (includeBaseProcess && Number(activeDayNo) === 1) {
+        await api.put(`/production/standard/${batchId}/process`, {
+          dayNo: 1,
+          mergeStage,
+          evaporationPct,
+          evaporationApplied,
+          isSlideMerged,
+          lines: rmRows
+        });
+      }
+
+      const validAllocations = allocations.filter(a => a.productId);
+      const allocPayload = validAllocations.map((a, idx) => {
+        const computedRow = liveAllocationsResult.allocations[idx] || liveAllocationsResult.allocations.find(la => la.productId === a.productId) || {};
+        const fallbackGood = Number(computedRow.goodPieces ?? a.goodPieces ?? 0);
+        const effGood = (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '')
+          ? Number(a.actualYield)
+          : fallbackGood;
+        return {
+          seq: a.seq || idx + 1,
+          productId: a.productId,
+          productName: a.productName,
+          productCode: a.productCode,
+          productUom: (a.useMould !== false) ? 'pcs' : (a.bulkUom || a.productUom || 'Liter'),
+          useMould: (a.useMould !== false) && (Boolean(a.mouldId) || Number(a.capacityMl || 0) > 0),
+          bulkUom: a.bulkUom || a.productUom || 'Liter',
+          allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+          mouldId: a.mouldId || null,
+          mouldCode: a.mouldCode || '',
+          mouldName: a.mouldName || '',
+          capacityMl: Number(a.capacityMl || 0) > 0 ? Number(a.capacityMl) : (a.useMould !== false ? 50 : 0),
+          cavities: Number(a.cavities || 42),
+          trays: Number(a.trays || 0),
+          wasteMode: a.wasteMode || 'PERCENT',
+          wasteValue: Number(a.wasteValue ?? 0),
+          mixUsedMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+          wasteMl: Number(computedRow.wasteMl ?? a.wasteMl ?? 0),
+          goodPieces: fallbackGood,
+          actualYield: effGood,
+          rejectOutput: Number(a.rejectOutput || 0),
+          productBatchNo: a.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate),
+          productRms: Array.isArray(a.productRms) ? a.productRms : []
+        };
+      });
+
+      const productYieldsPayload = allocPayload.map((a, idx) => ({
+        seq: a.seq || idx + 1,
+        productId: a.productId,
+        productName: a.productName,
+        actualGoodOutput: Number(a.actualYield || 0),
+        actualOutput: Number(a.actualYield || 0),
+        rejectOutput: Number(a.rejectOutput || 0),
+        productBatchNo: a.productBatchNo
+      }));
+
+      const ebKwh = ebEndReading && ebStartReading
+        ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2)))
+        : (Number(ebEndReading) || 0);
+
+      await api.put(`/production/standard/${batchId}/days/${currentDayRec.id}/update`, {
+        productionDate: dayProductionDate || undefined,
+        dayBatchCode: dayBatchCode || undefined,
+        allocations: allocPayload,
+        timelineStages,
+        productStagesMap,
+        ebStartReading: ebStartReading !== '' ? Number(ebStartReading) : undefined,
+        ebEndReading: ebEndReading !== '' ? Number(ebEndReading) : undefined,
+        ebUnitsKwh: ebKwh,
+        ebRatePerUnit: Number(ebRatePerUnit || 8.5),
+        ebTotalCost: Number(electricityCost || 0),
+        labourTotalCost: Number(labourCost || 0),
+        overheadAmt: Number(overheadCost || 0),
+        productYields: productYieldsPayload,
+        notes: completionNotes
+      });
+
+      if (!silent) {
+        Swal.fire({
+          title: `Day ${activeDayNo} Changes Saved!`,
+          text: Number(activeDayNo) === 1
+            ? 'Day 1 base raw materials, evaporation, products, moulds, timeline, costs, and yields updated with stock & mix cascade.'
+            : `Day ${activeDayNo} products, moulds, timeline, operational costs, and actual yields updated without affecting Day 1.`,
+          icon: 'success',
+          timer: 1800
+        });
+      }
+
+      await fetchAllData(false, activeDayNo);
+      if (onBatchUpdated) onBatchUpdated();
+    } catch (err) {
+      console.error('Failed to update completed day:', err);
+      if (!silent) {
+        Swal.fire({
+          title: 'Update Failed',
+          text: err.response?.data?.error || err.response?.data?.message || `Failed to save Day ${activeDayNo} updates.`,
+          icon: 'error'
+        });
+      }
+    } finally {
+      setSavingCompletedDay(false);
+    }
+  };
+
+  // Multi-Day Complete Day / Push to Sales / Finish Entire Production handler
+  const handleCompleteDaySubmit = async (customYieldsList = null, { finalize = submitFinalizeFlag } = {}) => {
+    if (awaitingNextDayStart) {
+      setShowYieldModal(false);
+      await handleStartNextDay();
+      return;
+    }
+
     let yieldsList = Array.isArray(customYieldsList) && customYieldsList.length > 0
       ? customYieldsList
       : (Array.isArray(productYields) && productYields.length > 0 ? productYields : buildDefaultYields());
@@ -2949,25 +3681,45 @@ export default function ProductionFloorCockpitModal({
       : Number(actualYieldPieces || 0);
 
     if (totalActual <= 0) {
-      totalActual = Number(actualYieldPieces || batch?.quantity || 2000);
-      if (yieldsList.length > 0) {
-        yieldsList[0].actualGoodOutput = totalActual;
-      }
+      totalActual = Number(actualYieldPieces || batch?.quantity || 0);
     }
 
     try {
       setCompleting(true);
       const ebKwh = ebEndReading && ebStartReading ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2))) : (Number(ebEndReading) || 0);
-      const res = await api.post(`/production/standard/${batchId}/complete`, {
-        actualOutput: totalActual,
-        productOutputs: yieldsList.map(p => ({
-          productId: p.productId,
-          productName: p.productName,
-          actualOutput: Number(p.actualGoodOutput || 0),
-          actualGoodOutput: Number(p.actualGoodOutput || 0),
-          rejectOutput: Number(p.rejectOutput || 0),
-          uom: p.uom,
-          labourCost: Number(productLabourMap[p.productId] || 0)
+      const validAllocs = allocations.filter(a => a.productId);
+      const res = await api.post(`/production/standard/${batchId}/complete-day`, {
+        dayNo: activeDayNo,
+        dayBatchCode: dayBatchCode || formatDateToDDMMYY(dayProductionDate),
+        productionDate: dayProductionDate,
+        timelineStages,
+        productStagesMap,
+        ebStartReading: ebStartReading !== '' ? Number(ebStartReading) : null,
+        ebEndReading: ebEndReading !== '' ? Number(ebEndReading) : null,
+        ebUnitsKwh: ebKwh,
+        ebRatePerUnit: Number(ebRatePerUnit || 8.5),
+        ebTotalCost: Number(electricityCost || 0),
+        labourTotalCost: Number(labourCost || 0),
+        overheadAmt: Number(overheadCost || 0),
+        allocations: validAllocs.map(a => ({
+          seq: a.seq,
+          productId: a.productId,
+          productName: a.productName,
+          productCode: a.productCode,
+          productUom: (a.useMould !== false) ? 'pcs' : (a.bulkUom || a.productUom || 'Liter'),
+          useMould: (a.useMould !== false) && (Boolean(a.mouldId) || Number(a.capacityMl || 0) > 0),
+          bulkUom: a.bulkUom || a.productUom || 'Liter',
+          allocatedBaseMl: Number(a.allocatedBaseMl || a.mixUsedMl || 0),
+          mouldId: a.mouldId || null,
+          mouldCode: a.mouldCode || '',
+          mouldName: a.mouldName || '',
+          capacityMl: Number(a.capacityMl || 0) > 0 ? Number(a.capacityMl) : (a.useMould !== false ? 50 : 0),
+          cavities: Number(a.cavities || 42),
+          trays: Number(a.trays || 0),
+          wasteMode: a.wasteMode || 'PERCENT',
+          wasteValue: Number(a.wasteValue ?? 0),
+          productBatchNo: a.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate),
+          productRms: Array.isArray(a.productRms) ? a.productRms : []
         })),
         productYields: yieldsList.map(p => ({
           seq: p.seq,
@@ -2979,97 +3731,104 @@ export default function ProductionFloorCockpitModal({
           calculatedYield: Number(p.calculatedYield || 0),
           actualGoodOutput: Number(p.actualGoodOutput || 0),
           rejectOutput: Number(p.rejectOutput || 0),
-          labourCost: Number(productLabourMap[p.productId] || 0)
+          labourCost: Number(productLabourMap[p.productId] || 0),
+          productBatchNo:
+            p.productBatchNo ||
+            allocations.find(a => a.productId === p.productId)?.productBatchNo ||
+            buildProductBatchNo(dayBatchCode, p.productName, dayProductionDate)
         })),
-        productStagesMap,
-        timelineStages,
-        labourTotalCost: labourCost,
-        ebTotalCost: electricityCost,
-        ebUnitsKwh: ebKwh,
-        ebRatePerUnit,
-        overheadCost,
-        notes: completionNotes,
         labTestRequired,
-        subBatches: completedSubBatches
+        finalizeProduction: Boolean(finalize),
+        scrapRemainingMixAsWaste: Boolean(finalize && hasRemainingForNextDay),
+        notes: completionNotes
       });
 
-      const deductions = res.data?.rmDeductions || res.data?.data?.rmDeductions || [];
-      let deductHtml = '';
-      if (deductions.length > 0) {
-        deductHtml = `
-          <div style="margin-top: 10px; text-align: left; font-size: 11px; max-height: 140px; overflow-y: auto; background: #f8fafc; padding: 8px; border-radius: 8px; border: 1px solid #e2e8f0;">
-            <strong style="color: #4f46e5;">Raw Materials Consumed &amp; Deducted from Stock:</strong>
-            <ul style="padding-left: 16px; margin-top: 4px;">
-              ${deductions.map(l => `<li><strong>${l.name}</strong>: -${l.consumedQty} ${l.uom} deducted (Remaining Warehouse Stock: ${l.remainingWarehouseStock} ${l.uom})</li>`).join('')}
-            </ul>
-          </div>
-        `;
+      const d = res.data?.data || {};
+      const outRows = Array.isArray(d.outputs) ? d.outputs : [];
+      const remMl = Number(d.remainingMixMl || 0);
+      const isFin = Boolean(d.finalized);
+
+      const outputsHtml = outRows.map(o => `
+        <li style="margin-bottom:4px;">
+          <strong>${o.productName}</strong>: <span style="font-family:monospace;font-weight:bold;color:#059669;">${o.actualYield} ${o.uom}</span><br/>
+          <span style="font-size:11px;font-family:monospace;color:#4f46e5;">Batch: ${o.productBatchNo}</span> •
+          <span style="font-size:11px;font-family:monospace;color:#0f766e;">Serial: ${o.productSerialNo}</span>
+        </li>
+      `).join('');
+
+      setShowYieldModal(false);
+
+      if (!isFin && remMl > 1) {
+        const nextPrompt = await Swal.fire({
+          title: `Day ${d.dayNo || activeDayNo} Completed!`,
+          html: `
+            <div style="text-align:left;font-size:12.5px;line-height:1.55;">
+              <p><strong>Day Batch No:</strong> <span style="font-family:monospace;font-weight:bold;color:#4f46e5;">${d.dayBatchCode || dayBatchCode}</span></p>
+              <p><strong>Inventory Status:</strong> <span style="font-weight:bold;color:${d.pushedToSales ? '#059669' : '#d97706'};">${d.pushedToSales ? 'Pushed to Sellable Sales Stock ✓' : 'Held in QC Quarantine Queue'}</span></p>
+              <p><strong>Carry-Forward Mix Remaining:</strong> <span style="font-family:monospace;font-weight:bold;color:#7c3aed;">${formatIndian(remMl, 2)} ml</span></p>
+              ${outputsHtml ? `<ul style="margin-top:8px;padding-left:16px;list-style:disc;">${outputsHtml}</ul>` : ''}
+            </div>
+          `,
+          icon: 'success',
+          showCancelButton: true,
+          confirmButtonText: `Start Day ${(d.dayNo || activeDayNo) + 1} Now`,
+          cancelButtonText: 'Pause & Stay in Cockpit',
+          confirmButtonColor: '#4f46e5'
+        });
+
+        await fetchAllData();
+        if (onBatchUpdated) onBatchUpdated();
+
+        if (nextPrompt.isConfirmed) {
+          await handleStartNextDay();
+        }
+        return;
       }
 
-      const resolvedBatchNo = res.data?.data?.batchNo 
-        || res.data?.data?.referenceNo 
-        || batch?.batch_no 
-        || batch?.reference_no 
-        || batch?.batchNo 
-        || batch?.referenceNo 
-        || 'PROD-CURRENT';
-
       await Swal.fire({
-        title: 'Production Run Finalized!',
+        title: 'Entire Production Finished!',
         html: `
-          <div style="text-align: left; font-size: 13px; line-height: 1.6;">
-            <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${resolvedBatchNo}</span></p>
-            <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${totalActual} items</span></p>
-            <p><strong>Status:</strong> <span style="font-weight: bold; color: #047857;">Completed</span></p>
-            <p><strong>Lab Test Status:</strong> <span style="font-weight: bold; color: ${labTestRequired ? '#d97706' : '#047857'};">${labTestRequired ? 'Sent to QC Quarantine' : 'Directly added to Available Sellable Stock'}</span></p>
-            ${deductHtml}
+          <div style="text-align:left;font-size:12.5px;line-height:1.55;">
+            <p><strong>Day ${d.dayNo || activeDayNo} Batch No:</strong> <span style="font-family:monospace;font-weight:bold;color:#4f46e5;">${d.dayBatchCode || dayBatchCode}</span></p>
+            <p><strong>Total Day Output:</strong> <span style="font-family:monospace;font-weight:bold;color:#059669;">${totalActual} units</span></p>
+            <p><strong>Inventory Status:</strong> <span style="font-weight:bold;color:${d.pushedToSales ? '#059669' : '#d97706'};">${d.pushedToSales ? 'Directly Added to Sellable Sales Stock ✓' : 'Sent to QC Quarantine'}</span></p>
+            ${outputsHtml ? `<ul style="margin-top:8px;padding-left:16px;list-style:disc;">${outputsHtml}</ul>` : ''}
           </div>
         `,
         icon: 'success',
         confirmButtonText: 'OK'
       });
 
-      setShowYieldModal(false);
-      // Close the cockpit modal and redirect directly to list page with refreshed Completed status
-      if (onClose) {
-        try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
-      } else if (onBatchUpdated) {
-        try { onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
-      }
+      await fetchAllData();
+      if (onBatchUpdated) onBatchUpdated();
+      if (onClose) onClose();
     } catch (err) {
-      if (err.response?.status === 409 || err.response?.data?.error?.includes('already completed')) {
-        const resolvedBatchNo = batch?.batch_no || batch?.reference_no || batch?.batchNo || batch?.referenceNo || 'PROD-CURRENT';
-        setShowYieldModal(false);
-        await Swal.fire({
-          title: 'Production Run Finalized!',
-          html: `
-            <div style="text-align: left; font-size: 13px; line-height: 1.6;">
-              <p><strong>Batch No:</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${resolvedBatchNo}</span></p>
-              <p><strong>Total Yield:</strong> <span style="font-family: monospace; font-weight: bold; color: #10b981;">${totalActual} items</span></p>
-              <p><strong>Status:</strong> <span style="font-weight: bold; color: #047857;">Completed</span></p>
-            </div>
-          `,
-          icon: 'success',
-          confirmButtonText: 'OK'
-        });
-        if (onClose) {
-          try { onClose(); } catch (e) { console.warn('onClose callback warning:', e); }
-        } else if (onBatchUpdated) {
-          try { onBatchUpdated(); } catch (e) { console.warn('onBatchUpdated callback warning:', e); }
-        }
-        return;
-      }
-      console.error('Failed to complete batch:', err);
-      Swal.fire({ title: 'Error', text: err.response?.data?.error || 'Failed to complete production run.', icon: 'error' });
+      console.error('Failed to complete production day:', err);
+      Swal.fire({
+        title: 'Error',
+        text: err.response?.data?.error || 'Failed to complete day production run.',
+        icon: 'error'
+      });
     } finally {
       setCompleting(false);
     }
   };
 
+  const handleCompleteBatchSubmit = async (customYieldsList = null) => {
+    await handleCompleteDaySubmit(customYieldsList, { finalize: submitFinalizeFlag });
+  };
+
   const handleFinalizeEntireProductionClick = async () => {
-    const defaultYields = buildDefaultYields();
+    const finalizeNow = !hasRemainingForNextDay;
+    const defaultYields = buildDefaultYields().map(p => ({
+      ...p,
+      productBatchNo:
+        allocations.find(a => a.productId === p.productId)?.productBatchNo ||
+        buildProductBatchNo(dayBatchCode, p.productName, dayProductionDate)
+    }));
     setProductYields(defaultYields);
-    await handleCompleteBatchSubmit(defaultYields);
+    setSubmitFinalizeFlag(finalizeNow);
+    await handleCompleteDaySubmit(defaultYields, { finalize: finalizeNow });
   };
 
   // ── SAP FIORI HORIZON MESSAGE POPOVER VALIDATION ISSUES ──
@@ -3256,7 +4015,7 @@ export default function ProductionFloorCockpitModal({
                 <span className="hidden sm:inline">Floor Execution</span>
                 <span className="sm:hidden">Steps</span>
               </button>
-              {isCompleted && (
+              {(isCompleted || completedDaysList.length > 0) && (
                 <button
                   type="button"
                   onClick={() => setViewMode('REPORT')}
@@ -3307,7 +4066,7 @@ export default function ProductionFloorCockpitModal({
         </div>
 
         {/* ── 2. OBJECT PAGE HEADER (S/4HANA FIORI HORIZON OBJECT HEADER - ULTRA COMPACT) ── */}
-        <div className="px-3 py-1 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0 transition-colors">
+        <div className="px-3 py-1 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0 transition-colors flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             <h1 className="text-xs sm:text-[13px] font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-1 shrink-0">
               <span>Production Order</span>
@@ -3315,6 +4074,90 @@ export default function ProductionFloorCockpitModal({
                 {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
               </span>
             </h1>
+
+            {/* Multi-Day Active Day Pill */}
+            <span className="text-[9.5px] font-mono font-black px-1.5 py-0.2 rounded border bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-700 shrink-0">
+              DAY {activeDayNo}
+            </span>
+
+            {/* Editable Day Date (Manual override for testing/backdating without waiting 1 calendar day) */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
+              <span className="text-[8.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Day Date:</span>
+              {isViewMode || isCompleted || awaitingNextDayStart ? (
+                <span className="font-mono text-[10px] font-bold text-slate-700 dark:text-slate-200">
+                  {formatDateDMY(dayProductionDate)}
+                </span>
+              ) : (
+                <input
+                  type="date"
+                  value={dayProductionDate || ''}
+                  onChange={(e) => handleDayDateChange(e.target.value)}
+                  title="Editable Day Production Date (change manually anytime before completing the day)"
+                  className="bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded px-1 py-0 text-[10px] font-mono font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              )}
+            </div>
+
+            {/* Editable Day Batch No (DDMMYY - additive beside reference_no) */}
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
+              <span className="text-[8.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Day Batch:</span>
+              {isViewMode || isCompleted || awaitingNextDayStart ? (
+                <span className="font-mono text-[10px] font-black text-indigo-700 dark:text-indigo-300">
+                  {dayBatchCode}
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  value={dayBatchCode}
+                  onChange={(e) => {
+                    const clean = e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+                    setDayBatchCode(clean);
+                    setDayBatchCodeCustomized(true);
+                    setAllocations(prev => prev.map(a => a.productBatchNoCustomized ? a : { ...a, productBatchNo: '' }));
+                  }}
+                  title="Editable Day Batch Code (DDMMYY auto-fetched from Day Date, manually editable)"
+                  className="w-16 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded px-1 py-0 text-[10px] font-mono font-black text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              )}
+            </div>
+
+            {/* Completed Days Chips (Click to Load & Edit Day 1..N directly inside Cockpit Steps) */}
+            {completedDaysList.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap shrink-0">
+                {completedDaysList.map(d => {
+                  const isCurrentlyLoaded = Number(activeDayNo) === Number(d.dayNo);
+                  return (
+                    <button
+                      key={`hdr-day-${d.id}`}
+                      type="button"
+                      onClick={() => handleSwitchDay(d.dayNo)}
+                      title={`Day ${d.dayNo} (${d.dayBatchCode}) • Yield: ${d.totalOutputQty}${canViewCost ? ` • EB: ₹${d.ebTotalCost} • Labour: ₹${d.labourTotalCost}` : ''} — Click to load & edit Day ${d.dayNo} inside Cockpit`}
+                      className={`inline-flex items-center gap-1 text-[9.5px] font-mono font-bold px-2 py-0.5 rounded border cursor-pointer transition-colors ${
+                        isCurrentlyLoaded
+                          ? 'bg-indigo-600 text-white border-indigo-700 ring-2 ring-indigo-400/50 shadow-xs'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:hover:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-700'
+                      }`}
+                    >
+                      <CheckCircle2 className={`w-2.5 h-2.5 shrink-0 ${isCurrentlyLoaded ? 'text-white' : 'text-emerald-600'}`} />
+                      <span>{isCurrentlyLoaded ? `Editing Day ${d.dayNo}` : `Edit Day ${d.dayNo}`}</span>
+                      <span className={isCurrentlyLoaded ? 'text-indigo-100' : 'text-slate-500 dark:text-slate-400'}>({d.dayBatchCode})</span>
+                      {!isCurrentlyLoaded && <Edit3 className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
+                    </button>
+                  );
+                })}
+                {(selectedDayNo !== null && Number(selectedDayNo) !== Number(liveActiveDayNo)) && (
+                  <button
+                    type="button"
+                    onClick={handleReturnToActiveDay}
+                    className="inline-flex items-center gap-1 text-[9.5px] font-mono font-black px-2 py-0.5 rounded border bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700 cursor-pointer"
+                    title={`Return to active Day ${liveActiveDayNo}`}
+                  >
+                    <ChevronLeft className="w-2.5 h-2.5" />
+                    <span>Back to Day {liveActiveDayNo}</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Status Chip */}
             <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-full border flex items-center gap-1 shrink-0 ${
@@ -3345,7 +4188,7 @@ export default function ProductionFloorCockpitModal({
               <span>•</span>
               <span>Shift: <strong className="text-slate-700 dark:text-slate-300">{batch?.shift || 'Morning'}</strong></span>
               <span>•</span>
-              <span>Date: <strong className="font-mono text-slate-700 dark:text-slate-300">{batch?.startDate ? formatDateDMY(batch.startDate) : formatDateDMY(new Date())}</strong></span>
+              <span>Date: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatDateDMY(dayProductionDate || batch?.startDate)}</strong></span>
               <span>•</span>
               <span>Operator: <strong className="text-slate-700 dark:text-slate-300">{currentUser?.name || 'Supervisor'}</strong></span>
             </div>
@@ -3353,6 +4196,20 @@ export default function ProductionFloorCockpitModal({
 
           {/* Header Action Buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Start Next Day Quick Action when Day 1 completed & carry-forward mix remains */}
+            {awaitingNextDayStart && !isViewMode && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={nextDayLoading}
+                onClick={handleStartNextDay}
+                className="h-5.5 px-2.5 text-[10px] font-extrabold rounded bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 shadow-xs cursor-pointer animate-pulse"
+                title={`Start Day ${completedDaysList.length + 1} using remaining ${formatIndian(remainingTankMixAfterCompletedMl, 2)} ml carry-forward tank mix`}
+              >
+                {nextDayLoading ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                <span>Start Day {completedDaysList.length + 1} ({formatIndian(remainingTankMixAfterCompletedMl)} ml left)</span>
+              </Button>
+            )}
             {isViewMode && (
               <span className="text-[9.5px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-700">
                 READ-ONLY VIEW
@@ -3609,15 +4466,15 @@ export default function ProductionFloorCockpitModal({
               batch={batch}
               costingData={{
                 ...costingData,
-                labourCost: labourCost || costingData?.labourCost || 0,
-                utilityCost: electricityCost || costingData?.utilityCost || 0,
-                overheadCost: overheadCost || costingData?.overheadCost || 1069.12,
-                totalProductionCost: (
+                labourCost: costingData?.labourCost ?? labourCost ?? 0,
+                utilityCost: costingData?.utilityCost ?? electricityCost ?? 0,
+                overheadCost: costingData?.overheadCost ?? overheadCost ?? 0,
+                totalProductionCost: costingData?.totalProductionCost ?? (
                   (costingData?.totalMaterialCost ?? totalBaseMixCost) +
                   (costingData?.totalWastageCost ?? totalWastageCost) +
                   (labourCost || 0) +
                   (electricityCost || 0) +
-                  (overheadCost || 1069.12)
+                  (overheadCost || 0)
                 )
               }}
               allocations={activeAllocs}
@@ -3631,16 +4488,123 @@ export default function ProductionFloorCockpitModal({
               labTestRequired={labTestRequired}
               canViewCost={canViewCost}
               companyDetails={companyDetails}
+              daysHistory={daysHistory}
+              onEditDayCosts={(dayObj) => handleSwitchDay(dayObj?.dayNo || 1, 4)}
+              onRefreshBatch={fetchAllData}
               onReopen={!isViewMode ? handleReopenProduction : null}
               onSwitchToSteps={() => setViewMode('STEPS')}
               onClose={onClose}
             />
           ) : (
             <>
+              {/* ── EDITING COMPLETED DAY BANNER (IN-COCKPIT FULL EDITING FOR DAY 1 vs DAY 2+) ── */}
+              {isEditingCompletedDay && (
+                <div className="p-2 px-3 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-gradient-to-r from-indigo-50 via-blue-50 to-emerald-50 dark:from-indigo-950/60 dark:via-blue-950/40 dark:to-emerald-950/40 flex items-center justify-between flex-wrap gap-2 shadow-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Edit3 className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                        <span>Editing Completed Day {activeDayNo} ({dayBatchCode})</span>
+                        <span className={`text-[9.5px] font-mono px-1.5 py-0.2 rounded border ${
+                          Number(activeDayNo) === 1
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-300'
+                            : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-300'
+                        }`}>
+                          {Number(activeDayNo) === 1
+                            ? 'Full Edit: Base RM & Evap (Steps 1-2) + Products/Moulds/Timeline/Yield (Steps 3-5)'
+                            : 'Base RM & Evap Locked • Edit Products, Moulds, Timeline, Costs & Yield (Steps 3-5)'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!isViewMode && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={savingCompletedDay}
+                        onClick={() => handleSaveCompletedDayChanges()}
+                        className="h-6.5 px-2.5 text-[10.5px] font-extrabold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer flex items-center gap-1"
+                      >
+                        {savingCompletedDay ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        <span>Save Day {activeDayNo} Changes</span>
+                      </Button>
+                    )}
+                    {Number(activeDayNo) !== Number(liveActiveDayNo) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleReturnToActiveDay}
+                        className="h-6.5 px-2 text-[10.5px] font-bold rounded border-slate-300 dark:border-slate-700 cursor-pointer flex items-center gap-1"
+                      >
+                        <ChevronLeft className="w-3 h-3" />
+                        <span>Back to Day {liveActiveDayNo}</span>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── MULTI-DAY CARRY-FORWARD BANNER (WHEN DAY N COMPLETED & WAITING FOR DAY N+1) ── */}
+              {awaitingNextDayStart && (
+                <div className="p-2.5 px-3 rounded-xl border border-indigo-300 dark:border-indigo-700 bg-gradient-to-r from-indigo-50 via-purple-50 to-emerald-50 dark:from-indigo-950/60 dark:via-purple-950/40 dark:to-emerald-950/40 flex items-center justify-between flex-wrap gap-2 shadow-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                      <History className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                        <span>Day {completedDaysList.length} Completed &amp; Stock Updated ✓</span>
+                        <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200 border border-purple-300 dark:border-purple-700">
+                          Remaining Tank Mix: {formatIndian(remainingTankMixAfterCompletedMl, 2)} ml ({round2(remainingTankMixAfterCompletedMl / 1000)} L)
+                        </span>
+                      </div>
+                      <p className="text-[10.5px] text-slate-600 dark:text-slate-300">
+                        You can edit completed Day Operational Costs (EB/Labour) anytime, or click <strong>Start Day {completedDaysList.length + 1}</strong> to allocate the remaining tank mix.
+                      </p>
+                    </div>
+                  </div>
+                  {!isViewMode && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={nextDayLoading}
+                      onClick={handleStartNextDay}
+                      className="h-7 px-3 text-xs font-extrabold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-xs flex items-center gap-1.5 shrink-0"
+                    >
+                      {nextDayLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                      <span>Start Day {completedDaysList.length + 1} Production</span>
+                    </Button>
+                  )}
+                </div>
+              )}
+
               {/* ══════════════════════════════════════════════════════════════════════════
                   STEP 1: BASE RAW MATERIALS FORMULATION & WAREHOUSE LOT ALLOCATION
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 1 ? 'block' : 'hidden'} space-y-2`}>
+                {step1And2Locked ? (
+                  <div className="p-2 px-3 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 flex items-center justify-between gap-2 text-[11px] text-amber-900 dark:text-amber-200 font-semibold flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>
+                        {Number(activeDayNo) > 1
+                          ? `Base Raw Materials Locked on Day ${activeDayNo} — Step 1 Base Raw Materials & Step 2 Evaporation can only be edited on Day 1. Use Steps 3–5 for Day ${activeDayNo} products, moulds, timeline & yield.`
+                          : 'Read-Only View — Base raw material lines cannot be modified in view mode.'}
+                      </span>
+                    </div>
+                    {!isViewMode && Number(activeDayNo) > 1 && completedDaysList.some(d => Number(d.dayNo) === 1) && (
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchDay(1, 1)}
+                        className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold cursor-pointer shrink-0"
+                      >
+                        Switch to Edit Day 1
+                      </button>
+                    )}
+                  </div>
+                ) : null}
                 <Card className="border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden">
                   <div className="px-3.5 py-1.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
@@ -3656,20 +4620,34 @@ export default function ProductionFloorCockpitModal({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {!isViewMode && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setItemSearchMode('RM_MULTI');
-                            setItemSearchOpen(true);
-                          }}
-                          className="h-6 px-2 text-[10.5px] font-bold rounded border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
-                        >
-                          <Plus className="w-3 h-3 text-amber-600" />
-                          <span>+ Add Base Raw Materials</span>
-                        </Button>
+                      {!step1And2Locked && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setItemSearchMode('RM_MULTI');
+                              setItemSearchOpen(true);
+                            }}
+                            className="h-6 px-2 text-[10.5px] font-bold rounded border-amber-400 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer shadow-3xs flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3 text-amber-600" />
+                            <span>+ Add Base Raw Materials</span>
+                          </Button>
+                          {(baseRmDeducted || isEditingCompletedDay) && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={savingProcess}
+                              onClick={handleSaveProcess}
+                              className="h-6 px-2.5 text-[10.5px] font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
+                            >
+                              {savingProcess ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                              <span>Save Day 1 Base RMs</span>
+                            </Button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -3690,7 +4668,7 @@ export default function ProductionFloorCockpitModal({
                           <th className="py-1.5 px-2 text-right w-28" title="Remaining stock in warehouse after this batch allocation (Warehouse Stock - Taken)">Rem Warehouse Stock</th>
                           {canViewCost && <th className="py-1.5 px-2 text-right w-20" title="Live PO Unit Rate from allocated lot">Rate (₹)</th>}
                           {canViewCost && <th className="py-1.5 px-2 text-right w-24" title="Line cost based on taken quantity and live PO rate">Amount (₹)</th>}
-                          {!isViewMode && <th className="py-1.5 px-2 text-center w-8">✕</th>}
+                          {!step1And2Locked && <th className="py-1.5 px-2 text-center w-8">✕</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -3721,7 +4699,7 @@ export default function ProductionFloorCockpitModal({
                                 <input
                                   type="checkbox"
                                   checked={line.evaporates}
-                                  disabled={isViewMode}
+                                  disabled={step1And2Locked}
                                   onChange={(e) => handleUpdateRmRow(idx, 'evaporates', e.target.checked)}
                                   className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600 disabled:opacity-60"
                                   title="Check if this liquid contributes to thermal evaporation"
@@ -3733,7 +4711,7 @@ export default function ProductionFloorCockpitModal({
                                 <input
                                   type="checkbox"
                                   checked={line.merged}
-                                  disabled={isViewMode}
+                                  disabled={step1And2Locked}
                                   onChange={(e) => handleUpdateRmRow(idx, 'merged', e.target.checked)}
                                   className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600 disabled:opacity-60"
                                   title="Check to include in merged base liquid volume"
@@ -3756,7 +4734,7 @@ export default function ProductionFloorCockpitModal({
                               {/* Interactive Batch / Lot Allocation Column */}
                               <td className="py-1 px-2">
                                 <div className="flex flex-col gap-0.5 items-start">
-                                  {isViewMode ? (
+                                  {step1And2Locked ? (
                                     hasAllocations ? (
                                       <div className="px-1.5 py-0.5 rounded border border-blue-300 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 font-mono text-[9.5px] flex items-center gap-1 shadow-3xs">
                                         <Boxes className="w-3 h-3 text-blue-600 shrink-0" />
@@ -3841,9 +4819,9 @@ export default function ProductionFloorCockpitModal({
                                 </span>
                               </td>
 
-                              {/* Required Qty (Editable / Read-only in View Mode) */}
+                              {/* Required Qty (Editable / Read-only when Step 1 locked) */}
                               <td className="py-1 px-2 text-right">
-                                {isViewMode ? (
+                                {step1And2Locked ? (
                                   <span className="font-mono font-bold text-[11px] text-slate-800 dark:text-slate-100">
                                     {line.requiredQty}
                                   </span>
@@ -3858,9 +4836,9 @@ export default function ProductionFloorCockpitModal({
                                 )}
                               </td>
 
-                              {/* Taken (Used) (Editable / Read-only in View Mode) */}
+                              {/* Taken (Used) (Editable / Read-only when Step 1 locked) */}
                               <td className="py-1 px-2 text-right bg-amber-50/40 dark:bg-amber-950/10">
-                                {isViewMode ? (
+                                {step1And2Locked ? (
                                   <span className="font-mono font-black text-[11px] text-amber-700 dark:text-amber-300">
                                     {line.takenQty}
                                   </span>
@@ -3917,7 +4895,7 @@ export default function ProductionFloorCockpitModal({
                               )}
 
                               {/* Remove Row */}
-                              {!isViewMode && (
+                              {!step1And2Locked && (
                                 <td className="py-1 px-2 text-center">
                                   <button
                                     type="button"
@@ -3942,11 +4920,32 @@ export default function ProductionFloorCockpitModal({
                   STEP 2: VOLUME MERGE AND EVAPORATION COCKPIT
               ══════════════════════════════════════════════════════════════════════════ */}
               <div className={`${activeStep === 2 ? 'block' : 'hidden'} space-y-2`}>
+                {step1And2Locked && (
+                  <div className="p-2 px-3 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50/80 dark:bg-amber-950/30 flex items-center justify-between gap-2 text-[11px] text-amber-900 dark:text-amber-200 font-semibold flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>
+                        {Number(activeDayNo) > 1
+                          ? `Evaporation Tank Locked on Day ${activeDayNo} — Post-evaporation total (${formatIndian(netBatchPostEvapMl, 2)} ml) can only be modified on Day 1.`
+                          : 'Read-Only View — Merge & evaporation parameters cannot be modified in view mode.'}
+                      </span>
+                    </div>
+                    {!isViewMode && Number(activeDayNo) > 1 && completedDaysList.some(d => Number(d.dayNo) === 1) && (
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchDay(1, 2)}
+                        className="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold cursor-pointer shrink-0"
+                      >
+                        Switch to Edit Day 1
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
                   
                   {/* Left (2 cols): Controls & Mix Evaporation Results */}
                   <Card className="lg:col-span-2 border border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 rounded-lg overflow-hidden">
-                    <div className="px-3.5 py-1.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <div className="px-3.5 py-1.5 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <span className="w-5 h-5 rounded bg-amber-500 text-slate-950 text-[11px] font-bold flex items-center justify-center">
                           2
@@ -3957,14 +4956,26 @@ export default function ProductionFloorCockpitModal({
                       </div>
 
                       <div className="flex items-center gap-2">
+                        {!step1And2Locked && (baseRmDeducted || isEditingCompletedDay) && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={savingProcess}
+                            onClick={handleSaveProcess}
+                            className="h-6 px-2.5 text-[10.5px] font-bold rounded bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1"
+                          >
+                            {savingProcess ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                            <span>Save Day 1 Evaporation</span>
+                          </Button>
+                        )}
                         <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
                           Slide to Merge:
                         </span>
-                        <label className={`relative inline-flex items-center ${isViewMode ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
+                        <label className={`relative inline-flex items-center ${step1And2Locked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}>
                           <input
                             type="checkbox"
                             checked={isSlideMerged}
-                            disabled={isViewMode}
+                            disabled={step1And2Locked}
                             onChange={(e) => setIsSlideMerged(e.target.checked)}
                             className="sr-only peer"
                           />
@@ -3988,9 +4999,9 @@ export default function ProductionFloorCockpitModal({
                                 ? mergeStage
                                 : (mergeStage === 'Before heating' ? 'After heating' : (mergeStage === 'Before freezing' ? 'After freezing' : 'After heating'))
                             }
-                            disabled={isViewMode}
+                            disabled={step1And2Locked}
                             onChange={(e) => setMergeStage(e.target.value)}
-                            className={`w-full h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : 'cursor-pointer'}`}
+                            className={`w-full h-7 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500 ${step1And2Locked ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : 'cursor-pointer'}`}
                           >
                             <option value="After heating">After heating</option>
                             <option value="After freezing">After freezing</option>
@@ -4010,9 +5021,9 @@ export default function ProductionFloorCockpitModal({
                               max="100"
                               step="0.5"
                               value={evaporationPct}
-                              disabled={isViewMode}
+                              disabled={step1And2Locked}
                               onChange={(e) => setEvaporationPct(parseFloat(e.target.value) || 0)}
-                              className={`h-7 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                              className={`h-7 font-mono font-bold text-xs ${step1And2Locked ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                             />
                             <span className="font-bold text-xs text-slate-500">%</span>
                           </div>
@@ -4029,10 +5040,10 @@ export default function ProductionFloorCockpitModal({
                               min="0"
                               step="10"
                               value={liveEvaporationResult.mixAfterEvapMl || ''}
-                              disabled={isViewMode}
+                              disabled={step1And2Locked}
                               onChange={(e) => handleDirectMixAfterEvapChange(e.target.value)}
                               placeholder="Direct ml"
-                              className={`h-7 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                              className={`h-7 font-mono font-bold text-xs border-emerald-400 dark:border-emerald-700 ${step1And2Locked ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                             />
                             <span className="font-bold text-xs text-slate-500">ml</span>
                           </div>
@@ -4041,9 +5052,9 @@ export default function ProductionFloorCockpitModal({
                         {/* Apply & Undo Buttons / Read-Only Status */}
                         <div className="flex flex-col justify-end">
                           <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                            4. {isViewMode ? 'Status' : 'Action'}
+                            4. {step1And2Locked ? 'Status' : 'Action'}
                           </label>
-                          {isViewMode ? (
+                          {step1And2Locked ? (
                             <div className="h-7 px-2 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1 text-[10.5px] font-bold text-emerald-800 dark:text-emerald-300">
                               <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
                               <span className="truncate">{evaporationApplied ? 'Evaporation Recorded' : 'Direct Base Mix'}</span>
@@ -4227,15 +5238,29 @@ export default function ProductionFloorCockpitModal({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">
-                            Finished Products &amp; Mould Allocations
+                            Finished Products &amp; Mould Allocations • Day {activeDayNo}
                           </h3>
                           <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
                             Sequential Chaining
                           </span>
+                          {previousDaysAllocatedMl > 0 && (
+                            <span className="text-[9.5px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300 dark:border-indigo-700 shrink-0">
+                              Carry-Forward Tank Mix
+                            </span>
+                          )}
                         </div>
                         <p className="text-[10px] text-slate-500 truncate">
-                          Total mix available: <strong className="font-mono text-purple-600 dark:text-purple-400 font-bold">{formatIndian(availableMixMl)} ml</strong>
-                          <span className="text-slate-400"> (≈ {formatIndian(round2(availableMixMl / 1000))} L after evaporation)</span>
+                          {previousDaysAllocatedMl > 0 ? (
+                            <>
+                              Day {activeDayNo} available: <strong className="font-mono text-purple-600 dark:text-purple-400 font-bold">{formatIndian(availableMixMl)} ml</strong>
+                              <span className="text-slate-400"> (Tank: {formatIndian(netBatchPostEvapMl)} ml − Prior Days Used: {formatIndian(previousDaysAllocatedMl)} ml)</span>
+                            </>
+                          ) : (
+                            <>
+                              Total mix available: <strong className="font-mono text-purple-600 dark:text-purple-400 font-bold">{formatIndian(availableMixMl)} ml</strong>
+                              <span className="text-slate-400"> (≈ {formatIndian(round2(availableMixMl / 1000))} L after evaporation)</span>
+                            </>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -4260,12 +5285,12 @@ export default function ProductionFloorCockpitModal({
                           <Button
                             type="button"
                             size="sm"
-                            disabled={savingAllocations}
+                            disabled={savingAllocations || savingCompletedDay}
                             onClick={handleSaveAllocations}
                             className="h-6 px-2.5 text-[10.5px] font-bold rounded-md bg-[#0070f2] hover:bg-blue-600 text-white cursor-pointer shadow-3xs flex items-center gap-1"
                           >
-                            {savingAllocations ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                            <span>Save Allocations</span>
+                            {(savingAllocations || savingCompletedDay) ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                            <span>{isEditingCompletedDay ? `Save Day ${activeDayNo} Changes` : 'Save Allocations'}</span>
                           </Button>
                         </>
                       )}
@@ -4466,8 +5491,38 @@ export default function ProductionFloorCockpitModal({
                                   {prodUom}
                                 </span>
                               </div>
+                              {/* Additive Product Batch No (DDMMYY-PRODUCT-DDMMYY) & 8-Digit Serial Number */}
+                              <div className="flex items-center gap-2 flex-wrap mt-1">
+                                <div className="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded px-1.5 py-0.2">
+                                  <span className="text-[8.5px] font-bold uppercase text-slate-400">Batch:</span>
+                                  {isViewMode ? (
+                                    <span className="font-mono text-[9.5px] font-black text-indigo-700 dark:text-indigo-300">
+                                      {alloc.productBatchNo || buildProductBatchNo(dayBatchCode, alloc.productName, dayProductionDate)}
+                                    </span>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={alloc.productBatchNo || buildProductBatchNo(dayBatchCode, alloc.productName, dayProductionDate)}
+                                      onChange={(e) => handleUpdateAllocation(idx, 'productBatchNo', e.target.value.toUpperCase())}
+                                      title="Editable Product Batch No (<DDMMYY>-<PRODUCTNAME>-<DDMMYY>)"
+                                      className="font-mono text-[9.5px] font-black text-indigo-700 dark:text-indigo-300 bg-transparent focus:outline-none w-44 sm:w-52"
+                                    />
+                                  )}
+                                </div>
+                                <span
+                                  className="inline-flex items-center gap-1 font-mono text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800"
+                                  title="8-digit sequential serial number derived from Tax Settings company name + product name"
+                                >
+                                  <span>Serial:</span>
+                                  <strong>
+                                    {alloc.productSerialNo ||
+                                      serialPreviewMap[alloc.productId]?.serialNo ||
+                                      formatProductSerialPreview({ companyName: resolvedCompanyPrefix, productName: alloc.productName, nextSeq: 1 })}
+                                  </strong>
+                                </span>
+                              </div>
                               {isSidebarMode && allocations.length > 1 && (
-                                <span className="text-[9.5px] text-slate-400 font-mono">
+                                <span className="text-[9.5px] text-slate-400 font-mono block mt-0.5">
                                   Product #{idx + 1} of {allocations.length} in sequential mix chain
                                 </span>
                               )}
@@ -4756,33 +5811,48 @@ export default function ProductionFloorCockpitModal({
                                                 <span className="text-slate-400 text-[9px]">Packing</span>
                                               )}
                                             </td>
-                                            <td className="py-0.5 px-2">
-                                              {hasBatches ? (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                  className="px-1 py-0.2 rounded border border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300 font-mono text-[9px] cursor-pointer flex items-center gap-0.5"
-                                                >
-                                                  <Boxes className="w-2 h-2 text-blue-600" />
-                                                  <span>
-                                                    {prm.allocatedBatches.length === 1 
-                                                      ? `#${prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo}` 
-                                                      : `${prm.allocatedBatches.length} Lots`}
-                                                  </span>
-                                                </button>
-                                              ) : isViewMode ? (
-                                                <span className="text-[9px] text-slate-400 italic">No lots</span>
-                                              ) : (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                  className="px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-0.5"
-                                                >
-                                                  <Plus className="w-2 h-2 text-amber-600" />
-                                                  <span>Allocate Lot</span>
-                                                </button>
-                                              )}
-                                            </td>
+                                              <td className="py-0.5 px-2">
+                                                {(() => {
+                                                  const prmReqQty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+                                                  const allocatedSum = (prm.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
+                                                  const needsLot = !hasBatches || (prmReqQty > 0 && allocatedSum < (prmReqQty - 0.0001));
+                                                  if (hasBatches) {
+                                                    return (
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => openProductRmLotModal(idx, prmIdx)}
+                                                        className={`px-1 py-0.2 rounded border font-mono text-[9px] cursor-pointer flex items-center gap-0.5 ${
+                                                          needsLot
+                                                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-900 dark:text-amber-200'
+                                                            : 'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300'
+                                                        }`}
+                                                        title={needsLot ? `Allocated ${allocatedSum} / ${prmReqQty} — Click to allocate warehouse stock lots` : 'Click to view or adjust lot allocations'}
+                                                      >
+                                                        <Boxes className={`w-2 h-2 ${needsLot ? 'text-amber-600' : 'text-blue-600'}`} />
+                                                        <span>
+                                                          {prm.allocatedBatches.length === 1
+                                                            ? `#${String(prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo).replace(/^#+/, '')}`
+                                                            : `${prm.allocatedBatches.length} Lots`}
+                                                        </span>
+                                                        <span className="opacity-75">({allocatedSum}/{prmReqQty})</span>
+                                                      </button>
+                                                    );
+                                                  }
+                                                  if (isViewMode) {
+                                                    return <span className="text-[9px] text-slate-400 italic">No lots</span>;
+                                                  }
+                                                  return (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => openProductRmLotModal(idx, prmIdx)}
+                                                      className="px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-0.5"
+                                                    >
+                                                      <Plus className="w-2 h-2 text-amber-600" />
+                                                      <span>Allocate Lot</span>
+                                                    </button>
+                                                  );
+                                                })()}
+                                              </td>
                                             {canViewCost && (
                                               <td className="py-0.5 px-2 text-right font-mono text-[10px]">
                                                 <div className="font-semibold text-slate-800 dark:text-slate-200">
@@ -5115,10 +6185,14 @@ export default function ProductionFloorCockpitModal({
                         </div>
                         <div className="space-y-1">
                           <h4 className="font-extrabold text-sm text-slate-800 dark:text-slate-200">
-                            No finished products added to mould allocations yet
+                            {previousDaysAllocatedMl > 0
+                              ? `Day ${activeDayNo} Ready — ${formatIndian(availableMixMl, 2)} ml Unallocated Base Mix Available`
+                              : 'No finished products added to mould allocations yet'}
                           </h4>
                           <p className="text-xs text-slate-500 max-w-md mx-auto">
-                            Add multiple finished products (up to 14+) to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).
+                            {previousDaysAllocatedMl > 0
+                              ? `Prior completed days used ${formatIndian(previousDaysAllocatedMl, 2)} ml out of ${formatIndian(netBatchPostEvapMl, 2)} ml total tank mix. Click below to add Day ${activeDayNo} finished products.`
+                              : 'Add multiple finished products (up to 14+) to allocate portions of the evaporated mix (e.g. 74,000 ml to Almond Pista, 50,000 ml to Alphonso Mango).'}
                           </p>
                         </div>
                         {!isViewMode && (
@@ -5413,7 +6487,7 @@ export default function ProductionFloorCockpitModal({
                       </div>
                       <div>
                         <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                          <span>Factory Process Timeline Sequence &amp; Stage Parameters</span>
+                          <span>Factory Process Timeline Sequence &amp; Stage Parameters • Day {activeDayNo} ({dayBatchCode})</span>
                           {activeAllocs.length > 1 && (
                             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
                               {activeAllocs.length} End Products Added
@@ -5778,6 +6852,49 @@ export default function ProductionFloorCockpitModal({
                         )}
                       </div>
                     </div>
+
+                    {/* Completed Days Operational Costs Summary (Shown ONLY when not actively executing a later Day — click Day chip in header to View/Edit Day 1) */}
+                    {completedDaysList.length > 0 && (!hasOpenInProgressDay || activeDayNo <= 1 || isCompleted || isViewMode) && (
+                      <div className="mt-3 p-3 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-2">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                            <History className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Completed Days Operational Cost History ({completedDaysList.length} Day{completedDaysList.length > 1 ? 's' : ''})</span>
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-500">
+                            Click Edit EB &amp; Labour on any completed day to recalculate unit costs
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {completedDaysList.map(d => (
+                            <div key={`st4-day-${d.id || d.dayNo}`} className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 text-xs">
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-mono text-[10px]">Day {d.dayNo}</span>
+                                  <span className="font-mono text-[11px] text-indigo-700 dark:text-indigo-300">{d.dayBatchCode}</span>
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-500 mt-0.5 truncate">
+                                  Yield: {d.totalOutputQty} • Mix: {formatIndian(d.allocatedMixMl, 0)} ml
+                                  {canViewCost && ` • EB: ₹${formatIndian(d.ebTotalCost)} • Labour: ₹${formatIndian(d.labourTotalCost)}`}
+                                </div>
+                              </div>
+                              {canViewCost && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleSwitchDay(d.dayNo, 4)}
+                                  className="h-7 px-2 text-[10.5px] font-bold border-indigo-300 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 shrink-0 cursor-pointer flex items-center gap-1"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Edit Day {d.dayNo}</span>
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -5796,16 +6913,16 @@ export default function ProductionFloorCockpitModal({
                       </span>
                       <div>
                         <h3 className="text-xs sm:text-[13px] font-extrabold text-slate-900 dark:text-white">
-                          Multi-Product Output &amp; Yield Summary
+                          Multi-Product Output &amp; Yield Summary • Day {activeDayNo} ({dayBatchCode})
                         </h3>
                         <p className="text-[10px] text-slate-500">
-                          All finished products chained from base mix ({formatIndian(availableMixMl)} ml)
+                          All finished products chained from Day {activeDayNo} available mix ({formatIndian(availableMixMl)} ml)
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {(isCompleted || isViewMode) && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {(isCompleted || isViewMode || completedDaysList.length > 0) && (
                         <Button
                           type="button"
                           variant="outline"
@@ -5818,16 +6935,60 @@ export default function ProductionFloorCockpitModal({
                         </Button>
                       )}
 
-                      {!isCompleted && !isViewMode && (
+                      {awaitingNextDayStart && !isViewMode && (
                         <Button
                           type="button"
                           size="sm"
-                          onClick={handleOpenYieldModal}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] h-6 px-3 cursor-pointer shadow-3xs flex items-center gap-1 rounded"
+                          disabled={nextDayLoading}
+                          onClick={handleStartNextDay}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] h-6 px-3 cursor-pointer shadow-3xs flex items-center gap-1 rounded"
                         >
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Record Actual Yield &amp; Finalize Batch</span>
+                          <Play className="w-3 h-3 fill-current" />
+                          <span>Start Day {completedDaysList.length + 1} ({formatIndian(remainingTankMixAfterCompletedMl)} ml left)</span>
                         </Button>
+                      )}
+
+                      {isEditingCompletedDay && !isViewMode && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={savingCompletedDay}
+                          onClick={() => handleSaveCompletedDayChanges()}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] h-6 px-3 cursor-pointer shadow-3xs flex items-center gap-1 rounded"
+                        >
+                          {savingCompletedDay ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          <span>Save Day {activeDayNo} Changes &amp; Recalculate</span>
+                        </Button>
+                      )}
+
+                      {!isCompleted && !isViewMode && !awaitingNextDayStart && !isEditingCompletedDay && (
+                        <>
+                          {hasRemainingForNextDay && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleOpenYieldModal(false)}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] h-6 px-3 cursor-pointer shadow-3xs flex items-center gap-1 rounded"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>
+                                Complete Day {activeDayNo} &amp; Pause ({labTestRequired ? 'Send to QC' : 'Push to Sales'})
+                              </span>
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={hasRemainingForNextDay ? 'outline' : 'default'}
+                            onClick={() => handleOpenYieldModal(true)}
+                            className={hasRemainingForNextDay
+                              ? 'border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 font-bold text-[11px] h-6 px-2.5 cursor-pointer flex items-center gap-1 rounded'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] h-6 px-3 cursor-pointer shadow-3xs flex items-center gap-1 rounded'}
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Finish Entire Production</span>
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -5839,23 +7000,29 @@ export default function ProductionFloorCockpitModal({
                         <tr className="text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[9px] border-b border-slate-200 dark:border-slate-700">
                           <th className="py-1.5 px-2">Seq</th>
                           <th className="py-1.5 px-2">Product Name</th>
+                          <th className="py-1.5 px-2">Batch &amp; 8-Digit Serial</th>
                           <th className="py-1.5 px-2 text-center">Live UOM</th>
                           <th className="py-1.5 px-2 text-right">Base Mix (ml)</th>
                           <th className="py-1.5 px-2 text-right">Added RM Mix (ml)</th>
                           <th className="py-1.5 px-2 text-right">Total Mix (ml)</th>
                           <th className="py-1.5 px-2 text-right">Good Output</th>
+                          <th className="py-1.5 px-2 text-right">Reject Qty</th>
                           {canViewCost && <th className="py-1.5 px-2 text-right">Base Cost (₹)</th>}
                           {canViewCost && <th className="py-1.5 px-2 text-right">Added RM Cost (₹)</th>}
+                          {canViewCost && <th className="py-1.5 px-2 text-right">EB + Labour (₹)</th>}
                           {canViewCost && <th className="py-1.5 px-2 text-right">Total Cost (₹)</th>}
                           {canViewCost && <th className="py-1.5 px-2 text-right text-emerald-600 font-bold">Cost/Unit (₹)</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {liveAllocationsResult.allocations.map((a, aIdx) => {
+                          const origAlloc = allocations[aIdx] || {};
                           const productMatch = availableProducts.find(p => p.id === a.productId);
                           const prodUom = a.productUom || a.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
                           const isM = a.useMould !== false;
                           const bUom = a.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
+                          const rowBatchNo = origAlloc.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate);
+                          const rowSerialNo = origAlloc.productSerialNo || serialPreviewMap[a.productId]?.serialNo || formatProductSerialPreview({ companyName: resolvedCompanyPrefix, productName: a.productName, nextSeq: 1 });
 
                           const prms = Array.isArray(a.productRms) ? a.productRms : [];
                           const addedMl = prms.reduce((s, r) => {
@@ -5868,13 +7035,15 @@ export default function ProductionFloorCockpitModal({
 
                           const assignedBase = bMl * baseCostPerMl;
                           const assignedRm = prms.reduce((s, r) => s + (Number(r.totalCost) > 0 ? Number(r.totalCost) : (Number(r.takenQty ?? r.qty ?? 0) * Number(r.unitRate || 0))), 0);
-                          const pLabour = Number(productLabourMap[a.productId] ?? (labourCost * (totMl > 0 ? (totMl / (availableMixMl || 1)) : (1 / (activeAllocs.length || 1)))) ?? 0);
+                          const pLabour = Number((productLabourMap[a.productId] ?? (labourCost * (totMl > 0 ? (totMl / (availableMixMl || 1)) : (1 / (activeAllocs.length || 1))))) || 0);
                           const pElectricity = Number(electricityCost * (totMl > 0 ? (totMl / (availableMixMl || 1)) : (1 / (activeAllocs.length || 1))) || 0);
                           const totProdCost = assignedBase + assignedRm + pLabour + pElectricity;
 
-                          let outQty = 0;
+                          let outQty;
                           if (isM) {
-                            outQty = a.goodPieces || 0;
+                            outQty = (origAlloc.actualYield !== undefined && origAlloc.actualYield !== null && origAlloc.actualYield !== '') ? Number(origAlloc.actualYield) : (a.goodPieces || 0);
+                          } else if (origAlloc.actualYield !== undefined && origAlloc.actualYield !== null && origAlloc.actualYield !== '') {
+                            outQty = Number(origAlloc.actualYield);
                           } else {
                             const uLower = bUom.toLowerCase();
                             let cap = 1000;
@@ -5883,6 +7052,7 @@ export default function ProductionFloorCockpitModal({
                             else if (uLower.includes('can')) cap = 20000;
                             outQty = Number((totMl / cap).toFixed(2));
                           }
+                          const rejectQty = Number(origAlloc.rejectOutput || 0);
                           const unitC = outQty > 0 ? Number((totProdCost / outQty).toFixed(2)) : 0;
 
                           return (
@@ -5891,6 +7061,10 @@ export default function ProductionFloorCockpitModal({
                               <td className="py-1 px-2 font-bold text-slate-900 dark:text-white">
                                 <div>{a.productName}</div>
                                 <div className="font-mono text-[9px] text-slate-400">{a.productCode} • {isM ? `Mould: ${a.mouldCode || 'Standard'}` : `Bulk: ${bUom}`}</div>
+                              </td>
+                              <td className="py-1 px-2 font-mono">
+                                <div className="text-[10px] font-black text-indigo-700 dark:text-indigo-300">{rowBatchNo}</div>
+                                <div className="text-[9.5px] font-bold text-emerald-700 dark:text-emerald-400">{rowSerialNo}</div>
                               </td>
                               <td className="py-1 px-2 text-center">
                                 <span className="font-mono font-bold bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded text-[10px]">
@@ -5901,10 +7075,42 @@ export default function ProductionFloorCockpitModal({
                               <td className="py-1 px-2 text-right font-mono text-amber-600">+{formatIndian(addedMl)} ml</td>
                               <td className="py-1 px-2 text-right font-mono font-bold text-purple-700 dark:text-purple-300">{formatIndian(totMl)} ml</td>
                               <td className="py-1 px-2 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
-                                {outQty} {isM ? prodUom : bUom}
+                                {isEditingCompletedDay && !isViewMode ? (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      value={origAlloc.actualYield !== undefined && origAlloc.actualYield !== null ? origAlloc.actualYield : outQty}
+                                      onChange={(e) => {
+                                        const v = e.target.value === '' ? '' : parseFloat(e.target.value);
+                                        handleUpdateAllocation(aIdx, 'actualYield', Number.isNaN(v) ? 0 : v);
+                                      }}
+                                      className="h-6 w-20 text-right font-mono font-black text-[11px] px-1 border-emerald-400 bg-white dark:bg-slate-900"
+                                    />
+                                    <span className="text-[9.5px] text-slate-500">{isM ? prodUom : bUom}</span>
+                                  </div>
+                                ) : (
+                                  <span>{outQty} {isM ? prodUom : bUom}</span>
+                                )}
+                              </td>
+                              <td className="py-1 px-2 text-right font-mono text-rose-600 dark:text-rose-400">
+                                {isEditingCompletedDay && !isViewMode ? (
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={origAlloc.rejectOutput ?? 0}
+                                    onChange={(e) => handleUpdateAllocation(aIdx, 'rejectOutput', parseFloat(e.target.value) || 0)}
+                                    className="h-6 w-16 text-right font-mono font-bold text-[11px] px-1 ml-auto border-rose-300 dark:border-rose-700 bg-white dark:bg-slate-900"
+                                  />
+                                ) : (
+                                  <span>{rejectQty} {isM ? prodUom : bUom}</span>
+                                )}
                               </td>
                               {canViewCost && <td className="py-1 px-2 text-right font-mono">₹{formatIndian(round2(assignedBase))}</td>}
                               {canViewCost && <td className="py-1 px-2 text-right font-mono">₹{formatIndian(round2(assignedRm))}</td>}
+                              {canViewCost && <td className="py-1 px-2 text-right font-mono text-indigo-600">₹{formatIndian(round2(pLabour + pElectricity))}</td>}
                               {canViewCost && <td className="py-1 px-2 text-right font-mono font-bold">₹{formatIndian(round2(totProdCost))}</td>}
                               {canViewCost && <td className="py-1 px-2 text-right font-mono font-black text-emerald-600">₹{unitC}</td>}
                             </tr>
@@ -5913,17 +7119,46 @@ export default function ProductionFloorCockpitModal({
                       </tbody>
                     </table>
                   </div>
+
+                  {isEditingCompletedDay && !isViewMode && (
+                    <div className="pt-1 flex items-center gap-2 flex-wrap">
+                      <label className="text-[10px] font-bold uppercase text-slate-500 shrink-0">
+                        Day {activeDayNo} Shift / Quality Notes:
+                      </label>
+                      <Input
+                        type="text"
+                        value={completionNotes || ''}
+                        onChange={(e) => setCompletionNotes(e.target.value)}
+                        placeholder={`Notes for Day ${activeDayNo}...`}
+                        className="h-7 flex-1 min-w-[200px] text-xs bg-white dark:bg-slate-900"
+                      />
+                    </div>
+                  )}
                 </Card>
 
-                {/* 2. Wastage & Loss Accounting Card */}
-                <Card className="border border-rose-200 dark:border-rose-900/60 shadow-xs bg-rose-50/40 dark:bg-rose-950/20 rounded-lg overflow-hidden p-2.5 space-y-2">
+                {/* 2. Wastage & Carry-Forward Tank Accounting Card */}
+                <Card className={`border shadow-xs rounded-lg overflow-hidden p-2.5 space-y-2 ${
+                  !isFinalized && hasRemainingForNextDay
+                    ? 'border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20'
+                    : 'border-rose-200 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20'
+                }`}>
                   <div className="flex items-center justify-between">
-                    <h4 className="text-[11px] font-bold text-rose-950 dark:text-rose-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
-                      <span>Production Wastage &amp; Unallocated Mix Loss Accounting:</span>
+                    <h4 className={`text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
+                      !isFinalized && hasRemainingForNextDay ? 'text-indigo-950 dark:text-indigo-200' : 'text-rose-950 dark:text-rose-200'
+                    }`}>
+                      <TrendingDown className={`w-3.5 h-3.5 ${!isFinalized && hasRemainingForNextDay ? 'text-indigo-600' : 'text-rose-600'}`} />
+                      <span>
+                        {!isFinalized && hasRemainingForNextDay
+                          ? `Day ${activeDayNo} Process Loss & Carry-Forward Mix Balance`
+                          : 'Production Wastage & Unallocated Mix Loss Accounting:'}
+                      </span>
                     </h4>
-                    <span className="text-[9px] font-mono text-rose-600 dark:text-rose-400 font-bold bg-rose-100 dark:bg-rose-900/40 px-1.5 py-0.2 rounded border border-rose-300 dark:border-rose-800">
-                      WASTAGE EXPENSE
+                    <span className={`text-[9px] font-mono font-bold px-1.5 py-0.2 rounded border ${
+                      !isFinalized && hasRemainingForNextDay
+                        ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/40 border-indigo-300 dark:border-indigo-800'
+                        : 'text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-900/40 border-rose-300 dark:border-rose-800'
+                    }`}>
+                      {!isFinalized && hasRemainingForNextDay ? `CARRY-FORWARD READY FOR DAY ${activeDayNo + 1}` : 'WASTAGE EXPENSE'}
                     </span>
                   </div>
 
@@ -5936,12 +7171,18 @@ export default function ProductionFloorCockpitModal({
                       <span className="text-[8.5px] text-slate-400 font-mono">Spill &amp; tray loss</span>
                     </div>
 
-                    <div className="bg-white dark:bg-slate-900 p-2 rounded border border-rose-200 dark:border-rose-900/40">
+                    <div className={`bg-white dark:bg-slate-900 p-2 rounded border ${
+                      !isFinalized && hasRemainingForNextDay ? 'border-indigo-300 dark:border-indigo-800' : 'border-rose-200 dark:border-rose-900/40'
+                    }`}>
                       <span className="text-[9px] text-slate-500 block uppercase font-bold">Unallocated Remaining Mix</span>
-                      <strong className="text-sm font-mono font-black text-rose-700 dark:text-rose-300 block mt-0.5">
-                        {formatIndian(unallocatedRemainingMl)} ml
+                      <strong className={`text-sm font-mono font-black block mt-0.5 ${
+                        !isFinalized && hasRemainingForNextDay ? 'text-indigo-700 dark:text-indigo-300' : 'text-rose-700 dark:text-rose-300'
+                      }`}>
+                        {formatIndian(Math.max(0, unallocatedRemainingMl))} ml
                       </strong>
-                      <span className="text-[8.5px] text-rose-600 font-medium">Auto-moved to Wastage</span>
+                      <span className={`text-[8.5px] font-medium ${!isFinalized && hasRemainingForNextDay ? 'text-indigo-600' : 'text-rose-600'}`}>
+                        {!isFinalized && hasRemainingForNextDay ? `Saved for Day ${activeDayNo + 1} (Not Lost)` : 'Auto-moved to Wastage'}
+                      </span>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-2 rounded border border-rose-200 dark:border-rose-900/40">
@@ -6210,17 +7451,81 @@ export default function ProductionFloorCockpitModal({
               </Button>
             )}
 
-            {/* Finalize Entire Production Button (ONLY displayed on Step 5 when active run) */}
+            {/* Step 5 Footer Actions: Save Completed Day Edits vs Complete Day N vs Finish Entire Production */}
             {!isCompleted && !isViewMode && activeStep === 5 && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={handleFinalizeEntireProductionClick}
-                className="bg-[#30914c] hover:bg-emerald-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Finalize Entire Production</span>
-              </Button>
+              isEditingCompletedDay ? (
+                <div className="flex items-center gap-1.5">
+                  {Number(activeDayNo) !== Number(liveActiveDayNo) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleReturnToActiveDay}
+                      className="h-7 px-2.5 text-xs font-bold border-slate-300 dark:border-slate-700 cursor-pointer flex items-center gap-1"
+                    >
+                      <ChevronLeft className="w-3 h-3" />
+                      <span>Back to Day {liveActiveDayNo}</span>
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={savingCompletedDay}
+                    onClick={() => handleSaveCompletedDayChanges()}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5"
+                  >
+                    {savingCompletedDay ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    <span>Save Day {activeDayNo} Changes</span>
+                  </Button>
+                </div>
+              ) : awaitingNextDayStart ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={nextDayLoading}
+                  onClick={handleStartNextDay}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-indigo-400/50"
+                >
+                  {nextDayLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                  <span>Start Day {completedDaysList.length + 1} (Use {formatIndian(remainingTankMixAfterCompletedMl)} ml Left)</span>
+                </Button>
+              ) : hasRemainingForNextDay ? (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={completing}
+                    onClick={handleFinalizeEntireProductionClick}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5 ring-2 ring-indigo-400/40"
+                    title="Complete active day yield, release to inventory/QC, and pause remaining mix for next day"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Complete Day {activeDayNo} &amp; Pause ({labTestRequired ? 'Send to QC' : 'Push to Sales'})</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={completing}
+                    onClick={() => handleOpenYieldModal(true)}
+                    className="border-emerald-600 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 font-extrabold text-xs h-7 px-3 cursor-pointer flex items-center gap-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Finish Entire Production</span>
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={completing}
+                  onClick={handleFinalizeEntireProductionClick}
+                  className="bg-[#30914c] hover:bg-emerald-700 text-white font-extrabold text-xs h-7 px-3.5 cursor-pointer shadow-xs flex items-center gap-1.5 animate-pulse ring-2 ring-emerald-400/50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Finish Entire Production</span>
+                </Button>
+              )
             )}
           </div>
         </div>
@@ -6237,7 +7542,7 @@ export default function ProductionFloorCockpitModal({
         const itemName = targetItem?.rawMaterialName || targetItem?.rmName || targetItem?.name || master?.printName || master?.name || 'Raw Material';
         const itemCode = targetItem?.rawMaterialCode || targetItem?.rmCode || targetItem?.code || master?.code || '';
         const itemUom = formatCleanUom(targetItem?.uom, 'units', targetItem);
-        const itemReq = Number(targetItem?.requiredQty ?? targetItem?.takenQty ?? targetItem?.qty ?? 10);
+        const itemReq = Number(targetItem?.takenQty ?? targetItem?.requiredQty ?? targetItem?.qty ?? 0);
         const activeCategory = master?.category || targetItem?.category || (isProductRm ? 'Flavour / Essence' : 'Raw Material');
         const activeDesc = master?.description || targetItem?.description || '';
         const activeBaseUom = master?.uom || targetItem?.primaryUom || 'ml';
@@ -6872,16 +8177,23 @@ export default function ProductionFloorCockpitModal({
         />
       )}
 
-      {/* ── COMPLETE BATCH & RECORD ACTUAL YIELD MODAL (MULTI-PRODUCT & LIVE UOM) ── */}
+      {/* ── COMPLETE DAY / PRODUCTION & RECORD ACTUAL YIELD MODAL ── */}
       {showYieldModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-xs space-y-4 max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Record Actual Yield &amp; Complete Batch
-                </h3>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    {submitFinalizeFlag
+                      ? `Record Actual Yield & Finish Entire Production (Day ${activeDayNo})`
+                      : `Complete Day ${activeDayNo} Yield & Pause Remaining Mix`}
+                  </h3>
+                  <p className="text-[10.5px] font-mono text-indigo-600 dark:text-indigo-400">
+                    Day Batch No: {dayBatchCode} • {labTestRequired ? 'QC Quarantine Queue' : 'Direct Push to Sales Inventory'}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -6893,10 +8205,57 @@ export default function ProductionFloorCockpitModal({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {hasRemainingForNextDay && (
+                <div className="p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/30 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-bold text-xs text-indigo-900 dark:text-indigo-200">
+                      Carry-Forward Base Mix Remaining: <span className="font-mono">{formatIndian(unallocatedRemainingMl, 2)} ml</span>
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">
+                      Choose Execution Mode
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSubmitFinalizeFlag(false)}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        !submitFinalizeFlag
+                          ? 'border-indigo-600 bg-white dark:bg-slate-900 ring-1 ring-indigo-500'
+                          : 'border-slate-200 dark:border-slate-700 opacity-75'
+                      }`}
+                    >
+                      <div className="font-extrabold text-[11px] text-indigo-700 dark:text-indigo-300">
+                        Complete Day {activeDayNo} &amp; Pause (Recommended)
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Push Day {activeDayNo} yield to {labTestRequired ? 'QC' : 'Sales'} &amp; save {formatIndian(unallocatedRemainingMl)} ml for Day {activeDayNo + 1}.
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSubmitFinalizeFlag(true)}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        submitFinalizeFlag
+                          ? 'border-emerald-600 bg-white dark:bg-slate-900 ring-1 ring-emerald-500'
+                          : 'border-slate-200 dark:border-slate-700 opacity-75'
+                      }`}
+                    >
+                      <div className="font-extrabold text-[11px] text-emerald-700 dark:text-emerald-300">
+                        Finish Entire Production Now
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Close entire batch &amp; mark remaining {formatIndian(unallocatedRemainingMl)} ml as final tail loss.
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Product Yields List */}
               <div className="space-y-3">
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Final Actual Good Output per Finished Product:
+                  Final Actual Good Output &amp; Batch/Serial Trace per Product:
                 </label>
 
                 {(Array.isArray(productYields) && productYields.length > 0 ? productYields : [
@@ -6908,9 +8267,14 @@ export default function ProductionFloorCockpitModal({
                     planned: batch?.quantity || 2000,
                     calculatedYield: Number(actualYieldPieces || 2000),
                     actualGoodOutput: Number(actualYieldPieces || 2000),
-                    rejectOutput: 0
+                    rejectOutput: 0,
+                    productBatchNo: buildProductBatchNo(dayBatchCode, batch?.product?.name || allocations[0]?.productName, dayProductionDate)
                   }
-                ]).map((p, pIdx) => (
+                ]).map((p, pIdx) => {
+                  const previewSerial =
+                    serialPreviewMap[p.productId]?.serialNo ||
+                    formatProductSerialPreview({ companyName: resolvedCompanyPrefix, productName: p.productName, nextSeq: 1 });
+                  return (
                   <div key={`pyield-${p.seq || pIdx}-${p.productId || pIdx}`} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
@@ -6923,7 +8287,16 @@ export default function ProductionFloorCockpitModal({
                         </span>
                       </div>
                       <span className="font-mono text-[10.5px] text-slate-400">
-                        Planned: <strong className="text-slate-700 dark:text-slate-200">{p.planned} {p.uom}</strong> • Calculated mix mould yield: <strong className="text-purple-600 dark:text-purple-400">{p.calculatedYield} {p.uom}</strong>
+                        Planned: <strong className="text-slate-700 dark:text-slate-200">{p.planned} {p.uom}</strong> • Calc: <strong className="text-purple-600 dark:text-purple-400">{p.calculatedYield} {p.uom}</strong>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono">
+                      <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        Batch: <strong>{p.productBatchNo || buildProductBatchNo(dayBatchCode, p.productName, dayProductionDate)}</strong>
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        Serial: <strong>{previewSerial}</strong>
                       </span>
                     </div>
 
@@ -6956,7 +8329,7 @@ export default function ProductionFloorCockpitModal({
                       </div>
                     </div>
                   </div>
-                ))}
+                );})}
               </div>
 
               {/* Operator Notes */}
@@ -6976,7 +8349,7 @@ export default function ProductionFloorCockpitModal({
               {/* Confirmed Operational Costs: Labour & Electricity */}
               <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
                 <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
-                  Operational Costs for Final Batch Costing:
+                  Day {activeDayNo} Operational Costs for Costing:
                 </span>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -7041,11 +8414,15 @@ export default function ProductionFloorCockpitModal({
                 type="button"
                 size="sm"
                 disabled={completing}
-                onClick={handleCompleteBatchSubmit}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 cursor-pointer"
+                onClick={() => handleCompleteDaySubmit(null, { finalize: submitFinalizeFlag })}
+                className={`${submitFinalizeFlag ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold text-xs px-4 cursor-pointer`}
               >
                 {completing ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
-                <span>Confirm &amp; Complete Batch</span>
+                <span>
+                  {submitFinalizeFlag
+                    ? 'Confirm & Finish Entire Production'
+                    : `Complete Day ${activeDayNo} & Pause (${labTestRequired ? 'Send to QC' : 'Push to Sales'})`}
+                </span>
               </Button>
             </div>
           </div>

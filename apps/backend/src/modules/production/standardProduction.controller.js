@@ -9,6 +9,22 @@ const {
   calculateAllocations,
   computeMaxTrays
 } = require('./utils/productionCalculation');
+const {
+  formatDDMMYY,
+  sanitizeToken,
+  previewNextProductSerials
+} = require('./services/productionDaySerial.service');
+const {
+  ensureMultiDaySchema,
+  resolveNetPostEvapMixMl,
+  getPreviousDaysAllocatedMl,
+  syncParentBatchAggregate,
+  getBatchDaysData,
+  completeDayRun,
+  startNextDayRun,
+  updateCompletedDayCosts,
+  updateCompletedDayRun
+} = require('./services/standardProductionDay.service');
 // Helper to generate unique PRODYYYYMMDD-XXXX batch reference (e.g. PROD20261021-0001)
 async function generateBatchReference(tx, inputDate = new Date()) {
   const d = inputDate ? new Date(inputDate) : new Date();
@@ -188,7 +204,8 @@ async function ensureStandardProductionSchema(p = prisma) {
       `ALTER TABLE production_batch_allocation ADD COLUMN IF NOT EXISTS product_rms JSONB DEFAULT '[]'::jsonb;`,
       `ALTER TABLE production_batch_merge ADD COLUMN IF NOT EXISTS is_slide_merged BOOLEAN DEFAULT FALSE;`,
       `ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS unit_rate NUMERIC(14,4) DEFAULT 0;`,
-      `ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS total_cost NUMERIC(16,2) DEFAULT 0;`
+      `ALTER TABLE production_batch_rm_line ADD COLUMN IF NOT EXISTS total_cost NUMERIC(16,2) DEFAULT 0;`,
+      `ALTER TABLE production_batch_allocation DROP CONSTRAINT IF EXISTS production_batch_allocation_mould_id_fkey;`
     ];
 
     for (const sql of alterStatements) {
@@ -196,6 +213,9 @@ async function ensureStandardProductionSchema(p = prisma) {
         await p.$executeRawUnsafe(sql);
       } catch (_) {}
     }
+
+    // Ensure Multi-Day, Stock Lots & Per-Product 8-Digit Serial Schema
+    await ensureMultiDaySchema(p);
 
     // Drop any legacy triggers to prevent duplicate stock restoration
     try {
@@ -343,6 +363,21 @@ class StandardProductionController {
             createdBy: safeUserId
           }
         });
+
+        // Persist additive DDMMYY editable short batch code & initial active_day_no
+        const defaultShortCode = sanitizeToken(
+          data.shortBatchCode || data.dayBatchCode || formatDDMMYY(startDate),
+          24,
+          formatDDMMYY(startDate)
+        );
+        await tx.$executeRawUnsafe(`
+          UPDATE production_batches
+          SET short_batch_code = $2,
+              active_day_no = 1,
+              completed_days_count = 0,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1;
+        `, batch.id, defaultShortCode).catch(() => {});
 
         // If formulation lines were sent, save them into production_batch_rm_line
         const rawMaterials = Array.isArray(data.rawMaterials) ? data.rawMaterials : [];
@@ -825,46 +860,69 @@ class StandardProductionController {
         mergeStage = 'Before freezing',
         evaporationPct = 5.0,
         evaporationApplied = true,
-        isSlideMerged = undefined
+        isSlideMerged = undefined,
+        dayNo = 1
       } = req.body || {};
+
+      if (Number(dayNo || 1) !== 1) {
+        return res.status(403).json({
+          error: 'Base raw materials and evaporation can only be edited on Day 1. On Day 2+, edit only Products & Moulds, Factory Timeline, and Actual Yield.'
+        });
+      }
 
       const result = await prisma.$transaction(async (tx) => {
         // SELECT FOR UPDATE on batch
         const batchRows = await tx.$queryRawUnsafe(`
-          SELECT id, status FROM production_batches WHERE id = $1 FOR UPDATE;
+          SELECT id, status, base_rm_deducted FROM production_batches WHERE id = $1 FOR UPDATE;
         `, id);
 
         if (!batchRows || batchRows.length === 0) {
-          return res.status(404).json({ error: 'Production batch not found' });
+          const err = new Error('Production batch not found');
+          err.statusCode = 404;
+          throw err;
         }
 
         const batch = batchRows[0];
         if (batch.status === 'Completed') {
-          return res.status(409).json({
-            error: `Cannot process floor execution. Batch is already Completed.`
-          });
+          const err = new Error('Cannot process floor execution. Batch is already Completed.');
+          err.statusCode = 409;
+          throw err;
         }
-        if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
+        const alreadyDeductedBaseRm = Boolean(batch.base_rm_deducted);
+        if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS' && !alreadyDeductedBaseRm) {
           await tx.$executeRawUnsafe(`
             UPDATE production_batches SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE id = $1;
           `, id);
         }
 
-        // Check if merge is already locked
-        let isMergeLocked = false;
+        // Snapshot prior RM lines & lot allocations when editing Day 1 after base RM deduction
+        const prevRmTakenMap = new Map();
+        const prevLotTakenMap = new Map();
+        let wasMergeLocked = false;
         try {
           const mergeRows = await tx.$queryRawUnsafe(`
             SELECT locked FROM production_batch_merge WHERE batch_id = $1;
           `, id);
-          if (mergeRows.length > 0 && mergeRows[0].locked) {
-            isMergeLocked = true;
-          }
+          wasMergeLocked = Boolean(mergeRows?.[0]?.locked);
         } catch (_) {}
 
-        if (isMergeLocked) {
-          return res.status(409).json({
-            error: 'Floor merge and evaporation for this batch has been locked after completion.'
-          });
+        if (alreadyDeductedBaseRm) {
+          const prevLines = await tx.$queryRawUnsafe(`
+            SELECT raw_material_id, lot_id, taken_qty FROM production_batch_rm_line WHERE batch_id = $1;
+          `, id).catch(() => []);
+          for (const pl of prevLines || []) {
+            if (pl.raw_material_id) {
+              prevRmTakenMap.set(pl.raw_material_id, (prevRmTakenMap.get(pl.raw_material_id) || 0) + Number(pl.taken_qty || 0));
+            }
+          }
+          const prevAllocs = await tx.$queryRawUnsafe(`
+            SELECT inventory_batch_id, lot_number, allocated_qty FROM "production_batch_allocations"
+            WHERE batch_id = $1 AND usage_id IS NOT NULL;
+          `, id).catch(() => []);
+          for (const pa of prevAllocs || []) {
+            const lk = (pa.inventory_batch_id || pa.lot_number || '').trim();
+            if (lk) prevLotTakenMap.set(lk, (prevLotTakenMap.get(lk) || 0) + Number(pa.allocated_qty || 0));
+          }
         }
 
         // Fetch raw material master metadata for density & default evaporation
@@ -1062,7 +1120,7 @@ class StandardProductionController {
               evaporation_applied, evaporated_ml, mix_after_evap_ml, locked, is_slide_merged, updated_at
             ) VALUES (
               $1, $2, $3, $4,
-              $5, $6, $7, false, $8, CURRENT_TIMESTAMP
+              $5, $6, $7, $8, $9, CURRENT_TIMESTAMP
             )
             ON CONFLICT (batch_id) DO UPDATE SET
               merge_stage = EXCLUDED.merge_stage,
@@ -1071,15 +1129,67 @@ class StandardProductionController {
               evaporation_applied = EXCLUDED.evaporation_applied,
               evaporated_ml = EXCLUDED.evaporated_ml,
               mix_after_evap_ml = EXCLUDED.mix_after_evap_ml,
+              locked = EXCLUDED.locked,
               is_slide_merged = EXCLUDED.is_slide_merged,
               updated_at = CURRENT_TIMESTAMP;
           `, id, computed.mergeStage, computed.totalBeforeEvapMl, computed.evaporationPct,
-             computed.evaporationApplied, computed.evaporatedMl, computed.mixAfterEvapMl, effectiveSlideMerged);
+             computed.evaporationApplied, computed.evaporatedMl, computed.mixAfterEvapMl, wasMergeLocked, effectiveSlideMerged);
         } catch (mErr) {
           console.warn('Notice persisting to production_batch_merge:', mErr.message);
         }
 
-        // Mirror to production_batches columns for fast dashboard queries
+        // If Base RM was already deducted on Day 1 completion, apply ONLY net delta to RawMaterial & InventoryBatch
+        if (alreadyDeductedBaseRm) {
+          const newRmTakenMap = new Map();
+          const newLotTakenMap = new Map();
+          for (const l of computed.lines || []) {
+            if (l.rawMaterialId) {
+              newRmTakenMap.set(l.rawMaterialId, (newRmTakenMap.get(l.rawMaterialId) || 0) + Number(l.takenQty || 0));
+            }
+            if (Array.isArray(l.allocatedBatches)) {
+              for (const ab of l.allocatedBatches) {
+                const lk = String(ab.batchId || ab.lotNumber || ab.internalBatchNo || '').trim();
+                if (lk) newLotTakenMap.set(lk, (newLotTakenMap.get(lk) || 0) + Number(ab.allocatedQty || 0));
+              }
+            }
+          }
+          const allRmIds = new Set([...prevRmTakenMap.keys(), ...newRmTakenMap.keys()]);
+          for (const rmId of allRmIds) {
+            const delta = round2((newRmTakenMap.get(rmId) || 0) - (prevRmTakenMap.get(rmId) || 0));
+            if (Math.abs(delta) > 0.0001) {
+              await tx.$executeRawUnsafe(`
+                UPDATE "RawMaterial" SET "currentStock" = GREATEST(0, "currentStock" - $1), "updatedAt" = CURRENT_TIMESTAMP WHERE id = $2;
+              `, delta, rmId).catch(() => {});
+            }
+          }
+          const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const allLots = new Set([...prevLotTakenMap.keys(), ...newLotTakenMap.keys()]);
+          for (const lk of allLots) {
+            const delta = round2((newLotTakenMap.get(lk) || 0) - (prevLotTakenMap.get(lk) || 0));
+            if (Math.abs(delta) > 0.0001) {
+              if (uuidRx.test(lk)) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch"
+                  SET "netQty" = GREATEST(0, "netQty" - $1),
+                      "status" = CASE WHEN GREATEST(0, "netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, delta, lk).catch(() => {});
+              } else {
+                await tx.$executeRawUnsafe(`
+                  UPDATE "InventoryBatch"
+                  SET "netQty" = GREATEST(0, "netQty" - $1),
+                      "status" = CASE WHEN GREATEST(0, "netQty" - $1) <= 0.0001 THEN 'DEPLETED' ELSE 'AVAILABLE' END,
+                      "updatedAt" = CURRENT_TIMESTAMP
+                  WHERE "batchNumber" = $2;
+                `, delta, lk).catch(() => {});
+              }
+            }
+          }
+          await tx.$executeRawUnsafe(`UPDATE production_batch_rm_usage SET status = 'CONSUMED' WHERE batch_id = $1;`, id).catch(() => {});
+        }
+
+        // Mirror to production_batches columns & recalculate Day 1 / active Day carry-forward balances
         await tx.$executeRawUnsafe(`
           UPDATE production_batches 
           SET 
@@ -1088,10 +1198,40 @@ class StandardProductionController {
             evaporation_rate_pct = $4,
             evaporation_loss_ml = $5,
             net_post_evap_mix_ml = $6,
+            remaining_mix_balance_ml = GREATEST(0, $6 - COALESCE((
+              SELECT SUM(allocated_mix_ml) FROM production_batch_days WHERE batch_id = $1 AND status <> 'IN_PROGRESS'
+            ), 0)),
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
         `, id, computed.mergeStage, computed.totalBeforeEvapMl, computed.evaporationPct,
            computed.evaporatedMl, computed.mixAfterEvapMl);
+
+        if (alreadyDeductedBaseRm) {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batch_days
+            SET opening_mix_ml = $2,
+                remaining_mix_ml = GREATEST(0, $2 - allocated_mix_ml),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE batch_id = $1 AND day_no = 1;
+          `, id, computed.mixAfterEvapMl).catch(() => {});
+
+          const usedCompletedRows = await tx.$queryRawUnsafe(`
+            SELECT COALESCE(SUM(allocated_mix_ml), 0) AS used_ml
+            FROM production_batch_days
+            WHERE batch_id = $1 AND status <> 'IN_PROGRESS';
+          `, id).catch(() => []);
+          const usedCompletedMl = Number(usedCompletedRows?.[0]?.used_ml || 0);
+          const openCascadeMl = Math.max(0, round2(Number(computed.mixAfterEvapMl || 0) - usedCompletedMl));
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batch_days
+            SET opening_mix_ml = $2,
+                remaining_mix_ml = GREATEST(0, $2 - allocated_mix_ml),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE batch_id = $1 AND day_no > 1 AND status = 'IN_PROGRESS';
+          `, id, openCascadeMl).catch(() => {});
+
+          await syncParentBatchAggregate(tx, id);
+        }
 
         return computed;
       });
@@ -1105,36 +1245,44 @@ class StandardProductionController {
       }
     } catch (err) {
       console.error('Error processing floor execution:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
       next(err);
     }
   }
 
   // ── 6. PUT /api/production/standard/:id/allocations ──
-  // Section C: Replaces finished product allocations atomically in one transaction
+  // Section C: Replaces finished product allocations atomically in one transaction (Day-aware)
   async saveAllocations(req, res, next) {
     try {
       const { id } = req.params;
-      const { allocations = [] } = req.body || {};
+      const { allocations = [], dayNo, dayBatchCode, productionDate } = req.body || {};
 
       // Existence and status pre-check outside transaction
       const batchCheck = await prisma.$queryRawUnsafe(`
-        SELECT id, status, quantity FROM production_batches WHERE id = $1;
+        SELECT id, status, quantity, is_finalized FROM production_batches WHERE id = $1;
       `, id);
 
       if (!batchCheck || batchCheck.length === 0) {
         return res.status(404).json({ error: 'Production batch not found' });
       }
 
-      if (batchCheck[0].status === 'Completed') {
+      if (batchCheck[0].status === 'Completed' || batchCheck[0].is_finalized) {
         return res.status(409).json({
           error: `Cannot update mould allocations. Batch is already Completed.`
         });
       }
 
+      await ensureStandardProductionSchema();
+      await ensureMultiDaySchema(prisma);
+
       const result = await prisma.$transaction(async (tx) => {
+
         // SELECT FOR UPDATE on batch
         const batchRows = await tx.$queryRawUnsafe(`
-          SELECT id, status, quantity FROM production_batches WHERE id = $1 FOR UPDATE;
+          SELECT id, status, quantity, active_day_no, short_batch_code, start_date, eb_rate_per_unit
+          FROM production_batches WHERE id = $1 FOR UPDATE;
         `, id);
 
         if (!batchRows || batchRows.length === 0) {
@@ -1144,61 +1292,35 @@ class StandardProductionController {
         }
 
         const batch = batchRows[0];
+        const targetDayNo = Math.max(1, Number(dayNo || batch.active_day_no || 1));
+
         if (batch.status !== 'In Progress' && batch.status !== 'IN_PROGRESS') {
           await tx.$executeRawUnsafe(`
-            UPDATE production_batches SET status = 'In Progress', started_at = CURRENT_TIMESTAMP WHERE id = $1;
+            UPDATE production_batches SET status = 'In Progress', started_at = COALESCE(started_at, CURRENT_TIMESTAMP) WHERE id = $1;
           `, id);
         }
 
-        // Get latest mix_after_evap_ml from production_batch_merge or batch record
-        let availableMixMl = 0;
-        try {
-          const mergeRows = await tx.$queryRawUnsafe(`
-            SELECT mix_after_evap_ml, evaporation_applied FROM production_batch_merge WHERE batch_id = $1;
-          `, id);
-          if (mergeRows.length > 0) {
-            availableMixMl = Number(mergeRows[0].mix_after_evap_ml || 0);
-          }
-        } catch (_) {}
-
+        const sumRequested = allocations.reduce((s, a) => s + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
+        let availableMixMl = await resolveNetPostEvapMixMl(tx, id, sumRequested);
         if (availableMixMl <= 0) {
-          const pbFallback = await tx.$queryRawUnsafe(`
-            SELECT net_post_evap_mix_ml, merged_pre_evap_ml, quantity FROM production_batches WHERE id = $1;
-          `, id);
-          if (pbFallback.length > 0) {
-            availableMixMl = Number(pbFallback[0].net_post_evap_mix_ml || pbFallback[0].merged_pre_evap_ml || 0);
-            if (availableMixMl <= 0 && Number(pbFallback[0].quantity || 0) > 0) {
-              availableMixMl = Number(pbFallback[0].quantity) * 1000;
-            }
-          }
+          availableMixMl = 100000;
+        }
+        const previousDaysAllocatedMl = await getPreviousDaysAllocatedMl(tx, id, targetDayNo);
+
+        // Guard against mutating an already completed Day
+        const existingDayRows = await tx.$queryRawUnsafe(`
+          SELECT id, status FROM production_batch_days WHERE batch_id = $1 AND day_no = $2;
+        `, id, targetDayNo);
+        if (existingDayRows && existingDayRows.length > 0 && existingDayRows[0].status !== 'IN_PROGRESS') {
+          const conflictErr = new Error(`Day ${targetDayNo} is already completed. Start Day ${targetDayNo + 1} before adding more products.`);
+          conflictErr.statusCode = 409;
+          throw conflictErr;
         }
 
-        if (availableMixMl <= 0) {
-          try {
-            const rmSum = await tx.$queryRawUnsafe(`
-              SELECT COALESCE(SUM(COALESCE(taken_qty, required_qty, 0) * COALESCE(density, 1) * 1000), 0) as total_ml
-              FROM production_batch_rm_line WHERE batch_id = $1;
-            `, id);
-            if (rmSum.length > 0 && Number(rmSum[0].total_ml) > 0) {
-              availableMixMl = Number(rmSum[0].total_ml);
-            }
-          } catch (_) {}
-        }
-
-        if (availableMixMl <= 0) {
-          const sumRequested = allocations.reduce((s, a) => s + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
-          if (sumRequested > 0) {
-            availableMixMl = sumRequested;
-          }
-        }
-
-        if (availableMixMl <= 0) {
-          availableMixMl = 100000; // Safe fallback so step 3 allocations never block
-        }
-
-        // Run sequential allocation calculation
+        // Run sequential allocation calculation against carry-forward mix pool
         const computed = calculateAllocations({
           availableMixMl,
+          previousDaysAllocatedMl,
           allocations
         });
 
@@ -1209,45 +1331,97 @@ class StandardProductionController {
           throw valErr;
         }
 
-        // Atomically replace allocations in production_batch_allocation
-        await tx.$executeRawUnsafe(`DELETE FROM production_batch_allocation WHERE batch_id = $1;`, id);
+        // Ensure open production_batch_days row exists for this active Day
+        const prodDateStr = typeof productionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(productionDate.trim())
+          ? productionDate.trim().slice(0, 10)
+          : null;
+        const ddmmyy = formatDDMMYY(prodDateStr || batch.start_date || new Date());
+        const resolvedDayCode = dayBatchCode
+          ? sanitizeToken(dayBatchCode, 24, ddmmyy)
+          : (batch.short_batch_code || ddmmyy);
+        const dayId = existingDayRows?.[0]?.id || require('crypto').randomUUID();
+        if (!existingDayRows || existingDayRows.length === 0) {
+          await tx.$executeRawUnsafe(`
+            INSERT INTO production_batch_days (
+              id, batch_id, day_no, day_label, production_date, day_batch_code,
+              status, opening_mix_ml, allocated_mix_ml, remaining_mix_ml, eb_rate_per_unit
+            ) VALUES (
+              $1::uuid, $2, $3, $4, COALESCE($10::date, CURRENT_DATE), $5,
+              'IN_PROGRESS', $6, $7, $8, $9
+            )
+            ON CONFLICT (batch_id, day_no) DO UPDATE SET
+              production_date = COALESCE(EXCLUDED.production_date, production_batch_days.production_date),
+              day_batch_code = COALESCE(EXCLUDED.day_batch_code, production_batch_days.day_batch_code),
+              opening_mix_ml = EXCLUDED.opening_mix_ml,
+              allocated_mix_ml = EXCLUDED.allocated_mix_ml,
+              remaining_mix_ml = EXCLUDED.remaining_mix_ml,
+              updated_at = CURRENT_TIMESTAMP;
+          `, dayId, id, targetDayNo, `Day ${targetDayNo}`, resolvedDayCode,
+             computed.initialMixAvailableMl, computed.totalMixUsedMl, computed.remainingMixMl, Number(batch.eb_rate_per_unit || 8.5), prodDateStr);
+        } else {
+          await tx.$executeRawUnsafe(`
+            UPDATE production_batch_days
+            SET production_date = COALESCE($6::date, production_date),
+                day_batch_code = COALESCE($2, day_batch_code),
+                opening_mix_ml = $3,
+                allocated_mix_ml = $4,
+                remaining_mix_ml = $5,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1::uuid;
+          `, dayId, resolvedDayCode, computed.initialMixAvailableMl, computed.totalMixUsedMl, computed.remainingMixMl, prodDateStr);
+        }
+
+        // Atomically replace allocations ONLY for this active Day
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_allocation WHERE batch_id = $1 AND COALESCE(day_no, 1) = $2;`, id, targetDayNo);
 
         for (let i = 0; i < computed.allocations.length; i++) {
           const alloc = computed.allocations[i];
-          const mouldUuid = (alloc.mouldId && typeof alloc.mouldId === 'string' && alloc.mouldId.trim().length > 10) ? alloc.mouldId.trim() : null;
+          const mouldUuid = (alloc.mouldId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(alloc.mouldId).trim()))
+            ? String(alloc.mouldId).trim()
+            : null;
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_allocation (
-              id, batch_id, seq, product_id, use_mould, mould_id,
+              id, batch_id, day_no, day_id, seq, product_id, use_mould, mould_id,
               capacity_ml, cavities, trays, waste_mode, waste_value,
-              mix_used_ml, waste_ml, good_pieces,
-              allocated_base_ml, bulk_uom, product_rms,
+              mix_used_ml, waste_ml, good_pieces, actual_yield,
+              allocated_base_ml, bulk_uom, product_rms, product_batch_no,
               created_at, updated_at
             ) VALUES (
-              gen_random_uuid(), $1, $2, $3, $4, ($5::text)::uuid,
-              $6, $7, $8, $9, $10,
-              $11, $12, $13,
-              $14, $15, $16::jsonb,
+              gen_random_uuid(), $1, $2, $3::uuid, $4, $5, $6, ($7::text)::uuid,
+              $8, $9, $10, $11, $12,
+              $13, $14, $15, $16,
+              $17, $18, $19::jsonb, $20,
               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
-          `, id, alloc.seq, alloc.productId, Boolean(alloc.useMould), mouldUuid,
+          `, id, targetDayNo, dayId, alloc.seq, alloc.productId, Boolean(alloc.useMould), mouldUuid,
              alloc.capacityMl, alloc.cavities, alloc.trays, alloc.wasteMode, alloc.wasteValue,
-             alloc.mixUsedMl, alloc.wasteMl, alloc.goodPieces,
+             alloc.mixUsedMl, alloc.wasteMl, Number(alloc.theoreticalGoodPieces ?? alloc.goodPieces ?? 0),
+             alloc.actualYield !== null && alloc.actualYield !== undefined ? Number(alloc.actualYield) : Number(alloc.goodPieces ?? 0),
              Number(alloc.allocatedBaseMl || alloc.mixUsedMl || 0),
              alloc.bulkUom || 'L',
-             JSON.stringify(alloc.productRms || []));
+             JSON.stringify(alloc.productRms || []),
+             alloc.productBatchNo || null);
         }
 
-        // Mirror allocations into production_batches.mould_allocations
+        // Mirror active allocations & carry-forward remaining balance into production_batches
         await tx.$executeRawUnsafe(`
           UPDATE production_batches 
           SET 
             mould_allocations = $2::jsonb,
+            remaining_mix_balance_ml = $3,
+            short_batch_code = COALESCE($4, short_batch_code),
+            active_day_no = $5,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
-        `, id, JSON.stringify(computed.allocations));
+        `, id, JSON.stringify(computed.allocations), computed.remainingMixMl, resolvedDayCode, targetDayNo);
 
-        return computed;
-      });
+        return {
+          ...computed,
+          dayNo: targetDayNo,
+          dayId,
+          dayBatchCode: resolvedDayCode
+        };
+      }, { maxWait: 15000, timeout: 60000 });
 
       // Synchronize production_batch_items and product_rms outside transaction for zero rollback interference
       try {
@@ -1527,7 +1701,8 @@ class StandardProductionController {
         savedBatchAllocations = await prisma.$queryRawUnsafe(
           `SELECT 
              pba.*,
-             COALESCE(u.rm_id, ib."rawMaterialId", pba.usage_id) AS matched_rm_id
+             COALESCE(u.rm_id, ib."rawMaterialId", pba.usage_id) AS matched_rm_id,
+             ib."expiryDate" AS expiry_date
            FROM "production_batch_allocations" pba
            LEFT JOIN production_batch_rm_usage u ON u.id = pba.usage_id
            LEFT JOIN "InventoryBatch" ib ON ib.id = pba.inventory_batch_id
@@ -1575,8 +1750,30 @@ class StandardProductionController {
         mergeData = null;
       }
 
-      // Fetch Allocations with mould and product names
+      // Fetch Multi-Day execution history & outputs (if any)
+      let days = [];
+      try {
+        days = await getBatchDaysData(prisma, id, userCanViewCost);
+      } catch (daysErr) {
+        console.warn('Notice reading production_batch_days:', daysErr.message);
+      }
+
+      const activeDayNo = Math.max(1, Number(batch.active_day_no || 1));
+      const viewingDayNo = req.query?.dayNo ? Math.max(1, Number(req.query.dayNo)) : activeDayNo;
+      const hasMultiDay = days.length > 0;
+      const viewingDayRec = hasMultiDay
+        ? (days.find(d => Number(d.dayNo) === viewingDayNo) || null)
+        : null;
+      const previousDaysAllocatedMl = days
+        .filter(d => d.status !== 'IN_PROGRESS' && Number(d.dayNo) < viewingDayNo)
+        .reduce((s, d) => s + Number(d.allocatedMixMl || 0), 0);
+      const totalAllocatedAcrossCompletedDaysMl = days
+        .filter(d => d.status !== 'IN_PROGRESS')
+        .reduce((s, d) => s + Number(d.allocatedMixMl || 0), 0);
+
+      // Fetch Allocations scoped strictly to viewingDayNo so clicking Edit Day 1..N loads that Day's full products & moulds cleanly
       let allocations = [];
+      const dayScopeFilter = hasMultiDay ? `AND COALESCE(pba.day_no, 1) = ${viewingDayNo}` : '';
       try {
         allocations = await prisma.$queryRawUnsafe(`
           SELECT 
@@ -1592,7 +1789,7 @@ class StandardProductionController {
           LEFT JOIN products p ON p.id = pba.product_id
           LEFT JOIN "UOM" puom ON puom.id = p.unit_id
           LEFT JOIN ice_cream_mould m ON m.id = pba.mould_id
-          WHERE pba.batch_id = $1
+          WHERE pba.batch_id = $1 ${dayScopeFilter}
           ORDER BY pba.seq;
         `, id);
       } catch (allocErr) {
@@ -1605,38 +1802,110 @@ class StandardProductionController {
           FROM production_batch_allocation pba
           LEFT JOIN products p ON p.id = pba.product_id
           LEFT JOIN "UOM" puom ON puom.id = p.unit_id
-          WHERE pba.batch_id = $1
+          WHERE pba.batch_id = $1 ${dayScopeFilter}
           ORDER BY pba.seq;
         `, id).catch(() => []);
       }
 
-      // Merge saved rich mould_allocations JSON (includes productRms and explicit allocatedBaseMl)
-      let savedMouldAllocs = [];
-      try {
-        if (typeof batch.mould_allocations === 'string') {
-          savedMouldAllocs = JSON.parse(batch.mould_allocations || '[]');
-        } else if (Array.isArray(batch.mould_allocations)) {
-          savedMouldAllocs = batch.mould_allocations;
-        }
-      } catch (_) {}
+      // If viewing an already-completed Day whose pba rows were absent (e.g. reconstructed from outputs), populate from viewingDayRec.outputs
+      if (hasMultiDay && allocations.length === 0 && viewingDayRec && Array.isArray(viewingDayRec.outputs) && viewingDayRec.outputs.length > 0) {
+        allocations = viewingDayRec.outputs.map(o => ({
+          seq: o.seq,
+          day_no: viewingDayRec.dayNo,
+          product_id: o.productId,
+          product_name: o.productName,
+          product_code: o.productCode || 'FP',
+          product_unit: o.uom || 'pcs',
+          use_mould: Boolean(o.useMould),
+          mould_id: o.mouldId || null,
+          mould_code: o.mouldCode || '',
+          mould_name: o.mouldName || '',
+          capacity_ml: Number(o.capacityMl || 0),
+          cavities: Number(o.cavities || 1),
+          trays: Number(o.trays || 0),
+          waste_mode: o.wasteMode || 'PERCENT',
+          waste_value: Number(o.wasteValue || 0),
+          allocated_base_ml: Number(o.allocatedBaseMl || 0),
+          mix_used_ml: Number(o.allocatedBaseMl || 0),
+          waste_ml: Number(o.wasteMl || 0),
+          good_pieces: Number(o.theoreticalQty || 0),
+          actual_yield: Number(o.actualYield || 0),
+          reject_output: Number(o.rejectOutput || 0),
+          bulk_uom: o.bulkUom || 'L',
+          product_rms: Array.isArray(o.productRms) ? o.productRms : [],
+          product_batch_no: o.productBatchNo || null,
+          product_serial_no: o.productSerialNo || null
+        }));
+      }
 
+      // If batch is finalized/completed and viewingDayNo has no rows AND no specific dayNo was requested, fallback to all
+      if (hasMultiDay && !req.query?.dayNo && allocations.length === 0 && (batch.is_finalized || batch.status === 'Completed')) {
+        try {
+          allocations = await prisma.$queryRawUnsafe(`
+            SELECT 
+              pba.*,
+              p.name AS product_name,
+              p.code AS product_code,
+              COALESCE(puom.abbreviation, puom.name, 'pcs') AS product_unit,
+              m.mould_code,
+              m.mould_name,
+              m.mould_category,
+              m.specification_status
+            FROM production_batch_allocation pba
+            LEFT JOIN products p ON p.id = pba.product_id
+            LEFT JOIN "UOM" puom ON puom.id = p.unit_id
+            LEFT JOIN ice_cream_mould m ON m.id = pba.mould_id
+            WHERE pba.batch_id = $1
+            ORDER BY COALESCE(pba.day_no, 1), pba.seq;
+          `, id);
+        } catch (_) {}
+      }
+
+      // Merge saved rich mould_allocations JSON ONLY when there are active rows (or legacy single-day batch)
+      let savedMouldAllocs = [];
+      if (!hasMultiDay || allocations.length > 0) {
+        try {
+          if (typeof batch.mould_allocations === 'string') {
+            savedMouldAllocs = JSON.parse(batch.mould_allocations || '[]');
+          } else if (Array.isArray(batch.mould_allocations)) {
+            savedMouldAllocs = batch.mould_allocations;
+          }
+        } catch (_) {}
+      }
+
+      const viewingOuts = Array.isArray(viewingDayRec?.outputs) ? viewingDayRec.outputs : [];
       const enrichedAllocs = allocations.map((a, idx) => {
-        const match = savedMouldAllocs.find(s => s.seq === a.seq || s.productId === a.product_id) || savedMouldAllocs[idx] || {};
+        const match = (!hasMultiDay || viewingDayNo === 1)
+          ? (savedMouldAllocs.find(s => s.seq === a.seq && s.productId === a.product_id) || savedMouldAllocs[idx] || {})
+          : {};
+        const dayOutMatch = viewingOuts.find(o => Number(o.seq) === Number(a.seq) && o.productId === a.product_id)
+          || viewingOuts.find(o => o.productId === a.product_id)
+          || null;
         let parsedProductRms = [];
-        if (Array.isArray(match.productRms) && match.productRms.length > 0) {
-          parsedProductRms = match.productRms;
-        } else if (Array.isArray(a.product_rms) && a.product_rms.length > 0) {
+        if (Array.isArray(a.product_rms) && a.product_rms.length > 0) {
           parsedProductRms = a.product_rms;
         } else if (typeof a.product_rms === 'string' && a.product_rms.trim().startsWith('[')) {
           try { parsedProductRms = JSON.parse(a.product_rms); } catch (_) {}
+        } else if (dayOutMatch && Array.isArray(dayOutMatch.productRms) && dayOutMatch.productRms.length > 0) {
+          parsedProductRms = dayOutMatch.productRms;
+        } else if (Array.isArray(match.productRms) && match.productRms.length > 0) {
+          parsedProductRms = match.productRms;
         }
         return {
           ...match,
           ...a,
-          allocatedBaseMl: Number(match.allocatedBaseMl ?? a.mix_used_ml ?? 0),
+          allocatedBaseMl: Number(a.allocated_base_ml ?? a.mix_used_ml ?? dayOutMatch?.allocatedBaseMl ?? match.allocatedBaseMl ?? 0),
           productRms: parsedProductRms,
+          productBatchNo: a.product_batch_no || dayOutMatch?.productBatchNo || match.productBatchNo || null,
+          productSerialNo: a.product_serial_no || dayOutMatch?.productSerialNo || match.productSerialNo || null,
+          actualYield: a.actual_yield !== null && a.actual_yield !== undefined
+            ? Number(a.actual_yield)
+            : (dayOutMatch?.actualYield !== undefined ? Number(dayOutMatch.actualYield) : (match.actualYield ?? null)),
+          rejectOutput: a.reject_output !== undefined
+            ? Number(a.reject_output)
+            : Number(dayOutMatch?.rejectOutput || 0),
           useMould: a.use_mould !== undefined ? Boolean(a.use_mould) : (match.useMould !== undefined ? Boolean(match.useMould) : true),
-          bulkUom: match.bulkUom || a.product_unit || 'L'
+          bulkUom: a.bulk_uom || dayOutMatch?.bulkUom || match.bulkUom || a.product_unit || 'L'
         };
       });
 
@@ -1659,6 +1928,37 @@ class StandardProductionController {
             liquidMl = toMl(taken, uom, density);
           } catch (_) {}
 
+          const matchedAllocs = (savedBatchAllocations || []).filter(a =>
+            (a.matched_rm_id && (a.matched_rm_id === line.raw_material_id || a.matched_rm_id === line.id)) ||
+            a.usage_id === line.id ||
+            a.usage_id === line.raw_material_id ||
+            (line.lot_id && a.inventory_batch_id === line.lot_id) ||
+            (line.lot_batch_no && a.lot_number === line.lot_batch_no)
+          );
+          const lotBatches = matchedAllocs.length > 0
+            ? matchedAllocs.map(a => ({
+                batchId: a.inventory_batch_id || a.lot_number,
+                lotNumber: a.lot_number,
+                allocatedQty: Number(a.allocated_qty || 0),
+                uom: a.uom || uom,
+                unitRate: Number(a.unit_rate || rate),
+                totalCost: round2(Number(a.allocated_qty || 0) * Number(a.unit_rate || rate)),
+                expiryDate: a.expiry_date || line.lot_expiry_date || null,
+                poNumber: a.po_number || 'PO-MANUAL-OVERRIDE',
+                grnNumber: a.grn_number || 'GRN-MANUAL-OVERRIDE'
+              }))
+            : (line.lot_batch_no ? [{
+                batchId: line.lot_id || line.lot_batch_no,
+                lotNumber: line.lot_batch_no,
+                allocatedQty: taken,
+                uom,
+                unitRate: rate,
+                totalCost: round2(lineCost),
+                expiryDate: line.lot_expiry_date || (batchMap.get(line.raw_material_id)?.find(b => b.batchNo === line.lot_batch_no)?.expiryDate) || null
+              }] : []);
+
+          const resolvedExpiry = line.lot_expiry_date || lotBatches.find(lb => lb.expiryDate)?.expiryDate || null;
+
           return {
             rawMaterialId: line.raw_material_id,
             rawMaterialName: line.raw_material_name,
@@ -1667,28 +1967,66 @@ class StandardProductionController {
             uom,
             unitRate: rate,
             totalCost: round2(lineCost),
-            lotBatchNo: line.lot_batch_no || 'BATCH-DIRECT',
+            lotBatchNo: lotBatches.length > 0 ? lotBatches.map(b => b.lotNumber).filter(Boolean).join(', ') : (line.lot_batch_no || 'BATCH-DIRECT'),
+            expiryDate: resolvedExpiry,
+            allocatedBatches: lotBatches,
             evaporates: Boolean(line.evaporates),
             liquidVolumeMl: liquidMl
           };
         });
 
-        const labourCost = Number(batch.labour_total_cost || 0);
-        const utilityCost = Number(batch.eb_total_cost || 0);
-        const overheadCost = Number(batch.overhead_amt || 0);
+        const labourCost = hasMultiDay
+          ? round2(days.filter(d => d.status !== 'IN_PROGRESS').reduce((s, d) => s + Number(d.labourTotalCost || 0), 0)) || Number(batch.labour_total_cost || 0)
+          : Number(batch.labour_total_cost || 0);
+        const utilityCost = hasMultiDay
+          ? round2(days.filter(d => d.status !== 'IN_PROGRESS').reduce((s, d) => s + Number(d.ebTotalCost || 0), 0)) || Number(batch.eb_total_cost || 0)
+          : Number(batch.eb_total_cost || 0);
+        const overheadCost = hasMultiDay
+          ? round2(days.filter(d => d.status !== 'IN_PROGRESS').reduce((s, d) => s + Number(d.overheadAmt || 0), 0)) || Number(batch.overhead_amt || 0)
+          : Number(batch.overhead_amt || 0);
 
-        const totalBaseMixMl = mergeData?.mix_after_evap_ml ? Number(mergeData.mix_after_evap_ml) : (totalMixUsedMl || 1);
+        const completedDaysAllocatedMl = hasMultiDay
+          ? days.filter(d => d.status !== 'IN_PROGRESS').reduce((s, d) => s + Number(d.allocatedMixMl || 0), 0)
+          : 0;
+        const completedDaysWasteMl = hasMultiDay
+          ? days.filter(d => d.status !== 'IN_PROGRESS').reduce((s, d) => s + Number(d.wasteMl || 0), 0)
+          : 0;
+
+        const effectiveCumulativeUsedMl = hasMultiDay && completedDaysAllocatedMl > 0
+          ? completedDaysAllocatedMl
+          : totalMixUsedMl;
+        const totalBaseMixMl = mergeData?.mix_after_evap_ml ? Number(mergeData.mix_after_evap_ml) : (effectiveCumulativeUsedMl || 1);
         const baseCostPerMl = totalBaseMixMl > 0 ? (totalMaterialCost / totalBaseMixMl) : 0;
 
-        // Waste cost calculation
-        const totalWasteMl = enrichedAllocs.reduce((sum, a) => sum + Number(a.waste_ml || 0), 0);
-        const unallocatedMixMl = Math.max(0, totalBaseMixMl - totalMixUsedMl);
+        // Waste cost calculation: while multi-day run is still open (not finalized), unallocated mix is carry-forward pool, NOT waste
+        const activeAllocWasteMl = enrichedAllocs.reduce((sum, a) => sum + Number(a.waste_ml || 0), 0);
+        const totalWasteMl = hasMultiDay ? completedDaysWasteMl : activeAllocWasteMl;
+        const carryForwardOrUnallocatedMl = Math.max(0, totalBaseMixMl - effectiveCumulativeUsedMl);
+        const isBatchClosed = Boolean(batch.is_finalized || batch.status === 'Completed');
+        const unallocatedMixMl = isBatchClosed ? carryForwardOrUnallocatedMl : 0;
         totalWastageCost = (totalWasteMl + unallocatedMixMl) * baseCostPerMl;
 
-        const totalProductionCost = totalMaterialCost + labourCost + utilityCost + overheadCost;
+        const totalProductRmsCostPre = hasMultiDay
+          ? days.filter(d => d.status !== 'IN_PROGRESS').reduce((s, d) => s + Number(d.productRmCost || 0), 0)
+          : 0;
+        const totalProductionCost = totalMaterialCost + totalProductRmsCostPre + labourCost + utilityCost + overheadCost;
 
         // Per-product cost attribution based on base mix consumption + specific product raw materials
-        const productCostAttribution = enrichedAllocs.map(a => {
+        const effectiveAllocsForCost = (hasMultiDay && enrichedAllocs.length === 0)
+          ? days.flatMap(d => (d.outputs || []).map(o => ({
+              seq: o.seq,
+              product_id: o.productId,
+              product_name: o.productName,
+              good_pieces: o.actualYield,
+              allocatedBaseMl: o.allocatedBaseMl,
+              productRms: o.productRms,
+              productBatchNo: o.productBatchNo,
+              productSerialNo: o.productSerialNo,
+              dayNo: d.dayNo
+            })))
+          : enrichedAllocs;
+        const effectiveMixForCostShare = effectiveAllocsForCost.reduce((s, a) => s + Number(a.allocatedBaseMl || a.mix_used_ml || 0), 0) || totalMixUsedMl;
+        const productCostAttribution = effectiveAllocsForCost.map(a => {
           const baseMixConsumed = Number(a.allocatedBaseMl || a.mix_used_ml || 0);
           const assignedBaseRmCost = baseMixConsumed * baseCostPerMl;
 
@@ -1715,7 +2053,7 @@ class StandardProductionController {
           }
 
           const totalAssignedRmCost = assignedBaseRmCost + productSpecificRmCost;
-          const share = totalMixUsedMl > 0 ? (baseMixConsumed / totalMixUsedMl) : 0;
+          const share = effectiveMixForCostShare > 0 ? (baseMixConsumed / effectiveMixForCostShare) : 0;
           const assignedLabourCost = labourCost * share;
           const assignedUtilityCost = utilityCost * share;
           const assignedOverheadCost = overheadCost * share;
@@ -1724,9 +2062,12 @@ class StandardProductionController {
           const costPerPiece = pieces > 0 ? (assignedTotal / pieces) : 0;
 
           return {
+            dayNo: a.dayNo || null,
             seq: a.seq,
             productId: a.product_id || a.productId,
             productName: a.product_name || a.productName,
+            productBatchNo: a.productBatchNo || null,
+            productSerialNo: a.productSerialNo || null,
             goodPieces: pieces,
             mixUsedMl: baseMixConsumed,
             productRmsCost: round2(productSpecificRmCost),
@@ -1743,8 +2084,10 @@ class StandardProductionController {
 
         costingSummary = {
           totalMaterialCost: round2(totalMaterialCost),
+          totalProductRmsCost: round2(totalProductRmsCostPre || productCostAttribution.reduce((s, p) => s + Number(p.productRmsCost || 0), 0)),
           totalWastageCost: round2(totalWastageCost),
           unallocatedMixMl: round2(unallocatedMixMl),
+          carryForwardMixMl: round2(isBatchClosed ? 0 : carryForwardOrUnallocatedMl),
           baseCostPerMl: Number(baseCostPerMl.toFixed(4)),
           labourCost: round2(labourCost),
           utilityCost: round2(utilityCost),
@@ -1755,42 +2098,84 @@ class StandardProductionController {
         };
       }
 
-      let savedProductYields = [];
-      try {
-        if (typeof batch.product_yields === 'string') {
-          savedProductYields = JSON.parse(batch.product_yields || '[]');
-        } else if (Array.isArray(batch.product_yields)) {
-          savedProductYields = batch.product_yields;
-        }
-      } catch (_) {}
+      const activeDayRec = viewingDayRec;
 
-      // Parse timeline stages & per-product stages map
+      let savedProductYields = [];
       let parsedTimelineStages = [];
       let parsedProductStagesMap = {};
-      try {
-        let rawStages = batch.timeline_stages;
-        if (typeof rawStages === 'string') {
-          rawStages = JSON.parse(rawStages || '[]');
+
+      if (hasMultiDay && activeDayRec) {
+        // Strictly scope yields & factory timeline stages to the active Day record
+        // so Day 1's data never leaks into Day 2 / Day N+1's active workspace.
+        if (Array.isArray(activeDayRec.outputs) && activeDayRec.outputs.length > 0) {
+          savedProductYields = activeDayRec.outputs.map(o => ({
+            seq: o.seq,
+            productId: o.productId,
+            productName: o.productName,
+            productCode: o.productCode,
+            uom: o.uom,
+            allocatedBaseMl: Number(o.allocatedBaseMl || 0),
+            calculatedYield: Number(o.theoreticalQty || o.actualYield || 0),
+            actualGoodOutput: Number(o.actualYield || 0),
+            actualOutput: Number(o.actualYield || 0),
+            rejectOutput: Number(o.rejectOutput || 0),
+            productBatchNo: o.productBatchNo,
+            productSerialNo: o.productSerialNo
+          }));
+        } else {
+          savedProductYields = [];
         }
-        if (rawStages && typeof rawStages === 'object' && !Array.isArray(rawStages)) {
-          parsedTimelineStages = Array.isArray(rawStages.stages) ? rawStages.stages : [];
-          parsedProductStagesMap = rawStages.productStagesMap || {};
-        } else if (Array.isArray(rawStages)) {
-          parsedTimelineStages = rawStages;
+
+        parsedTimelineStages = Array.isArray(activeDayRec.timelineStages) ? activeDayRec.timelineStages : [];
+        parsedProductStagesMap = (activeDayRec.productStagesMap && typeof activeDayRec.productStagesMap === 'object')
+          ? activeDayRec.productStagesMap
+          : {};
+      } else {
+        try {
+          if (typeof batch.product_yields === 'string') {
+            savedProductYields = JSON.parse(batch.product_yields || '[]');
+          } else if (Array.isArray(batch.product_yields)) {
+            savedProductYields = batch.product_yields;
+          }
+        } catch (_) {}
+
+        try {
+          let rawStages = batch.timeline_stages;
+          if (typeof rawStages === 'string') {
+            rawStages = JSON.parse(rawStages || '[]');
+          }
+          if (rawStages && typeof rawStages === 'object' && !Array.isArray(rawStages)) {
+            parsedTimelineStages = Array.isArray(rawStages.stages) ? rawStages.stages : [];
+            parsedProductStagesMap = rawStages.productStagesMap || {};
+          } else if (Array.isArray(rawStages)) {
+            parsedTimelineStages = rawStages;
+            parsedProductStagesMap = {};
+          }
+        } catch (_) {
+          parsedTimelineStages = [];
           parsedProductStagesMap = {};
         }
-      } catch (_) {
-        parsedTimelineStages = [];
-        parsedProductStagesMap = {};
       }
 
       // Fetch live company settings from setup/tax
       let companyDetails = null;
       try {
         companyDetails = await getTaxSettingsData();
+        if (companyDetails && companyDetails.companyName) {
+          companyDetails.companyPrefix = sanitizeToken(companyDetails.companyName, 24, 'COMPANY');
+        }
       } catch (cErr) {
         console.warn('Error reading tax settings:', cErr.message);
       }
+
+      const netPostEvapMixMlResolved = Number(
+        mergeData?.mix_after_evap_ml || batch.net_post_evap_mix_ml || batch.merged_pre_evap_ml || 0
+      );
+      const remainingMixBalanceMlResolved = Math.max(
+        0,
+        round2(netPostEvapMixMlResolved - totalAllocatedAcrossCompletedDaysMl)
+      );
+      const resolvedShortBatchCode = batch.short_batch_code || formatDDMMYY(batch.start_date || new Date());
 
       res.json({
         success: true,
@@ -1799,6 +2184,18 @@ class StandardProductionController {
           batchNo: batch.batch_no || batch.reference_no,
           referenceNo: batch.reference_no || batch.batch_no,
           batch_number: batch.batch_no || batch.reference_no,
+          shortBatchCode: resolvedShortBatchCode,
+          short_batch_code: resolvedShortBatchCode,
+          activeDayNo,
+          active_day_no: activeDayNo,
+          viewingDayNo,
+          viewingDayStatus: viewingDayRec?.status || 'IN_PROGRESS',
+          completedDaysCount: Number(batch.completed_days_count || days.filter(d => d.status !== 'IN_PROGRESS').length),
+          baseRmDeducted: Boolean(batch.base_rm_deducted),
+          isFinalized: Boolean(batch.is_finalized || batch.status === 'Completed'),
+          previousDaysAllocatedMl,
+          totalAllocatedAcrossCompletedDaysMl,
+          remainingMixBalanceMl: remainingMixBalanceMlResolved,
           actualOutput: Number(batch.actual_output || batch.good_quantity || batch.quantity || 0),
           quantity: Number(batch.quantity || 0),
           baseName: batch.base_name,
@@ -1809,6 +2206,7 @@ class StandardProductionController {
           companyDetails
         },
         companyDetails,
+        days,
         timelineStages: parsedTimelineStages,
         productStagesMap: parsedProductStagesMap,
         productYields: savedProductYields,
@@ -1831,6 +2229,7 @@ class StandardProductionController {
             allocatedAmount: Number(a.allocated_amount || 0),
             unitRate: Number(a.unit_rate || r.rate_per_unit || 0),
             uom: a.uom || r.uom,
+            expiryDate: a.expiry_date || r.lot_expiry_date || null,
             isManualOverride: Boolean(a.is_manual_override),
             grnNumber: a.grn_number || 'GRN-MANUAL-OVERRIDE',
             poNumber: a.po_number || 'PO-MANUAL-OVERRIDE',
@@ -1847,6 +2246,7 @@ class StandardProductionController {
               unitRate: Number(r.rate_per_unit || 0),
               allocatedAmount: Number(r.taken_qty || r.required_qty || 0) * Number(r.rate_per_unit || 0),
               uom: r.uom,
+              expiryDate: r.lot_expiry_date || null,
               isManualOverride: false,
               grnNumber: 'GRN-AUTO',
               poNumber: 'PO-AUTO',
@@ -1870,6 +2270,7 @@ class StandardProductionController {
                 allocatedAmount: Number((allocFromLot * Number(r.rate_per_unit || 0)).toFixed(2)),
                 unitRate: Number(r.rate_per_unit || 0),
                 uom: r.uom,
+                expiryDate: lot.expiryDate || null,
                 isManualOverride: false,
                 grnNumber: 'GRN-AUTO',
                 poNumber: 'PO-AUTO',
@@ -1885,6 +2286,7 @@ class StandardProductionController {
           const resolvedLotBatchNo = resolvedAllocatedBatches.length > 0
             ? resolvedAllocatedBatches.map(b => b.lotNumber).join(', ')
             : (r.lot_batch_no || (batchMap.get(r.raw_material_id)?.[0]?.batchNo || null));
+          const resolvedLotExpiry = r.lot_expiry_date || resolvedAllocatedBatches.find(b => b.expiryDate)?.expiryDate || null;
 
           const totalAllocQty = resolvedAllocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
           const reqQty = Number(r.required_qty || 0);
@@ -1909,6 +2311,7 @@ class StandardProductionController {
             conversion_factor: Number(r.conversion_factor || 1),
             consumption_unit: r.consumption_unit,
             lot_batch_no: resolvedLotBatchNo,
+            lot_expiry_date: resolvedLotExpiry,
             allocatedBatches: resolvedAllocatedBatches,
             available_batches: batchMap.get(r.raw_material_id) || []
           };
@@ -2650,7 +3053,7 @@ class StandardProductionController {
   }
 
   // ── 10B. PUT /api/production/standard/:id/stages ──
-  // Update Factory Stages & Timeline Sequence parameters
+  // Update Factory Stages & Timeline Sequence parameters (both batch & active Day)
   async updateStages(req, res, next) {
     try {
       const { id } = req.params;
@@ -2661,11 +3064,16 @@ class StandardProductionController {
         labourTotalCost,
         utilityCost,
         ebTotalCost,
+        ebStartReading,
+        ebEndReading,
         ebUnitsKwh,
         ebRatePerUnit,
         overheadCost,
         overheadAmt,
-        productYields
+        productYields,
+        dayNo,
+        dayBatchCode,
+        productionDate
       } = req.body || {};
 
       const finalLabour = labourTotalCost !== undefined && labourTotalCost !== null ? Number(labourTotalCost) : (labourCost !== undefined && labourCost !== null ? Number(labourCost) : null);
@@ -2684,21 +3092,57 @@ class StandardProductionController {
         SET timeline_stages = $2::jsonb,
             labour_total_cost = COALESCE($3, labour_total_cost),
             eb_total_cost = COALESCE($4, eb_total_cost),
-            eb_units_kwh = COALESCE($5, eb_units_kwh),
-            eb_rate_per_unit = COALESCE($6, eb_rate_per_unit),
-            overhead_amt = COALESCE($7, overhead_amt),
-            product_yields = COALESCE($8::jsonb, product_yields),
+            eb_start_reading = COALESCE($5, eb_start_reading),
+            eb_end_reading = COALESCE($6, eb_end_reading),
+            eb_units_kwh = COALESCE($7, eb_units_kwh),
+            eb_rate_per_unit = COALESCE($8, eb_rate_per_unit),
+            overhead_amt = COALESCE($9, overhead_amt),
+            product_yields = COALESCE($10::jsonb, product_yields),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1;
       `, id, 
          JSON.stringify(stagesPayload),
          finalLabour,
          finalEb,
+         ebStartReading !== undefined && ebStartReading !== null ? Number(ebStartReading) : null,
+         ebEndReading !== undefined && ebEndReading !== null ? Number(ebEndReading) : null,
          finalUnits,
          finalRate,
          finalOverhead,
          productYields ? JSON.stringify(productYields) : null
       );
+
+      // Sync active Day record if present
+      if (dayNo) {
+        const stageProdDate = typeof productionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(productionDate.trim())
+          ? productionDate.trim().slice(0, 10)
+          : null;
+        const stageDayCode = dayBatchCode
+          ? sanitizeToken(dayBatchCode, 24, formatDDMMYY(stageProdDate || new Date()))
+          : null;
+        await prisma.$executeRawUnsafe(`
+          UPDATE production_batch_days
+          SET timeline_stages = $3::jsonb,
+              product_stages_map = $4::jsonb,
+              eb_start_reading = COALESCE($5, eb_start_reading),
+              eb_end_reading = COALESCE($6, eb_end_reading),
+              eb_units_kwh = COALESCE($7, eb_units_kwh),
+              eb_rate_per_unit = COALESCE($8, eb_rate_per_unit),
+              eb_total_cost = COALESCE($9, eb_total_cost),
+              labour_total_cost = COALESCE($10, labour_total_cost),
+              overhead_amt = COALESCE($11, overhead_amt),
+              production_date = COALESCE($12::date, production_date),
+              day_batch_code = COALESCE($13, day_batch_code),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE batch_id = $1 AND day_no = $2 AND status = 'IN_PROGRESS';
+        `, id, Number(dayNo),
+           JSON.stringify(Array.isArray(timelineStages) ? timelineStages : []),
+           JSON.stringify((productStagesMap && typeof productStagesMap === 'object') ? productStagesMap : {}),
+           ebStartReading !== undefined && ebStartReading !== null ? Number(ebStartReading) : null,
+           ebEndReading !== undefined && ebEndReading !== null ? Number(ebEndReading) : null,
+           finalUnits, finalRate, finalEb, finalLabour, finalOverhead, stageProdDate, stageDayCode
+        ).catch(() => {});
+      }
 
       res.json({
         success: true,
@@ -2711,6 +3155,201 @@ class StandardProductionController {
       });
     } catch (err) {
       console.error('Error updating factory stages:', err);
+      next(err);
+    }
+  }
+
+  // ── 10C. POST /api/production/standard/:id/complete-day ──
+  // Completes a single Day (Day 1, Day 2, ...), assigns product batch numbers & 8-digit serials,
+  // deducts Base RMs once (Day 1) + Day Product RMs, pushes Day yield to Sales immediately (or QC),
+  // and either pauses for Day N+1 (remaining base mix) or finalizes entire production.
+  async completeDay(req, res, next) {
+    try {
+      const { id } = req.params;
+      const body = req.body || {};
+      const operatorName = req.user?.name || req.user?.username || 'Supervisor';
+      const userId = req.user?.id || null;
+
+      const data = await completeDayRun({
+        batchId: id,
+        dayNo: body.dayNo,
+        dayBatchCode: body.dayBatchCode || body.shortBatchCode,
+        productionDate: body.productionDate || new Date(),
+        timelineStages: body.timelineStages || [],
+        productStagesMap: body.productStagesMap || {},
+        ebStartReading: body.ebStartReading ?? 0,
+        ebEndReading: body.ebEndReading ?? 0,
+        ebUnitsKwh: body.ebUnitsKwh ?? 0,
+        ebRatePerUnit: body.ebRatePerUnit ?? 8.5,
+        ebTotalCost: body.ebTotalCost ?? body.utilityCost ?? 0,
+        labourTotalCost: body.labourTotalCost ?? body.labourCost ?? 0,
+        overheadAmt: body.overheadAmt ?? body.overheadCost ?? 0,
+        allocations: body.allocations || [],
+        productYields: body.productYields || body.productOutputs || [],
+        labTestRequired: Boolean(body.labTestRequired),
+        finalizeProduction: Boolean(body.finalizeProduction),
+        scrapRemainingMixAsWaste: body.scrapRemainingMixAsWaste !== undefined ? Boolean(body.scrapRemainingMixAsWaste) : true,
+        notes: body.notes || '',
+        userId,
+        operatorName
+      });
+
+      res.json({
+        success: true,
+        message: data.finalizedEntireProduction
+          ? `Day ${data.dayNo} completed and ENTIRE production batch finalized${data.pushedToSales ? ' & pushed to Sales stock' : ' (QC Queue)'}.`
+          : `Day ${data.dayNo} completed${data.pushedToSales ? ' & pushed to Sales stock' : ' (QC Queue)'}. Remaining ${data.remainingMixMl} ml carry-forward mix ready for Day ${data.dayNo + 1}.`,
+        data
+      });
+    } catch (err) {
+      console.error('Error completing day production:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message, errors: err.errors });
+      }
+      next(err);
+    }
+  }
+
+  // ── 10D. POST /api/production/standard/:id/days/start-next ──
+  // Resumes a paused batch into Day N+1 using remaining unallocated carry-forward base mix
+  async startNextDay(req, res, next) {
+    try {
+      const { id } = req.params;
+      const body = req.body || {};
+      const operatorName = req.user?.name || req.user?.username || 'Supervisor';
+
+      const data = await startNextDayRun(id, {
+        productionDate: body.productionDate || new Date(),
+        dayBatchCode: body.dayBatchCode || body.shortBatchCode,
+        operatorName
+      });
+
+      res.json({
+        success: true,
+        message: `Day ${data.dayNo} started with ${data.openingMixMl} ml carry-forward base mix.`,
+        data
+      });
+    } catch (err) {
+      console.error('Error starting next day run:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      next(err);
+    }
+  }
+
+  // ── 10E. PUT /api/production/standard/:id/days/:dayId/costs ──
+  // Allows editing Electricity & Labour costs on any completed Day & dynamically recalculates unit costs
+  async updateDayCosts(req, res, next) {
+    try {
+      const { id, dayId } = req.params;
+      const body = req.body || {};
+      const operatorName = req.user?.name || req.user?.username || 'Supervisor';
+
+      const data = await updateCompletedDayCosts({
+        batchId: id,
+        dayId,
+        ebStartReading: body.ebStartReading,
+        ebEndReading: body.ebEndReading,
+        ebUnitsKwh: body.ebUnitsKwh,
+        ebRatePerUnit: body.ebRatePerUnit,
+        ebTotalCost: body.ebTotalCost ?? body.utilityCost,
+        labourTotalCost: body.labourTotalCost ?? body.labourCost,
+        overheadAmt: body.overheadAmt ?? body.overheadCost,
+        outputLabourOverrides: body.outputLabourOverrides || {},
+        timelineStages: body.timelineStages,
+        productStagesMap: body.productStagesMap,
+        notes: body.notes,
+        productionDate: body.productionDate,
+        dayBatchCode: body.dayBatchCode,
+        userId: req.user?.id || null,
+        operatorName
+      });
+
+      res.json({
+        success: true,
+        message: `Day ${data.day?.dayNo || ''} operational costs updated and unit costs recalculated.`,
+        data
+      });
+    } catch (err) {
+      console.error('Error updating completed day costs:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message });
+      }
+      next(err);
+    }
+  }
+
+  // ── 10E-2. PUT /api/production/standard/:id/days/:dayId/update ──
+  // Updates a completed Day's Step 3 Products/Moulds/RMs, Step 4 Timeline/EB/Labour/Overhead, & Step 5 Actual Yields cleanly
+  async updateDayFull(req, res, next) {
+    try {
+      const { id, dayId } = req.params;
+      const body = req.body || {};
+      const operatorName = req.user?.name || req.user?.username || 'Supervisor';
+
+      const data = await updateCompletedDayRun({
+        batchId: id,
+        dayId,
+        productionDate: body.productionDate,
+        dayBatchCode: body.dayBatchCode || body.shortBatchCode,
+        allocations: body.allocations,
+        timelineStages: body.timelineStages,
+        productStagesMap: body.productStagesMap,
+        ebStartReading: body.ebStartReading,
+        ebEndReading: body.ebEndReading,
+        ebUnitsKwh: body.ebUnitsKwh,
+        ebRatePerUnit: body.ebRatePerUnit,
+        ebTotalCost: body.ebTotalCost ?? body.utilityCost,
+        labourTotalCost: body.labourTotalCost ?? body.labourCost,
+        overheadAmt: body.overheadAmt ?? body.overheadCost,
+        productYields: body.productYields,
+        notes: body.notes,
+        userId: req.user?.id || null,
+        operatorName
+      });
+
+      res.json({
+        success: true,
+        message: `Day ${data.day?.dayNo || ''} products, timeline, operational costs, and actual yields updated successfully.`,
+        data
+      });
+    } catch (err) {
+      console.error('Error updating completed day execution:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message, errors: err.errors });
+      }
+      next(err);
+    }
+  }
+
+  // ── 10F. GET /api/production/standard/serial-preview ──
+  // Live non-mutating preview of 8-digit per-product serial numbers & DDMMYY batch numbers
+  async getSerialPreview(req, res, next) {
+    try {
+      const rawIds = String(req.query.productIds || '').split(',').map(s => s.trim()).filter(Boolean);
+      const headerBatchCode = req.query.dayBatchCode || req.query.shortBatchCode || null;
+      const dateInput = req.query.date || new Date();
+
+      const preview = await previewNextProductSerials(rawIds, dateInput, headerBatchCode);
+      res.json({ success: true, ...preview });
+    } catch (err) {
+      console.error('Error generating serial preview:', err);
+      next(err);
+    }
+  }
+
+  // ── 10G. POST /api/production/standard/:id/reopen ──
+  async reopenProduction(req, res, next) {
+    try {
+      const { id } = req.params;
+      await prisma.$executeRawUnsafe(`
+        UPDATE production_batches
+        SET status = 'Paused', is_finalized = FALSE, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1;
+      `, id);
+      res.json({ success: true, message: 'Production batch reopened to Paused state.' });
+    } catch (err) {
       next(err);
     }
   }
@@ -2735,13 +3374,44 @@ class StandardProductionController {
   async resumeProduction(req, res, next) {
     try {
       const { id } = req.params;
+      const body = req.body || {};
+      const operatorName = req.user?.name || req.user?.username || 'Supervisor';
+
+      await ensureMultiDaySchema(prisma);
+      const dayRows = await prisma.$queryRawUnsafe(`
+        SELECT day_no, status FROM production_batch_days WHERE batch_id = $1 ORDER BY day_no ASC;
+      `, id).catch(() => []);
+      const hasOpenDay = (dayRows || []).some(d => d.status === 'IN_PROGRESS');
+      const hasCompletedDay = (dayRows || []).some(d => d.status !== 'IN_PROGRESS');
+
       await prisma.$executeRawUnsafe(`
         UPDATE production_batches 
         SET status = 'In Progress', updated_at = CURRENT_TIMESTAMP 
         WHERE id = $1 AND status = 'Paused';
       `, id);
 
-      res.json({ success: true, message: 'Production run resumed' });
+      if (hasCompletedDay && !hasOpenDay) {
+        try {
+          const nextDay = await startNextDayRun(id, {
+            productionDate: body.productionDate || new Date(),
+            dayBatchCode: body.dayBatchCode || body.shortBatchCode,
+            operatorName
+          });
+          return res.json({
+            success: true,
+            startedNextDay: true,
+            data: nextDay,
+            message: `Production resumed and Day ${nextDay.dayNo} started with ${nextDay.openingMixMl} ml remaining mix.`
+          });
+        } catch (nextErr) {
+          // If no carry-forward mix remains, still return normal resume response
+          if (nextErr.statusCode !== 422 && nextErr.statusCode !== 409) {
+            throw nextErr;
+          }
+        }
+      }
+
+      res.json({ success: true, startedNextDay: false, message: 'Production run resumed' });
     } catch (err) {
       next(err);
     }
@@ -2763,8 +3433,8 @@ class StandardProductionController {
 
         const batch = rows[0];
 
-        // 1. If batch was Completed, automatically restore warehouse stock (dual-layer safety alongside DB trigger)
-        if (batch.status === 'Completed') {
+        // 1. If batch was Completed or already completed Day runs, automatically restore warehouse stock (dual-layer safety)
+        if (batch.status === 'Completed' || batch.base_rm_deducted || Number(batch.completed_days_count || 0) > 0) {
           const allocations = await tx.$queryRawUnsafe(`
             SELECT inventory_batch_id, lot_number, allocated_qty 
             FROM production_batch_allocations 
@@ -2799,7 +3469,7 @@ class StandardProductionController {
           const usages = await tx.$queryRawUnsafe(`
             SELECT rm_id, COALESCE(actual_used_qty, required_qty, input_qty, 0) AS qty
             FROM production_batch_rm_usage
-            WHERE batch_id = $1;
+            WHERE batch_id = $1 AND status = 'CONSUMED';
           `, id);
 
           for (const u of usages) {
@@ -2814,18 +3484,42 @@ class StandardProductionController {
             }
           }
 
-          const prodYield = Number(batch.good_quantity || batch.actual_output || batch.quantity || 0);
-          if (batch.product_id && prodYield > 0) {
-            await tx.$executeRawUnsafe(`
-              UPDATE products
-              SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE id = $2;
-            `, prodYield, batch.product_id);
+          // Revert multi-day finished product stock lots pushed to sales, else fallback to single product
+          const pushedLots = await tx.$queryRawUnsafe(`
+            SELECT product_id, remaining_qty, initial_qty
+            FROM finished_product_stock_lots
+            WHERE batch_id = $1 AND is_sellable = TRUE;
+          `, id).catch(() => []);
+
+          if (pushedLots && pushedLots.length > 0) {
+            for (const lot of pushedLots) {
+              const revQty = Number(lot.remaining_qty ?? lot.initial_qty ?? 0);
+              if (lot.product_id && revQty > 0) {
+                await tx.$executeRawUnsafe(`
+                  UPDATE products
+                  SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE id = $2;
+                `, revQty, lot.product_id);
+              }
+            }
+          } else {
+            const prodYield = Number(batch.good_quantity || batch.actual_output || batch.quantity || 0);
+            if (batch.product_id && prodYield > 0 && batch.status === 'Completed') {
+              await tx.$executeRawUnsafe(`
+                UPDATE products
+                SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2;
+              `, prodYield, batch.product_id);
+            }
           }
         }
 
         // 2. Cascade delete all child foreign key tables
+        await tx.$executeRawUnsafe(`DELETE FROM finished_product_stock_lots WHERE batch_id = $1;`, id).catch(() => {});
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_day_outputs WHERE batch_id = $1;`, id).catch(() => {});
+        await tx.$executeRawUnsafe(`DELETE FROM production_batch_days WHERE batch_id = $1;`, id).catch(() => {});
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_allocations WHERE batch_id = $1;`, id);
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_usage WHERE batch_id = $1;`, id);
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_rm_line WHERE batch_id = $1;`, id);

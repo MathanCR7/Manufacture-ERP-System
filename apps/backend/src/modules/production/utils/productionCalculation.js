@@ -295,9 +295,12 @@ function isPackagingMaterial(item) {
 function calculateAllocations({
   availableMixMl,
   totalMixMl,
+  previousDaysAllocatedMl = 0,
   allocations = []
 }) {
-  const initialAvailable = Number(availableMixMl ?? totalMixMl ?? 0);
+  const netPostEvapMixMl = Number(availableMixMl ?? totalMixMl ?? 0);
+  const carryForwardUsedMl = Math.max(0, Number(previousDaysAllocatedMl || 0));
+  const initialAvailable = Math.max(0, round2(netPostEvapMixMl - carryForwardUsedMl));
   let runningMixLeft = initialAvailable;
   let totalMixUsed = 0;
   const results = [];
@@ -460,6 +463,8 @@ function calculateAllocations({
   }
 
   return {
+    netPostEvapMixMl: round2(netPostEvapMixMl),
+    previousDaysAllocatedMl: round2(carryForwardUsedMl),
     initialMixAvailableMl: round2(initialAvailable),
     totalMixAvailableMl: round2(initialAvailable),
     totalMixUsedMl: round2(totalMixUsed),
@@ -468,6 +473,89 @@ function calculateAllocations({
     allocations: results,
     errors,
     isValid: errors.length === 0
+  };
+}
+
+/**
+ * Computes day-level cost breakdown across a completed or active Day's products.
+ * Splits EB electricity cost proportionally by mix/product weight unless explicit overrides exist,
+ * and honours explicit per-product labour overrides with proportional fallback.
+ */
+function calculateDayProductCosting({
+  outputs = [],
+  totalBaseRmCost = 0,
+  netPostEvapMixMl = 0,
+  ebTotalCost = 0,
+  labourTotalCost = 0
+}) {
+  const totalBasePoolMl = Math.max(0, Number(netPostEvapMixMl || 0));
+  const totalDayBaseMl = outputs.reduce((s, o) => s + Number(o.allocatedBaseMl || o.mixUsedMl || 0), 0);
+  const totalProductRmCost = outputs.reduce((s, o) => s + Number(o.productRmCost || 0), 0);
+  const totalDayMixWithRms = outputs.reduce((s, o) => s + Number(o.productTotalMixMl || o.allocatedBaseMl || 0), 0);
+
+  const explicitLabourSum = outputs.reduce((s, o) => {
+    const val = o.labourCostOverride ?? o.allocatedLabourCost;
+    return s + (val !== undefined && val !== null && val !== '' ? Number(val) : 0);
+  }, 0);
+  const hasExplicitLabour = outputs.some(o => (
+    o.labourCostOverride !== undefined && o.labourCostOverride !== null && o.labourCostOverride !== ''
+  ) || Number(o.allocatedLabourCost || 0) > 0);
+
+  const totalDayYield = outputs.reduce((s, o) => s + Number(o.actualYield ?? o.goodPieces ?? 0), 0);
+
+  let dayBaseRmCost = 0;
+  let dayEbAllocated = 0;
+  let dayLabourAllocated = 0;
+
+  const breakdown = outputs.map((o) => {
+    const allocBaseMl = Number(o.allocatedBaseMl || o.mixUsedMl || 0);
+    const totalMixMlForProd = Number(o.productTotalMixMl || allocBaseMl);
+    const shareOfPostEvap = totalBasePoolMl > 0 ? (allocBaseMl / totalBasePoolMl) : (outputs.length > 0 ? 1 / outputs.length : 0);
+    const shareOfDayMix = totalDayMixWithRms > 0
+      ? (totalMixMlForProd / totalDayMixWithRms)
+      : (totalDayBaseMl > 0 ? (allocBaseMl / totalDayBaseMl) : (outputs.length > 0 ? 1 / outputs.length : 0));
+
+    const baseRmCost = round2(Number(o.baseRmCost !== undefined ? o.baseRmCost : (Number(totalBaseRmCost || 0) * shareOfPostEvap)));
+    const prodRmCost = round2(Number(o.productRmCost || 0));
+    const ebShare = round2(Number(ebTotalCost || 0) * shareOfDayMix);
+
+    let labourShare = 0;
+    const rawOverride = o.labourCostOverride ?? o.allocatedLabourCost;
+    if (hasExplicitLabour && rawOverride !== undefined && rawOverride !== null && rawOverride !== '' && Number(rawOverride) > 0) {
+      labourShare = round2(Number(rawOverride));
+    } else if (!hasExplicitLabour || explicitLabourSum <= 0) {
+      labourShare = round2(Number(labourTotalCost || 0) * shareOfDayMix);
+    }
+
+    const totalCost = round2(baseRmCost + prodRmCost + ebShare + labourShare);
+    const qty = Number(o.actualYield ?? o.goodPieces ?? 0);
+    const unitCost = qty > 0 ? round2(totalCost / qty) : 0;
+
+    dayBaseRmCost = round2(dayBaseRmCost + baseRmCost);
+    dayEbAllocated = round2(dayEbAllocated + ebShare);
+    dayLabourAllocated = round2(dayLabourAllocated + labourShare);
+
+    return {
+      ...o,
+      baseRmCost,
+      productRmCost: prodRmCost,
+      allocatedEbCost: ebShare,
+      allocatedLabourCost: labourShare,
+      totalCost,
+      unitCost
+    };
+  });
+
+  const dayGrandTotal = round2(dayBaseRmCost + totalProductRmCost + Number(ebTotalCost || 0) + Number(labourTotalCost || 0));
+
+  return {
+    dayBaseRmCost: round2(dayBaseRmCost),
+    dayProductRmCost: round2(totalProductRmCost),
+    dayEbTotalCost: round2(Number(ebTotalCost || 0)),
+    dayLabourTotalCost: round2(Number(labourTotalCost || 0)),
+    dayGrandTotal,
+    dayTotalYield: round2(totalDayYield),
+    outputs: breakdown
   };
 }
 
@@ -516,6 +604,7 @@ module.exports = {
   round2,
   calculateEvaporation,
   calculateAllocations,
+  calculateDayProductCosting,
   computeMaxTrays,
   isPackagingMaterial,
   EPSILON

@@ -71,10 +71,26 @@ sudo -u postgres psql -d erp_manufacture -c "
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO leonex_web_user, erp_user, PUBLIC;
 " 2>/dev/null || true
 
+sudo -u postgres psql -d erp_manufacture <<'EOSQL' 2>/dev/null || true
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tableowner <> 'leonex_web_user' LOOP
+    EXECUTE format('ALTER TABLE public.%I OWNER TO leonex_web_user', r.tablename);
+  END LOOP;
+  FOR r IN SELECT viewname FROM pg_views WHERE schemaname = 'public' AND viewowner <> 'leonex_web_user' LOOP
+    EXECUTE format('ALTER VIEW public.%I OWNER TO leonex_web_user', r.viewname);
+  END LOOP;
+END
+$$;
+EOSQL
+
 npx prisma generate
-npx prisma db push --accept-data-loss
+node src/database/migrations/ensure_expense_and_asset_schema.js
 node src/database/migrations/ensure_production_batches_redesign_schema.js || true
 node src/database/migrations/ensure_user_employee_master_schema.js || true
+node src/database/migrations/safe_prisma_sync.js
 node src/database/migrations/run_standard_production_migration.js || true
 echo "🔄 [3/5] Reloading PM2 Backend Server..."
 if pm2 describe erp-backend > /dev/null 2>&1; then

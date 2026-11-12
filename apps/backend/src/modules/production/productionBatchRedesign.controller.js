@@ -427,9 +427,10 @@ class ProductionBatchRedesignController {
         prisma.productionBatchNew.count({ where })
       ]);
 
-      // Enrich with template & base info if available
+      // Enrich with template, base & multi-day info if available
       const batchIds = batches.map(b => b.id);
       let extraDetails = {};
+      let daysByBatch = {};
       if (batchIds.length > 0) {
         const querySql = `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
                   b.adjustment_reason, b.adjustment_reference,
@@ -437,6 +438,9 @@ class ProductionBatchRedesignController {
                   b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
                   b.pause_reason, b.cancelled_reason, b.cancelled_by, b.cancelled_at,
                   b.labour_count, b.labour_staff_ids, b.labour_staff_details, b.labour_total_cost,
+                  b.eb_total_cost, b.qc_status, b.short_batch_code, b.active_day_no,
+                  b.completed_days_count, b.remaining_mix_balance_ml, b.is_finalized,
+                  b.net_post_evap_mix_ml, b.merged_pre_evap_ml,
                   bm.name as base_name, pt.name as template_name
            FROM "production_batches" b
            LEFT JOIN "base_master" bm ON b.base_id = bm.id
@@ -458,16 +462,62 @@ class ProductionBatchRedesignController {
             } catch (_) {}
           }
         }
+
+        try {
+          const dayRows = await prisma.$queryRawUnsafe(`
+            SELECT id, batch_id, day_no, day_label, production_date, day_batch_code, status, qc_status,
+                   allocated_mix_ml, remaining_mix_ml, total_output_qty, eb_total_cost, labour_total_cost,
+                   day_grand_total, pushed_to_sales
+            FROM production_batch_days
+            WHERE batch_id = ANY($1::text[])
+            ORDER BY day_no ASC;
+          `, batchIds);
+          for (const d of dayRows || []) {
+            if (!daysByBatch[d.batch_id]) daysByBatch[d.batch_id] = [];
+            daysByBatch[d.batch_id].push({
+              id: d.id,
+              dayNo: Number(d.day_no),
+              dayLabel: d.day_label || `Day ${d.day_no}`,
+              productionDate: d.production_date,
+              dayBatchCode: d.day_batch_code,
+              status: d.status,
+              qcStatus: d.qc_status,
+              allocatedMixMl: Number(d.allocated_mix_ml || 0),
+              remainingMixMl: Number(d.remaining_mix_ml || 0),
+              totalOutputQty: Number(d.total_output_qty || 0),
+              ebTotalCost: Number(d.eb_total_cost || 0),
+              labourTotalCost: Number(d.labour_total_cost || 0),
+              dayGrandTotal: Number(d.day_grand_total || 0),
+              pushedToSales: Boolean(d.pushed_to_sales)
+            });
+          }
+        } catch (_) {}
       }
 
       const formatted = batches.map(b => {
         const extra = extraDetails[b.id] || {};
+        const batchDays = daysByBatch[b.id] || [];
         const analysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo, b.startDate || b.createdAt);
         const resolvedRef = analysis?.formattedBatchNo || b.referenceNo || b.batchNo;
+        const completedDaysCount = extra.completed_days_count !== undefined && extra.completed_days_count !== null
+          ? Number(extra.completed_days_count)
+          : batchDays.filter(d => d.status !== 'IN_PROGRESS').length;
+        const activeDayNo = extra.active_day_no !== undefined && extra.active_day_no !== null
+          ? Number(extra.active_day_no)
+          : Math.max(1, batchDays.length || 1);
         return {
           id: b.id,
           referenceNo: resolvedRef,
           batchNo: b.batchNo || resolvedRef,
+          shortBatchCode: extra.short_batch_code || null,
+          activeDayNo,
+          completedDaysCount,
+          remainingMixBalanceMl: Number(extra.remaining_mix_balance_ml || 0),
+          netPostEvapMixMl: Number(extra.net_post_evap_mix_ml || extra.merged_pre_evap_ml || 0),
+          isFinalized: Boolean(extra.is_finalized || b.status === 'Completed'),
+          qcStatus: extra.qc_status || 'EXEMPT',
+          ebTotalCost: Number(extra.eb_total_cost || 0),
+          daysSummary: batchDays,
           batchAnalysis: analysis,
           productionType: b.productionType,
           startDate: b.startDate,
@@ -1817,6 +1867,7 @@ class ProductionBatchRedesignController {
   async getBatchLabel(req, res, next) {
     try {
       const { id } = req.params;
+      const { dayOutputId, dayNo, productId } = req.query || {};
       const batch = await prisma.productionBatchNew.findUnique({
         where: { id },
         include: {
@@ -1826,13 +1877,44 @@ class ProductionBatchRedesignController {
       if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
       const extraRows = await prisma.$queryRawUnsafe(
-        `SELECT mfd, shelf_life_days, qc_status, good_quantity, yield_percentage FROM "production_batches" WHERE id = $1`,
+        `SELECT mfd, shelf_life_days, qc_status, good_quantity, yield_percentage, short_batch_code FROM "production_batches" WHERE id = $1`,
         id
       );
       const extra = extraRows[0] || {};
 
-      const gtin = batch.product?.upcEan || batch.product?.barcode || batch.product?.sku || '8901234567890';
-      const batchNo = batch.batchNo || batch.referenceNo;
+      // Fetch any Day / Product specific lot outputs for multi-product / multi-day batches
+      let dayOutputs = [];
+      try {
+        dayOutputs = await prisma.$queryRawUnsafe(`
+          SELECT
+            o.id, o.day_id, o.day_no, o.product_id, o.product_name, o.uom,
+            o.product_batch_no, o.product_serial_no, o.actual_yield, o.unit_cost,
+            p.code AS product_code, p."upcEan" AS upc_ean, p.barcode AS product_barcode, p.sku AS product_sku,
+            p."salePrice" AS product_sale_price, p."ratePerUnit" AS product_rate_per_unit
+          FROM production_batch_day_outputs o
+          LEFT JOIN products p ON p.id = o.product_id
+          WHERE o.batch_id = $1
+          ORDER BY o.day_no ASC, o.seq ASC;
+        `, id);
+      } catch (_) {
+        dayOutputs = [];
+      }
+
+      let selectedOutput = null;
+      if (dayOutputId) {
+        selectedOutput = dayOutputs.find(o => o.id === dayOutputId) || null;
+      } else if (dayNo || productId) {
+        selectedOutput = dayOutputs.find(o =>
+          (dayNo ? Number(o.day_no) === Number(dayNo) : true) &&
+          (productId ? o.product_id === productId : true)
+        ) || null;
+      } else if (dayOutputs.length > 0) {
+        selectedOutput = dayOutputs[0];
+      }
+
+      const gtin = selectedOutput?.upc_ean || selectedOutput?.product_barcode || selectedOutput?.product_sku || batch.product?.upcEan || batch.product?.barcode || batch.product?.sku || '8901234567890';
+      const batchNo = selectedOutput?.product_batch_no || batch.batchNo || batch.referenceNo;
+      const serialNo = selectedOutput?.product_serial_no || null;
 
       // Manufacturing Date should be production date (completion or start date)
       const mfd = extra.mfd || batch.completeDate || batch.startDate || batch.createdAt || new Date();
@@ -1842,16 +1924,17 @@ class ProductionBatchRedesignController {
       const expStr = new Date(expiryDate).toISOString().split('T')[0];
 
       // Resolve current selling price for MRP from FinishedProduct or Product catalog
-      let currentSellingPrice = Number(batch.salePrice || 0);
-      if (currentSellingPrice === 0 && batch.productId) {
+      const activeProductId = selectedOutput?.product_id || batch.productId;
+      let currentSellingPrice = Number(selectedOutput?.product_sale_price || batch.salePrice || 0);
+      if (currentSellingPrice === 0 && activeProductId) {
         const fp = await prisma.finishedProduct.findUnique({
-          where: { id: batch.productId }
+          where: { id: activeProductId }
         }).catch(() => null);
         if (fp && Number(fp.salePrice || 0) > 0) {
           currentSellingPrice = Number(fp.salePrice);
         } else {
           const p = await prisma.product.findUnique({
-            where: { id: batch.productId }
+            where: { id: activeProductId }
           }).catch(() => null);
           if (p && Number(p.ratePerUnit || 0) > 0) {
             currentSellingPrice = Number(p.ratePerUnit);
@@ -1876,15 +1959,22 @@ class ProductionBatchRedesignController {
       const companyPan = company.companyPan || 'AAWCS2781F';
       const companyMobile = company.companyMobile || '+91 99404 54154';
 
+      const netWeightStr = selectedOutput
+        ? `${Number(selectedOutput.actual_yield || 0)} ${selectedOutput.uom || 'pcs'}`
+        : `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`;
+
       const qrPayload = JSON.stringify({
         batch: batchNo,
-        product: batch.product?.name,
-        code: batch.product?.code,
+        serialNo,
+        referenceNo: batch.referenceNo,
+        dayNo: selectedOutput ? Number(selectedOutput.day_no) : 1,
+        product: selectedOutput?.product_name || batch.product?.name,
+        code: selectedOutput?.product_code || batch.product?.code,
         gtin: gtin,
         mfd: mfdStr,
         exp: expStr,
         mrp: currentSellingPrice,
-        netWt: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
+        netWt: netWeightStr,
         mfgBy: companyName,
         address: companyAddress,
         gstin: companyGstin,
@@ -1897,15 +1987,30 @@ class ProductionBatchRedesignController {
         batchId: batch.id,
         referenceNo: batch.referenceNo,
         batchNo,
+        serialNo,
+        shortBatchCode: extra.short_batch_code || null,
+        selectedDayOutputId: selectedOutput?.id || null,
+        dayNo: selectedOutput ? Number(selectedOutput.day_no) : null,
+        dayOutputs: dayOutputs.map(o => ({
+          id: o.id,
+          dayNo: Number(o.day_no),
+          productId: o.product_id,
+          productName: o.product_name,
+          productCode: o.product_code,
+          uom: o.uom,
+          productBatchNo: o.product_batch_no,
+          productSerialNo: o.product_serial_no,
+          actualYield: Number(o.actual_yield || 0)
+        })),
         status: batch.status,
         isCancelled: batch.status === 'Cancelled',
-        productName: batch.product?.name,
-        productCode: batch.product?.code,
+        productName: selectedOutput?.product_name || batch.product?.name,
+        productCode: selectedOutput?.product_code || batch.product?.code,
         gtin,
         mfd: mfdStr,
         expiryDate: expStr,
         mrp: currentSellingPrice,
-        netWeight: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
+        netWeight: netWeightStr,
         storageConditions: 'Store in cool and dry place away from direct sunlight',
         fssaiLicence: companyPan,
         manufacturer: companyName,

@@ -304,9 +304,12 @@ export function isPackagingMaterial(item) {
 export function calculateAllocations({
   availableMixMl,
   totalMixMl,
+  previousDaysAllocatedMl = 0,
   allocations = []
 }) {
-  const initialAvailable = Number(availableMixMl ?? totalMixMl ?? 0);
+  const netPostEvapMixMl = Number(availableMixMl ?? totalMixMl ?? 0);
+  const carryForwardUsedMl = Math.max(0, Number(previousDaysAllocatedMl || 0));
+  const initialAvailable = Math.max(0, round2(netPostEvapMixMl - carryForwardUsedMl));
   let runningMixLeft = initialAvailable;
   let totalMixUsed = 0;
   const results = [];
@@ -467,6 +470,8 @@ export function calculateAllocations({
   }
 
   return {
+    netPostEvapMixMl: round2(netPostEvapMixMl),
+    previousDaysAllocatedMl: round2(carryForwardUsedMl),
     initialMixAvailableMl: round2(initialAvailable),
     totalMixAvailableMl: round2(initialAvailable),
     totalMixUsedMl: round2(totalMixUsed),

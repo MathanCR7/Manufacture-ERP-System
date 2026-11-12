@@ -115,7 +115,7 @@ const migrationStatements = [
     seq INT NOT NULL,
     product_id TEXT NOT NULL,
     use_mould BOOLEAN NOT NULL DEFAULT FALSE,
-    mould_id UUID REFERENCES ice_cream_moulds(id) ON DELETE SET NULL,
+    mould_id UUID,
     capacity_ml NUMERIC(10,2) NOT NULL CHECK (capacity_ml >= 0),
     cavities INT NOT NULL DEFAULT 1 CHECK (cavities > 0),
     trays INT NOT NULL DEFAULT 0 CHECK (trays >= 0),
@@ -128,6 +128,8 @@ const migrationStatements = [
     updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_pb_alloc_batch_seq UNIQUE (batch_id, seq)
   );`,
+
+  `ALTER TABLE production_batch_allocation DROP CONSTRAINT IF EXISTS production_batch_allocation_mould_id_fkey;`,
 
   `CREATE INDEX IF NOT EXISTS idx_pb_alloc_batch_id ON production_batch_allocation(batch_id);`,
   `CREATE INDEX IF NOT EXISTS idx_pb_alloc_product_id ON production_batch_allocation(product_id);`,

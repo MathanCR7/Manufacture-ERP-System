@@ -19,6 +19,7 @@ import ProductionItemSearchModal from '../components/ProductionItemSearchModal';
 import { getProductionMasters, peekProductionMasters } from '../services/productionMasterCache';
 import { getProductionDraft, saveProductionDraft, flushProductionDraft, clearProductionDraft } from '../services/productionDraftStore';
 import { formatCleanUom } from '../utils/productionCalculation';
+import { formatDateToDDMMYY } from '../utils/batchNumberUtil';
 import Swal from 'sweetalert2';
 
 const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
@@ -57,6 +58,8 @@ export default function StandardProductionFormPage() {
 
   // ── Production Parameters (Card 1: Shift & Date Parameters) ──
   const [productionDate, setProductionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [shortBatchCode, setShortBatchCode] = useState(() => formatDateToDDMMYY(new Date()));
+  const [shortBatchCodeCustomized, setShortBatchCodeCustomized] = useState(false);
   const [shift, setShift] = useState('Morning');
   const [machineLine, setMachineLine] = useState('Main Processing Line');
   const [expiryDays, setExpiryDays] = useState(365);
@@ -366,6 +369,12 @@ export default function StandardProductionFormPage() {
               setEditingBatchStatus(b.status || '');
               if (b.productionDate) setProductionDate(new Date(b.productionDate).toISOString().split('T')[0]);
               else if (b.startDate) setProductionDate(new Date(b.startDate).toISOString().split('T')[0]);
+              if (b.shortBatchCode || b.short_batch_code) {
+                setShortBatchCode(b.shortBatchCode || b.short_batch_code);
+                setShortBatchCodeCustomized(true);
+              } else if (b.productionDate || b.startDate) {
+                setShortBatchCode(formatDateToDDMMYY(b.productionDate || b.startDate));
+              }
               if (b.shift) setShift(b.shift);
               if (b.machineLine) setMachineLine(b.machineLine);
               if (b.expiryDays) setExpiryDays(Number(b.expiryDays));
@@ -897,6 +906,7 @@ export default function StandardProductionFormPage() {
     const payload = {
       productionType: 'STANDARD',
       batchNumber: `BAT-${Date.now().toString().slice(-6)}`,
+      shortBatchCode: shortBatchCode || formatDateToDDMMYY(productionDate),
       productionDate,
       startDate: productionDate,
       shift,
@@ -1229,8 +1239,8 @@ export default function StandardProductionFormPage() {
                 </span>
               </div>
 
-              {/* 4-column responsive grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
+              {/* 5-column responsive grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
                 <div className="space-y-1.5">
                   <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     Production Date <span className="text-rose-500">*</span>
@@ -1238,8 +1248,31 @@ export default function StandardProductionFormPage() {
                   <Input
                     type="date"
                     value={productionDate}
-                    onChange={(e) => setProductionDate(e.target.value)}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      setProductionDate(nextDate);
+                      if (!shortBatchCodeCustomized) {
+                        setShortBatchCode(formatDateToDDMMYY(nextDate));
+                      }
+                    }}
                     className="h-[44px] rounded-[10px] text-xs font-bold border-[#E3E6EC]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Day Batch No (DDMMYY)
+                  </Label>
+                  <Input
+                    type="text"
+                    value={shortBatchCode}
+                    onChange={(e) => {
+                      const v = e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+                      setShortBatchCode(v);
+                      setShortBatchCodeCustomized(true);
+                    }}
+                    placeholder="e.g. 121126"
+                    className="h-[44px] rounded-[10px] text-xs font-mono font-black text-indigo-700 dark:text-indigo-300 border-[#E3E6EC]"
                   />
                 </div>
 
