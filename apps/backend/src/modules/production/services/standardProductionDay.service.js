@@ -154,6 +154,8 @@ async function ensureMultiDaySchema(p = prisma) {
     `ALTER TABLE product_stock_movements ADD COLUMN IF NOT EXISTS product_serial_no VARCHAR(180);`,
     `ALTER TABLE production_barcode_labels ADD COLUMN IF NOT EXISTS day_output_id UUID;`,
     `ALTER TABLE production_barcode_labels ADD COLUMN IF NOT EXISTS product_serial_no VARCHAR(180);`,
+    `ALTER TABLE production_batch_days ADD COLUMN IF NOT EXISTS assigned_users JSONB DEFAULT '[]'::jsonb;`,
+    `ALTER TABLE production_batch_days ADD COLUMN IF NOT EXISTS started_by TEXT;`,
     // Drop legacy FK referencing ice_cream_moulds when active mould master view points to production_moulds
     `ALTER TABLE production_batch_allocation DROP CONSTRAINT IF EXISTS production_batch_allocation_mould_id_fkey;`
   ];
@@ -186,6 +188,63 @@ async function ensureMultiDaySchema(p = prisma) {
       `);
     }
   } catch (_) {}
+}
+
+/**
+ * Normalizes assigned day-wise production users payload to clean objects.
+ * Returns parsed array or null if omitted (undefined / null).
+ */
+function normalizeAssignedUsers(usersInput) {
+  if (usersInput === undefined || usersInput === null) return null;
+  let list = usersInput;
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const normalized = [];
+  for (const item of list) {
+    if (!item) continue;
+    const id = item.id ? String(item.id).trim() : '';
+    const name = item.name ? String(item.name).trim() : '';
+    if (!id && !name) continue;
+    const dedupeKey = id || name.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    normalized.push({
+      id: id || null,
+      name: name || 'Production User',
+      empId: item.empId ? String(item.empId).trim() : '',
+      role: item.role ? String(item.role).trim() : 'PRODUCTION_STAFF'
+    });
+  }
+  return normalized;
+}
+
+/**
+ * Shifts a YYYY-MM-DD / Date value by offsetDays in UTC and returns YYYY-MM-DD.
+ */
+function addDaysToIsoServer(baseDate, offsetDays = 1) {
+  let isoBase = null;
+  if (typeof baseDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(baseDate.trim())) {
+    isoBase = baseDate.trim().slice(0, 10);
+  } else if (baseDate) {
+    const parsed = new Date(baseDate);
+    if (!isNaN(parsed.getTime())) {
+      isoBase = parsed.toISOString().split('T')[0];
+    }
+  }
+  if (!isoBase) {
+    isoBase = new Date().toISOString().split('T')[0];
+  }
+  const dt = new Date(`${isoBase}T12:00:00Z`);
+  if (isNaN(dt.getTime())) return new Date().toISOString().split('T')[0];
+  dt.setUTCDate(dt.getUTCDate() + Number(offsetDays || 0));
+  return dt.toISOString().split('T')[0];
 }
 
 /**
@@ -693,11 +752,16 @@ async function getBatchDaysData(db, batchId, userCanViewCost = true) {
   return (days || []).map(d => {
     let timelineStages = [];
     let productStagesMap = {};
+    let assignedUsers = [];
     try {
       timelineStages = typeof d.timeline_stages === 'string' ? JSON.parse(d.timeline_stages || '[]') : (d.timeline_stages || []);
     } catch (_) {}
     try {
       productStagesMap = typeof d.product_stages_map === 'string' ? JSON.parse(d.product_stages_map || '{}') : (d.product_stages_map || {});
+    } catch (_) {}
+    try {
+      const parsedUsers = typeof d.assigned_users === 'string' ? JSON.parse(d.assigned_users || '[]') : d.assigned_users;
+      assignedUsers = normalizeAssignedUsers(parsedUsers) || [];
     } catch (_) {}
 
     const dayObj = {
@@ -718,6 +782,8 @@ async function getBatchDaysData(db, batchId, userCanViewCost = true) {
       totalRejectedQty: Number(d.total_rejected_qty || 0),
       timelineStages: Array.isArray(timelineStages) ? timelineStages : [],
       productStagesMap: (productStagesMap && typeof productStagesMap === 'object') ? productStagesMap : {},
+      assignedUsers,
+      startedBy: d.started_by || null,
       ebStartReading: Number(d.eb_start_reading || 0),
       ebEndReading: Number(d.eb_end_reading || 0),
       ebUnitsKwh: Number(d.eb_units_kwh || 0),
@@ -771,6 +837,7 @@ async function completeDayRun({
   finalizeProduction = false,
   scrapRemainingMixAsWaste = true,
   notes = '',
+  assignedUsers = undefined,
   userId,
   operatorName = 'Supervisor'
 }) {
@@ -978,6 +1045,8 @@ async function completeDayRun({
     const totalDayWasteMl = round2(costing.outputs.reduce((s, o) => s + Number(o.wasteMl || 0), 0));
     const totalDayRejects = round2(costing.outputs.reduce((s, o) => s + Number(o.rejectOutput || 0), 0));
     const remainingAfterDayMl = Math.max(0, round2(computed.remainingMixMl));
+    const normalizedDayUsers = normalizeAssignedUsers(assignedUsers);
+    const assignedUsersJson = normalizedDayUsers !== null ? JSON.stringify(normalizedDayUsers) : null;
 
     await tx.$executeRawUnsafe(`
       INSERT INTO production_batch_days (
@@ -989,7 +1058,7 @@ async function completeDayRun({
         eb_start_reading, eb_end_reading, eb_units_kwh, eb_rate_per_unit, eb_total_cost,
         labour_total_cost, overhead_amt, base_rm_cost, product_rm_cost, day_grand_total,
         product_rm_deducted, pushed_to_sales, notes,
-        completed_at, completed_by, updated_at
+        assigned_users, completed_at, completed_by, updated_at
       ) VALUES (
         $1::uuid, $2, $3, $4, $5::date, $6,
         $7, $8, $9,
@@ -999,7 +1068,7 @@ async function completeDayRun({
         $18, $19, $20, $21, $22,
         $23, $24, $25, $26, $27,
         TRUE, $28, $29,
-        CURRENT_TIMESTAMP, $30, CURRENT_TIMESTAMP
+        COALESCE($31::jsonb, '[]'::jsonb), CURRENT_TIMESTAMP, $30, CURRENT_TIMESTAMP
       )
       ON CONFLICT (batch_id, day_no) DO UPDATE SET
         production_date = EXCLUDED.production_date,
@@ -1028,6 +1097,7 @@ async function completeDayRun({
         product_rm_deducted = TRUE,
         pushed_to_sales = EXCLUDED.pushed_to_sales,
         notes = EXCLUDED.notes,
+        assigned_users = COALESCE($31::jsonb, production_batch_days.assigned_users, '[]'::jsonb),
         completed_at = CURRENT_TIMESTAMP,
         completed_by = EXCLUDED.completed_by,
         updated_at = CURRENT_TIMESTAMP;
@@ -1041,7 +1111,7 @@ async function completeDayRun({
       Number(ebStartReading || 0), Number(ebEndReading || 0), Number(ebUnitsKwh || 0), Number(ebRatePerUnit || 8.5), round2(ebVal),
       round2(labourVal), round2(overheadVal), costing.dayBaseRmCost, costing.dayProductRmCost, round2(costing.dayGrandTotal + overheadVal),
       !labTestRequired, notes || `Day ${targetDayNo} execution completed by ${operatorName}`,
-      operatorName
+      operatorName, assignedUsersJson
     );
 
     // Replace allocation rows for this day and insert final outputs + stock lots + movements
@@ -1319,7 +1389,7 @@ async function completeDayRun({
 /**
  * Opens Day N+1 for a paused multi-day batch when carry-forward mix remains.
  */
-async function startNextDayRun(batchId, { productionDate = null, dayBatchCode = null, operatorName = 'Supervisor' } = {}) {
+async function startNextDayRun(batchId, { productionDate = null, dayBatchCode = null, assignedUsers = undefined, operatorName = 'Supervisor' } = {}) {
   await ensureMultiDaySchema(prisma);
 
   return await prisma.$transaction(async (tx) => {
@@ -1350,12 +1420,19 @@ async function startNextDayRun(batchId, { productionDate = null, dayBatchCode = 
         UPDATE production_batches SET status = 'In Progress', active_day_no = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1;
       `, batchId, Number(existingInProgress.day_no));
 
+      let existingUsers = [];
+      try {
+        existingUsers = normalizeAssignedUsers(existingInProgress.assigned_users) || [];
+      } catch (_) {}
+
       return {
         batchId,
         dayId: existingInProgress.id,
         dayNo: Number(existingInProgress.day_no),
+        productionDate: existingInProgress.production_date,
         dayBatchCode: existingInProgress.day_batch_code,
         openingMixMl: Number(existingInProgress.opening_mix_ml || 0),
+        assignedUsers: existingUsers,
         reusedExistingOpenDay: true
       };
     }
@@ -1372,25 +1449,34 @@ async function startNextDayRun(batchId, { productionDate = null, dayBatchCode = 
 
     const maxDayNo = (existingDays || []).reduce((m, d) => Math.max(m, Number(d.day_no || 0)), 0);
     const nextDayNo = maxDayNo + 1;
+
+    // Auto-increment +1 calendar day from the previous Day's production_date when not explicitly supplied
+    const lastDayRec = (existingDays && existingDays.length > 0) ? existingDays[existingDays.length - 1] : null;
+    const autoNextDayIso = addDaysToIsoServer(lastDayRec?.production_date || batch.start_date || new Date(), 1);
+
     const effDateStr = typeof productionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(productionDate.trim())
       ? productionDate.trim().slice(0, 10)
-      : null;
-    const effDate = effDateStr ? new Date(`${effDateStr}T00:00:00Z`) : (productionDate ? new Date(productionDate) : new Date());
+      : (productionDate ? addDaysToIsoServer(productionDate, 0) : autoNextDayIso);
+    const effDate = new Date(`${effDateStr}T00:00:00Z`);
     const validEffDate = isNaN(effDate.getTime()) ? new Date() : effDate;
     const effIso = effDateStr || validEffDate.toISOString().split('T')[0];
-    const ddmmyy = formatDDMMYY(effDateStr || validEffDate);
+    const ddmmyy = formatDDMMYY(effIso);
     const resolvedDayCode = sanitizeToken(dayBatchCode || ddmmyy, 24, ddmmyy);
     const dayId = randomUUID();
+    const parsedAssignedUsers = normalizeAssignedUsers(assignedUsers) || [];
+    const assignedUsersJson = JSON.stringify(parsedAssignedUsers);
 
     await tx.$executeRawUnsafe(`
       INSERT INTO production_batch_days (
         id, batch_id, day_no, day_label, production_date, day_batch_code,
-        status, opening_mix_ml, remaining_mix_ml, eb_rate_per_unit
+        status, opening_mix_ml, remaining_mix_ml, eb_rate_per_unit,
+        assigned_users, started_by
       ) VALUES (
         $1::uuid, $2, $3, $4, $5::date, $6,
-        'IN_PROGRESS', $7, $7, $8
+        'IN_PROGRESS', $7, $7, $8,
+        $9::jsonb, $10
       );
-    `, dayId, batchId, nextDayNo, `Day ${nextDayNo}`, effIso, resolvedDayCode, openingMixMl, Number(batch.eb_rate_per_unit || 8.5));
+    `, dayId, batchId, nextDayNo, `Day ${nextDayNo}`, effIso, resolvedDayCode, openingMixMl, Number(batch.eb_rate_per_unit || 8.5), assignedUsersJson, operatorName);
 
     await tx.$executeRawUnsafe(`
       UPDATE production_batches
@@ -1408,8 +1494,10 @@ async function startNextDayRun(batchId, { productionDate = null, dayBatchCode = 
       dayId,
       dayNo: nextDayNo,
       dayLabel: `Day ${nextDayNo}`,
+      productionDate: effIso,
       dayBatchCode: resolvedDayCode,
       openingMixMl,
+      assignedUsers: parsedAssignedUsers,
       startedBy: operatorName
     };
   }, { maxWait: 15000, timeout: 60000 });
@@ -1704,6 +1792,7 @@ async function updateCompletedDayRun({
   overheadAmt,
   productYields = [],
   notes,
+  assignedUsers = undefined,
   userId,
   operatorName = 'Supervisor'
 }) {
@@ -1936,6 +2025,8 @@ async function updateCompletedDayRun({
     const remainingAfterDayMl = Math.max(0, round2(computed.remainingMixMl));
     const nextTimelineJson = Array.isArray(timelineStages) ? JSON.stringify(timelineStages) : null;
     const nextProdStagesJson = (productStagesMap && typeof productStagesMap === 'object') ? JSON.stringify(productStagesMap) : null;
+    const normalizedUpdateUsers = normalizeAssignedUsers(assignedUsers);
+    const nextAssignedUsersJson = normalizedUpdateUsers !== null ? JSON.stringify(normalizedUpdateUsers) : null;
 
     await tx.$executeRawUnsafe(`
       UPDATE production_batch_days
@@ -1961,6 +2052,7 @@ async function updateCompletedDayRun({
         product_rm_cost = $20,
         day_grand_total = $21,
         notes = COALESCE($22, notes),
+        assigned_users = COALESCE($23::jsonb, assigned_users, '[]'::jsonb),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1::uuid;
     `,
@@ -1971,7 +2063,8 @@ async function updateCompletedDayRun({
       nextEbStart, nextEbEnd, nextEbUnits, nextEbRate, round2(nextEbCost),
       round2(nextLabourCost), round2(nextOverhead), costing.dayBaseRmCost, costing.dayProductRmCost,
       round2(costing.dayGrandTotal + nextOverhead),
-      notes !== undefined ? String(notes ?? '') : null
+      notes !== undefined ? String(notes ?? '') : null,
+      nextAssignedUsersJson
     );
 
     // Reverse any removed outputs from oldOutputs first
@@ -2154,8 +2247,74 @@ async function updateCompletedDayRun({
   }, { maxWait: 15000, timeout: 60000 });
 }
 
+/**
+ * Updates a Day's date, day batch code (DDMMYY), and assigned production user allocation cleanly
+ * for any IN_PROGRESS or Completed day without altering RM stock balances.
+ */
+async function updateDayMetadata({
+  batchId,
+  dayId,
+  productionDate,
+  dayBatchCode,
+  assignedUsers = undefined
+}) {
+  await ensureMultiDaySchema(prisma);
+
+  return await prisma.$transaction(async (tx) => {
+    const dayRows = await tx.$queryRawUnsafe(`
+      SELECT d.*, b.active_day_no
+      FROM production_batch_days d
+      JOIN production_batches b ON b.id = d.batch_id
+      WHERE d.batch_id = $1 AND d.id = $2::uuid
+      FOR UPDATE OF d;
+    `, batchId, dayId);
+
+    if (!dayRows || dayRows.length === 0) {
+      const err = new Error('Day execution record not found for this batch');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const day = dayRows[0];
+    const effDateStr = typeof productionDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(productionDate.trim())
+      ? productionDate.trim().slice(0, 10)
+      : null;
+    const ddmmyyFromEff = effDateStr ? formatDDMMYY(effDateStr) : null;
+    const resolvedDayCode = dayBatchCode !== undefined && dayBatchCode !== null && String(dayBatchCode).trim() !== ''
+      ? sanitizeToken(dayBatchCode, 24, ddmmyyFromEff || day.day_batch_code)
+      : (ddmmyyFromEff || null);
+
+    const normalizedUsers = normalizeAssignedUsers(assignedUsers);
+    const assignedUsersJson = normalizedUsers !== null ? JSON.stringify(normalizedUsers) : null;
+
+    await tx.$executeRawUnsafe(`
+      UPDATE production_batch_days
+      SET
+        production_date = COALESCE($2::date, production_date),
+        day_batch_code = COALESCE($3, day_batch_code),
+        assigned_users = COALESCE($4::jsonb, assigned_users, '[]'::jsonb),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1::uuid;
+    `, dayId, effDateStr, resolvedDayCode, assignedUsersJson);
+
+    if (Number(day.active_day_no) === Number(day.day_no) && resolvedDayCode) {
+      await tx.$executeRawUnsafe(`
+        UPDATE production_batches
+        SET short_batch_code = COALESCE($2, short_batch_code),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1;
+      `, batchId, resolvedDayCode);
+    }
+
+    const updatedDays = await getBatchDaysData(tx, batchId, true);
+    const updatedDay = updatedDays.find(d => d.id === dayId) || null;
+    return { day: updatedDay, days: updatedDays };
+  });
+}
+
 module.exports = {
   ensureMultiDaySchema,
+  normalizeAssignedUsers,
   resolveNetPostEvapMixMl,
   getPreviousDaysAllocatedMl,
   computeBatchBaseRmCost,
@@ -2164,5 +2323,6 @@ module.exports = {
   completeDayRun,
   startNextDayRun,
   updateCompletedDayCosts,
-  updateCompletedDayRun
+  updateCompletedDayRun,
+  updateDayMetadata
 };

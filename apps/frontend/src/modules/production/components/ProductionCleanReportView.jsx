@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Printer, Unlock, CheckCircle2,
   Layers, Factory, FileSpreadsheet, ShieldCheck, Boxes,
-  Calendar, Flame, Zap, MapPin, Edit3, Download, CalendarDays, Clock, AlertTriangle
+  Calendar, Flame, Zap, MapPin, Edit3, Download, CalendarDays, Clock, AlertTriangle, Users
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
@@ -300,6 +300,7 @@ export default function ProductionCleanReportView({
         return {
           ...d,
           outputs: enrichedOuts,
+          assignedUsers: Array.isArray(d.assignedUsers) ? d.assignedUsers : [],
           allocatedMixMl: dayAllocMl,
           totalExpectedQty: dayExpected,
           totalOutputQty: dayActual,
@@ -382,6 +383,7 @@ export default function ProductionCleanReportView({
       ebTotalCost: Number(costingData?.utilityCost ?? batch?.eb_total_cost ?? batch?.ebTotalCost ?? 0),
       labourTotalCost: Number(costingData?.labourCost ?? batch?.labour_total_cost ?? batch?.labourTotalCost ?? 0),
       overheadAmt: Number(costingData?.overheadCost ?? batch?.overhead_amt ?? batch?.overheadAmt ?? 0),
+      assignedUsers: Array.isArray(batch?.assignedUsers) ? batch.assignedUsers : [],
       timelineStages: resolvedLegacyStages,
       durationText: formatStageDuration(resolvedLegacyStages),
       outputs: synthesizedOutputs
@@ -865,6 +867,52 @@ export default function ProductionCleanReportView({
           </div>
         </div>
 
+        {/* Date-Wise Production Schedule & Day Team Allocation Roster */}
+        {normalizedDays.length > 0 && (
+          <div className="p-3 rounded-xl bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200/80 dark:border-indigo-900/50 print-break-avoid">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-indigo-800 dark:text-indigo-300">
+                <CalendarDays className="w-3.5 h-3.5" />
+                <span>Date-Wise Production Schedule &amp; Allocated Staff</span>
+              </div>
+              <span className="text-[10.5px] font-mono font-semibold text-slate-500">
+                {normalizedDays.length} Day{normalizedDays.length > 1 ? 's' : ''} Recorded
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {normalizedDays.map(d => {
+                const staffList = Array.isArray(d.assignedUsers) ? d.assignedUsers : [];
+                return (
+                  <div
+                    key={`schedule-pill-${d.id || d.dayNo}`}
+                    className="flex flex-col gap-1 px-2.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200/70 dark:border-slate-800 text-[11px]"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-black text-indigo-700 dark:text-indigo-300">
+                        Day {d.dayNo} • {formatDateDMY(d.productionDate)}
+                      </span>
+                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        Batch: {d.dayBatchCode || '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                      <span className="text-slate-600 dark:text-slate-300 truncate flex items-center gap-1">
+                        <Users className="w-3 h-3 text-emerald-600 shrink-0" />
+                        {staffList.length > 0
+                          ? staffList.map(u => `${u.name}${u.empId ? ` (${u.empId})` : ''}`).join(', ')
+                          : (d.completedBy || d.startedBy || batch?.startedBy || 'Floor Operator')}
+                      </span>
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                        {formatIndian(d.totalOutputQty, 0)} {productUom}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── 2. EXECUTIVE PERFORMANCE, OUTPUT & COSTING KPI CARDS ── */}
         <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 print-break-avoid">
           <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
@@ -1029,6 +1077,15 @@ export default function ProductionCleanReportView({
                     </span>
                     <span className="text-[11px] font-mono text-slate-500">
                       ({d.durationText})
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded bg-emerald-50/90 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <Users className="w-3 h-3 shrink-0" />
+                      <span>
+                        Staff:{' '}
+                        {Array.isArray(d.assignedUsers) && d.assignedUsers.length > 0
+                          ? d.assignedUsers.map(u => `${u.name}${u.empId ? ` (${u.empId})` : ''}`).join(', ')
+                          : (d.completedBy || d.startedBy || batch?.startedBy || 'Floor Operator')}
+                      </span>
                     </span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       d.pushedToSales

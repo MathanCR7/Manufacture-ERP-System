@@ -486,6 +486,11 @@ export default function ProductionFloorCockpitModal({
   const [savingCompletedDay, setSavingCompletedDay] = useState(false);
   const [nextDayLoading, setNextDayLoading] = useState(false);
   const [inspectingDay, setInspectingDay] = useState(null);
+  const [productionUsersList, setProductionUsersList] = useState([]);
+  const [dayAssignedUsers, setDayAssignedUsers] = useState([]);
+  const [showDayUserPopover, setShowDayUserPopover] = useState(false);
+  const [userFilterShowAllRoles, setUserFilterShowAllRoles] = useState(false);
+  const [savingDayMeta, setSavingDayMeta] = useState(false);
 
   const currentDayRec = useMemo(() => {
     return (Array.isArray(daysHistory) ? daysHistory : []).find(d => Number(d.dayNo) === Number(activeDayNo)) || null;
@@ -584,14 +589,32 @@ export default function ProductionFloorCockpitModal({
     try {
       setLoading(true);
       const targetDayNo = overrideDayNo !== undefined ? overrideDayNo : selectedDayNoRef.current;
-      const [detailRes, mouldsRes, productsRes, rmCatalogRes] = await Promise.all([
+      const [detailRes, mouldsRes, productsRes, rmCatalogRes, usersRes] = await Promise.all([
         api.get(`/production/standard/${batchId}`, {
           params: targetDayNo ? { dayNo: targetDayNo } : undefined
         }).catch(() => api.get(`/production/batches-redesign/${batchId}`)),
         api.get('/production/standard/moulds?all=1').catch(() => api.get('/production/moulds')),
         api.get('/production/standard/products-catalog').catch(() => api.get('/products?limit=100')),
-        api.get('/production/standard/raw-materials-catalog').catch(() => ({ data: { data: [] } }))
+        api.get('/production/standard/raw-materials-catalog').catch(() => ({ data: { data: [] } })),
+        api.get('/users').catch(() => ({ data: [] }))
       ]);
+
+      const rawUsers = Array.isArray(usersRes?.data?.data) ? usersRes.data.data : (Array.isArray(usersRes?.data) ? usersRes.data : []);
+      const normalizedUsersList = rawUsers
+        .filter(u => u && u.isActive !== false)
+        .map(u => ({
+          id: u.id,
+          name: u.name || u.email || 'User',
+          empId: u.empId || '',
+          role: u.role || 'PRODUCTION_STAFF'
+        }))
+        .sort((a, b) => {
+          const aIsProd = a.role === 'PRODUCTION_STAFF' ? 0 : 1;
+          const bIsProd = b.role === 'PRODUCTION_STAFF' ? 0 : 1;
+          if (aIsProd !== bIsProd) return aIsProd - bIsProd;
+          return a.name.localeCompare(b.name);
+        });
+      setProductionUsersList(normalizedUsersList);
 
       const liveRmCatalog = Array.isArray(rmCatalogRes.data?.data) ? rmCatalogRes.data.data : (Array.isArray(rmCatalogRes.data) ? rmCatalogRes.data : []);
       setRawMaterialMasters(liveRmCatalog);
@@ -965,6 +988,7 @@ export default function ProductionFloorCockpitModal({
       const resolvedShortCode = activeDayRec?.dayBatchCode || b.shortBatchCode || b.short_batch_code || formatDateToDDMMYY(effDayDate);
       setDayBatchCode(resolvedShortCode);
       setDayBatchCodeCustomized(resolvedShortCode !== formatDateToDDMMYY(effDayDate));
+      setDayAssignedUsers(Array.isArray(activeDayRec?.assignedUsers) ? activeDayRec.assignedUsers : []);
       if (detailRes.data.companyDetails?.companyPrefix) {
         setResolvedCompanyPrefix(detailRes.data.companyDetails.companyPrefix);
       }
@@ -1387,16 +1411,57 @@ export default function ProductionFloorCockpitModal({
     return dt.toISOString().split('T')[0];
   }, []);
 
+  const currentDayRecId = currentDayRec?.id || null;
+
+  const syncDayMetaToServer = useCallback(async ({ nextDate, nextCode, nextUsers } = {}) => {
+    if (!batchId || !currentDayRecId || isViewMode || isCompleted) return;
+    try {
+      setSavingDayMeta(true);
+      const payload = {};
+      if (nextDate !== undefined) payload.productionDate = nextDate;
+      if (nextCode !== undefined) payload.dayBatchCode = nextCode;
+      if (nextUsers !== undefined) payload.assignedUsers = nextUsers;
+      const res = await api.put(`/production/standard/${batchId}/days/${currentDayRecId}/meta`, payload);
+      const updatedDay = res.data?.data?.day;
+      if (updatedDay) {
+        setDaysHistory(prev => prev.map(d => (d.id === updatedDay.id ? { ...d, ...updatedDay } : d)));
+      }
+    } catch (err) {
+      console.error('Failed to sync day metadata:', err);
+    } finally {
+      setSavingDayMeta(false);
+    }
+  }, [batchId, currentDayRecId, isViewMode, isCompleted]);
+
   const handleDayDateChange = useCallback((nextDate) => {
     if (!nextDate) return;
     const prevAutoCode = formatDateToDDMMYY(dayProductionDate);
+    const shouldAutoSyncCode = !dayBatchCodeCustomized || !dayBatchCode || dayBatchCode === prevAutoCode;
+    const resolvedNextCode = shouldAutoSyncCode ? formatDateToDDMMYY(nextDate) : dayBatchCode;
     setDayProductionDate(nextDate);
-    if (!dayBatchCodeCustomized || !dayBatchCode || dayBatchCode === prevAutoCode) {
-      setDayBatchCode(formatDateToDDMMYY(nextDate));
+    if (shouldAutoSyncCode) {
+      setDayBatchCode(resolvedNextCode);
       setDayBatchCodeCustomized(false);
     }
     setAllocations(prev => prev.map(a => a.productBatchNoCustomized ? a : { ...a, productBatchNo: '' }));
-  }, [dayProductionDate, dayBatchCode, dayBatchCodeCustomized]);
+    if (currentDayRecId && !isEditingCompletedDay) {
+      syncDayMetaToServer({ nextDate, nextCode: resolvedNextCode });
+    }
+  }, [dayProductionDate, dayBatchCode, dayBatchCodeCustomized, currentDayRecId, isEditingCompletedDay, syncDayMetaToServer]);
+
+  const handleToggleDayUser = useCallback((userObj) => {
+    if (!userObj) return;
+    setDayAssignedUsers(prev => {
+      const exists = prev.some(u => (u.id && userObj.id && u.id === userObj.id) || u.name === userObj.name);
+      const next = exists
+        ? prev.filter(u => !((u.id && userObj.id && u.id === userObj.id) || u.name === userObj.name))
+        : [...prev, { id: userObj.id, name: userObj.name, empId: userObj.empId || '', role: userObj.role || 'PRODUCTION_STAFF' }];
+      if (currentDayRecId && !isEditingCompletedDay) {
+        syncDayMetaToServer({ nextUsers: next });
+      }
+      return next;
+    });
+  }, [currentDayRecId, isEditingCompletedDay, syncDayMetaToServer]);
 
   // Available mix opening balance for the currently active Day (Carry-Forward Tank Mix)
   const availableMixMl = useMemo(() => {
@@ -3128,6 +3193,7 @@ export default function ProductionFloorCockpitModal({
         dayNo: activeDayNo,
         dayBatchCode,
         productionDate: dayProductionDate,
+        assignedUsers: dayAssignedUsers,
         allocations: validAllocations.map(a => ({
           seq: a.seq,
           productId: a.productId,
@@ -3392,28 +3458,100 @@ export default function ProductionFloorCockpitModal({
       ? String(lastCompletedDay.productionDate).split('T')[0]
       : (dayProductionDate || todayIso);
     const tomorrowIso = addDaysToIso(lastCompletedIso, 1);
-    const defaultDate = dayProductionDate && dayProductionDate !== lastCompletedIso ? dayProductionDate : todayIso;
+    // Always default Day N+1 to +1 calendar day after the previous Day's date
+    const defaultDate = tomorrowIso;
     const defaultCode = formatDateToDDMMYY(defaultDate);
+
+    // Ensure active users list is loaded even if Start Next Day is triggered early
+    let availableUsers = Array.isArray(productionUsersList) ? productionUsersList : [];
+    if (availableUsers.length === 0) {
+      try {
+        const uRes = await api.get('/users');
+        const rawU = Array.isArray(uRes?.data?.data) ? uRes.data.data : (Array.isArray(uRes?.data) ? uRes.data : []);
+        availableUsers = rawU
+          .filter(u => u && u.isActive !== false)
+          .map(u => ({
+            id: u.id,
+            name: u.name || u.email || 'User',
+            empId: u.empId || '',
+            role: u.role || 'PRODUCTION_STAFF'
+          }))
+          .sort((a, b) => (a.role === 'PRODUCTION_STAFF' ? 0 : 1) - (b.role === 'PRODUCTION_STAFF' ? 0 : 1) || a.name.localeCompare(b.name));
+        setProductionUsersList(availableUsers);
+      } catch (fetchUsersErr) {
+        console.warn('Unable to load active users for day allocation:', fetchUsersErr);
+      }
+    }
+
+    const escHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const preselectedIds = new Set(
+      (Array.isArray(lastCompletedDay?.assignedUsers) && lastCompletedDay.assignedUsers.length > 0
+        ? lastCompletedDay.assignedUsers
+        : dayAssignedUsers
+      ).map(u => String(u.id || u.name))
+    );
+    const hasProdStaff = availableUsers.some(u => u.role === 'PRODUCTION_STAFF');
+
+    const userCheckboxesHtml = availableUsers.length > 0
+      ? availableUsers.map((u, idx) => {
+          const isProdStaff = u.role === 'PRODUCTION_STAFF';
+          const isPreChecked = preselectedIds.has(String(u.id || u.name));
+          const hiddenStyle = (!isProdStaff && hasProdStaff && !isPreChecked) ? 'display:none;' : 'display:flex;';
+          const roleBadgeBg = isProdStaff ? '#dcfce7' : '#e0e7ff';
+          const roleBadgeText = isProdStaff ? '#166534' : '#3730a3';
+          return `
+            <label data-user-role="${escHtml(u.role)}" data-prechecked="${isPreChecked ? '1' : '0'}" style="${hiddenStyle}align-items:center;justify-content:space-between;gap:6px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;background:#ffffff;cursor:pointer;font-size:11.5px;">
+              <span style="display:flex;align-items:center;gap:6px;min-width:0;">
+                <input type="checkbox" class="swal-day-user-chk" value="${idx}" ${isPreChecked ? 'checked' : ''} style="accent-color:#4f46e5;width:14px;height:14px;cursor:pointer;" />
+                <span style="font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(u.name)}</span>
+                ${u.empId ? `<span style="font-family:monospace;font-size:10px;color:#64748b;">(${escHtml(u.empId)})</span>` : ''}
+              </span>
+              <span style="font-family:monospace;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:4px;background:${roleBadgeBg};color:${roleBadgeText};flex-shrink:0;">${escHtml(u.role)}</span>
+            </label>
+          `;
+        }).join('')
+      : `<div style="font-size:11px;color:#64748b;padding:6px;">No active production users found.</div>`;
 
     const promptRes = await Swal.fire({
       title: `Start Day ${nextDayNum} Production`,
+      width: 520,
       html: `
         <div style="text-align:left;font-size:12.5px;line-height:1.5;display:flex;flex-direction:column;gap:10px;">
-          <div style="padding:8px 10px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81;">
-            Carry-Forward Remaining Mix: <strong style="font-family:monospace;">${formatIndian(remainingTankMixAfterCompletedMl, 2)} ml</strong>
+          <div style="padding:8px 10px;border-radius:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#312e81;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+            <span>Carry-Forward Mix: <strong style="font-family:monospace;">${formatIndian(remainingTankMixAfterCompletedMl, 2)} ml</strong></span>
+            <span style="font-size:11px;color:#4338ca;">Prev Day ${completedDaysList.length}: <strong>${escHtml(lastCompletedIso)}</strong></span>
           </div>
           <div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <label for="swal-next-day-date" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#475569;">Day ${nextDayNum} Date</label>
-              <button type="button" id="swal-btn-next-cal-day" style="font-size:10.5px;font-weight:700;color:#4f46e5;background:#e0e7ff;border:1px solid #a5b4fc;border-radius:4px;padding:1px 6px;cursor:pointer;">
-                Use Next Date (${tomorrowIso})
-              </button>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:6px;flex-wrap:wrap;">
+              <label for="swal-next-day-date" style="font-weight:700;font-size:11px;text-transform:uppercase;color:#475569;">Day ${nextDayNum} Date (+1 Day Auto • Editable)</label>
+              <div style="display:flex;gap:4px;">
+                <button type="button" id="swal-btn-next-cal-day" style="font-size:10.5px;font-weight:700;color:#4f46e5;background:#e0e7ff;border:1px solid #a5b4fc;border-radius:4px;padding:1px 6px;cursor:pointer;">
+                  +1 Day (${tomorrowIso})
+                </button>
+                <button type="button" id="swal-btn-today-date" style="font-size:10.5px;font-weight:700;color:#475569;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:1px 6px;cursor:pointer;">
+                  Today (${todayIso})
+                </button>
+              </div>
             </div>
             <input id="swal-next-day-date" type="date" value="${defaultDate}" class="swal2-input" style="margin:0;width:100%;height:36px;font-size:13px;font-family:monospace;" />
           </div>
           <div>
             <label for="swal-next-day-code" style="display:block;font-weight:700;font-size:11px;text-transform:uppercase;color:#475569;margin-bottom:4px;">Day ${nextDayNum} Batch Code (DDMMYY or Custom)</label>
             <input id="swal-next-day-code" type="text" value="${defaultCode}" class="swal2-input" style="margin:0;width:100%;height:36px;font-size:13px;font-family:monospace;text-transform:uppercase;font-weight:700;" />
+          </div>
+          <div style="border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;background:#f8fafc;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px;flex-wrap:wrap;">
+              <span style="font-weight:700;font-size:11px;text-transform:uppercase;color:#334155;">Allocate Production Staff (Day ${nextDayNum})</span>
+              ${hasProdStaff ? `
+                <label style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:#4f46e5;cursor:pointer;">
+                  <input type="checkbox" id="swal-show-all-roles" style="accent-color:#4f46e5;cursor:pointer;" />
+                  Show All Roles
+                </label>
+              ` : ''}
+            </div>
+            <div id="swal-day-users-list" style="max-height:135px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+              ${userCheckboxesHtml}
+            </div>
           </div>
         </div>
       `,
@@ -3424,6 +3562,9 @@ export default function ProductionFloorCockpitModal({
         const dateEl = document.getElementById('swal-next-day-date');
         const codeEl = document.getElementById('swal-next-day-code');
         const nextBtn = document.getElementById('swal-btn-next-cal-day');
+        const todayBtn = document.getElementById('swal-btn-today-date');
+        const showAllChk = document.getElementById('swal-show-all-roles');
+        const usersContainer = document.getElementById('swal-day-users-list');
         let codeEditedManually = false;
         const ddmmyyFromIso = (iso) => {
           const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -3450,14 +3591,37 @@ export default function ProductionFloorCockpitModal({
             }
           });
         }
+        if (todayBtn && dateEl) {
+          todayBtn.addEventListener('click', () => {
+            dateEl.value = todayIso;
+            if (!codeEditedManually && codeEl) {
+              codeEl.value = ddmmyyFromIso(todayIso);
+            }
+          });
+        }
+        if (showAllChk && usersContainer) {
+          showAllChk.addEventListener('change', () => {
+            const showAll = showAllChk.checked;
+            usersContainer.querySelectorAll('label[data-user-role]').forEach(lbl => {
+              const role = lbl.getAttribute('data-user-role');
+              const pre = lbl.getAttribute('data-prechecked') === '1';
+              lbl.style.display = (showAll || role === 'PRODUCTION_STAFF' || pre) ? 'flex' : 'none';
+            });
+          });
+        }
       },
       preConfirm: () => {
-        const dateVal = document.getElementById('swal-next-day-date')?.value || todayIso;
+        const dateVal = document.getElementById('swal-next-day-date')?.value || tomorrowIso;
         const rawCode = document.getElementById('swal-next-day-code')?.value || '';
         const cleanCode = rawCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+        const checkedBoxes = Array.from(document.querySelectorAll('.swal-day-user-chk:checked'));
+        const chosenUsers = checkedBoxes
+          .map(cb => availableUsers[Number(cb.value)])
+          .filter(Boolean);
         return {
           productionDate: dateVal,
-          dayBatchCode: cleanCode || formatDateToDDMMYY(dateVal)
+          dayBatchCode: cleanCode || formatDateToDDMMYY(dateVal),
+          assignedUsers: chosenUsers
         };
       }
     });
@@ -3466,13 +3630,14 @@ export default function ProductionFloorCockpitModal({
 
     try {
       setNextDayLoading(true);
-      const { productionDate: chosenDate, dayBatchCode: chosenCode } = promptRes.value;
+      const { productionDate: chosenDate, dayBatchCode: chosenCode, assignedUsers: chosenUsers = [] } = promptRes.value;
       const res = await api.post(`/production/standard/${batchId}/days/start-next`, {
         productionDate: chosenDate,
-        dayBatchCode: chosenCode
+        dayBatchCode: chosenCode,
+        assignedUsers: chosenUsers
       });
       const started = res.data?.data || {};
-      // Immediately clear Day 1 working states so Day 2 workspace starts cleanly with carry-forward mix only
+      // Immediately clear previous day's working states so Day N workspace starts cleanly with carry-forward mix & chosen staff
       setAllocations([]);
       setSelectedStep3Index(0);
       setProductStagesMap({});
@@ -3487,18 +3652,21 @@ export default function ProductionFloorCockpitModal({
       setOverheadCost(0);
       setActualYieldPieces(0);
       setCompletionNotes('');
+      setDayAssignedUsers(Array.isArray(started.assignedUsers) ? started.assignedUsers : chosenUsers);
+      const teamSummary = chosenUsers.length > 0 ? chosenUsers.map(u => escHtml(u.name)).join(', ') : 'None assigned yet';
       Swal.fire({
         title: `Day ${started.dayNo || nextDayNum} Started!`,
         html: `
           <div style="text-align:left;font-size:13px;line-height:1.6;">
             <p><strong>Carry-Forward Mix Ready:</strong> <span style="font-family:monospace;font-weight:bold;color:#4f46e5;">${formatIndian(started.openingMixMl || remainingTankMixAfterCompletedMl)} ml</span></p>
-            <p><strong>Day Date:</strong> <span style="font-family:monospace;font-weight:bold;">${chosenDate}</span></p>
+            <p><strong>Day Date:</strong> <span style="font-family:monospace;font-weight:bold;">${formatDateDMY(chosenDate)}</span></p>
             <p><strong>Day Batch No (DDMMYY):</strong> <span style="font-family:monospace;font-weight:bold;">${started.dayBatchCode || chosenCode}</span></p>
+            <p><strong>Allocated Staff:</strong> <span style="font-weight:bold;color:#059669;">${teamSummary}</span></p>
             <p>Allocate base mix, flavours, moulds, and Day ${started.dayNo || nextDayNum}&apos;s operational costs (EB &amp; Labour).</p>
           </div>
         `,
         icon: 'success',
-        timer: 2200
+        timer: 2400
       });
       selectedDayNoRef.current = null;
       setSelectedDayNo(null);
@@ -3623,6 +3791,7 @@ export default function ProductionFloorCockpitModal({
       await api.put(`/production/standard/${batchId}/days/${currentDayRec.id}/update`, {
         productionDate: dayProductionDate || undefined,
         dayBatchCode: dayBatchCode || undefined,
+        assignedUsers: dayAssignedUsers,
         allocations: allocPayload,
         timelineStages,
         productStagesMap,
@@ -3692,6 +3861,7 @@ export default function ProductionFloorCockpitModal({
         dayNo: activeDayNo,
         dayBatchCode: dayBatchCode || formatDateToDDMMYY(dayProductionDate),
         productionDate: dayProductionDate,
+        assignedUsers: dayAssignedUsers,
         timelineStages,
         productStagesMap,
         ebStartReading: ebStartReading !== '' ? Number(ebStartReading) : null,
@@ -4115,9 +4285,119 @@ export default function ProductionFloorCockpitModal({
                     setDayBatchCodeCustomized(true);
                     setAllocations(prev => prev.map(a => a.productBatchNoCustomized ? a : { ...a, productBatchNo: '' }));
                   }}
+                  onBlur={() => {
+                    if (currentDayRec?.id && !isEditingCompletedDay && dayBatchCode) {
+                      syncDayMetaToServer({ nextCode: dayBatchCode });
+                    }
+                  }}
                   title="Editable Day Batch Code (DDMMYY auto-fetched from Day Date, manually editable)"
                   className="w-16 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded px-1 py-0 text-[10px] font-mono font-black text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
+              )}
+            </div>
+
+            {/* Day-Wise Production User Allocation Dropdown (PRODUCTION_STAFF default + optional all roles) */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                disabled={isViewMode || (isCompleted && !isEditingCompletedDay)}
+                onClick={() => setShowDayUserPopover(prev => !prev)}
+                title="Allocate Production Users (PRODUCTION_STAFF) for this Day"
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[9.5px] font-bold transition-colors ${
+                  dayAssignedUsers.length > 0
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700'
+                    : 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                } ${isViewMode || (isCompleted && !isEditingCompletedDay) ? 'opacity-75 cursor-default' : 'cursor-pointer hover:border-indigo-400'}`}
+              >
+                <Users className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>
+                  {dayAssignedUsers.length > 0
+                    ? `Day ${activeDayNo} Staff (${dayAssignedUsers.length}): ${dayAssignedUsers.slice(0, 2).map(u => u.name).join(', ')}${dayAssignedUsers.length > 2 ? ` +${dayAssignedUsers.length - 2}` : ''}`
+                    : `Assign Day ${activeDayNo} Staff`}
+                </span>
+                {savingDayMeta && <RefreshCw className="w-2.5 h-2.5 animate-spin text-indigo-500" />}
+              </button>
+
+              {showDayUserPopover && (
+                <div className="absolute left-0 top-full mt-1 z-50 w-72 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-2.5">
+                  <div className="flex items-center justify-between gap-2 pb-1.5 mb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div>
+                      <div className="text-[11px] font-black text-slate-900 dark:text-white">
+                        Day {activeDayNo} Production Users
+                      </div>
+                      <div className="text-[9.5px] text-slate-500">
+                        Role: PRODUCTION_STAFF {userFilterShowAllRoles ? '+ All Active' : '(Filtered)'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowDayUserPopover(false)}
+                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <label className="flex items-center gap-1.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 mb-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={userFilterShowAllRoles}
+                      onChange={(e) => setUserFilterShowAllRoles(e.target.checked)}
+                      className="accent-indigo-600 cursor-pointer"
+                    />
+                    <span>Show All Active Roles (Supervisors / Masters)</span>
+                  </label>
+
+                  <div className="max-h-48 overflow-y-auto space-y-1 pr-0.5">
+                    {(() => {
+                      const hasProdRole = productionUsersList.some(u => u.role === 'PRODUCTION_STAFF');
+                      const filteredList = (userFilterShowAllRoles || !hasProdRole)
+                        ? productionUsersList
+                        : productionUsersList.filter(u =>
+                            u.role === 'PRODUCTION_STAFF' ||
+                            dayAssignedUsers.some(au => (au.id && u.id && au.id === u.id) || au.name === u.name)
+                          );
+                      if (filteredList.length === 0) {
+                        return (
+                          <div className="text-[11px] text-slate-400 py-3 text-center">
+                            No active production users available.
+                          </div>
+                        );
+                      }
+                      return filteredList.map(u => {
+                        const checked = dayAssignedUsers.some(au => (au.id && u.id && au.id === u.id) || au.name === u.name);
+                        return (
+                          <label
+                            key={u.id || u.name}
+                            className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border text-[11px] cursor-pointer transition-colors ${
+                              checked
+                                ? 'bg-indigo-50/80 border-indigo-300 dark:bg-indigo-950/50 dark:border-indigo-700'
+                                : 'bg-slate-50/60 border-slate-200 dark:bg-slate-800/40 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => handleToggleDayUser(u)}
+                                className="accent-indigo-600 cursor-pointer shrink-0"
+                              />
+                              <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{u.name}</span>
+                              {u.empId && <span className="font-mono text-[9.5px] text-slate-400 shrink-0">({u.empId})</span>}
+                            </span>
+                            <span className={`font-mono text-[8.5px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                              u.role === 'PRODUCTION_STAFF'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                            }`}>
+                              {u.role}
+                            </span>
+                          </label>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
               )}
             </div>
 

@@ -1036,6 +1036,7 @@ router.post('/standard/:id/complete-day', authenticateToken, roleMiddleware(['MA
 router.post('/standard/:id/days/start-next', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.startNextDay(req, res, next));
 router.put('/standard/:id/days/:dayId/costs', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDayCosts(req, res, next));
 router.put('/standard/:id/days/:dayId/update', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDayFull(req, res, next));
+router.put('/standard/:id/days/:dayId/meta', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.updateDayMeta(req, res, next));
 router.post('/standard/:id/reopen', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.reopenProduction(req, res, next));
 router.post('/standard/:id/pause', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.pauseProduction(req, res, next));
 router.post('/standard/:id/resume', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => standardProductionController.resumeProduction(req, res, next));

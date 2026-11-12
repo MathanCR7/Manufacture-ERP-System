@@ -16,6 +16,7 @@ const {
 } = require('./services/productionDaySerial.service');
 const {
   ensureMultiDaySchema,
+  normalizeAssignedUsers,
   resolveNetPostEvapMixMl,
   getPreviousDaysAllocatedMl,
   syncParentBatchAggregate,
@@ -23,7 +24,8 @@ const {
   completeDayRun,
   startNextDayRun,
   updateCompletedDayCosts,
-  updateCompletedDayRun
+  updateCompletedDayRun,
+  updateDayMetadata
 } = require('./services/standardProductionDay.service');
 // Helper to generate unique PRODYYYYMMDD-XXXX batch reference (e.g. PROD20261021-0001)
 async function generateBatchReference(tx, inputDate = new Date()) {
@@ -1257,7 +1259,7 @@ class StandardProductionController {
   async saveAllocations(req, res, next) {
     try {
       const { id } = req.params;
-      const { allocations = [], dayNo, dayBatchCode, productionDate } = req.body || {};
+      const { allocations = [], dayNo, dayBatchCode, productionDate, assignedUsers } = req.body || {};
 
       // Existence and status pre-check outside transaction
       const batchCheck = await prisma.$queryRawUnsafe(`
@@ -1340,14 +1342,18 @@ class StandardProductionController {
           ? sanitizeToken(dayBatchCode, 24, ddmmyy)
           : (batch.short_batch_code || ddmmyy);
         const dayId = existingDayRows?.[0]?.id || require('crypto').randomUUID();
+        const normalizedDayUsers = normalizeAssignedUsers(assignedUsers);
+        const assignedUsersJson = normalizedDayUsers !== null ? JSON.stringify(normalizedDayUsers) : null;
         if (!existingDayRows || existingDayRows.length === 0) {
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_days (
               id, batch_id, day_no, day_label, production_date, day_batch_code,
-              status, opening_mix_ml, allocated_mix_ml, remaining_mix_ml, eb_rate_per_unit
+              status, opening_mix_ml, allocated_mix_ml, remaining_mix_ml, eb_rate_per_unit,
+              assigned_users
             ) VALUES (
               $1::uuid, $2, $3, $4, COALESCE($10::date, CURRENT_DATE), $5,
-              'IN_PROGRESS', $6, $7, $8, $9
+              'IN_PROGRESS', $6, $7, $8, $9,
+              COALESCE($11::jsonb, '[]'::jsonb)
             )
             ON CONFLICT (batch_id, day_no) DO UPDATE SET
               production_date = COALESCE(EXCLUDED.production_date, production_batch_days.production_date),
@@ -1355,9 +1361,10 @@ class StandardProductionController {
               opening_mix_ml = EXCLUDED.opening_mix_ml,
               allocated_mix_ml = EXCLUDED.allocated_mix_ml,
               remaining_mix_ml = EXCLUDED.remaining_mix_ml,
+              assigned_users = COALESCE($11::jsonb, production_batch_days.assigned_users, '[]'::jsonb),
               updated_at = CURRENT_TIMESTAMP;
           `, dayId, id, targetDayNo, `Day ${targetDayNo}`, resolvedDayCode,
-             computed.initialMixAvailableMl, computed.totalMixUsedMl, computed.remainingMixMl, Number(batch.eb_rate_per_unit || 8.5), prodDateStr);
+             computed.initialMixAvailableMl, computed.totalMixUsedMl, computed.remainingMixMl, Number(batch.eb_rate_per_unit || 8.5), prodDateStr, assignedUsersJson);
         } else {
           await tx.$executeRawUnsafe(`
             UPDATE production_batch_days
@@ -1366,9 +1373,10 @@ class StandardProductionController {
                 opening_mix_ml = $3,
                 allocated_mix_ml = $4,
                 remaining_mix_ml = $5,
+                assigned_users = COALESCE($7::jsonb, assigned_users, '[]'::jsonb),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $1::uuid;
-          `, dayId, resolvedDayCode, computed.initialMixAvailableMl, computed.totalMixUsedMl, computed.remainingMixMl, prodDateStr);
+          `, dayId, resolvedDayCode, computed.initialMixAvailableMl, computed.totalMixUsedMl, computed.remainingMixMl, prodDateStr, assignedUsersJson);
         }
 
         // Atomically replace allocations ONLY for this active Day
@@ -3190,6 +3198,7 @@ class StandardProductionController {
         finalizeProduction: Boolean(body.finalizeProduction),
         scrapRemainingMixAsWaste: body.scrapRemainingMixAsWaste !== undefined ? Boolean(body.scrapRemainingMixAsWaste) : true,
         notes: body.notes || '',
+        assignedUsers: body.assignedUsers,
         userId,
         operatorName
       });
@@ -3219,8 +3228,9 @@ class StandardProductionController {
       const operatorName = req.user?.name || req.user?.username || 'Supervisor';
 
       const data = await startNextDayRun(id, {
-        productionDate: body.productionDate || new Date(),
+        productionDate: body.productionDate || null,
         dayBatchCode: body.dayBatchCode || body.shortBatchCode,
+        assignedUsers: body.assignedUsers,
         operatorName
       });
 
@@ -3305,6 +3315,7 @@ class StandardProductionController {
         overheadAmt: body.overheadAmt ?? body.overheadCost,
         productYields: body.productYields,
         notes: body.notes,
+        assignedUsers: body.assignedUsers,
         userId: req.user?.id || null,
         operatorName
       });
@@ -3318,6 +3329,35 @@ class StandardProductionController {
       console.error('Error updating completed day execution:', err);
       if (err.statusCode && !res.headersSent) {
         return res.status(err.statusCode).json({ error: err.message, errors: err.errors });
+      }
+      next(err);
+    }
+  }
+
+  // ── 10E-3. PUT /api/production/standard/:id/days/:dayId/meta ──
+  // Updates Day date, Day batch code (DDMMYY), and day-wise assigned production users
+  async updateDayMeta(req, res, next) {
+    try {
+      const { id, dayId } = req.params;
+      const body = req.body || {};
+
+      const data = await updateDayMetadata({
+        batchId: id,
+        dayId,
+        productionDate: body.productionDate,
+        dayBatchCode: body.dayBatchCode || body.shortBatchCode,
+        assignedUsers: body.assignedUsers
+      });
+
+      res.json({
+        success: true,
+        message: `Day ${data.day?.dayNo || ''} schedule date & assigned production staff updated.`,
+        data
+      });
+    } catch (err) {
+      console.error('Error updating day metadata:', err);
+      if (err.statusCode && !res.headersSent) {
+        return res.status(err.statusCode).json({ error: err.message });
       }
       next(err);
     }

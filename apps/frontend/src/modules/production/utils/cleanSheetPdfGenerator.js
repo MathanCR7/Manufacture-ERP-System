@@ -492,26 +492,42 @@ export function exportCleanSheetPdf({
     `${filteredDays.length} Production Date${filteredDays.length !== 1 ? 's' : ''} Recorded`
   );
 
+  const formatDayUsersText = (dayObj) => {
+    const users = Array.isArray(dayObj?.assignedUsers) ? dayObj.assignedUsers : [];
+    if (users.length > 0) {
+      return users
+        .map(u => `${safeText(u.name)}${u.empId ? ` (${safeText(u.empId)})` : ''}${u.role ? ` [${safeText(u.role)}]` : ''}`)
+        .join(', ');
+    }
+    return safeText(dayObj?.completedBy || dayObj?.startedBy || batch?.startedBy || batch?.started_by, 'Floor Operator');
+  };
+
   filteredDays.forEach((dayObj) => {
-    ensureSpace(28);
+    ensureSpace(32);
     // Day Header Strip
     doc.setFillColor(...COLORS.indigoLight);
     doc.setDrawColor(...COLORS.indigo);
     doc.setLineWidth(0.35);
-    doc.roundedRect(MARGIN, y, CONTENT_W, 11.5, 1.2, 1.2, 'FD');
+    doc.roundedRect(MARGIN, y, CONTENT_W, 15.2, 1.2, 1.2, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(...COLORS.indigo);
     doc.text(
-      `DAY ${dayObj.dayNo}  |  DATE: ${DATE_DMY(dayObj.productionDate)}  |  DAY BATCH NO: ${safeText(dayObj.dayBatchCode)}`,
+      `DAY ${dayObj.dayNo}  |  PRODUCTION DATE: ${DATE_DMY(dayObj.productionDate)}  |  DAY BATCH NO: ${safeText(dayObj.dayBatchCode)}`,
       MARGIN + 3,
-      y + 4.5
+      y + 4.3
     );
 
     doc.setFontSize(7.2);
     doc.setTextColor(...COLORS.emerald);
-    doc.text(safeText(dayObj.statusLabel, 'COMPLETED'), PAGE_W - MARGIN - 3, y + 4.5, { align: 'right' });
+    doc.text(safeText(dayObj.statusLabel, 'COMPLETED'), PAGE_W - MARGIN - 3, y + 4.3, { align: 'right' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.1);
+    doc.setTextColor(...COLORS.navy);
+    const staffClipped = doc.splitTextToSize(`ASSIGNED STAFF: ${formatDayUsersText(dayObj)}`, CONTENT_W - 6)[0] || '';
+    doc.text(staffClipped, MARGIN + 3, y + 8.9);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
@@ -519,8 +535,8 @@ export function exportCleanSheetPdf({
     const dayMetaLine = canViewCost
       ? `Mix Flow: Open ${formatIndian(dayObj.openingMixMl, 0)} ml -> Used ${formatIndian(dayObj.allocatedMixMl, 0)} ml -> Rem ${formatIndian(dayObj.remainingMixMl, 0)} ml  |  Output: ${formatIndian(dayObj.totalOutputQty, 0)} (Rej: ${formatIndian(dayObj.totalRejectedQty, 0)})  |  EB: ${INR_FMT(dayObj.ebTotalCost)}  |  Labour: ${INR_FMT(dayObj.labourTotalCost)}  |  OH: ${INR_FMT(dayObj.overheadAmt)}`
       : `Mix Flow: Open ${formatIndian(dayObj.openingMixMl, 0)} ml -> Used ${formatIndian(dayObj.allocatedMixMl, 0)} ml -> Rem ${formatIndian(dayObj.remainingMixMl, 0)} ml  |  Good Output: ${formatIndian(dayObj.totalOutputQty, 0)}  |  Rejects: ${formatIndian(dayObj.totalRejectedQty, 0)}`;
-    doc.text(dayMetaLine, MARGIN + 3, y + 9.2);
-    y += 13.5;
+    doc.text(dayMetaLine, MARGIN + 3, y + 13.3);
+    y += 17.2;
 
     // 2A. Products Produced on this Date
     const prodCols = canViewCost
