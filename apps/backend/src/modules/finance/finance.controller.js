@@ -3,6 +3,72 @@ const path = require('path');
 const prisma = require('../../database/prisma');
 const notificationService = require('../notifications/notifications.service');
 const expenseStorage = require('../../utils/expenseFileStorage');
+const paymentStorage = require('../../utils/paymentFileStorage');
+
+const parseFloatOrDefault = (val, fallback = 0) => {
+  if (val === undefined || val === null || val === '') return fallback;
+  const num = parseFloat(val);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const pickDefinedField = (source, fallback, key) => {
+  if (source && source[key] !== undefined) return source[key];
+  if (fallback && fallback[key] !== undefined) return fallback[key];
+  return undefined;
+};
+
+const resolveExpensePaymentImage = (rawImage, existingImage, expenseNumber, uniqueKey) => {
+  if (rawImage === undefined) return existingImage || null;
+  if (!rawImage || typeof rawImage !== 'string' || !rawImage.trim()) {
+    if (existingImage) {
+      paymentStorage.deletePaymentImageFromDisk(existingImage);
+    }
+    return null;
+  }
+  const trimmed = rawImage.trim();
+  if (trimmed.startsWith('data:')) {
+    return paymentStorage.savePaymentImageToDisk(trimmed, expenseNumber || 'EXP', existingImage || null, uniqueKey);
+  }
+  return trimmed;
+};
+
+const buildExpenseChargesAndPayment = (source, { fallback = {}, existing = null, expenseNumber = 'EXP', totalAmount = 0, uniqueKey = null } = {}) => {
+  const get = (key) => pickDefinedField(source, fallback, key);
+  const resolvedStatus = get('paymentStatus') ?? existing?.paymentStatus ?? 'PAID';
+  const resolvedMode = get('paymentMode') ?? existing?.paymentMode ?? 'CASH';
+  const rawPaid = get('paidAmount');
+  const resolvedPaid = rawPaid !== undefined
+    ? parseFloatOrDefault(rawPaid, resolvedStatus === 'PAID' ? totalAmount : 0)
+    : (existing ? parseFloatOrDefault(existing.paidAmount, 0) : (resolvedStatus === 'PAID' ? totalAmount : 0));
+
+  const rawRef = get('paymentRef');
+  const rawNotes = get('paymentNotes');
+  const rawOtherLabel = get('otherChargesLabel');
+
+  return {
+    paymentMode: resolvedMode || 'CASH',
+    paymentStatus: resolvedStatus || 'PAID',
+    paidAmount: resolvedPaid,
+    paymentRef: rawRef !== undefined ? (rawRef ? String(rawRef).trim() : null) : (existing?.paymentRef ?? null),
+    paymentImage: resolveExpensePaymentImage(get('paymentImage'), existing?.paymentImage || null, expenseNumber, uniqueKey),
+    paymentNotes: rawNotes !== undefined ? (rawNotes ? String(rawNotes).trim() : null) : (existing?.paymentNotes ?? null),
+    shippingAmount: parseFloatOrDefault(get('shippingAmount'), existing ? parseFloatOrDefault(existing.shippingAmount, 0) : 0),
+    shippingGstApplicable: get('shippingGstApplicable') !== undefined ? Boolean(get('shippingGstApplicable')) : Boolean(existing?.shippingGstApplicable),
+    shippingGstRate: parseFloatOrDefault(get('shippingGstRate'), existing?.shippingGstRate != null ? parseFloatOrDefault(existing.shippingGstRate, 18) : 18),
+    packingAmount: parseFloatOrDefault(get('packingAmount'), existing ? parseFloatOrDefault(existing.packingAmount, 0) : 0),
+    packingGstApplicable: get('packingGstApplicable') !== undefined ? Boolean(get('packingGstApplicable')) : Boolean(existing?.packingGstApplicable),
+    packingGstRate: parseFloatOrDefault(get('packingGstRate'), existing?.packingGstRate != null ? parseFloatOrDefault(existing.packingGstRate, 18) : 18),
+    loadingAmount: parseFloatOrDefault(get('loadingAmount'), existing ? parseFloatOrDefault(existing.loadingAmount, 0) : 0),
+    loadingGstApplicable: get('loadingGstApplicable') !== undefined ? Boolean(get('loadingGstApplicable')) : Boolean(existing?.loadingGstApplicable),
+    loadingGstRate: parseFloatOrDefault(get('loadingGstRate'), existing?.loadingGstRate != null ? parseFloatOrDefault(existing.loadingGstRate, 18) : 18),
+    otherCharges: parseFloatOrDefault(get('otherCharges'), existing ? parseFloatOrDefault(existing.otherCharges, 0) : 0),
+    otherChargesLabel: rawOtherLabel !== undefined ? (rawOtherLabel ? String(rawOtherLabel).trim() : null) : (existing?.otherChargesLabel ?? null),
+    otherChargesGstApplicable: get('otherChargesGstApplicable') !== undefined ? Boolean(get('otherChargesGstApplicable')) : Boolean(existing?.otherChargesGstApplicable),
+    otherChargesGstRate: parseFloatOrDefault(get('otherChargesGstRate'), existing?.otherChargesGstRate != null ? parseFloatOrDefault(existing.otherChargesGstRate, 18) : 18),
+    discountAmount: parseFloatOrDefault(get('discountAmount'), existing ? parseFloatOrDefault(existing.discountAmount, 0) : 0),
+    roundOff: parseFloatOrDefault(get('roundOff'), existing ? parseFloatOrDefault(existing.roundOff, 0) : 0)
+  };
+};
 
 // Helper to resolve category name and foreign key categoryId
 const resolveCategoryData = async (catInput, catIdInput) => {
@@ -266,18 +332,18 @@ const createExpense = async (req, res, next) => {
       ? String(expenseNumber).trim()
       : await generateNextExpenseNumber(prisma);
 
-    // Payment settlement details
-    const finalPaymentStatus = paymentStatus || 'PAID';
-    const finalPaymentMode = paymentMode || 'CASH';
-    const numPaid = (paidAmount !== undefined && paidAmount !== null && paidAmount !== '')
-      ? parseFloat(paidAmount)
-      : (finalPaymentStatus === 'PAID' ? (numTotal || numericAmount) : 0);
+    const resolvedTotal = numTotal || numericAmount;
+    const chargesAndPayment = buildExpenseChargesAndPayment(req.body, {
+      expenseNumber: finalExpenseNumber,
+      totalAmount: resolvedTotal,
+      uniqueKey: Date.now().toString()
+    });
 
     const expense = await prisma.expense.create({
       data: {
         expenseNumber: finalExpenseNumber,
         title: title.trim(),
-        amount: numTotal || numericAmount,
+        amount: resolvedTotal,
         category: resolvedCatName,
         categoryId: resolvedCatId,
         date: new Date(date),
@@ -297,27 +363,7 @@ const createExpense = async (req, res, next) => {
         totalAmount: numTotal,
         isInterState: Boolean(isInterState),
         hsnSacCode: hsnSacCode ? String(hsnSacCode).trim() : null,
-        // Payment Mode & Settlement Fields
-        paymentMode: finalPaymentMode,
-        paymentStatus: finalPaymentStatus,
-        paidAmount: isNaN(numPaid) ? 0 : numPaid,
-        paymentRef: paymentRef ? String(paymentRef).trim() : null,
-        paymentImage: paymentImage || null,
-        paymentNotes: paymentNotes ? String(paymentNotes).trim() : null,
-        // Breakdown Charges with Individual GST Rates
-        shippingAmount: parseFloat(shippingAmount) || 0,
-        shippingGstApplicable: Boolean(shippingGstApplicable),
-        shippingGstRate: parseFloat(shippingGstRate) || 18,
-        packingAmount: parseFloat(packingAmount) || 0,
-        packingGstApplicable: Boolean(packingGstApplicable),
-        packingGstRate: parseFloat(packingGstRate) || 18,
-        loadingAmount: parseFloat(loadingAmount) || 0,
-        loadingGstApplicable: Boolean(loadingGstApplicable),
-        loadingGstRate: parseFloat(loadingGstRate) || 18,
-        otherCharges: parseFloat(otherCharges) || 0,
-        otherChargesGstApplicable: Boolean(otherChargesGstApplicable),
-        otherChargesGstRate: parseFloat(otherChargesGstRate) || 18,
-        discountAmount: parseFloat(discountAmount) || 0,
+        ...chargesAndPayment,
         createdBy: userId
       },
       include: {
@@ -435,13 +481,12 @@ const createBulkExpenses = async (req, res, next) => {
         ? String(item.expenseNumber).trim()
         : `EXP-${String(startSeq + i).padStart(6, '0')}`;
 
-      const rowPaymentStatus = item.paymentStatus || req.body.paymentStatus || 'PAID';
-      const rowPaymentMode = item.paymentMode || req.body.paymentMode || 'CASH';
-      const rowPaidAmount = (item.paidAmount !== undefined && item.paidAmount !== null && item.paidAmount !== '')
-        ? parseFloat(item.paidAmount)
-        : (req.body.paidAmount !== undefined && req.body.paidAmount !== null && req.body.paidAmount !== ''
-          ? parseFloat(req.body.paidAmount)
-          : (rowPaymentStatus === 'PAID' ? numTotal : 0));
+      const rowChargesAndPayment = buildExpenseChargesAndPayment(item, {
+        fallback: req.body,
+        expenseNumber: rowExpenseNumber,
+        totalAmount: numTotal,
+        uniqueKey: `row_${i}_${Date.now()}`
+      });
 
       validExpenses.push({
         expenseNumber: rowExpenseNumber,
@@ -467,27 +512,7 @@ const createBulkExpenses = async (req, res, next) => {
         totalAmount: numTotal,
         isInterState: Boolean(item.isInterState),
         hsnSacCode: item.hsnSacCode ? String(item.hsnSacCode).trim() : null,
-        // Payment fields
-        paymentMode: rowPaymentMode,
-        paymentStatus: rowPaymentStatus,
-        paidAmount: isNaN(rowPaidAmount) ? 0 : rowPaidAmount,
-        paymentRef: item.paymentRef ? String(item.paymentRef).trim() : (req.body.paymentRef ? String(req.body.paymentRef).trim() : null),
-        paymentImage: item.paymentImage || req.body.paymentImage || null,
-        paymentNotes: item.paymentNotes ? String(item.paymentNotes).trim() : (req.body.paymentNotes ? String(req.body.paymentNotes).trim() : null),
-        // Breakdown charges
-        shippingAmount: parseFloat(item.shippingAmount !== undefined ? item.shippingAmount : req.body.shippingAmount) || 0,
-        shippingGstApplicable: Boolean(item.shippingGstApplicable !== undefined ? item.shippingGstApplicable : req.body.shippingGstApplicable),
-        shippingGstRate: parseFloat(item.shippingGstRate !== undefined ? item.shippingGstRate : req.body.shippingGstRate) || 18,
-        packingAmount: parseFloat(item.packingAmount !== undefined ? item.packingAmount : req.body.packingAmount) || 0,
-        packingGstApplicable: Boolean(item.packingGstApplicable !== undefined ? item.packingGstApplicable : req.body.packingGstApplicable),
-        packingGstRate: parseFloat(item.packingGstRate !== undefined ? item.packingGstRate : req.body.packingGstRate) || 18,
-        loadingAmount: parseFloat(item.loadingAmount !== undefined ? item.loadingAmount : req.body.loadingAmount) || 0,
-        loadingGstApplicable: Boolean(item.loadingGstApplicable !== undefined ? item.loadingGstApplicable : req.body.loadingGstApplicable),
-        loadingGstRate: parseFloat(item.loadingGstRate !== undefined ? item.loadingGstRate : req.body.loadingGstRate) || 18,
-        otherCharges: parseFloat(item.otherCharges !== undefined ? item.otherCharges : req.body.otherCharges) || 0,
-        otherChargesGstApplicable: Boolean(item.otherChargesGstApplicable !== undefined ? item.otherChargesGstApplicable : req.body.otherChargesGstApplicable),
-        otherChargesGstRate: parseFloat(item.otherChargesGstRate !== undefined ? item.otherChargesGstRate : req.body.otherChargesGstRate) || 18,
-        discountAmount: parseFloat(item.discountAmount !== undefined ? item.discountAmount : req.body.discountAmount) || 0,
+        ...rowChargesAndPayment,
         createdBy: userId
       });
     }
@@ -573,18 +598,21 @@ const deleteBulkExpenses = async (req, res, next) => {
 
     const existingExpenses = await prisma.expense.findMany({
       where: { id: { in: ids } },
-      select: { id: true, attachments: true }
+      select: { id: true, attachments: true, paymentImage: true }
     });
 
     const deleteResult = await prisma.expense.deleteMany({
       where: { id: { in: ids } }
     });
 
-    // Storage Management: Permanently delete folders and attachment files from disk
+    // Storage Management: Permanently delete folders, attachment files, and payment images from disk
     for (const exp of existingExpenses) {
       expenseStorage.deleteExpenseFolder(exp.id);
       if (exp.attachments) {
         expenseStorage.deleteExpenseAttachmentFile(exp.attachments);
+      }
+      if (exp.paymentImage) {
+        paymentStorage.deletePaymentImageFromDisk(exp.paymentImage);
       }
     }
 
@@ -780,12 +808,23 @@ const updateExpense = async (req, res, next) => {
 
     const { categoryId: resolvedCatId, category: resolvedCatName } = await resolveCategoryData(category, categoryId);
 
+    const resolvedTotal = numTotal || numericAmount;
+    const resolvedExpenseNo = expenseNumber !== undefined
+      ? (expenseNumber ? String(expenseNumber).trim() : existing.expenseNumber)
+      : existing.expenseNumber;
+    const chargesAndPayment = buildExpenseChargesAndPayment(req.body, {
+      existing,
+      expenseNumber: resolvedExpenseNo || existing.id,
+      totalAmount: resolvedTotal,
+      uniqueKey: Date.now().toString()
+    });
+
     const expense = await prisma.expense.update({
       where: { id },
       data: {
         expenseNumber: expenseNumber !== undefined ? (expenseNumber ? String(expenseNumber).trim() : null) : existing.expenseNumber,
         title: title.trim(),
-        amount: numTotal || numericAmount,
+        amount: resolvedTotal,
         category: resolvedCatName,
         categoryId: resolvedCatId,
         date: new Date(date),
@@ -805,27 +844,7 @@ const updateExpense = async (req, res, next) => {
         totalAmount: numTotal,
         isInterState: isInterState !== undefined ? Boolean(isInterState) : existing.isInterState,
         hsnSacCode: hsnSacCode !== undefined ? (hsnSacCode ? String(hsnSacCode).trim() : null) : existing.hsnSacCode,
-        // Payment Mode & Settlement Fields
-        paymentMode: paymentMode !== undefined ? (paymentMode || 'CASH') : existing.paymentMode,
-        paymentStatus: paymentStatus !== undefined ? (paymentStatus || 'PAID') : existing.paymentStatus,
-        paidAmount: paidAmount !== undefined ? (parseFloat(paidAmount) || 0) : existing.paidAmount,
-        paymentRef: paymentRef !== undefined ? (paymentRef ? String(paymentRef).trim() : null) : existing.paymentRef,
-        paymentImage: paymentImage !== undefined ? (paymentImage || null) : existing.paymentImage,
-        paymentNotes: paymentNotes !== undefined ? (paymentNotes ? String(paymentNotes).trim() : null) : existing.paymentNotes,
-        // Individual charges breakdown with tax rates
-        shippingAmount: shippingAmount !== undefined ? (parseFloat(shippingAmount) || 0) : existing.shippingAmount,
-        shippingGstApplicable: shippingGstApplicable !== undefined ? Boolean(shippingGstApplicable) : existing.shippingGstApplicable,
-        shippingGstRate: shippingGstRate !== undefined ? (parseFloat(shippingGstRate) || 18) : existing.shippingGstRate,
-        packingAmount: packingAmount !== undefined ? (parseFloat(packingAmount) || 0) : existing.packingAmount,
-        packingGstApplicable: packingGstApplicable !== undefined ? Boolean(packingGstApplicable) : existing.packingGstApplicable,
-        packingGstRate: packingGstRate !== undefined ? (parseFloat(packingGstRate) || 18) : existing.packingGstRate,
-        loadingAmount: loadingAmount !== undefined ? (parseFloat(loadingAmount) || 0) : existing.loadingAmount,
-        loadingGstApplicable: loadingGstApplicable !== undefined ? Boolean(loadingGstApplicable) : existing.loadingGstApplicable,
-        loadingGstRate: loadingGstRate !== undefined ? (parseFloat(loadingGstRate) || 18) : existing.loadingGstRate,
-        otherCharges: otherCharges !== undefined ? (parseFloat(otherCharges) || 0) : existing.otherCharges,
-        otherChargesGstApplicable: otherChargesGstApplicable !== undefined ? Boolean(otherChargesGstApplicable) : existing.otherChargesGstApplicable,
-        otherChargesGstRate: otherChargesGstRate !== undefined ? (parseFloat(otherChargesGstRate) || 18) : existing.otherChargesGstRate,
-        discountAmount: discountAmount !== undefined ? (parseFloat(discountAmount) || 0) : existing.discountAmount
+        ...chargesAndPayment
       },
       include: {
         expenseCategory: { select: { id: true, name: true, code: true, status: true, expenseWithSupplier: true, defaultGstRate: true, hsnSacCode: true } },
@@ -883,10 +902,13 @@ const deleteExpense = async (req, res, next) => {
 
     await prisma.expense.delete({ where: { id } });
 
-    // Storage Management: Permanently delete entire directory and attachments from disk
+    // Storage Management: Permanently delete entire directory, attachments, and payment proof from disk
     expenseStorage.deleteExpenseFolder(id);
     if (existing.attachments) {
       expenseStorage.deleteExpenseAttachmentFile(existing.attachments);
+    }
+    if (existing.paymentImage) {
+      paymentStorage.deletePaymentImageFromDisk(existing.paymentImage);
     }
 
     // Write Audit Log

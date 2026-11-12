@@ -572,9 +572,11 @@ model Expense {
   loadingGstApplicable      Boolean          @default(false)
   loadingGstRate            Decimal?         @default(18)
   otherCharges              Decimal?         @default(0)
+  otherChargesLabel         String?
   otherChargesGstApplicable Boolean          @default(false)
   otherChargesGstRate       Decimal?         @default(18)
   discountAmount            Decimal?         @default(0)
+  roundOff                  Decimal?         @default(0)
   createdBy                 String
   createdAt                 DateTime         @default(now())
   updatedAt                 DateTime         @updatedAt

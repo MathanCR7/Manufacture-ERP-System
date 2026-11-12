@@ -92,7 +92,8 @@ function SupplierSelect({
   onChange,
   onAddNew,
   placeholder = "Select Supplier / Vendor...",
-  isInterStateForSupplier
+  isInterStateForSupplier,
+  compact = false
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -226,13 +227,13 @@ function SupplierSelect({
   const isValueInter = value && isInterStateForSupplier ? isInterStateForSupplier(value) : false;
 
   return (
-    <div className="flex gap-1.5 w-full items-center">
+    <div className={`flex ${compact ? 'gap-1' : 'gap-1.5'} w-full items-center`}>
       <div className="relative flex-1 min-w-0">
         <button
           ref={buttonRef}
           type="button"
           onClick={handleToggle}
-          className={`w-full px-2.5 h-8.5 border rounded-xl text-left flex items-center justify-between transition-all duration-150 text-xs shadow-2xs select-none ${
+          className={`w-full ${compact ? 'px-2 h-7.5 rounded-lg text-[11px]' : 'px-2.5 h-8.5 rounded-xl text-xs'} border text-left flex items-center justify-between transition-all duration-150 shadow-2xs select-none ${
             open 
               ? 'bg-indigo-50/90 border-indigo-500 ring-2 ring-indigo-500/25 dark:bg-indigo-950/70 dark:border-indigo-500' 
               : value
@@ -538,9 +539,9 @@ function SupplierSelect({
           size="sm"
           onClick={onAddNew} 
           title="Quick Add New Supplier"
-          className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 px-2 h-8.5 rounded-xl shadow-xs"
+          className={`bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 shadow-xs ${compact ? 'px-1.5 h-7.5 rounded-lg' : 'px-2 h-8.5 rounded-xl'}`}
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
         </Button>
       )}
     </div>
@@ -800,6 +801,514 @@ function MultiSelectCategoryDropdown({ categories = [], selectedValues = [], onC
 }
 
 // ==========================================
+// PER-EXPENSE CHARGES, PAYMENT & GST HELPERS
+// ==========================================
+function createDefaultChargesAndPayment() {
+  return {
+    discountAmount: '0',
+    shippingAmount: '0',
+    shippingGstApplicable: false,
+    shippingGstRate: 18,
+    packingAmount: '0',
+    packingGstApplicable: false,
+    packingGstRate: 18,
+    loadingAmount: '0',
+    loadingGstApplicable: false,
+    loadingGstRate: 18,
+    otherCharges: '0',
+    otherChargesLabel: 'Other Charges',
+    otherChargesGstApplicable: false,
+    otherChargesGstRate: 18,
+    remarks: '',
+    paymentStatus: 'PAID',
+    paidAmount: '0',
+    paymentMode: 'CASH',
+    paymentRef: '',
+    paymentImage: null,
+    paymentNotes: ''
+  };
+}
+
+function getPaymentModeShortLabel(modeId) {
+  const found = PAYMENT_MODES.find(m => m.id === modeId);
+  if (!found) return modeId || 'Cash';
+  if (modeId === 'BANK_TRANSFER') return 'Bank Transfer';
+  if (modeId === 'UPI') return 'UPI';
+  if (modeId === 'CHEQUE') return 'Cheque / DD';
+  if (modeId === 'CARD') return 'Card';
+  return found.label;
+}
+
+function getExpenseChargesBadges(exp) {
+  if (!exp) return [];
+  const items = [];
+  const ship = Number(exp.shippingAmount || 0);
+  const pack = Number(exp.packingAmount || 0);
+  const load = Number(exp.loadingAmount || 0);
+  const other = Number(exp.otherCharges || 0);
+  const disc = Number(exp.discountAmount || 0);
+
+  if (ship > 0) {
+    items.push({
+      key: 'ship',
+      label: `Ship ₹${ship.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+      gst: exp.shippingGstApplicable ? `+${Number(exp.shippingGstRate ?? 18)}%` : null,
+      tone: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+    });
+  }
+  if (pack > 0) {
+    items.push({
+      key: 'pack',
+      label: `Pack ₹${pack.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+      gst: exp.packingGstApplicable ? `+${Number(exp.packingGstRate ?? 18)}%` : null,
+      tone: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+    });
+  }
+  if (load > 0) {
+    items.push({
+      key: 'load',
+      label: `Load ₹${load.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+      gst: exp.loadingGstApplicable ? `+${Number(exp.loadingGstRate ?? 18)}%` : null,
+      tone: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+    });
+  }
+  if (other > 0) {
+    items.push({
+      key: 'other',
+      label: `${exp.otherChargesLabel || 'Other'} ₹${other.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+      gst: exp.otherChargesGstApplicable ? `+${Number(exp.otherChargesGstRate ?? 18)}%` : null,
+      tone: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+    });
+  }
+  if (disc > 0) {
+    items.push({
+      key: 'disc',
+      label: `Disc -₹${disc.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+      gst: null,
+      tone: 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+    });
+  }
+  return items;
+}
+
+function computeExpenseFinancials(row = {}, idx = 0) {
+  const taxable = Math.max(0, parseFloat(row.taxableAmount) || 0);
+  const isSupplier = row.isSupplierExpense !== undefined
+    ? Boolean(row.isSupplierExpense)
+    : Boolean(row.supplierId || row.supplierName);
+  const gstRate = isSupplier ? (parseFloat(row.gstPercentage) || 0) : 0;
+  const itemGst = (taxable * gstRate) / 100;
+
+  const shipping = Math.max(0, Number(row.shippingAmount) || 0);
+  const packing = Math.max(0, Number(row.packingAmount) || 0);
+  const loading = Math.max(0, Number(row.loadingAmount) || 0);
+  const otherCharges = Math.max(0, Number(row.otherCharges) || 0);
+  const discount = Math.max(0, Number(row.discountAmount) || 0);
+
+  const parseRate = (val) => (val !== undefined && val !== null && val !== '' && Number.isFinite(Number(val)) ? Number(val) : 18);
+  const shippingGstRate = parseRate(row.shippingGstRate);
+  const packingGstRate = parseRate(row.packingGstRate);
+  const loadingGstRate = parseRate(row.loadingGstRate);
+  const otherChargesGstRate = parseRate(row.otherChargesGstRate);
+
+  const shippingGst = row.shippingGstApplicable && shipping > 0 ? (shipping * shippingGstRate) / 100 : 0;
+  const packingGst = row.packingGstApplicable && packing > 0 ? (packing * packingGstRate) / 100 : 0;
+  const loadingGst = row.loadingGstApplicable && loading > 0 ? (loading * loadingGstRate) / 100 : 0;
+  const otherGst = row.otherChargesGstApplicable && otherCharges > 0 ? (otherCharges * otherChargesGstRate) / 100 : 0;
+
+  const totalExtraCharges = shipping + packing + loading + otherCharges;
+  const totalChargesTaxes = shippingGst + packingGst + loadingGst + otherGst;
+  const totalTaxes = itemGst + totalChargesTaxes;
+
+  const isInterState = Boolean(row.isInterState);
+  const cgstAmount = isInterState ? 0 : totalTaxes / 2;
+  const sgstAmount = isInterState ? 0 : totalTaxes / 2;
+  const igstAmount = isInterState ? totalTaxes : 0;
+
+  const chargesList = [];
+  if (shipping > 0) {
+    chargesList.push({ label: 'Shipping / Freight', value: shipping, applied: true, gstApplicable: Boolean(row.shippingGstApplicable), rate: shippingGstRate });
+  }
+  if (packing > 0) {
+    chargesList.push({ label: 'Packing Charges', value: packing, applied: true, gstApplicable: Boolean(row.packingGstApplicable), rate: packingGstRate });
+  }
+  if (loading > 0) {
+    chargesList.push({ label: 'Loading & Unloading', value: loading, applied: true, gstApplicable: Boolean(row.loadingGstApplicable), rate: loadingGstRate });
+  }
+  if (otherCharges > 0) {
+    chargesList.push({ label: row.otherChargesLabel || 'Other Charges', value: otherCharges, applied: true, gstApplicable: Boolean(row.otherChargesGstApplicable), rate: otherChargesGstRate });
+  }
+
+  const itemsForBreakdown = taxable > 0
+    ? [{
+        id: row.id || `exp_${idx}`,
+        name: row.title?.trim() || `Expense #${idx + 1}`,
+        subtotal: taxable,
+        quantity: 1,
+        unitPrice: taxable,
+        gstApplicable: gstRate > 0,
+        gstPercentage: gstRate
+      }]
+    : [];
+
+  const gstBreakdown = calculateGstBreakdown({
+    items: itemsForBreakdown,
+    charges: chargesList,
+    isInterState
+  });
+
+  const unroundedGrandTotal = Math.max(0, taxable + totalTaxes + totalExtraCharges - discount);
+  const grandTotal = Math.round(unroundedGrandTotal);
+  const roundOff = Number((grandTotal - unroundedGrandTotal).toFixed(2));
+
+  const paymentStatus = row.paymentStatus || 'PAID';
+  const rawPaid = row.paidAmount !== undefined && row.paidAmount !== null && row.paidAmount !== ''
+    ? parseFloat(row.paidAmount)
+    : (paymentStatus === 'PAID' ? grandTotal : 0);
+  const paidAmountNum = paymentStatus === 'UNPAID'
+    ? 0
+    : (paymentStatus === 'PAID' ? grandTotal : (Number.isFinite(rawPaid) ? rawPaid : 0));
+  const balanceDue = Math.max(0, grandTotal - paidAmountNum);
+
+  return {
+    taxable,
+    isSupplier,
+    gstRate,
+    itemGst,
+    shipping,
+    shippingGst,
+    shippingGstRate,
+    packing,
+    packingGst,
+    packingGstRate,
+    loading,
+    loadingGst,
+    loadingGstRate,
+    otherCharges,
+    otherChargesLabel: row.otherChargesLabel || 'Other Charges',
+    otherGst,
+    otherChargesGstRate,
+    discount,
+    totalExtraCharges,
+    totalChargesTaxes,
+    totalTaxes,
+    isInterState,
+    cgstAmount,
+    sgstAmount,
+    igstAmount,
+    chargesList,
+    itemsForBreakdown,
+    gstBreakdown,
+    unroundedGrandTotal,
+    grandTotal,
+    roundOff,
+    paymentStatus,
+    paymentMode: row.paymentMode || 'CASH',
+    paidAmountNum,
+    balanceDue
+  };
+}
+
+// ==========================================
+// SHARED CHARGES & FINANCIAL SUMMARY EDITOR
+// ==========================================
+function ExpenseChargesAndSummarySection({
+  values,
+  onChangeField,
+  summary,
+  entryCountLabel = '1 expense entry',
+  showRemarks = true,
+  compactLayout = false
+}) {
+  const chargeCards = [
+    {
+      key: 'shipping',
+      label: 'Shipping (₹)',
+      amountField: 'shippingAmount',
+      gstField: 'shippingGstApplicable',
+      rateField: 'shippingGstRate',
+      gstAmount: summary.shippingGst
+    },
+    {
+      key: 'packing',
+      label: 'Packing (₹)',
+      amountField: 'packingAmount',
+      gstField: 'packingGstApplicable',
+      rateField: 'packingGstRate',
+      gstAmount: summary.packingGst
+    },
+    {
+      key: 'loading',
+      label: 'Loading (₹)',
+      amountField: 'loadingAmount',
+      gstField: 'loadingGstApplicable',
+      rateField: 'loadingGstRate',
+      gstAmount: summary.loadingGst
+    }
+  ];
+
+  return (
+    <div className={compactLayout ? 'space-y-2.5' : 'grid grid-cols-1 xl:grid-cols-12 gap-3.5 items-start'}>
+      {/* Charges Inputs & Remarks */}
+      <div className={compactLayout ? 'space-y-2.5' : 'xl:col-span-7 space-y-2.5'}>
+        <div className={`grid ${compactLayout ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 gap-2' : 'grid-cols-2 sm:grid-cols-3 gap-2'}`}>
+          {/* 1. Discount */}
+          <div className="space-y-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+            <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">Discount (₹)</Label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 select-none">₹</span>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={values.discountAmount ?? '0'}
+                onChange={(e) => onChangeField('discountAmount', e.target.value)}
+                className="h-7.5 text-xs pl-5 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-emerald-400 focus:border-emerald-600 font-semibold shadow-2xs"
+              />
+            </div>
+          </div>
+
+          {/* 2-4. Shipping / Packing / Loading Cards */}
+          {chargeCards.map((card) => {
+            const amountVal = values[card.amountField] ?? '0';
+            const gstEnabled = Boolean(values[card.gstField]);
+            const rateVal = values[card.rateField] ?? 18;
+            return (
+              <div key={card.key} className="space-y-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between gap-1">
+                  <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap truncate">{card.label}</Label>
+                  <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={gstEnabled}
+                      onChange={(e) => onChangeField(card.gstField, e.target.checked)}
+                      className="w-3 h-3 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                  </label>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amountVal}
+                    onChange={(e) => onChangeField(card.amountField, e.target.value)}
+                    className="h-7.5 text-xs pl-5 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs"
+                  />
+                </div>
+                {gstEnabled && (
+                  <div className="flex items-center justify-between gap-1 pt-0.5">
+                    <select
+                      value={rateVal}
+                      onChange={(e) => onChangeField(card.rateField, Number(e.target.value))}
+                      className="h-5.5 text-[10px] px-1 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                    >
+                      <option value={0}>0%</option>
+                      <option value={5}>5%</option>
+                      <option value={12}>12%</option>
+                      <option value={18}>18%</option>
+                      <option value={28}>28%</option>
+                    </select>
+                    {Number(amountVal) > 0 && (
+                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                        +₹{card.gstAmount.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* 5. Other Charges (with custom label) */}
+          <div className={`space-y-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 ${compactLayout ? 'col-span-2 sm:col-span-1' : 'col-span-2 sm:col-span-1'}`}>
+            <div className="flex items-center justify-between gap-1">
+              <Input
+                type="text"
+                value={values.otherChargesLabel ?? 'Other Charges'}
+                onChange={(e) => onChangeField('otherChargesLabel', e.target.value)}
+                placeholder="Other Charges"
+                className="h-4.5 px-0.5 py-0 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-0 bg-transparent focus-visible:ring-0 min-w-0 flex-1"
+                title="Edit charge title"
+              />
+              <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0">
+                <input
+                  type="checkbox"
+                  checked={Boolean(values.otherChargesGstApplicable)}
+                  onChange={(e) => onChangeField('otherChargesGstApplicable', e.target.checked)}
+                  className="w-3 h-3 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                />
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+              </label>
+            </div>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={values.otherCharges ?? '0'}
+                onChange={(e) => onChangeField('otherCharges', e.target.value)}
+                className="h-7.5 text-xs pl-5 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs"
+              />
+            </div>
+            {Boolean(values.otherChargesGstApplicable) && (
+              <div className="flex items-center justify-between gap-1 pt-0.5">
+                <select
+                  value={values.otherChargesGstRate ?? 18}
+                  onChange={(e) => onChangeField('otherChargesGstRate', Number(e.target.value))}
+                  className="h-5.5 text-[10px] px-1 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                >
+                  <option value={0}>0%</option>
+                  <option value={5}>5%</option>
+                  <option value={12}>12%</option>
+                  <option value={18}>18%</option>
+                  <option value={28}>28%</option>
+                </select>
+                {Number(values.otherCharges) > 0 && (
+                  <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                    +₹{summary.otherGst.toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Row Remarks */}
+        {showRemarks && (
+          <div className="space-y-1">
+            <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <FileText className="w-3 h-3 text-slate-400" />
+              Supplier Instructions & Remarks
+            </Label>
+            <textarea
+              value={values.remarks ?? ''}
+              onChange={(e) => onChangeField('remarks', e.target.value)}
+              rows={compactLayout ? 1 : 2}
+              className="w-full border rounded-xl px-2.5 py-1.5 text-xs bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs text-slate-800 dark:text-slate-200 font-medium"
+              placeholder="Supplier instructions, delivery notes, payment terms, or reference numbers..."
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Live Financial Summary Box */}
+      <div className={`${compactLayout ? 'p-3 rounded-xl space-y-1.5 text-[11px]' : 'xl:col-span-5 p-3.5 rounded-xl space-y-2 text-xs'} bg-gradient-to-br from-slate-50 via-indigo-50/35 to-slate-50 dark:from-slate-950/90 dark:via-indigo-950/30 dark:to-slate-950/90 border border-indigo-200/80 dark:border-indigo-900/60 shadow-2xs`}>
+        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+          <span>Taxable Base ({entryCountLabel})</span>
+          <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+            ₹{summary.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        </div>
+
+        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+          <span>Item GST ({summary.gstRate}%)</span>
+          <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+            ₹{summary.itemGst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
+        </div>
+
+        {!summary.isInterState ? (
+          <div className="grid grid-cols-2 gap-2 pt-0.5 text-[11px]">
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400 bg-white/70 dark:bg-slate-900/60 px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800">
+              <span className="inline-flex items-center gap-1">
+                <span>CGST</span>
+                <GstCalculationModal
+                  items={summary.itemsForBreakdown}
+                  charges={summary.chargesList}
+                  isInterState={false}
+                  breakdownData={summary.gstBreakdown}
+                />
+              </span>
+              <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                ₹{summary.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400 bg-white/70 dark:bg-slate-900/60 px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800">
+              <span>SGST</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                ₹{summary.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+            <span className="inline-flex items-center gap-1.5">
+              <span>IGST (Interstate)</span>
+              <GstCalculationModal
+                items={summary.itemsForBreakdown}
+                charges={summary.chargesList}
+                isInterState={true}
+                breakdownData={summary.gstBreakdown}
+              />
+            </span>
+            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+              ₹{summary.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
+
+        {summary.discount > 0 && (
+          <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-semibold">
+            <span>Discount</span>
+            <span className="font-mono">
+              -₹{summary.discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
+
+        {summary.totalExtraCharges > 0 && (
+          <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+            <span>Extra Charges ({[
+              summary.shipping > 0 ? 'Ship' : null,
+              summary.packing > 0 ? 'Pack' : null,
+              summary.loading > 0 ? 'Load' : null,
+              summary.otherCharges > 0 ? (values.otherChargesLabel || 'Other') : null
+            ].filter(Boolean).join(', ')})</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+              +₹{summary.totalExtraCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
+
+        {summary.totalChargesTaxes > 0 && (
+          <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+            <span>Charges Tax (GST)</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+              +₹{summary.totalChargesTaxes.toFixed(2)}
+            </span>
+          </div>
+        )}
+
+        {summary.roundOff !== 0 && (
+          <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+            <span>Round Off</span>
+            <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+              {summary.roundOff > 0 ? `+₹${summary.roundOff.toFixed(2)}` : `-₹${Math.abs(summary.roundOff).toFixed(2)}`}
+            </span>
+          </div>
+        )}
+
+        <div className="pt-2 border-t border-indigo-200 dark:border-indigo-800/80 flex justify-between items-baseline">
+          <div>
+            <span className="text-[11px] font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 block">
+              EXPENSE GRAND TOTAL
+            </span>
+            <span className="text-[10px] text-slate-400 font-medium">Includes taxes, charges & discount</span>
+          </div>
+          <span className={`${compactLayout ? 'text-xl sm:text-2xl' : 'text-xl sm:text-2xl'} font-black font-mono text-indigo-600 dark:text-indigo-400`}>
+            ₹{summary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // CSV EXPORT UTILITY FUNCTION
 // ==========================================
 function downloadExpensesCSV(expensesList, filenamePrefix = 'expenses') {
@@ -808,7 +1317,12 @@ function downloadExpensesCSV(expensesList, filenamePrefix = 'expenses') {
     return;
   }
 
-  const headers = ['Expense No', 'Date', 'Expense Title', 'Category', 'Supplier', 'Supplier GSTIN', 'Invoice No', 'Payment Mode', 'Payment Status', 'Paid Amount (INR)', 'Taxable (INR)', 'GST %', 'CGST', 'SGST', 'IGST', 'Total Amount (INR)', 'Recorded By', 'Attachments Count', 'Notes'];
+  const headers = [
+    'Expense No', 'Date', 'Expense Title', 'Category', 'Supplier', 'Supplier GSTIN', 'Invoice No',
+    'Payment Mode', 'Payment Status', 'Paid Amount (INR)', 'Payment Ref',
+    'Taxable (INR)', 'Discount (INR)', 'Shipping (INR)', 'Packing (INR)', 'Loading (INR)', 'Other Charges (INR)',
+    'GST %', 'CGST', 'SGST', 'IGST', 'Total Amount (INR)', 'Recorded By', 'Attachments Count', 'Notes'
+  ];
   const csvRows = [headers.join(',')];
 
   expensesList.forEach(item => {
@@ -821,10 +1335,16 @@ function downloadExpensesCSV(expensesList, filenamePrefix = 'expenses') {
       `"${(item.supplierName || '').replace(/"/g, '""')}"`,
       `"${item.supplierGstin || ''}"`,
       `"${item.invoiceNo || ''}"`,
-      `"${item.paymentMode || 'CASH'}"`,
+      `"${getPaymentModeShortLabel(item.paymentMode || 'CASH')}"`,
       `"${item.paymentStatus || 'PAID'}"`,
       Number(item.paidAmount || 0).toFixed(2),
+      `"${(item.paymentRef || '').replace(/"/g, '""')}"`,
       Number(item.taxableAmount || item.amount || 0).toFixed(2),
+      Number(item.discountAmount || 0).toFixed(2),
+      Number(item.shippingAmount || 0).toFixed(2),
+      Number(item.packingAmount || 0).toFixed(2),
+      Number(item.loadingAmount || 0).toFixed(2),
+      Number(item.otherCharges || 0).toFixed(2),
       Number(item.gstPercentage || 0).toFixed(0),
       Number(item.cgstAmount || 0).toFixed(2),
       Number(item.sgstAmount || 0).toFixed(2),
@@ -923,30 +1443,13 @@ export default function ExpensesPage() {
   const [viewingAttachmentsExpense, setViewingAttachmentsExpense] = useState(null);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
 
-  // Section 4 Financial Summary Individual Extra Charges with Dedicated GST Checkboxes & Rates
-  const [batchDiscount, setBatchDiscount] = useState('0');
-  const [batchShipping, setBatchShipping] = useState('0');
-  const [batchShippingGstApplicable, setBatchShippingGstApplicable] = useState(false);
-  const [batchShippingGstPercentage, setBatchShippingGstPercentage] = useState(18);
-  const [batchPacking, setBatchPacking] = useState('0');
-  const [batchPackingGstApplicable, setBatchPackingGstApplicable] = useState(false);
-  const [batchPackingGstPercentage, setBatchPackingGstPercentage] = useState(18);
-  const [batchLoading, setBatchLoading] = useState('0');
-  const [batchLoadingGstApplicable, setBatchLoadingGstApplicable] = useState(false);
-  const [batchLoadingGstPercentage, setBatchLoadingGstPercentage] = useState(18);
-  const [batchOtherCharges, setBatchOtherCharges] = useState('0');
-  const [batchOtherChargesLabel, setBatchOtherChargesLabel] = useState('Other Charges');
-  const [batchOtherChargesGstApplicable, setBatchOtherChargesGstApplicable] = useState(false);
-  const [batchOtherChargesGstPercentage, setBatchOtherChargesGstPercentage] = useState(18);
-  const [batchRemarks, setBatchRemarks] = useState('');
+  // Active Row Selection & Section Refs for Per-Expense Charges & Payment
+  const [activeBatchRowIdx, setActiveBatchRowIdx] = useState(0);
+  const chargesSectionRef = useRef(null);
+  const paymentSectionRef = useRef(null);
 
-  // Section 5 Payment & Settlement Details State (PO Compatible)
-  const [batchPaymentStatus, setBatchPaymentStatus] = useState('PAID');
-  const [batchPaidAmount, setBatchPaidAmount] = useState('0');
-  const [batchPaymentMode, setBatchPaymentMode] = useState('CASH');
-  const [batchPaymentRef, setBatchPaymentRef] = useState('');
-  const [batchPaymentImage, setBatchPaymentImage] = useState(null);
-  const [batchPaymentNotes, setBatchPaymentNotes] = useState('');
+  // Single Edit Modal Extra Charges & Payment State
+  const [editChargesPayment, setEditChargesPayment] = useState(createDefaultChargesAndPayment);
 
   // 1. Fetch Dynamic Expense Master Categories
   const { data: masterCategories = [] } = useQuery({
@@ -1036,13 +1539,14 @@ export default function ExpensesPage() {
       isInterState: false,
       hsnSacCode: defaultCat?.hsnSacCode || '',
       notes: '',
-      attachments: []
+      attachments: [],
+      ...createDefaultChargesAndPayment()
     };
   }, [activeMasterCategories]);
 
-  const [batchRows, setBatchRows] = useState(() => [
-    {
-      id: 'row_1',
+  const [batchRows, setBatchRows] = useState(() =>
+    [1, 2, 3].map((num) => ({
+      id: `row_${num}`,
       date: new Date().toISOString().split('T')[0],
       categoryId: '',
       category: 'Office Supplies',
@@ -1055,7 +1559,7 @@ export default function ExpensesPage() {
       invoiceNo: '',
       invoiceDate: new Date().toISOString().split('T')[0],
       taxableAmount: '',
-      gstPercentage: 18,
+      gstPercentage: 0,
       cgstAmount: 0,
       sgstAmount: 0,
       igstAmount: 0,
@@ -1063,57 +1567,10 @@ export default function ExpensesPage() {
       isInterState: false,
       hsnSacCode: '',
       notes: '',
-      attachments: []
-    },
-    {
-      id: 'row_2',
-      date: new Date().toISOString().split('T')[0],
-      categoryId: '',
-      category: 'Office Supplies',
-      title: '',
-      isSupplierExpense: false,
-      selectedSupplier: null,
-      supplierId: '',
-      supplierName: '',
-      supplierGstin: '',
-      invoiceNo: '',
-      invoiceDate: new Date().toISOString().split('T')[0],
-      taxableAmount: '',
-      gstPercentage: 18,
-      cgstAmount: 0,
-      sgstAmount: 0,
-      igstAmount: 0,
-      totalAmount: '',
-      isInterState: false,
-      hsnSacCode: '',
-      notes: '',
-      attachments: []
-    },
-    {
-      id: 'row_3',
-      date: new Date().toISOString().split('T')[0],
-      categoryId: '',
-      category: 'Office Supplies',
-      title: '',
-      isSupplierExpense: false,
-      selectedSupplier: null,
-      supplierId: '',
-      supplierName: '',
-      supplierGstin: '',
-      invoiceNo: '',
-      invoiceDate: new Date().toISOString().split('T')[0],
-      taxableAmount: '',
-      gstPercentage: 18,
-      cgstAmount: 0,
-      sgstAmount: 0,
-      igstAmount: 0,
-      totalAmount: '',
-      isInterState: false,
-      hsnSacCode: '',
-      notes: '',
-      attachments: []
-    }
-  ]);
+      attachments: [],
+      ...createDefaultChargesAndPayment()
+    }))
+  );
 
   // React Hook Form for Single Edit Record
   const {
@@ -1152,6 +1609,8 @@ export default function ExpensesPage() {
   const editSupplierId = watchEdit('supplierId');
   const editTaxableAmount = watchEdit('taxableAmount');
   const editGstPercentage = watchEdit('gstPercentage');
+  const editIsInterState = watchEdit('isInterState');
+  const editTitle = watchEdit('title');
 
   // Calculate Start & End Date based on Preset
   const { computedStartDate, computedEndDate } = useMemo(() => {
@@ -1284,7 +1743,7 @@ export default function ExpensesPage() {
     }
   });
 
-  // Handlers for Multi-Entry Grid
+  // Handlers for Multi-Entry Grid (Per-Expense Charges, Summary & Payment)
   const handleOpenMultiModal = () => {
     refetchNextNumber();
     setBatchRows([
@@ -1292,27 +1751,7 @@ export default function ExpensesPage() {
       getInitialBatchRow(2),
       getInitialBatchRow(3)
     ]);
-    setBatchDiscount('0');
-    setBatchShipping('0');
-    setBatchShippingGstApplicable(false);
-    setBatchShippingGstPercentage(18);
-    setBatchPacking('0');
-    setBatchPackingGstApplicable(false);
-    setBatchPackingGstPercentage(18);
-    setBatchLoading('0');
-    setBatchLoadingGstApplicable(false);
-    setBatchLoadingGstPercentage(18);
-    setBatchOtherCharges('0');
-    setBatchOtherChargesLabel('Other Charges');
-    setBatchOtherChargesGstApplicable(false);
-    setBatchOtherChargesGstPercentage(18);
-    setBatchRemarks('');
-    setBatchPaymentStatus('PAID');
-    setBatchPaidAmount('0');
-    setBatchPaymentMode('CASH');
-    setBatchPaymentRef('');
-    setBatchPaymentImage(null);
-    setBatchPaymentNotes('');
+    setActiveBatchRowIdx(0);
     setIsMultiModalOpen(true);
   };
 
@@ -1321,7 +1760,11 @@ export default function ExpensesPage() {
   };
 
   const handleAddBatchRow = () => {
-    setBatchRows(prev => [...prev, getInitialBatchRow(prev.length + 1)]);
+    setBatchRows(prev => {
+      const next = [...prev, getInitialBatchRow(prev.length + 1)];
+      setActiveBatchRowIdx(next.length - 1);
+      return next;
+    });
   };
 
   const handleAddMultipleBatchRows = (count = 3) => {
@@ -1346,18 +1789,28 @@ export default function ExpensesPage() {
       copy.splice(idx + 1, 0, duplicated);
       return copy;
     });
+    setActiveBatchRowIdx(idx + 1);
   };
 
   const handleRemoveBatchRow = (idx) => {
     setBatchRows(prev => {
-      if (prev.length <= 1) return [getInitialBatchRow(1)];
-      return prev.filter((_, i) => i !== idx);
+      if (prev.length <= 1) {
+        setActiveBatchRowIdx(0);
+        return [getInitialBatchRow(1)];
+      }
+      const next = prev.filter((_, i) => i !== idx);
+      setActiveBatchRowIdx(curr => {
+        if (curr > idx) return curr - 1;
+        return Math.min(curr, next.length - 1);
+      });
+      return next;
     });
   };
 
-  // Update a field in a batch row with automatic tax / interstate recalculation
-  const handleUpdateBatchRow = (idx, field, value) => {
+  // Update a field in a specific batch row with automatic per-row financial & tax recalculation
+  const handleUpdateBatchRow = useCallback((idx, field, value) => {
     setBatchRows(prev => {
+      if (!prev[idx]) return prev;
       const copy = [...prev];
       const target = { ...copy[idx] };
 
@@ -1366,7 +1819,6 @@ export default function ExpensesPage() {
         target.categoryId = selectedMaster ? selectedMaster.id : '';
         target.category = selectedMaster ? selectedMaster.name : value;
 
-        // Auto-detect if category requires / defaults to supplier
         if (selectedMaster?.expenseWithSupplier) {
           target.isSupplierExpense = true;
           if (selectedMaster.defaultGstRate != null) {
@@ -1386,187 +1838,139 @@ export default function ExpensesPage() {
         target[field] = value;
       }
 
-      // Recompute Tax and Total for row
-      const taxable = parseFloat(target.taxableAmount) || 0;
-      const gstRate = target.isSupplierExpense ? (parseFloat(target.gstPercentage) || 0) : 0;
-      const totalGst = (taxable * gstRate) / 100;
+      const fin = computeExpenseFinancials(target, idx);
+      target.cgstAmount = fin.cgstAmount;
+      target.sgstAmount = fin.sgstAmount;
+      target.igstAmount = fin.igstAmount;
+      target.totalAmount = fin.grandTotal;
 
-      if (target.isInterState) {
-        target.igstAmount = totalGst;
-        target.cgstAmount = 0;
-        target.sgstAmount = 0;
-      } else {
-        target.cgstAmount = totalGst / 2;
-        target.sgstAmount = totalGst / 2;
-        target.igstAmount = 0;
+      const isPaymentOnlyField =
+        field === 'paymentStatus' ||
+        field === 'paidAmount' ||
+        field === 'paymentMode' ||
+        field === 'paymentRef' ||
+        field === 'paymentImage' ||
+        field === 'paymentNotes';
+
+      // Keep paidAmount synced automatically when financial inputs change on a PAID row
+      if (!isPaymentOnlyField && (target.paymentStatus || 'PAID') === 'PAID') {
+        target.paidAmount = String(fin.grandTotal);
       }
-
-      target.totalAmount = taxable + totalGst;
 
       copy[idx] = target;
       return copy;
     });
+  }, [activeMasterCategories, isInterStateForSupplier]);
+
+  const safeActiveRowIdx = Math.min(activeBatchRowIdx, Math.max(0, batchRows.length - 1));
+  const activeBatchRow = batchRows[safeActiveRowIdx] || batchRows[0];
+
+  const handleUpdateActiveRowField = useCallback((field, value) => {
+    handleUpdateBatchRow(safeActiveRowIdx, field, value);
+  }, [safeActiveRowIdx, handleUpdateBatchRow]);
+
+  const handleFocusRowSection = (idx, section = 'charges') => {
+    setActiveBatchRowIdx(idx);
+    const ref = section === 'payment' ? paymentSectionRef : chargesSectionRef;
+    requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
   };
 
-  // Section 4 Financial Summary Calculations (Charges & Taxes)
-  const financialSummary = useMemo(() => {
-    let itemsSubtotal = 0;
-    let totalTaxableValue = 0;
-    let totalCgst = 0;
-    let totalSgst = 0;
-    let totalIgst = 0;
-    let validCount = 0;
+  const handleCopyChargesToAllRows = () => {
+    const src = batchRows[safeActiveRowIdx];
+    if (!src) return;
+    setBatchRows(prev =>
+      prev.map((r, i) => {
+        const merged = {
+          ...r,
+          discountAmount: src.discountAmount,
+          shippingAmount: src.shippingAmount,
+          shippingGstApplicable: src.shippingGstApplicable,
+          shippingGstRate: src.shippingGstRate,
+          packingAmount: src.packingAmount,
+          packingGstApplicable: src.packingGstApplicable,
+          packingGstRate: src.packingGstRate,
+          loadingAmount: src.loadingAmount,
+          loadingGstApplicable: src.loadingGstApplicable,
+          loadingGstRate: src.loadingGstRate,
+          otherCharges: src.otherCharges,
+          otherChargesLabel: src.otherChargesLabel,
+          otherChargesGstApplicable: src.otherChargesGstApplicable,
+          otherChargesGstRate: src.otherChargesGstRate,
+          remarks: src.remarks
+        };
+        const fin = computeExpenseFinancials(merged, i);
+        return {
+          ...merged,
+          cgstAmount: fin.cgstAmount,
+          sgstAmount: fin.sgstAmount,
+          igstAmount: fin.igstAmount,
+          totalAmount: fin.grandTotal,
+          paidAmount: (merged.paymentStatus || 'PAID') === 'PAID' ? String(fin.grandTotal) : merged.paidAmount
+        };
+      })
+    );
+    showCustomToast('Charges Copied', `Copied Row #${safeActiveRowIdx + 1} charges to all ${batchRows.length} rows.`, 'success');
+  };
 
-    const dummyItemsForBreakdown = [];
+  const handleCopyPaymentToAllRows = () => {
+    const src = batchRows[safeActiveRowIdx];
+    if (!src) return;
+    setBatchRows(prev =>
+      prev.map((r, i) => {
+        const fin = computeExpenseFinancials(r, i);
+        const status = src.paymentStatus || 'PAID';
+        const nextPaid = status === 'PAID'
+          ? String(fin.grandTotal)
+          : status === 'UNPAID'
+          ? '0'
+          : src.paidAmount;
+        return {
+          ...r,
+          paymentMode: src.paymentMode,
+          paymentStatus: status,
+          paidAmount: nextPaid,
+          paymentRef: src.paymentRef,
+          paymentImage: src.paymentImage,
+          paymentNotes: src.paymentNotes
+        };
+      })
+    );
+    showCustomToast('Payment Mode Copied', `Applied Row #${safeActiveRowIdx + 1} payment details to all ${batchRows.length} rows.`, 'success');
+  };
+
+  // Per-row & Aggregate Summaries
+  const rowSummaries = useMemo(
+    () => batchRows.map((row, i) => computeExpenseFinancials(row, i)),
+    [batchRows]
+  );
+
+  const activeRowSummary = rowSummaries[safeActiveRowIdx] || computeExpenseFinancials(activeBatchRow, safeActiveRowIdx);
+
+  const batchSummary = useMemo(() => {
+    let validCount = 0;
+    let grandTotal = 0;
+    let totalPaid = 0;
+    let totalDue = 0;
 
     batchRows.forEach((row, i) => {
       const taxable = parseFloat(row.taxableAmount) || 0;
       const isTitleFilled = row.title && row.title.trim().length > 0;
       const isCatValid = Boolean(row.category || row.categoryId);
-
       if (taxable > 0 && isTitleFilled && isCatValid) {
         validCount++;
-        itemsSubtotal += taxable;
-        totalTaxableValue += taxable;
-
-        const rate = row.isSupplierExpense ? (Number(row.gstPercentage) || 0) : 0;
-        const gstAmount = (taxable * rate) / 100;
-
-        if (row.isInterState) {
-          totalIgst += gstAmount;
-        } else {
-          totalCgst += gstAmount / 2;
-          totalSgst += gstAmount / 2;
-        }
-
-        dummyItemsForBreakdown.push({
-          id: row.id,
-          name: row.title || `Expense #${i + 1}`,
-          subtotal: taxable,
-          quantity: 1,
-          unitPrice: taxable,
-          gstApplicable: rate > 0,
-          gstPercentage: rate
-        });
+        const fin = rowSummaries[i] || computeExpenseFinancials(row, i);
+        grandTotal += fin.grandTotal;
+        totalPaid += fin.paidAmountNum;
+        totalDue += fin.balanceDue;
       }
     });
 
-    const shipping = Number(batchShipping) || 0;
-    const packing = Number(batchPacking) || 0;
-    const loading = Number(batchLoading) || 0;
-    const otherCharges = Number(batchOtherCharges) || 0;
-    const discount = Number(batchDiscount) || 0;
+    return { validCount, grandTotal, totalPaid, totalDue };
+  }, [batchRows, rowSummaries]);
 
-    const shippingGst = batchShippingGstApplicable && shipping > 0 ? (shipping * Number(batchShippingGstPercentage) / 100) : 0;
-    const packingGst = batchPackingGstApplicable && packing > 0 ? (packing * Number(batchPackingGstPercentage) / 100) : 0;
-    const loadingGst = batchLoadingGstApplicable && loading > 0 ? (loading * Number(batchLoadingGstPercentage) / 100) : 0;
-    const otherGst = batchOtherChargesGstApplicable && otherCharges > 0 ? (otherCharges * Number(batchOtherChargesGstPercentage) / 100) : 0;
-
-    const hasAnyInterstate = batchRows.some(r => r.isSupplierExpense && r.isInterState);
-
-    const chargesList = [];
-    if (shipping > 0) {
-      chargesList.push({
-        label: 'Shipping / Freight',
-        value: shipping,
-        applied: true,
-        gstApplicable: batchShippingGstApplicable,
-        rate: batchShippingGstPercentage
-      });
-    }
-    if (packing > 0) {
-      chargesList.push({
-        label: 'Packing Charges',
-        value: packing,
-        applied: true,
-        gstApplicable: batchPackingGstApplicable,
-        rate: batchPackingGstPercentage
-      });
-    }
-    if (loading > 0) {
-      chargesList.push({
-        label: 'Loading & Unloading',
-        value: loading,
-        applied: true,
-        gstApplicable: batchLoadingGstApplicable,
-        rate: batchLoadingGstPercentage
-      });
-    }
-    if (otherCharges > 0) {
-      chargesList.push({
-        label: batchOtherChargesLabel || 'Other Charges',
-        value: otherCharges,
-        applied: true,
-        gstApplicable: batchOtherChargesGstApplicable,
-        rate: batchOtherChargesGstPercentage
-      });
-    }
-
-    const gstBreakdown = calculateGstBreakdown({
-      items: dummyItemsForBreakdown,
-      charges: chargesList,
-      isInterState: hasAnyInterstate
-    });
-
-    const totalChargesTaxes = shippingGst + packingGst + loadingGst + otherGst;
-    const totalExtraCharges = shipping + packing + loading + otherCharges;
-    const totalTaxes = totalCgst + totalSgst + totalIgst + totalChargesTaxes;
-    const unroundedGrandTotal = Math.max(0, itemsSubtotal + totalTaxes + totalExtraCharges - discount);
-    const grandTotal = Math.round(unroundedGrandTotal);
-    const roundOff = Number((grandTotal - unroundedGrandTotal).toFixed(2));
-
-    return {
-      validCount,
-      itemsSubtotal,
-      totalTaxableValue,
-      totalCgst,
-      totalSgst,
-      totalIgst,
-      shipping,
-      shippingGst,
-      packing,
-      packingGst,
-      loading,
-      loadingGst,
-      otherCharges,
-      otherGst,
-      totalChargesTaxes,
-      totalExtraCharges,
-      totalTaxes,
-      hasAnyInterstate,
-      grandTotal,
-      roundOff,
-      discount,
-      gstBreakdown,
-      chargesList,
-      dummyItemsForBreakdown
-    };
-  }, [
-    batchRows,
-    batchShipping,
-    batchShippingGstApplicable,
-    batchShippingGstPercentage,
-    batchPacking,
-    batchPackingGstApplicable,
-    batchPackingGstPercentage,
-    batchLoading,
-    batchLoadingGstApplicable,
-    batchLoadingGstPercentage,
-    batchOtherCharges,
-    batchOtherChargesLabel,
-    batchOtherChargesGstApplicable,
-    batchOtherChargesGstPercentage,
-    batchDiscount
-  ]);
-
-  // Synchronize paid amount when grand total changes and status is PAID
-  useEffect(() => {
-    if (batchPaymentStatus === 'PAID') {
-      setBatchPaidAmount(financialSummary.grandTotal.toString());
-    }
-  }, [financialSummary.grandTotal, batchPaymentStatus]);
-
-  // Save Batch Expenses to Database
+  // Save Batch Expenses to Database (Each row keeps its own Charges, Financial Summary & Payment Details)
   const handleSaveBatchExpenses = () => {
     const validRows = batchRows.filter(row => {
       const isTitleFilled = row.title && row.title.trim().length > 0;
@@ -1579,58 +1983,58 @@ export default function ExpensesPage() {
       return;
     }
 
-    const payload = validRows.map(row => {
-      const taxable = parseFloat(row.taxableAmount) || 0;
-      const rate = row.isSupplierExpense ? (parseFloat(row.gstPercentage) || 0) : 0;
-      const totalGst = (taxable * rate) / 100;
-      const cgst = row.isInterState ? 0 : totalGst / 2;
-      const sgst = row.isInterState ? 0 : totalGst / 2;
-      const igst = row.isInterState ? totalGst : 0;
-      const total = taxable + totalGst;
+    const payload = validRows.map((row, i) => {
+      const fin = computeExpenseFinancials(row, i);
+      const combinedNotes = [row.notes, row.remarks]
+        .map(s => (typeof s === 'string' ? s.trim() : ''))
+        .filter(Boolean)
+        .join(' | ') || null;
 
       return {
         date: row.date,
         categoryId: row.categoryId || undefined,
         category: row.category,
         title: row.title.trim(),
-        amount: total,
-        taxableAmount: taxable,
+        amount: fin.grandTotal,
+        taxableAmount: fin.taxable,
         isSupplierExpense: Boolean(row.isSupplierExpense),
         supplierId: row.supplierId || row.selectedSupplier?.id || null,
         supplierName: row.supplierName || row.selectedSupplier?.name || null,
         supplierGstin: row.supplierGstin || row.selectedSupplier?.gstin || null,
         invoiceNo: row.invoiceNo ? row.invoiceNo.trim() : null,
         invoiceDate: row.invoiceDate ? row.invoiceDate : null,
-        gstPercentage: rate,
-        cgstAmount: cgst,
-        sgstAmount: sgst,
-        igstAmount: igst,
-        totalAmount: total,
-        isInterState: Boolean(row.isInterState),
+        gstPercentage: fin.gstRate,
+        cgstAmount: fin.cgstAmount,
+        sgstAmount: fin.sgstAmount,
+        igstAmount: fin.igstAmount,
+        totalAmount: fin.grandTotal,
+        isInterState: fin.isInterState,
         hsnSacCode: row.hsnSacCode ? row.hsnSacCode.trim() : null,
-        notes: [row.notes, batchRemarks].filter(Boolean).join(' | ') || null,
+        notes: combinedNotes,
         attachments: row.attachments && row.attachments.length > 0 ? row.attachments : undefined,
-        // Payment settlement fields (from Section 5)
-        paymentMode: batchPaymentMode,
-        paymentStatus: batchPaymentStatus,
-        paidAmount: parseFloat(batchPaidAmount) || (batchPaymentStatus === 'PAID' ? total : 0),
-        paymentRef: batchPaymentRef || null,
-        paymentImage: batchPaymentImage || null,
-        paymentNotes: batchPaymentNotes || null,
-        // Individual charges breakdown with tax rates
-        shippingAmount: Number(batchShipping) || 0,
-        shippingGstApplicable: batchShippingGstApplicable,
-        shippingGstRate: batchShippingGstPercentage,
-        packingAmount: Number(batchPacking) || 0,
-        packingGstApplicable: batchPackingGstApplicable,
-        packingGstRate: batchPackingGstPercentage,
-        loadingAmount: Number(batchLoading) || 0,
-        loadingGstApplicable: batchLoadingGstApplicable,
-        loadingGstRate: batchLoadingGstPercentage,
-        otherCharges: Number(batchOtherCharges) || 0,
-        otherChargesGstApplicable: batchOtherChargesGstApplicable,
-        otherChargesGstRate: batchOtherChargesGstPercentage,
-        discountAmount: Number(batchDiscount) || 0
+        // Per-Row Payment & Settlement Details
+        paymentMode: fin.paymentMode,
+        paymentStatus: fin.paymentStatus,
+        paidAmount: fin.paidAmountNum,
+        paymentRef: row.paymentRef ? String(row.paymentRef).trim() : null,
+        paymentImage: row.paymentImage || null,
+        paymentNotes: row.paymentNotes ? String(row.paymentNotes).trim() : null,
+        // Per-Row Individual Charges & Tax Rates
+        shippingAmount: fin.shipping,
+        shippingGstApplicable: Boolean(row.shippingGstApplicable),
+        shippingGstRate: fin.shippingGstRate,
+        packingAmount: fin.packing,
+        packingGstApplicable: Boolean(row.packingGstApplicable),
+        packingGstRate: fin.packingGstRate,
+        loadingAmount: fin.loading,
+        loadingGstApplicable: Boolean(row.loadingGstApplicable),
+        loadingGstRate: fin.loadingGstRate,
+        otherCharges: fin.otherCharges,
+        otherChargesLabel: row.otherChargesLabel ? String(row.otherChargesLabel).trim() : null,
+        otherChargesGstApplicable: Boolean(row.otherChargesGstApplicable),
+        otherChargesGstRate: fin.otherChargesGstRate,
+        discountAmount: fin.discount,
+        roundOff: fin.roundOff
       };
     });
 
@@ -1688,11 +2092,39 @@ export default function ExpensesPage() {
     }
   };
 
+  // Live Financial Summary for Single Edit Record
+  const editFinancialSummary = useMemo(
+    () =>
+      computeExpenseFinancials({
+        id: editingExpense?.id || 'edit',
+        title: editTitle || editingExpense?.title || '',
+        isSupplierExpense: editIsSupplierExpense,
+        isInterState: editIsInterState,
+        taxableAmount: editTaxableAmount,
+        gstPercentage: editGstPercentage,
+        ...editChargesPayment
+      }),
+    [
+      editingExpense?.id,
+      editingExpense?.title,
+      editTitle,
+      editIsSupplierExpense,
+      editIsInterState,
+      editTaxableAmount,
+      editGstPercentage,
+      editChargesPayment
+    ]
+  );
+
+  const handleUpdateEditExtraField = useCallback((field, value) => {
+    setEditChargesPayment(prev => ({ ...prev, [field]: value }));
+  }, []);
+
   // Open Edit Modal for Single Record
   const handleOpenEditModal = (expense) => {
     setEditingExpense(expense);
     setEditAttachments(Array.isArray(expense.attachments) ? [...expense.attachments] : []);
-    
+
     const isSupplier = Boolean(expense.isSupplierExpense || expense.supplierId || expense.supplierName);
     const taxable = expense.taxableAmount != null ? Number(expense.taxableAmount) : Number(expense.amount);
     const gstRate = expense.gstPercentage != null ? Number(expense.gstPercentage) : 0;
@@ -1717,12 +2149,32 @@ export default function ExpensesPage() {
       totalAmount: expense.totalAmount || expense.amount,
       isInterState: Boolean(expense.isInterState),
       hsnSacCode: expense.hsnSacCode || '',
-      notes: expense.notes || '',
-      // Payment fields
+      notes: expense.notes || ''
+    });
+
+    setEditChargesPayment({
+      discountAmount: expense.discountAmount != null ? String(Number(expense.discountAmount)) : '0',
+      shippingAmount: expense.shippingAmount != null ? String(Number(expense.shippingAmount)) : '0',
+      shippingGstApplicable: Boolean(expense.shippingGstApplicable),
+      shippingGstRate: expense.shippingGstRate != null ? Number(expense.shippingGstRate) : 18,
+      packingAmount: expense.packingAmount != null ? String(Number(expense.packingAmount)) : '0',
+      packingGstApplicable: Boolean(expense.packingGstApplicable),
+      packingGstRate: expense.packingGstRate != null ? Number(expense.packingGstRate) : 18,
+      loadingAmount: expense.loadingAmount != null ? String(Number(expense.loadingAmount)) : '0',
+      loadingGstApplicable: Boolean(expense.loadingGstApplicable),
+      loadingGstRate: expense.loadingGstRate != null ? Number(expense.loadingGstRate) : 18,
+      otherCharges: expense.otherCharges != null ? String(Number(expense.otherCharges)) : '0',
+      otherChargesLabel: expense.otherChargesLabel || 'Other Charges',
+      otherChargesGstApplicable: Boolean(expense.otherChargesGstApplicable),
+      otherChargesGstRate: expense.otherChargesGstRate != null ? Number(expense.otherChargesGstRate) : 18,
+      remarks: '',
       paymentMode: expense.paymentMode || 'CASH',
       paymentStatus: expense.paymentStatus || 'PAID',
-      paidAmount: expense.paidAmount != null ? Number(expense.paidAmount) : Number(expense.totalAmount || expense.amount),
+      paidAmount: expense.paidAmount != null
+        ? String(Number(expense.paidAmount))
+        : String(Number(expense.totalAmount || expense.amount || 0)),
       paymentRef: expense.paymentRef || '',
+      paymentImage: expense.paymentImage || null,
       paymentNotes: expense.paymentNotes || ''
     });
   };
@@ -1773,18 +2225,14 @@ export default function ExpensesPage() {
     }
   };
 
-  // Submit Edit Form
+  // Submit Edit Form (including Per-Expense Charges & Payment Details)
   const onEditSubmit = (data) => {
     if (editingExpense) {
       const selectedCat = activeMasterCategories.find(c => c.id === data.categoryId || c.name === data.category);
-      const taxable = parseFloat(data.taxableAmount) || 0;
-      const rate = data.isSupplierExpense ? (parseFloat(data.gstPercentage) || 0) : 0;
-      const totalGst = (taxable * rate) / 100;
-      const isInter = Boolean(data.isInterState);
-      const cgst = isInter ? 0 : totalGst / 2;
-      const sgst = isInter ? 0 : totalGst / 2;
-      const igst = isInter ? totalGst : 0;
-      const total = taxable + totalGst;
+      const fin = computeExpenseFinancials({
+        ...data,
+        ...editChargesPayment
+      });
 
       updateMutation.mutate({
         id: editingExpense.id,
@@ -1794,29 +2242,46 @@ export default function ExpensesPage() {
           category: selectedCat ? selectedCat.name : data.category,
           categoryId: selectedCat ? selectedCat.id : data.categoryId,
           title: data.title,
-          amount: total,
-          taxableAmount: taxable,
+          amount: fin.grandTotal,
+          taxableAmount: fin.taxable,
           isSupplierExpense: Boolean(data.isSupplierExpense),
           supplierId: data.supplierId || null,
           supplierName: data.supplierName || null,
           supplierGstin: data.supplierGstin || null,
           invoiceNo: data.invoiceNo || null,
           invoiceDate: data.invoiceDate || null,
-          gstPercentage: rate,
-          cgstAmount: cgst,
-          sgstAmount: sgst,
-          igstAmount: igst,
-          totalAmount: total,
-          isInterState: isInter,
+          gstPercentage: fin.gstRate,
+          cgstAmount: fin.cgstAmount,
+          sgstAmount: fin.sgstAmount,
+          igstAmount: fin.igstAmount,
+          totalAmount: fin.grandTotal,
+          isInterState: fin.isInterState,
           hsnSacCode: data.hsnSacCode || null,
           notes: data.notes || null,
           attachments: editAttachments,
           // Payment fields
-          paymentMode: data.paymentMode || 'CASH',
-          paymentStatus: data.paymentStatus || 'PAID',
-          paidAmount: parseFloat(data.paidAmount) || (data.paymentStatus === 'PAID' ? total : 0),
-          paymentRef: data.paymentRef || null,
-          paymentNotes: data.paymentNotes || null
+          paymentMode: fin.paymentMode,
+          paymentStatus: fin.paymentStatus,
+          paidAmount: fin.paidAmountNum,
+          paymentRef: editChargesPayment.paymentRef ? String(editChargesPayment.paymentRef).trim() : null,
+          paymentImage: editChargesPayment.paymentImage || null,
+          paymentNotes: editChargesPayment.paymentNotes ? String(editChargesPayment.paymentNotes).trim() : null,
+          // Charges breakdown fields
+          shippingAmount: fin.shipping,
+          shippingGstApplicable: Boolean(editChargesPayment.shippingGstApplicable),
+          shippingGstRate: fin.shippingGstRate,
+          packingAmount: fin.packing,
+          packingGstApplicable: Boolean(editChargesPayment.packingGstApplicable),
+          packingGstRate: fin.packingGstRate,
+          loadingAmount: fin.loading,
+          loadingGstApplicable: Boolean(editChargesPayment.loadingGstApplicable),
+          loadingGstRate: fin.loadingGstRate,
+          otherCharges: fin.otherCharges,
+          otherChargesLabel: editChargesPayment.otherChargesLabel ? String(editChargesPayment.otherChargesLabel).trim() : null,
+          otherChargesGstApplicable: Boolean(editChargesPayment.otherChargesGstApplicable),
+          otherChargesGstRate: fin.otherChargesGstRate,
+          discountAmount: fin.discount,
+          roundOff: fin.roundOff
         }
       });
     }
@@ -1947,24 +2412,24 @@ export default function ExpensesPage() {
   }, [summary, getCategoryMeta]);
 
   return (
-    <div className="p-3 sm:p-4 md:p-6 space-y-4 max-w-7xl mx-auto">
+    <div className="p-2.5 sm:p-4 space-y-3 max-w-[1720px] mx-auto">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-800">
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
             <span>Finance</span>
             <span>/</span>
             <span>Expenses</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2 mt-0.5">
+          <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2 mt-0.5">
             <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900">
-              <DollarSign className="w-5 h-5 stroke-[2.5]" />
+              <DollarSign className="w-4 h-4 stroke-[2.5]" />
             </span>
             Expenses Management
           </h1>
         </div>
 
-        <div className="flex items-center flex-wrap gap-2">
+        <div className="flex items-center flex-wrap gap-1.5">
           <Button
             size="sm"
             variant="outline"
@@ -1992,73 +2457,73 @@ export default function ExpensesPage() {
           <Button
             size="sm"
             onClick={handleOpenMultiModal}
-            className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs"
+            className="h-8 px-3 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            + Add Expenses
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Add Expenses
           </Button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-3 sm:p-3.5 flex items-center justify-between">
+          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Expenses</p>
-              <h3 className="text-xl sm:text-2xl font-black font-mono text-slate-900 dark:text-white mt-0.5">
+              <h3 className="text-lg sm:text-xl font-black font-mono text-slate-900 dark:text-white mt-0.5">
                 ₹{summary?.total ? summary.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
               </h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">{expenses.length} total entries</p>
+              <p className="text-[10px] text-slate-400">{expenses.length} total entries</p>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shrink-0">
               <Layers className="w-4 h-4" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-3 sm:p-3.5 flex items-center justify-between">
+          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">This Month's Spend</p>
-              <h3 className="text-xl sm:text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+              <h3 className="text-lg sm:text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
                 ₹{summary?.monthly ? summary.monthly.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
               </h3>
-              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Current cycle</p>
+              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">Current cycle</p>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900 shrink-0">
               <TrendingUp className="w-4 h-4" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-3 sm:p-3.5 flex items-center justify-between">
+          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Supplier Tagged</p>
-              <h3 className="text-xl sm:text-2xl font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5">
+              <h3 className="text-lg sm:text-xl font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5">
                 {expenses.filter(e => e.isSupplierExpense || e.supplierId || e.supplierName).length}
               </h3>
-              <p className="text-[10px] text-purple-500/80 dark:text-purple-400/80 mt-0.5">With vendor invoices</p>
+              <p className="text-[10px] text-purple-500/80 dark:text-purple-400/80">With vendor invoices</p>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900">
+            <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900 shrink-0">
               <Building2 className="w-4 h-4" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-3 sm:p-3.5 flex items-center justify-between">
-            <div>
+          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
+            <div className="min-w-0 pr-1">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top Cost Center</p>
-              <h3 className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 mt-0.5 truncate max-w-[130px]">
+              <h3 className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 mt-0.5 truncate">
                 {summary?.categoryBreakdown && summary.categoryBreakdown.length > 0
-                  ? summary.categoryBreakdown.sort((a, b) => b.amount - a.amount)[0]?.category
+                  ? [...summary.categoryBreakdown].sort((a, b) => b.amount - a.amount)[0]?.category
                   : 'None'}
               </h3>
-              <p className="text-[10px] text-amber-500/80 dark:text-amber-400/80 mt-0.5">Highest volume</p>
+              <p className="text-[10px] text-amber-500/80 dark:text-amber-400/80">Highest volume</p>
             </div>
-            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900">
+            <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900 shrink-0">
               <CreditCard className="w-4 h-4" />
             </div>
           </CardContent>
@@ -2066,7 +2531,7 @@ export default function ExpensesPage() {
       </div>
 
       {/* Filter and Control Bar */}
-      <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 text-xs">
+      <div className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 text-xs">
         <div className="flex flex-1 items-center gap-2">
           <div className="relative flex-1 max-w-sm">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2175,373 +2640,401 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* Main Content: Split Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Left Side (3 Columns): Expenses Table */}
-        <div className="lg:col-span-3 space-y-3">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-2xs overflow-hidden">
-            {isListLoading ? (
-              <div className="p-4 space-y-2">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-9 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : sortedExpenses.length === 0 ? (
-              <div className="p-12 text-center text-slate-400 text-xs">
-                <CreditCard className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
-                <p className="font-bold text-sm text-slate-600 dark:text-slate-300">No expense records found</p>
-                <p className="mt-1">Click "+ Add Expenses" to record expenses with supplier details and GST breakdown.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table className="text-xs">
-                  <TableHeader className="bg-slate-50/70 dark:bg-slate-950/70 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                    <TableRow className="border-b border-slate-100 dark:border-slate-800">
-                      <TableHead className="w-8 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={handleToggleSelectAll}
-                          className="text-slate-400 hover:text-indigo-600"
-                        >
-                          {selectedExpenseIds.length === expenses.length && expenses.length > 0 ? (
-                            <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
-                          ) : (
-                            <Square className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </TableHead>
-
-                      <TableHead
-                        onClick={() => handleSortToggle('date')}
-                        className="w-24 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+      {/* Main Content: Full-Width Table + Bottom Analytics */}
+      <div className="space-y-3">
+        {/* Expenses Table (Full Width, Zero Horizontal Overflow) */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-2xs overflow-hidden">
+          {isListLoading ? (
+            <div className="p-4 space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : sortedExpenses.length === 0 ? (
+            <div className="p-10 text-center text-slate-400 text-xs">
+              <CreditCard className="w-9 h-9 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+              <p className="font-bold text-sm text-slate-600 dark:text-slate-300">No expense records found</p>
+              <p className="mt-1">Click &quot;Add Expenses&quot; to record expenses with supplier details, charges &amp; payment modes.</p>
+            </div>
+          ) : (
+            <div className="w-full overflow-x-auto">
+              <Table className="text-xs w-full">
+                <TableHeader className="bg-slate-50/90 dark:bg-slate-950/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  <TableRow className="border-b border-slate-100 dark:border-slate-800">
+                    <TableHead className="w-8 px-1.5 py-2 text-center">
+                      <button
+                        type="button"
+                        onClick={handleToggleSelectAll}
+                        className="text-slate-400 hover:text-indigo-600"
                       >
-                        <div className="flex items-center gap-1">
-                          <span>Date</span>
-                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
-                        </div>
-                      </TableHead>
+                        {selectedExpenseIds.length === expenses.length && expenses.length > 0 ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </TableHead>
 
-                      <TableHead
-                        onClick={() => handleSortToggle('expenseNumber')}
-                        className="w-28 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+                    <TableHead
+                      onClick={() => handleSortToggle('date')}
+                      className="w-[108px] px-2 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Exp # / Date</span>
+                        <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSortToggle('category')}
+                      className="w-[116px] px-2 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Category</span>
+                        <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSortToggle('title')}
+                      className="px-2 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Title &amp; Notes</span>
+                        <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead className="px-2 font-bold text-slate-600 dark:text-slate-300 py-2">
+                      Supplier / Inv #
+                    </TableHead>
+
+                    <TableHead className="w-[86px] px-2 text-right font-bold text-slate-600 dark:text-slate-300 py-2">
+                      Taxable
+                    </TableHead>
+
+                    <TableHead className="w-[104px] px-1.5 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
+                      GST
+                    </TableHead>
+
+                    <TableHead className="w-[132px] px-2 font-bold text-slate-600 dark:text-slate-300 py-2">
+                      Charges &amp; Disc
+                    </TableHead>
+
+                    <TableHead
+                      onClick={() => handleSortToggle('amount')}
+                      className="w-[96px] px-2 text-right font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        <span>Total (₹)</span>
+                        <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
+                      </div>
+                    </TableHead>
+
+                    <TableHead className="w-[136px] px-1.5 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
+                      Payment &amp; Mode
+                    </TableHead>
+
+                    <TableHead className="w-[56px] px-1.5 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
+                      Files
+                    </TableHead>
+
+                    <TableHead className="w-[74px] px-2 text-right font-bold text-slate-600 dark:text-slate-300 py-2">
+                      Actions
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {paginatedExpenses.map((exp) => {
+                    const isSelected = selectedExpenseIds.includes(exp.id);
+                    const catMeta = getCategoryMeta(exp.category);
+                    const attachmentsCount = Array.isArray(exp.attachments) ? exp.attachments.length : 0;
+                    const hasSupplier = Boolean(exp.isSupplierExpense || exp.supplierId || exp.supplierName);
+                    const gstRate = Number(exp.gstPercentage || 0);
+                    const totalTax = Number(exp.cgstAmount || 0) + Number(exp.sgstAmount || 0) + Number(exp.igstAmount || 0);
+                    const chargeBadges = getExpenseChargesBadges(exp);
+                    const totalExp = Number(exp.totalAmount || exp.amount || 0);
+                    const status = exp.paymentStatus || 'PAID';
+                    const paidVal = exp.paidAmount != null
+                      ? Number(exp.paidAmount)
+                      : (status === 'PAID' ? totalExp : 0);
+                    const dueVal = Math.max(0, totalExp - paidVal);
+
+                    return (
+                      <TableRow
+                        key={exp.id}
+                        className={`transition-colors ${
+                          isSelected
+                            ? 'bg-indigo-50/50 dark:bg-indigo-950/30'
+                            : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
+                        }`}
                       >
-                        <div className="flex items-center gap-1">
-                          <span>Expense #</span>
-                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
-                        </div>
-                      </TableHead>
+                        <TableCell className="text-center px-1.5 py-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSelectRow(exp.id)}
+                            className="text-slate-400 hover:text-indigo-600"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
+                            ) : (
+                              <Square className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </TableCell>
 
-                      <TableHead
-                        onClick={() => handleSortToggle('category')}
-                        className="w-32 font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
-                      >
-                        <div className="flex items-center gap-1">
-                          <span>Category</span>
-                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
-                        </div>
-                      </TableHead>
-
-                      <TableHead
-                        onClick={() => handleSortToggle('title')}
-                        className="min-w-[170px] font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
-                      >
-                        <div className="flex items-center gap-1">
-                          <span>Title / Purpose</span>
-                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
-                        </div>
-                      </TableHead>
-
-                      {/* Supplier Column */}
-                      <TableHead className="min-w-[170px] font-bold text-slate-600 dark:text-slate-300 py-2">
-                        Supplier / Vendor
-                      </TableHead>
-
-                      {/* Taxable Amount */}
-                      <TableHead className="w-24 text-right font-bold text-slate-600 dark:text-slate-300 py-2">
-                        Taxable (₹)
-                      </TableHead>
-
-                      {/* GST Breakdown */}
-                      <TableHead className="w-28 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
-                        GST Breakdown
-                      </TableHead>
-
-                      {/* Grand Total */}
-                      <TableHead
-                        onClick={() => handleSortToggle('amount')}
-                        className="w-28 text-right font-bold text-slate-600 dark:text-slate-300 py-2 cursor-pointer select-none"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span>Grand Total (₹)</span>
-                          <ArrowUpDown className="w-2.5 h-2.5 text-slate-400" />
-                        </div>
-                      </TableHead>
-
-                      {/* Payment Status & Mode */}
-                      <TableHead className="w-28 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
-                        Payment
-                      </TableHead>
-
-                      <TableHead className="min-w-[120px] font-bold text-slate-600 dark:text-slate-300 py-2">
-                        Ref / Notes
-                      </TableHead>
-
-                      <TableHead className="w-24 text-center font-bold text-slate-600 dark:text-slate-300 py-2">
-                        Attachments
-                      </TableHead>
-
-                      <TableHead className="w-20 text-right font-bold text-slate-600 dark:text-slate-300 py-2 pr-3">
-                        Actions
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-
-                  <TableBody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {paginatedExpenses.map((exp) => {
-                      const isSelected = selectedExpenseIds.includes(exp.id);
-                      const catMeta = getCategoryMeta(exp.category);
-                      const attachmentsCount = Array.isArray(exp.attachments) ? exp.attachments.length : 0;
-                      const hasSupplier = Boolean(exp.isSupplierExpense || exp.supplierId || exp.supplierName);
-                      const gstRate = Number(exp.gstPercentage || 0);
-
-                      return (
-                        <TableRow
-                          key={exp.id}
-                          className={`transition-colors ${
-                            isSelected
-                              ? 'bg-indigo-50/50 dark:bg-indigo-950/30'
-                              : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
-                          }`}
-                        >
-                          <TableCell className="text-center py-2">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleSelectRow(exp.id)}
-                              className="text-slate-400 hover:text-indigo-600"
-                            >
-                              {isSelected ? (
-                                <CheckSquare className="w-3.5 h-3.5 text-indigo-600" />
-                              ) : (
-                                <Square className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          </TableCell>
-
-                          {/* 1. Date */}
-                          <TableCell className="font-semibold text-slate-700 dark:text-slate-300 whitespace-nowrap text-[11px]">
-                            {new Date(exp.date).toLocaleDateString('en-IN', {
-                              day: '2-digit',
-                              month: 'short',
-                              year: 'numeric'
-                            })}
-                          </TableCell>
-
-                          {/* 1b. Running Expense Number */}
-                          <TableCell className="whitespace-nowrap font-mono text-[11px]">
-                            <span className="font-bold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-md bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 shadow-2xs">
+                        {/* Expense # & Date */}
+                        <TableCell className="px-2 py-2 whitespace-nowrap">
+                          <div className="space-y-0.5">
+                            <span className="inline-block font-mono font-bold text-[10px] text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80">
                               {exp.expenseNumber || 'EXP-—'}
                             </span>
-                          </TableCell>
-
-                          {/* 2. Category */}
-                          <TableCell className="whitespace-nowrap">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${catMeta.bg}`}>
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: catMeta.color }} />
-                              {catMeta.label}
-                            </span>
-                          </TableCell>
-
-                          {/* 3. Title / Purpose */}
-                          <TableCell className="max-w-[190px]">
-                            <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs">
-                              {exp.title}
+                            <div className="font-semibold text-slate-600 dark:text-slate-400 text-[10px]">
+                              {new Date(exp.date).toLocaleDateString('en-IN', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric'
+                              })}
                             </div>
-                            {exp.hsnSacCode && (
-                              <div className="text-[10px] text-slate-400 font-mono">SAC: {exp.hsnSacCode}</div>
-                            )}
-                          </TableCell>
+                          </div>
+                        </TableCell>
 
-                          {/* 4. Supplier / Vendor */}
-                          <TableCell className="max-w-[190px]">
-                            {hasSupplier ? (
-                              <div className="space-y-0.5">
-                                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1 truncate text-xs">
-                                  <Building2 className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  <span className="truncate">{exp.supplierName || 'Vendor Assigned'}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {exp.supplierGstin && (
-                                    <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                                      {exp.supplierGstin}
-                                    </span>
-                                  )}
-                                  {exp.invoiceNo && (
-                                    <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                                      Inv #{exp.invoiceNo}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px] italic">Internal (No Supplier)</span>
-                            )}
-                          </TableCell>
+                        {/* Category */}
+                        <TableCell className="px-2 py-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border max-w-[110px] truncate ${catMeta.bg}`} title={catMeta.label}>
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: catMeta.color }} />
+                            <span className="truncate">{catMeta.label}</span>
+                          </span>
+                        </TableCell>
 
-                          {/* 5. Taxable Amount */}
-                          <TableCell className="text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap text-xs">
-                            ₹{Number(exp.taxableAmount || exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </TableCell>
+                        {/* Title, SAC & Notes */}
+                        <TableCell className="px-2 py-2 max-w-[180px]">
+                          <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs" title={exp.title}>
+                            {exp.title}
+                          </div>
+                          {(exp.hsnSacCode || exp.notes) && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 truncate" title={exp.notes || ''}>
+                              {exp.hsnSacCode && <span className="font-mono shrink-0">SAC:{exp.hsnSacCode}</span>}
+                              {exp.notes && <span className="truncate italic">{exp.notes}</span>}
+                            </div>
+                          )}
+                        </TableCell>
 
-                          {/* 6. GST Breakdown */}
-                          <TableCell className="text-center whitespace-nowrap">
-                            {gstRate > 0 ? (
-                              <div className="space-y-0.5">
-                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  exp.isInterState
-                                    ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                                    : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                                }`}>
-                                  {exp.isInterState ? `IGST ${gstRate}%` : `CGST+SGST ${gstRate}%`}
-                                </span>
-                                <div className="text-[10px] font-mono text-slate-500">
-                                  +₹{Number((exp.cgstAmount || 0) + (exp.sgstAmount || 0) + (exp.igstAmount || 0)).toFixed(2)}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 font-mono">0% GST</span>
-                            )}
-                          </TableCell>
-
-                          {/* 7. Grand Total Amount */}
-                          <TableCell className="text-right font-bold font-mono text-slate-900 dark:text-white whitespace-nowrap text-xs">
-                            ₹{Number(exp.totalAmount || exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </TableCell>
-
-                          {/* 7b. Payment Status & Mode */}
-                          <TableCell className="text-center whitespace-nowrap">
+                        {/* Supplier / Vendor */}
+                        <TableCell className="px-2 py-2 max-w-[180px]">
+                          {hasSupplier ? (
                             <div className="space-y-0.5">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
-                                exp.paymentStatus === 'PAID'
+                              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1 truncate text-[11px]" title={exp.supplierName || ''}>
+                                <Building2 className="w-3 h-3 text-indigo-500 shrink-0" />
+                                <span className="truncate">{exp.supplierName || 'Vendor Assigned'}</span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {exp.supplierGstin && (
+                                  <span className="font-mono text-[9px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                    {exp.supplierGstin}
+                                  </span>
+                                )}
+                                {exp.invoiceNo && (
+                                  <span className="font-mono text-[9px] px-1 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                    #{exp.invoiceNo}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[10px] italic">Internal</span>
+                          )}
+                        </TableCell>
+
+                        {/* Taxable */}
+                        <TableCell className="px-2 py-2 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap text-[11px]">
+                          ₹{Number(exp.taxableAmount || exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+
+                        {/* GST Breakdown */}
+                        <TableCell className="px-1.5 py-2 text-center whitespace-nowrap">
+                          {gstRate > 0 || totalTax > 0 ? (
+                            <div className="space-y-0.5">
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                exp.isInterState
+                                  ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                  : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                              }`}>
+                                {gstRate > 0
+                                  ? (exp.isInterState ? `IGST ${gstRate}%` : `CGST+SGST ${gstRate}%`)
+                                  : (exp.isInterState ? 'IGST (Chg)' : 'GST (Chg)')}
+                              </span>
+                              <div className="text-[10px] font-mono text-slate-500">
+                                +₹{totalTax.toFixed(2)}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 font-mono">0% GST</span>
+                          )}
+                        </TableCell>
+
+                        {/* Charges & Discount */}
+                        <TableCell className="px-2 py-2 max-w-[140px]">
+                          {chargeBadges.length === 0 ? (
+                            <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {chargeBadges.map((b) => (
+                                <span
+                                  key={b.key}
+                                  className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold border font-mono ${b.tone}`}
+                                >
+                                  <span>{b.label}</span>
+                                  {b.gst && <span className="text-indigo-600 dark:text-indigo-400">{b.gst}</span>}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </TableCell>
+
+                        {/* Grand Total */}
+                        <TableCell className="px-2 py-2 text-right font-bold font-mono text-slate-900 dark:text-white whitespace-nowrap text-xs">
+                          ₹{totalExp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+
+                        {/* Payment Status, Mode & Ref */}
+                        <TableCell className="px-1.5 py-2 text-center whitespace-nowrap">
+                          <div className="space-y-0.5 flex flex-col items-center">
+                            <div className="flex items-center gap-1">
+                              <span className={`inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
+                                status === 'PAID'
                                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-                                  : exp.paymentStatus === 'PARTIALLY_PAID'
+                                  : status === 'PARTIALLY_PAID'
                                   ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
                                   : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
                               }`}>
-                                {exp.paymentStatus === 'PAID' ? 'PAID' : exp.paymentStatus === 'PARTIALLY_PAID' ? 'PARTIAL' : 'UNPAID'}
+                                {status === 'PAID' ? 'PAID' : status === 'PARTIALLY_PAID' ? 'PARTIAL' : 'UNPAID'}
                               </span>
-                              <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 flex items-center justify-center gap-1">
-                                <CreditCard className="w-2.5 h-2.5 text-slate-400" />
-                                <span>{PAYMENT_MODES.find(m => m.id === exp.paymentMode)?.label?.split(' ')[0] || exp.paymentMode || 'Cash'}</span>
-                              </div>
+                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                                {getPaymentModeShortLabel(exp.paymentMode)}
+                              </span>
+                              {exp.paymentImage && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePreviewAttachment({ url: exp.paymentImage, name: `Payment Receipt - ${exp.expenseNumber || exp.title}` })}
+                                  className="p-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100"
+                                  title="View Payment Proof Image"
+                                >
+                                  <Eye className="w-2.5 h-2.5" />
+                                </button>
+                              )}
                             </div>
-                          </TableCell>
-
-                          {/* 8. Notes */}
-                          <TableCell className="max-w-[130px] truncate text-[11px] text-slate-500 dark:text-slate-400">
-                            {exp.notes || <span className="text-slate-300 dark:text-slate-600 italic">—</span>}
-                          </TableCell>
-
-                          {/* 9. Attachments */}
-                          <TableCell className="text-center whitespace-nowrap">
-                            {attachmentsCount > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => setViewingAttachmentsExpense(exp)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors"
-                              >
-                                <Paperclip className="w-2.5 h-2.5" />
-                                <span>{attachmentsCount} {attachmentsCount === 1 ? 'file' : 'files'}</span>
-                              </button>
+                            {status !== 'PAID' ? (
+                              <div className="text-[9px] font-mono text-amber-600 dark:text-amber-400 font-semibold">
+                                Paid ₹{paidVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })} • Due ₹{dueVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              </div>
                             ) : (
-                              <button
-                                type="button"
-                                onClick={() => setViewingAttachmentsExpense(exp)}
-                                className="text-[10px] text-slate-400 hover:text-indigo-600 transition-colors inline-flex items-center gap-0.5"
-                              >
-                                <Paperclip className="w-2.5 h-2.5 opacity-60" />
-                                <span>+ Add</span>
-                              </button>
+                              <div className="text-[9px] font-mono text-emerald-600/80 dark:text-emerald-400/80">
+                                ₹{paidVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} settled
+                              </div>
                             )}
-                          </TableCell>
+                            {exp.paymentRef && (
+                              <div className="text-[9px] font-mono text-slate-400 max-w-[125px] truncate" title={exp.paymentRef}>
+                                Ref: {exp.paymentRef}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
 
-                          {/* 10. Actions */}
-                          <TableCell className="text-right py-1.5 pr-3 space-x-0.5 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => setViewingExpense(exp)}
-                              className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                              title="View Details"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditModal(exp)}
-                              className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                              title="Edit Expense"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSingle(exp.id, exp.title)}
-                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                              title="Delete Expense"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+                        {/* Attachments */}
+                        <TableCell className="px-1.5 py-2 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setViewingAttachmentsExpense(exp)}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                              attachmentsCount > 0
+                                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100'
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:text-indigo-600'
+                            }`}
+                          >
+                            <Paperclip className="w-2.5 h-2.5" />
+                            <span>{attachmentsCount}</span>
+                          </button>
+                        </TableCell>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20 text-xs">
-                <span className="text-[11px] text-slate-400">
-                  Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, sortedExpenses.length)} of {sortedExpenses.length}
-                </span>
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={setCurrentPage}
-                />
-              </div>
-            )}
-          </div>
+                        {/* Actions */}
+                        <TableCell className="px-2 py-2 text-right space-x-0.5 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setViewingExpense(exp)}
+                            className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            title="View Details"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditModal(exp)}
+                            className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            title="Edit Expense"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSingle(exp.id, exp.title)}
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            title="Delete Expense"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20 text-xs">
+              <span className="text-[11px] text-slate-400">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, sortedExpenses.length)} of {sortedExpenses.length}
+              </span>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
         </div>
 
-        {/* Right Side (1 Column): Charts */}
-        <div className="space-y-3">
+        {/* Compact Bottom 2-Column Analytics Row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 shadow-2xs">
-            <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
               <PieChartIcon className="w-3.5 h-3.5 text-indigo-500" />
               Category Breakdown
             </h4>
 
             {isSummaryLoading ? (
-              <div className="h-44 flex items-center justify-center">
+              <div className="h-40 flex items-center justify-center">
                 <Skeleton className="w-28 h-28 rounded-full" />
               </div>
             ) : chartData.length === 0 ? (
-              <div className="h-44 flex flex-col items-center justify-center text-slate-400 text-xs text-center p-2">
+              <div className="h-40 flex flex-col items-center justify-center text-slate-400 text-xs text-center p-2">
                 <PieChartIcon className="w-8 h-8 mb-1 text-slate-300 dark:text-slate-700" />
                 <span>No expense data to chart</span>
               </div>
             ) : (
-              <div className="h-44 w-full text-xs">
+              <div className="h-40 w-full text-xs">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={chartData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={40}
-                      outerRadius={65}
+                      innerRadius={38}
+                      outerRadius={60}
                       paddingAngle={2}
                       dataKey="value"
                     >
@@ -2565,7 +3058,7 @@ export default function ExpensesPage() {
                       align="center"
                       iconSize={6}
                       iconType="circle"
-                      wrapperStyle={{ fontSize: '9px' }}
+                      wrapperStyle={{ fontSize: '10px' }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -2574,39 +3067,41 @@ export default function ExpensesPage() {
           </div>
 
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 shadow-2xs space-y-2">
-            <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
               <BarChart3 className="w-3.5 h-3.5 text-emerald-500" />
               Top Cost Centers
             </h4>
 
             {chartData.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-400 italic">
+              <div className="text-center py-6 text-xs text-slate-400 italic">
                 No records yet
               </div>
             ) : (
-              chartData
-                .sort((a, b) => b.value - a.value)
-                .slice(0, 5)
-                .map((item, idx) => {
-                  const maxVal = Math.max(...chartData.map(c => c.value), 1);
-                  const pct = Math.round((item.value / maxVal) * 100);
-                  return (
-                    <div key={idx} className="space-y-1 text-[11px]">
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[120px]">{item.name}</span>
-                        <span className="font-mono font-bold text-slate-900 dark:text-white">
-                          ₹{item.value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                        </span>
+              <div className="space-y-2">
+                {[...chartData]
+                  .sort((a, b) => b.value - a.value)
+                  .slice(0, 5)
+                  .map((item, idx) => {
+                    const maxVal = Math.max(...chartData.map(c => c.value), 1);
+                    const pct = Math.round((item.value / maxVal) * 100);
+                    return (
+                      <div key={idx} className="space-y-1 text-[11px]">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[180px]">{item.name}</span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-white">
+                            ₹{item.value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{ width: `${pct}%`, backgroundColor: item.color }}
+                          />
+                        </div>
                       </div>
-                      <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-300"
-                          style={{ width: `${pct}%`, backgroundColor: item.color }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+              </div>
             )}
           </div>
         </div>
@@ -2617,47 +3112,44 @@ export default function ExpensesPage() {
           FULL SCREEN & FULLY RESPONSIVE FOR ALL DEVICES WITHOUT COLLAPSE
           ========================================================================= */}
       {isMultiModalOpen && (
-        <div className={`fixed inset-0 z-50 flex ${isMultiModalFullScreen ? 'p-0' : 'items-center justify-center p-2 sm:p-4'} bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200`}>
-          <div className={`bg-white dark:bg-slate-900 ${isMultiModalFullScreen ? 'w-screen h-screen rounded-none' : 'rounded-2xl w-full max-w-[96vw] xl:max-w-7xl max-h-[96vh]'} flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden transition-all duration-200`}>
-            {/* Modal Header */}
-            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-sm">
-                  <CreditCard className="w-5 h-5 stroke-[2.5]" />
+        <div className={`fixed inset-0 z-50 flex ${isMultiModalFullScreen ? 'p-0' : 'items-center justify-center p-2 sm:p-3'} bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200`}>
+          <div className={`bg-white dark:bg-slate-900 ${isMultiModalFullScreen ? 'w-screen h-screen rounded-none' : 'rounded-2xl w-[97vw] xl:max-w-[1520px] max-h-[96vh]'} flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden transition-all duration-200`}>
+            {/* Compact Enterprise Modal Header */}
+            <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-r from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-sm">
+                  <CreditCard className="w-4 h-4 stroke-[2.5]" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                     Record Expenses (Multi-Entry Grid)
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                      SUPPLIER & GST ENABLED
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                      SUPPLIER &amp; GST
                     </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono">
-                      FULL SCREEN ENTERPRISE
-                    </span>
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-mono flex items-center gap-1 shadow-2xs">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-mono flex items-center gap-1">
                       <Hash className="w-3 h-3 text-purple-500" />
-                      Next No: {candidateExpenseNumber}
+                      Next: {candidateExpenseNumber}
                     </span>
                   </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Add expenses with supplier lookup, invoice number, and full GST breakdown just like Purchase Orders.
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                    Enter batch expenses with per-row Charges, Financial Summary &amp; Payment Settlement.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setIsMultiModalFullScreen(!isMultiModalFullScreen)}
-                  className="h-8 px-2.5 rounded-xl border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold flex items-center gap-1.5"
+                  className="h-7.5 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold flex items-center gap-1.5"
                   title={isMultiModalFullScreen ? "Exit Fullscreen (Windowed View)" : "Maximize to Fullscreen"}
                 >
                   {isMultiModalFullScreen ? (
                     <>
                       <Minimize2 className="w-3.5 h-3.5 text-indigo-500" />
-                      <span className="hidden sm:inline">Exit Fullscreen</span>
+                      <span className="hidden sm:inline">Windowed</span>
                     </>
                   ) : (
                     <>
@@ -2669,134 +3161,167 @@ export default function ExpensesPage() {
                 <button
                   type="button"
                   onClick={handleCloseMultiModal}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   title="Close Window (Esc)"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
             {/* Quick Action Bar */}
-            <div className="px-4 sm:px-6 py-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-2.5 text-xs shrink-0">
-              <div className="flex items-center gap-2 flex-wrap">
+            <div className="px-4 py-1.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={handleAddBatchRow}
-                  className="h-7.5 px-3 rounded-xl border-indigo-200 dark:border-indigo-800/80 font-bold text-xs bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 shadow-2xs"
+                  className="h-7 px-2.5 rounded-lg border-indigo-200 dark:border-indigo-800/80 font-bold text-[11px] bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 shadow-2xs"
                 >
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  + Add 1 Row
+                  <Plus className="w-3 h-3 mr-1" />
+                  Add Row
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => handleAddMultipleBatchRows(3)}
-                  className="h-7.5 px-3 rounded-xl border-slate-200 dark:border-slate-700 font-bold text-xs hover:border-indigo-300"
+                  className="h-7 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:border-indigo-300"
                 >
-                  <PlusCircle className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                  + Add 3 Rows
+                  <PlusCircle className="w-3 h-3 mr-1 text-slate-400" />
+                  +3 Rows
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => handleAddMultipleBatchRows(5)}
-                  className="h-7.5 px-3 rounded-xl border-slate-200 dark:border-slate-700 font-bold text-xs hover:border-indigo-300 hidden sm:inline-flex"
+                  className="h-7 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:border-indigo-300 hidden sm:inline-flex"
                 >
-                  <PlusCircle className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                  + Add 5 Rows
+                  <PlusCircle className="w-3 h-3 mr-1 text-slate-400" />
+                  +5 Rows
                 </Button>
               </div>
 
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-slate-500">
-                  Ready: <strong className="text-slate-900 dark:text-white font-mono">{financialSummary.validCount}</strong> of {batchRows.length} rows
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] text-slate-500">
+                  Ready: <strong className="text-slate-900 dark:text-white font-mono">{batchSummary.validCount}</strong>/{batchRows.length}
                 </span>
-                <span className="px-3 py-1 rounded-xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/80 dark:to-purple-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs sm:text-sm shadow-2xs">
-                  Grand Total: ₹{financialSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                <span className="px-2 py-0.5 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] font-mono">
+                  Row #{safeActiveRowIdx + 1}: ₹{activeRowSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-lg bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/80 dark:to-purple-950/80 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs shadow-2xs">
+                  Batch: ₹{batchSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
 
-            {/* Scrollable Content: Spreadsheet Grid + Section 4 Charges & Financial Summary */}
-            <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-5">
-              {/* Spreadsheet Grid Table with permanently pinned sticky header */}
-              <div 
-                className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-auto shadow-sm bg-white dark:bg-slate-900"
+            {/* Scrollable Content: Compact Overflow-Free Grid + Side-by-Side Section 4 & Section 5 */}
+            <div className="flex-1 overflow-y-auto p-2.5 sm:p-3.5 space-y-3 bg-slate-50/40 dark:bg-slate-950/30">
+              {/* Zero-Overflow Spreadsheet Grid Table */}
+              <div
+                className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-y-auto overflow-x-auto lg:overflow-x-hidden shadow-xs bg-white dark:bg-slate-900"
                 style={{
-                  maxHeight: isMultiModalFullScreen ? 'calc(100vh - 460px)' : '480px',
-                  minHeight: '260px'
+                  maxHeight: isMultiModalFullScreen ? 'calc(100vh - 510px)' : '310px',
+                  minHeight: '190px'
                 }}
               >
-                <table className="w-full text-left text-xs min-w-[1540px]">
-                  <thead className="bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-sm border-b-2 border-slate-200 dark:border-slate-800 text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider sticky top-0 z-20 shadow-xs">
+                <table className="w-full text-left text-xs min-w-[960px] lg:min-w-0 lg:table-fixed">
+                  <thead className="bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider sticky top-0 z-20">
                     <tr>
-                      <th className="w-12 px-2.5 py-3 text-center">#</th>
-                      <th className="w-36 px-2.5 py-3">Date *</th>
-                      <th className="w-56 min-w-[200px] px-2.5 py-3">Category *</th>
-                      <th className="w-32 px-2.5 py-3 text-center">With Supplier?</th>
-                      <th className="w-80 min-w-[280px] px-2.5 py-3">Supplier / Vendor</th>
-                      <th className="w-72 min-w-[220px] px-2.5 py-3">Title / Purpose *</th>
-                      <th className="w-36 px-2.5 py-3">Invoice #</th>
-                      <th className="w-36 px-2.5 py-3 text-right">Taxable (₹) *</th>
-                      <th className="w-28 px-2.5 py-3 text-center">GST %</th>
-                      <th className="w-36 px-2.5 py-3 text-right">Total (₹)</th>
-                      <th className="w-24 px-2.5 py-3 text-center">Files</th>
-                      <th className="w-24 px-2.5 py-3 text-center">Actions</th>
+                      <th className="w-[3%] px-1 py-2 text-center">#</th>
+                      <th className="w-[15%] px-1.5 py-2">Date &amp; Category *</th>
+                      <th className="w-[21%] px-1.5 py-2">Vendor &amp; Inv #</th>
+                      <th className="w-[16%] px-1.5 py-2">Title / Purpose *</th>
+                      <th className="w-[8%] px-1.5 py-2 text-right">Taxable *</th>
+                      <th className="w-[5%] px-1 py-2 text-center">GST</th>
+                      <th className="w-[8%] px-1.5 py-2 text-right">Total (₹)</th>
+                      <th className="w-[8%] px-1 py-2 text-center">Charges</th>
+                      <th className="w-[10%] px-1 py-2 text-center">Payment</th>
+                      <th className="w-[6%] px-1 py-2 text-center">Files / Act</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 bg-white dark:bg-slate-900">
                     {batchRows.map((row, idx) => {
                       const isSupp = Boolean(row.isSupplierExpense);
+                      const isActive = idx === safeActiveRowIdx;
+                      const rowFin = rowSummaries[idx] || computeExpenseFinancials(row, idx);
+                      const rowChargeBadges = getExpenseChargesBadges(row);
+                      const payStatus = rowFin.paymentStatus;
+
                       return (
-                        <tr key={row.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/20 transition-colors">
-                          <td className="px-2.5 py-2.5 text-center font-mono font-bold text-slate-400 text-xs">
-                            {idx + 1}
+                        <tr
+                          key={row.id}
+                          onMouseDown={() => setActiveBatchRowIdx(idx)}
+                          onFocusCapture={() => setActiveBatchRowIdx(idx)}
+                          className={`transition-colors align-top ${
+                            isActive
+                              ? 'bg-indigo-50/55 dark:bg-indigo-950/35 ring-1 ring-inset ring-indigo-500/40'
+                              : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/20'
+                          }`}
+                        >
+                          {/* 1. Row Index */}
+                          <td className="px-1 py-1.5 text-center font-mono font-bold">
+                            <button
+                              type="button"
+                              onClick={() => setActiveBatchRowIdx(idx)}
+                              className={`inline-flex flex-col items-center px-1.5 py-1 rounded-lg transition-all text-[11px] ${
+                                isActive
+                                  ? 'bg-indigo-600 text-white shadow-xs'
+                                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                              title="Click to edit Charges & Payment for this row"
+                            >
+                              <span>{idx + 1}</span>
+                              {isActive && <span className="text-[7px] font-black uppercase leading-none mt-0.5">ON</span>}
+                            </button>
                           </td>
 
-                          {/* 1. Date */}
-                          <td className="px-1.5 py-2">
+                          {/* 2. Date & Category Stacked */}
+                          <td className="px-1.5 py-1.5 space-y-1">
                             <input
                               type="date"
                               value={row.date}
                               onChange={(e) => handleUpdateBatchRow(idx, 'date', e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                              className="w-full h-7 px-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
                             />
-                          </td>
-
-                          {/* 2. Category (Expense Master) */}
-                          <td className="px-1.5 py-2">
                             <select
                               value={row.categoryId || row.category}
                               onChange={(e) => handleUpdateBatchRow(idx, 'categorySelect', e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold truncate"
+                              className="w-full h-7 px-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold truncate"
                             >
                               {activeMasterCategories.map(cat => (
                                 <option key={cat.id || cat.name} value={cat.id || cat.name}>
-                                  {cat.name} {cat.expenseWithSupplier ? '(Supplier Tagged)' : ''}
+                                  {cat.name}{cat.expenseWithSupplier ? ' (Vendor)' : ''}
                                 </option>
                               ))}
                             </select>
                           </td>
 
-                          {/* 3. With Supplier Checkbox Toggle */}
-                          <td className="px-1.5 py-2 text-center">
-                            <label className="inline-flex items-center gap-1.5 cursor-pointer select-none px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:border-indigo-400 transition-colors">
+                          {/* 3. Supplier Toggle + Inv # + Searchable Supplier Select */}
+                          <td className="px-1.5 py-1.5 space-y-1">
+                            <div className="flex items-center gap-1">
+                              <label className={`inline-flex items-center gap-1 cursor-pointer select-none px-1.5 h-6 rounded-md border shrink-0 transition-colors ${
+                                isSupp
+                                  ? 'border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/60'
+                                  : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/80'
+                              }`}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSupp}
+                                  onChange={(e) => handleUpdateBatchRow(idx, 'isSupplierExpense', e.target.checked)}
+                                  className="w-3 h-3 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                />
+                                <span className={`text-[9px] font-extrabold uppercase ${isSupp ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-500'}`}>
+                                  {isSupp ? 'Vendor' : 'Int.'}
+                                </span>
+                              </label>
                               <input
-                                type="checkbox"
-                                checked={isSupp}
-                                onChange={(e) => handleUpdateBatchRow(idx, 'isSupplierExpense', e.target.checked)}
-                                className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-600 cursor-pointer"
+                                type="text"
+                                placeholder={isSupp ? 'Inv # (Opt)' : 'Ref / Inv #'}
+                                value={row.invoiceNo}
+                                onChange={(e) => handleUpdateBatchRow(idx, 'invoiceNo', e.target.value)}
+                                className="flex-1 min-w-0 h-6 px-1.5 text-[10px] rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono"
                               />
-                              <span className={`text-[10px] font-bold ${isSupp ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>
-                                {isSupp ? 'YES' : 'NO'}
-                              </span>
-                            </label>
-                          </td>
-
-                          {/* 4. Ultra-Stylish Searchable Supplier Dropdown */}
-                          <td className="px-1.5 py-2">
+                            </div>
                             {isSupp ? (
                               <SupplierSelect
                                 suppliers={suppliers}
@@ -2806,55 +3331,47 @@ export default function ExpensesPage() {
                                   setTargetRowIdxForNewSupplier(idx);
                                   setShowAddSupplierModal(true);
                                 }}
-                                placeholder="Search & select supplier..."
+                                placeholder="Select vendor..."
                                 isInterStateForSupplier={isInterStateForSupplier}
+                                compact={true}
                               />
                             ) : (
-                              <span className="text-slate-400 dark:text-slate-500 italic text-[11px] px-2 block">Internal (No Vendor)</span>
+                              <div className="h-7.5 px-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 flex items-center text-[10px] text-slate-400 italic truncate">
+                                Internal Expense (No Vendor)
+                              </div>
                             )}
                           </td>
 
-                          {/* 5. Title / Purpose */}
-                          <td className="px-1.5 py-2">
-                            <input
-                              type="text"
-                              placeholder="e.g. Server hosting, Maintenance, Machinery repair..."
+                          {/* 4. Title / Purpose */}
+                          <td className="px-1.5 py-1.5">
+                            <textarea
+                              rows={2}
+                              placeholder="e.g. Travel expense, purchase expense, freight..."
                               value={row.title}
                               onChange={(e) => handleUpdateBatchRow(idx, 'title', e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                              className="w-full h-[58px] px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium resize-none leading-tight"
                             />
                           </td>
 
-                          {/* 6. Invoice No */}
-                          <td className="px-1.5 py-2">
-                            <input
-                              type="text"
-                              placeholder={isSupp ? "e.g. INV-9921" : "Optional"}
-                              value={row.invoiceNo}
-                              onChange={(e) => handleUpdateBatchRow(idx, 'invoiceNo', e.target.value)}
-                              className="w-full px-2 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono"
-                            />
-                          </td>
-
-                          {/* 7. Taxable Amount (₹) */}
-                          <td className="px-1.5 py-2">
+                          {/* 5. Taxable Amount */}
+                          <td className="px-1.5 py-1.5">
                             <input
                               type="number"
                               step="0.01"
                               placeholder="0.00"
                               value={row.taxableAmount}
                               onChange={(e) => handleUpdateBatchRow(idx, 'taxableAmount', e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-bold text-right"
+                              className="w-full h-8 px-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-bold text-right"
                             />
                           </td>
 
-                          {/* 8. GST % Selector */}
-                          <td className="px-1.5 py-2 text-center">
+                          {/* 6. GST % */}
+                          <td className="px-1 py-1.5 text-center">
                             {isSupp ? (
                               <select
                                 value={row.gstPercentage}
                                 onChange={(e) => handleUpdateBatchRow(idx, 'gstPercentage', Number(e.target.value))}
-                                className="w-full px-1.5 py-1.5 text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none text-center"
+                                className="w-full h-8 px-0.5 text-[11px] rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none text-center"
                               >
                                 <option value={0}>0%</option>
                                 <option value={5}>5%</option>
@@ -2863,49 +3380,126 @@ export default function ExpensesPage() {
                                 <option value={28}>28%</option>
                               </select>
                             ) : (
-                              <span className="text-[11px] text-slate-400 font-mono">0%</span>
+                              <span className="inline-flex h-8 items-center text-[11px] text-slate-400 font-mono">0%</span>
                             )}
                           </td>
 
-                          {/* 9. Grand Total (Taxable + GST) */}
-                          <td className="px-2.5 py-2 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                            ₹{(Number(row.totalAmount || row.taxableAmount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {/* 7. Row Grand Total */}
+                          <td className="px-1.5 py-1.5 text-right font-mono whitespace-nowrap">
+                            <div className="font-black text-xs text-slate-900 dark:text-white pt-1">
+                              ₹{rowFin.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                            {(rowFin.totalExtraCharges > 0 || rowFin.discount > 0 || rowFin.totalChargesTaxes > 0) && (
+                              <div className="text-[9px] text-indigo-600 dark:text-indigo-400 font-semibold truncate">
+                                {rowFin.totalExtraCharges > 0 ? `+₹${rowFin.totalExtraCharges.toFixed(0)} ` : ''}
+                                {rowFin.discount > 0 ? `-₹${rowFin.discount.toFixed(0)}` : ''}
+                              </div>
+                            )}
                           </td>
 
-                          {/* 10. Attachments */}
-                          <td className="px-1.5 py-2 text-center">
+                          {/* 8. Per-Row Charges Trigger */}
+                          <td className="px-1 py-1.5 text-center">
                             <button
                               type="button"
-                              onClick={() => setRowAttachmentModalIdx(idx)}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 border transition-all ${
-                                row.attachments && row.attachments.length > 0
-                                  ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-                                  : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleFocusRowSection(idx, 'charges');
+                              }}
+                              className={`w-full min-h-[32px] px-1.5 py-1 rounded-lg border text-[10px] font-bold transition-all flex flex-wrap items-center justify-center gap-0.5 ${
+                                isActive
+                                  ? 'border-indigo-400 bg-white dark:bg-slate-900 shadow-xs'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/70 hover:border-indigo-400'
                               }`}
+                              title="Click to enter Shipping, Packing, Loading, Other Charges & Discount"
                             >
-                              <Paperclip className="w-3 h-3" />
-                              <span>{row.attachments?.length || 0}</span>
+                              {rowChargeBadges.length > 0 ? (
+                                rowChargeBadges.map((b) => (
+                                  <span key={b.key} className="px-1 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[9px] truncate max-w-full">
+                                    {b.label}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-slate-500 dark:text-slate-400 inline-flex items-center gap-0.5">
+                                  <Calculator className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span>+Chg</span>
+                                </span>
+                              )}
                             </button>
                           </td>
 
-                          {/* 11. Actions */}
-                          <td className="px-1.5 py-2 text-center whitespace-nowrap space-x-1">
+                          {/* 9. Per-Row Payment Mode Trigger */}
+                          <td className="px-1 py-1.5 text-center">
                             <button
                               type="button"
-                              onClick={() => handleDuplicateBatchRow(idx)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                              title="Duplicate Row"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleFocusRowSection(idx, 'payment');
+                              }}
+                              className={`w-full px-1.5 py-1 rounded-lg border text-[10px] font-bold transition-all flex flex-col items-center gap-0.5 ${
+                                isActive
+                                  ? 'border-indigo-400 bg-white dark:bg-slate-900 shadow-xs'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/70 hover:border-indigo-400'
+                              }`}
+                              title="Click to configure Payment Mode, Paid Amount, Ref & Proof Image"
                             >
-                              <Copy className="w-3.5 h-3.5" />
+                              <div className="flex items-center gap-1 max-w-full">
+                                <span className={`px-1 rounded text-[8px] font-extrabold uppercase shrink-0 ${
+                                  payStatus === 'PAID'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                                    : payStatus === 'PARTIALLY_PAID'
+                                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-400'
+                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                                }`}>
+                                  {payStatus === 'PAID' ? 'PAID' : payStatus === 'PARTIALLY_PAID' ? 'PART' : 'DUE'}
+                                </span>
+                                <span className="text-slate-700 dark:text-slate-200 truncate">
+                                  {getPaymentModeShortLabel(rowFin.paymentMode)}
+                                </span>
+                                {row.paymentImage && <ImageIcon className="w-2.5 h-2.5 text-emerald-500 shrink-0" />}
+                              </div>
+                              <div className="text-[9px] font-mono text-slate-500 truncate max-w-full">
+                                {payStatus === 'PAID'
+                                  ? `₹${rowFin.paidAmountNum.toLocaleString('en-IN')}`
+                                  : `₹${rowFin.paidAmountNum.toLocaleString('en-IN')} / Due ₹${rowFin.balanceDue.toLocaleString('en-IN')}`}
+                              </div>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveBatchRow(idx)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                              title="Delete Row"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          </td>
+
+                          {/* 10. Files & Actions Combined */}
+                          <td className="px-1 py-1.5 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setRowAttachmentModalIdx(idx)}
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-0.5 border transition-all ${
+                                  row.attachments && row.attachments.length > 0
+                                    ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                    : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                                }`}
+                                title="Upload / Manage Row Attachments"
+                              >
+                                <Paperclip className="w-2.5 h-2.5" />
+                                <span>{row.attachments?.length || 0}</span>
+                              </button>
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDuplicateBatchRow(idx)}
+                                  className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                  title="Duplicate Row"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBatchRow(idx)}
+                                  className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                  title="Delete Row"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2914,452 +3508,192 @@ export default function ExpensesPage() {
                 </table>
               </div>
 
-              {/* 🌟 SECTION 4: CHARGES & FINANCIAL SUMMARY (IDENTICAL TO /purchase-orders/create) */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4 w-full">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <Calculator className="w-4 h-4 text-indigo-500" />
-                    4. Charges & Financial Summary
+              {/* Unified Active Row Switcher & Quick Copy Strip */}
+              <div className="bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl px-3 py-2 shadow-2xs flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mr-1">
+                    Active Expense:
                   </span>
-                  <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                    INR (₹)
-                  </span>
+                  {batchRows.map((row, idx) => {
+                    const isActive = idx === safeActiveRowIdx;
+                    const rFin = rowSummaries[idx] || computeExpenseFinancials(row, idx);
+                    return (
+                      <button
+                        key={row.id}
+                        type="button"
+                        onClick={() => setActiveBatchRowIdx(idx)}
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition-all inline-flex items-center gap-1.5 ${
+                          isActive
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
+                        }`}
+                      >
+                        <span className="font-mono">#{idx + 1}</span>
+                        <span className="truncate max-w-[95px] font-medium">
+                          {row.title?.trim() || row.category || 'Empty'}
+                        </span>
+                        <span className={`font-mono text-[10px] ${isActive ? 'text-indigo-100' : 'text-slate-400'}`}>
+                          ₹{rFin.grandTotal.toLocaleString('en-IN')}
+                        </span>
+                        <span className={`text-[8px] uppercase font-extrabold px-1 rounded ${
+                          rFin.paymentStatus === 'PAID'
+                            ? (isActive ? 'bg-emerald-500/30 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400')
+                            : rFin.paymentStatus === 'PARTIALLY_PAID'
+                            ? (isActive ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-400')
+                            : (isActive ? 'bg-amber-400/30 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400')
+                        }`}>
+                          {getPaymentModeShortLabel(rFin.paymentMode)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6 items-start">
-                  {/* Left Column (7 cols): Additional Charges Inputs & Remarks */}
-                  <div className="xl:col-span-7 space-y-4">
-                    {/* Individual Charges Cards with Individual GST Checkbox & Rates */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-2.5 sm:gap-3">
-                      {/* 1. Discount */}
-                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                        <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">Discount (₹)</Label>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-600 dark:text-emerald-400 select-none">₹</span>
-                          <Input 
-                            type="number" 
-                            min="0"
-                            value={batchDiscount} 
-                            onChange={(e) => setBatchDiscount(e.target.value)}
-                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-emerald-400 focus:border-emerald-600 font-semibold shadow-2xs" 
-                          />
-                        </div>
-                      </div>
-
-                      {/* 2. Shipping & Freight */}
-                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Shipping (₹)</Label>
-                          <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                            <input 
-                              type="checkbox" 
-                              checked={batchShippingGstApplicable} 
-                              onChange={(e) => setBatchShippingGstApplicable(e.target.checked)}
-                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
-                            />
-                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
-                          </label>
-                        </div>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                          <Input 
-                            type="number" 
-                            min="0"
-                            value={batchShipping} 
-                            onChange={(e) => setBatchShipping(e.target.value)}
-                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
-                          />
-                        </div>
-                        {batchShippingGstApplicable && (
-                          <div className="flex items-center justify-between gap-1 pt-1">
-                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
-                            <select
-                              value={batchShippingGstPercentage}
-                              onChange={(e) => setBatchShippingGstPercentage(Number(e.target.value))}
-                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
-                            >
-                              <option value={0}>0%</option>
-                              <option value={5}>5%</option>
-                              <option value={12}>12%</option>
-                              <option value={18}>18%</option>
-                              <option value={28}>28%</option>
-                            </select>
-                            {Number(batchShipping) > 0 && (
-                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                                +₹{(Number(batchShipping) * batchShippingGstPercentage / 100).toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 3. Packing Charges */}
-                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Packing (₹)</Label>
-                          <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                            <input 
-                              type="checkbox" 
-                              checked={batchPackingGstApplicable} 
-                              onChange={(e) => setBatchPackingGstApplicable(e.target.checked)}
-                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
-                            />
-                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
-                          </label>
-                        </div>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                          <Input 
-                            type="number" 
-                            min="0"
-                            value={batchPacking} 
-                            onChange={(e) => setBatchPacking(e.target.value)}
-                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
-                          />
-                        </div>
-                        {batchPackingGstApplicable && (
-                          <div className="flex items-center justify-between gap-1 pt-1">
-                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
-                            <select
-                              value={batchPackingGstPercentage}
-                              onChange={(e) => setBatchPackingGstPercentage(Number(e.target.value))}
-                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
-                            >
-                              <option value={0}>0%</option>
-                              <option value={5}>5%</option>
-                              <option value={12}>12%</option>
-                              <option value={18}>18%</option>
-                              <option value={28}>28%</option>
-                            </select>
-                            {Number(batchPacking) > 0 && (
-                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                                +₹{(Number(batchPacking) * batchPackingGstPercentage / 100).toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 4. Loading & Unloading Charges */}
-                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                            Loading (₹)
-                          </Label>
-                          <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                            <input 
-                              type="checkbox" 
-                              checked={batchLoadingGstApplicable} 
-                              onChange={(e) => setBatchLoadingGstApplicable(e.target.checked)}
-                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
-                            />
-                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
-                          </label>
-                        </div>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                          <Input 
-                            type="number" 
-                            min="0"
-                            value={batchLoading} 
-                            onChange={(e) => setBatchLoading(e.target.value)}
-                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
-                          />
-                        </div>
-                        {batchLoadingGstApplicable && (
-                          <div className="flex items-center justify-between gap-1 pt-1">
-                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
-                            <select
-                              value={batchLoadingGstPercentage}
-                              onChange={(e) => setBatchLoadingGstPercentage(Number(e.target.value))}
-                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
-                            >
-                              <option value={0}>0%</option>
-                              <option value={5}>5%</option>
-                              <option value={12}>12%</option>
-                              <option value={18}>18%</option>
-                              <option value={28}>28%</option>
-                            </select>
-                            {Number(batchLoading) > 0 && (
-                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                                +₹{(Number(batchLoading) * batchLoadingGstPercentage / 100).toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 5. Other Charges (with custom label) */}
-                      <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between">
-                          <Input
-                            type="text"
-                            value={batchOtherChargesLabel}
-                            onChange={(e) => setBatchOtherChargesLabel(e.target.value)}
-                            placeholder="Other Charges"
-                            className="h-5 px-1 py-0 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-0 bg-transparent focus-visible:ring-0 max-w-[110px] p-0"
-                            title="Edit charge title"
-                          />
-                          <label className="inline-flex items-center gap-1 cursor-pointer select-none">
-                            <input 
-                              type="checkbox" 
-                              checked={batchOtherChargesGstApplicable} 
-                              onChange={(e) => setBatchOtherChargesGstApplicable(e.target.checked)}
-                              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
-                            />
-                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
-                          </label>
-                        </div>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                          <Input 
-                            type="number" 
-                            min="0"
-                            value={batchOtherCharges} 
-                            onChange={(e) => setBatchOtherCharges(e.target.value)}
-                            className="h-8.5 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs" 
-                          />
-                        </div>
-                        {batchOtherChargesGstApplicable && (
-                          <div className="flex items-center justify-between gap-1 pt-1">
-                            <span className="text-[10px] text-slate-500 font-semibold">Rate:</span>
-                            <select
-                              value={batchOtherChargesGstPercentage}
-                              onChange={(e) => setBatchOtherChargesGstPercentage(Number(e.target.value))}
-                              className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
-                            >
-                              <option value={0}>0%</option>
-                              <option value={5}>5%</option>
-                              <option value={12}>12%</option>
-                              <option value={18}>18%</option>
-                              <option value={28}>28%</option>
-                            </select>
-                            {Number(batchOtherCharges) > 0 && (
-                              <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                                +₹{(Number(batchOtherCharges) * batchOtherChargesGstPercentage / 100).toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Note / Remarks */}
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        <FileText className="w-3.5 h-3.5 text-slate-400" />
-                        Supplier Instructions & Remarks
-                      </Label>
-                      <textarea 
-                        value={batchRemarks}
-                        onChange={(e) => setBatchRemarks(e.target.value)}
-                        rows={3}
-                        className="w-full border rounded-xl p-3 text-xs bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs text-slate-800 dark:text-slate-200 font-medium" 
-                        placeholder="Supplier instructions, delivery location notes, payment terms, or reference numbers..."
-                      />
-                    </div>
+                {batchRows.length > 1 && (
+                  <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleCopyChargesToAllRows}
+                      className="h-7 px-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold hover:bg-indigo-100 transition-colors inline-flex items-center gap-1"
+                      title="Apply active row's Charges & Discount to all rows"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Charges to All</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyPaymentToAllRows}
+                      className="h-7 px-2 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold hover:bg-indigo-100 transition-colors inline-flex items-center gap-1"
+                      title="Apply active row's Payment Mode & Status to all rows"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>Copy Payment to All</span>
+                    </button>
                   </div>
-
-                  {/* Right Column (5 cols): Live Financial Summary Box */}
-                  <div className="xl:col-span-5 p-4 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-950/90 dark:via-indigo-950/30 dark:to-slate-950/90 rounded-2xl border-2 border-indigo-100 dark:border-indigo-900/60 space-y-2.5 text-xs shadow-xs">
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                      <span>Items Subtotal ({financialSummary.validCount} valid entries)</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        ₹{financialSummary.itemsSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                      <span>Taxable Value</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        ₹{financialSummary.totalTaxableValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-
-                    {/* Tax Breakdown - Show CGST/SGST if intrastate or totalCgst > 0, and show IGST if interstate */}
-                    {(financialSummary.totalCgst > 0 || financialSummary.totalSgst > 0 || !financialSummary.hasAnyInterstate) && (
-                      <>
-                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span>CGST (Intrastate)</span>
-                            <GstCalculationModal 
-                              items={financialSummary.dummyItemsForBreakdown || []} 
-                              charges={financialSummary.chargesList} 
-                              isInterState={false} 
-                              breakdownData={financialSummary.gstBreakdown} 
-                            />
-                          </span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
-                            ₹{financialSummary.totalCgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span>SGST (Intrastate)</span>
-                            <GstCalculationModal 
-                              items={financialSummary.dummyItemsForBreakdown || []} 
-                              charges={financialSummary.chargesList} 
-                              isInterState={false} 
-                              breakdownData={financialSummary.gstBreakdown} 
-                            />
-                          </span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
-                            ₹{financialSummary.totalSgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      </>
-                    )}
-
-                    {(financialSummary.totalIgst > 0 || financialSummary.hasAnyInterstate) && (
-                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span>IGST (Interstate)</span>
-                          <GstCalculationModal 
-                            items={financialSummary.dummyItemsForBreakdown || []} 
-                            charges={financialSummary.chargesList} 
-                            isInterState={true} 
-                            breakdownData={financialSummary.gstBreakdown} 
-                          />
-                        </span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
-                          ₹{financialSummary.totalIgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    )}
-
-                    {financialSummary.discount > 0 && (
-                      <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400 font-semibold">
-                        <span>Discount</span>
-                        <span>
-                          -₹{financialSummary.discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    )}
-
-                    {financialSummary.totalExtraCharges > 0 && (
-                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                        <span>Extra Charges (Shipping, Packing, etc.)</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
-                          +₹{financialSummary.totalExtraCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    )}
-
-                    {financialSummary.totalChargesTaxes > 0 && (
-                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                        <span>Charges Tax (GST)</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
-                          +₹{financialSummary.totalChargesTaxes.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-
-                    {financialSummary.roundOff !== 0 && (
-                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                        <span>Round Off</span>
-                        <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                          {financialSummary.roundOff > 0 ? `+₹${financialSummary.roundOff.toFixed(2)}` : `-₹${Math.abs(financialSummary.roundOff).toFixed(2)}`}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="pt-2.5 border-t-2 border-indigo-200 dark:border-indigo-800/80 flex justify-between items-baseline">
-                      <div>
-                        <span className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-400 block">
-                          GRAND TOTAL
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-medium">Includes all taxes & delivery</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-2xl sm:text-3xl font-black font-mono text-indigo-600 dark:text-indigo-400">
-                          ₹{financialSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
 
-              {/* ───────────────────────────────────────────────────────────────────
-                  5. PAYMENT & SETTLEMENT DETAILS (IDENTICAL TO /purchase-orders/create)
-                  ─────────────────────────────────────────────────────────────────── */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5 w-full">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800">
-                      <CreditCard className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                        5. Payment & Settlement Details
+              {/* Balanced 2-Column Enterprise Panel: Section 4 Charges & Section 5 Payment */}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-start">
+                {/* 4. Per-Row Charges & Financial Summary */}
+                <div
+                  ref={chargesSectionRef}
+                  className="xl:col-span-6 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl p-3 shadow-2xs space-y-2.5 w-full min-w-0"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                      <Calculator className="w-4 h-4 text-indigo-500 shrink-0" />
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                        4. Charges &amp; Financial Summary
                       </span>
-                      <p className="text-[11px] text-slate-400">
-                        Record cash, bank transfer, UPI, or cheque payment with transaction ref & proof image
-                      </p>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black">
+                        ROW #{safeActiveRowIdx + 1}
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
+                        {activeBatchRow.title?.trim() || 'Untitled'} • {activeBatchRow.isSupplierExpense ? (activeBatchRow.supplierName || 'Vendor') : 'Internal'}
+                      </span>
                     </div>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
+                      INR (₹)
+                    </span>
                   </div>
-                  <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
-                    batchPaymentStatus === 'PAID'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-                      : batchPaymentStatus === 'PARTIALLY_PAID'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
-                      : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
-                  }`}>
-                    {batchPaymentStatus === 'PAID' ? 'Fully Settled' : batchPaymentStatus === 'PARTIALLY_PAID' ? 'Partial Settlement' : 'Unpaid Expense'}
-                  </span>
+
+                  <ExpenseChargesAndSummarySection
+                    values={activeBatchRow}
+                    onChangeField={handleUpdateActiveRowField}
+                    summary={activeRowSummary}
+                    entryCountLabel={`Row #${safeActiveRowIdx + 1}`}
+                    compactLayout={true}
+                  />
                 </div>
 
-                <PaymentFieldsSection
-                  paymentStatus={batchPaymentStatus}
-                  setPaymentStatus={setBatchPaymentStatus}
-                  paidAmount={batchPaidAmount}
-                  setPaidAmount={setBatchPaidAmount}
-                  paymentMode={batchPaymentMode}
-                  setPaymentMode={setBatchPaymentMode}
-                  paymentRef={batchPaymentRef}
-                  setPaymentRef={setBatchPaymentRef}
-                  paymentImage={batchPaymentImage}
-                  setPaymentImage={setBatchPaymentImage}
-                  paymentNotes={batchPaymentNotes}
-                  setPaymentNotes={setBatchPaymentNotes}
-                  totalAmount={financialSummary.grandTotal}
-                />
+                {/* 5. Per-Row Payment & Settlement Details */}
+                <div
+                  ref={paymentSectionRef}
+                  className="xl:col-span-6 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl p-3 shadow-2xs space-y-2.5 w-full min-w-0"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CreditCard className="w-4 h-4 text-indigo-500 shrink-0" />
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                        5. Payment &amp; Settlement Details
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black">
+                        ROW #{safeActiveRowIdx + 1}
+                      </span>
+                    </div>
+
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+                      activeRowSummary.paymentStatus === 'PAID'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                        : activeRowSummary.paymentStatus === 'PARTIALLY_PAID'
+                        ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+                        : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                    }`}>
+                      {activeRowSummary.paymentStatus === 'PAID' ? 'Fully Settled' : activeRowSummary.paymentStatus === 'PARTIALLY_PAID' ? 'Partial Settlement' : 'Unpaid Expense'}
+                    </span>
+                  </div>
+
+                  <PaymentFieldsSection
+                    key={activeBatchRow.id}
+                    paymentStatus={activeBatchRow.paymentStatus || 'PAID'}
+                    setPaymentStatus={(val) => handleUpdateActiveRowField('paymentStatus', val)}
+                    paidAmount={(activeBatchRow.paymentStatus || 'PAID') === 'PAID' ? String(activeRowSummary.grandTotal) : (activeBatchRow.paidAmount ?? '0')}
+                    setPaidAmount={(val) => handleUpdateActiveRowField('paidAmount', val)}
+                    paymentMode={activeBatchRow.paymentMode || 'CASH'}
+                    setPaymentMode={(val) => handleUpdateActiveRowField('paymentMode', val)}
+                    paymentRef={activeBatchRow.paymentRef ?? ''}
+                    setPaymentRef={(val) => handleUpdateActiveRowField('paymentRef', val)}
+                    paymentImage={activeBatchRow.paymentImage ?? null}
+                    setPaymentImage={(val) => handleUpdateActiveRowField('paymentImage', val)}
+                    paymentNotes={activeBatchRow.paymentNotes ?? ''}
+                    setPaymentNotes={(val) => handleUpdateActiveRowField('paymentNotes', val)}
+                    totalAmount={activeRowSummary.grandTotal}
+                    isCompact={true}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="px-4 sm:px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg shrink-0">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 font-bold font-mono">
-                  {financialSummary.validCount} Valid Row{financialSummary.validCount !== 1 ? 's' : ''}
+            {/* Compact Modal Footer */}
+            <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-2 shadow-sm shrink-0">
+              <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 font-bold font-mono text-[11px]">
+                  {batchSummary.validCount} Valid Row{batchSummary.validCount !== 1 ? 's' : ''}
                 </span>
-                <span className="hidden md:inline">• You can record single or batch vendor expenses simultaneously</span>
+                {batchSummary.validCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold font-mono text-[11px]">
+                    Paid: ₹{batchSummary.totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    {batchSummary.totalDue > 0 ? ` • Due: ₹${batchSummary.totalDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : ''}
+                  </span>
+                )}
+                <span className="hidden lg:inline text-[11px]">• Per-expense Charges &amp; Payment Modes saved independently</span>
               </div>
 
-              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleCloseMultiModal}
-                  className="rounded-xl border-slate-300 dark:border-slate-700 text-xs font-bold h-9 px-4 hover:bg-slate-100"
+                  className="rounded-xl border-slate-300 dark:border-slate-700 text-xs font-bold h-8.5 px-4 hover:bg-slate-100"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="button"
                   onClick={handleSaveBatchExpenses}
-                  disabled={bulkCreateMutation.isPending || financialSummary.validCount === 0}
-                  className="rounded-xl text-xs font-black h-9 px-6 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md hover:shadow-indigo-500/25 transition-all flex items-center gap-2"
+                  disabled={bulkCreateMutation.isPending || batchSummary.validCount === 0}
+                  className="rounded-xl text-xs font-black h-8.5 px-5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md hover:shadow-indigo-500/25 transition-all flex items-center gap-1.5"
                 >
                   {bulkCreateMutation.isPending ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>Saving Expenses...</span>
                     </>
                   ) : (
                     <>
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Save ({financialSummary.validCount} Expense{financialSummary.validCount !== 1 ? 's' : ''}) • ₹{financialSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Save ({batchSummary.validCount} Expense{batchSummary.validCount !== 1 ? 's' : ''}) • ₹{batchSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </>
                   )}
                 </Button>
@@ -3482,7 +3816,7 @@ export default function ExpensesPage() {
           ========================================================================= */}
       {editingExpense && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/50 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
             <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/60 dark:bg-slate-950/60">
               <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                 <Edit2 className="w-3.5 h-3.5 text-indigo-500" />
@@ -3629,7 +3963,7 @@ export default function ExpensesPage() {
                 <Label className="text-[10px] font-bold text-slate-500 uppercase">Title / Purpose *</Label>
                 <Input
                   {...registerEdit('title', { required: 'Title is required' })}
-                  placeholder="e.g. Courier charges, Machine repair"
+                  placeholder="e.g. Travel expense, purchase expense, freight..."
                   className="h-8 text-xs rounded-lg"
                 />
                 {editErrors.title && <span className="text-[10px] text-rose-500">{editErrors.title.message}</span>}
@@ -3663,15 +3997,7 @@ export default function ExpensesPage() {
                 </div>
               </div>
 
-              {/* Calculated Grand Total Indicator */}
-              <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-600 dark:text-slate-300">Total with GST:</span>
-                <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-sm">
-                  ₹{((parseFloat(editTaxableAmount) || 0) + ((parseFloat(editTaxableAmount) || 0) * (parseFloat(editGstPercentage) || 0) / 100)).toFixed(2)}
-                </span>
-              </div>
-
-              {/* Reference / Notes */}
+              {/* 6. Reference / Notes */}
               <div className="space-y-1">
                 <Label className="text-[10px] font-bold text-slate-500 uppercase">Reference Note</Label>
                 <textarea
@@ -3682,55 +4008,60 @@ export default function ExpensesPage() {
                 />
               </div>
 
-              {/* Payment Details */}
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 space-y-2.5">
-                <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
-                  Payment & Settlement Details
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Mode</Label>
-                    <select
-                      {...registerEdit('paymentMode')}
-                      className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
-                    >
-                      {PAYMENT_MODES.map(mode => (
-                        <option key={mode.id} value={mode.id}>{mode.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Status</Label>
-                    <select
-                      {...registerEdit('paymentStatus')}
-                      className="w-full h-8 px-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-indigo-600"
-                    >
-                      <option value="PAID">PAID (Settled)</option>
-                      <option value="PARTIALLY_PAID">PARTIALLY PAID</option>
-                      <option value="UNPAID">UNPAID (Pending)</option>
-                    </select>
-                  </div>
+              {/* 7. Per-Expense Charges & Financial Summary */}
+              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/40 space-y-3">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/70 dark:border-slate-800">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Calculator className="w-3.5 h-3.5 text-indigo-500" />
+                    Charges & Financial Summary
+                  </span>
+                  <span className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400">
+                    ₹{editFinancialSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Paid Amount (₹)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      {...registerEdit('paidAmount')}
-                      className="h-8 text-xs font-mono font-bold rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-[10px] font-bold text-slate-500 uppercase">Transaction / UTR / Cheque Ref</Label>
-                    <Input
-                      {...registerEdit('paymentRef')}
-                      placeholder="e.g. UTR12345678"
-                      className="h-8 text-xs font-mono rounded-lg"
-                    />
-                  </div>
+                <ExpenseChargesAndSummarySection
+                  values={editChargesPayment}
+                  onChangeField={handleUpdateEditExtraField}
+                  summary={editFinancialSummary}
+                  entryCountLabel={editTitle || editingExpense?.title || '1 expense'}
+                  showRemarks={false}
+                />
+              </div>
+
+              {/* 8. Payment & Settlement Details (PO Compatible) */}
+              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/40 space-y-3">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/70 dark:border-slate-800">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                    Payment & Settlement Details
+                  </span>
+                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border uppercase ${
+                    editChargesPayment.paymentStatus === 'PAID'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:border-emerald-800'
+                      : editChargesPayment.paymentStatus === 'PARTIALLY_PAID'
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-400 dark:border-indigo-800'
+                      : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-800'
+                  }`}>
+                    {editChargesPayment.paymentStatus || 'PAID'}
+                  </span>
                 </div>
+                <PaymentFieldsSection
+                  key={editingExpense.id}
+                  paymentStatus={editChargesPayment.paymentStatus || 'PAID'}
+                  setPaymentStatus={(val) => handleUpdateEditExtraField('paymentStatus', val)}
+                  paidAmount={editChargesPayment.paymentStatus === 'PAID' ? String(editFinancialSummary.grandTotal) : (editChargesPayment.paidAmount ?? '0')}
+                  setPaidAmount={(val) => handleUpdateEditExtraField('paidAmount', val)}
+                  paymentMode={editChargesPayment.paymentMode || 'CASH'}
+                  setPaymentMode={(val) => handleUpdateEditExtraField('paymentMode', val)}
+                  paymentRef={editChargesPayment.paymentRef ?? ''}
+                  setPaymentRef={(val) => handleUpdateEditExtraField('paymentRef', val)}
+                  paymentImage={editChargesPayment.paymentImage ?? null}
+                  setPaymentImage={(val) => handleUpdateEditExtraField('paymentImage', val)}
+                  paymentNotes={editChargesPayment.paymentNotes ?? ''}
+                  setPaymentNotes={(val) => handleUpdateEditExtraField('paymentNotes', val)}
+                  totalAmount={editFinancialSummary.grandTotal}
+                  isCompact={true}
+                />
               </div>
 
               {/* Attachments */}
@@ -3979,35 +4310,43 @@ export default function ExpensesPage() {
                 )}
                 {Number(viewingExpense.shippingAmount || 0) > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>Shipping {viewingExpense.shippingGstApplicable ? `(GST ${viewingExpense.shippingGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span>
+                      Shipping {viewingExpense.shippingGstApplicable ? `(GST ${Number(viewingExpense.shippingGstRate ?? 18)}% = +₹${((Number(viewingExpense.shippingAmount) * Number(viewingExpense.shippingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                    </span>
                     <span className="font-mono">₹{Number(viewingExpense.shippingAmount).toFixed(2)}</span>
                   </div>
                 )}
                 {Number(viewingExpense.packingAmount || 0) > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>Packing {viewingExpense.packingGstApplicable ? `(GST ${viewingExpense.packingGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span>
+                      Packing {viewingExpense.packingGstApplicable ? `(GST ${Number(viewingExpense.packingGstRate ?? 18)}% = +₹${((Number(viewingExpense.packingAmount) * Number(viewingExpense.packingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                    </span>
                     <span className="font-mono">₹{Number(viewingExpense.packingAmount).toFixed(2)}</span>
                   </div>
                 )}
                 {Number(viewingExpense.loadingAmount || 0) > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>Loading & Unloading {viewingExpense.loadingGstApplicable ? `(GST ${viewingExpense.loadingGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span>
+                      Loading & Unloading {viewingExpense.loadingGstApplicable ? `(GST ${Number(viewingExpense.loadingGstRate ?? 18)}% = +₹${((Number(viewingExpense.loadingAmount) * Number(viewingExpense.loadingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                    </span>
                     <span className="font-mono">₹{Number(viewingExpense.loadingAmount).toFixed(2)}</span>
                   </div>
                 )}
                 {Number(viewingExpense.otherCharges || 0) > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>Other Charges {viewingExpense.otherChargesGstApplicable ? `(GST ${viewingExpense.otherChargesGstRate || 18}%)` : '(No GST)'}:</span>
+                    <span>
+                      {viewingExpense.otherChargesLabel || 'Other Charges'} {viewingExpense.otherChargesGstApplicable ? `(GST ${Number(viewingExpense.otherChargesGstRate ?? 18)}% = +₹${((Number(viewingExpense.otherCharges) * Number(viewingExpense.otherChargesGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                    </span>
                     <span className="font-mono">₹{Number(viewingExpense.otherCharges).toFixed(2)}</span>
                   </div>
                 )}
 
-                {Number(viewingExpense.gstPercentage || 0) > 0 && (
+                {(Number(viewingExpense.gstPercentage || 0) > 0 || (Number(viewingExpense.cgstAmount || 0) + Number(viewingExpense.sgstAmount || 0) + Number(viewingExpense.igstAmount || 0)) > 0) && (
                   <>
                     <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-200/50 dark:border-slate-800/50">
-                      <span>Base GST Rate ({viewingExpense.isInterState ? 'Interstate IGST' : 'Intrastate CGST+SGST'}):</span>
+                      <span>GST Mode ({viewingExpense.isInterState ? 'Interstate IGST' : 'Intrastate CGST+SGST'}):</span>
                       <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                        {viewingExpense.gstPercentage}%
+                        {Number(viewingExpense.gstPercentage || 0)}% {Number(viewingExpense.gstPercentage || 0) === 0 ? '(Charges GST)' : ''}
                       </span>
                     </div>
 
@@ -4061,21 +4400,27 @@ export default function ExpensesPage() {
                         : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
                     }`}
                   >
-                    {viewingExpense.paymentStatus || 'UNPAID'}
+                    {viewingExpense.paymentStatus || 'PAID'}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1 text-slate-600 dark:text-slate-400">
+                <div className="grid grid-cols-3 gap-2 pt-1 text-slate-600 dark:text-slate-400">
                   <div>
                     <span className="text-[10px] text-slate-400 block">Payment Mode:</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200 capitalize">
-                      {(viewingExpense.paymentMode || 'CASH').replace(/_/g, ' ')}
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      {getPaymentModeShortLabel(viewingExpense.paymentMode || 'CASH')}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 block">Paid Amount:</span>
-                    <span className="font-bold font-mono text-slate-800 dark:text-slate-200">
-                      ₹{Number(viewingExpense.paidAmount || 0).toFixed(2)}
+                    <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                      ₹{Number(viewingExpense.paidAmount ?? (viewingExpense.paymentStatus === 'UNPAID' ? 0 : (viewingExpense.totalAmount || viewingExpense.amount || 0))).toFixed(2)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Balance Due:</span>
+                    <span className="font-bold font-mono text-amber-600 dark:text-amber-400">
+                      ₹{Math.max(0, Number(viewingExpense.totalAmount || viewingExpense.amount || 0) - Number(viewingExpense.paidAmount ?? (viewingExpense.paymentStatus === 'UNPAID' ? 0 : (viewingExpense.totalAmount || viewingExpense.amount || 0)))).toFixed(2)}
                     </span>
                   </div>
                   {viewingExpense.paymentRef && (
