@@ -47,6 +47,7 @@ import { Badge } from '@/components/ui/badge';
 
 /* ─────────────────────── Inline Add Supplier ─────────────────────── */
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+const AddSupplierInline = QuickAddSupplierModal;
 import BatchDateInput, { validateAndParseDate } from '../components/BatchDateInput';
 import PaymentFieldsSection from '../components/PaymentFieldsSection';
 import PurchaseOrderPrintModal from '../components/PurchaseOrderPrintModal';
