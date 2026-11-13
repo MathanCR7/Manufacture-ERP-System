@@ -71,8 +71,8 @@ export default function StandardProductionFormPage() {
   const [labourStaffDetails, setLabourStaffDetails] = useState([]);
 
   // ── Wastage & Overhead ──
-  const [wastagePct, setWastagePct] = useState(6.0);
-  const [overheadPct, setOverheadPct] = useState(10.0);
+  const [wastagePct, setWastagePct] = useState(0);
+  const [overheadPct, setOverheadPct] = useState(0);
 
   // ── Raw Materials & Lot Tracking (Section 4) ──
   const [rawMaterials, setRawMaterials] = useState([]);

@@ -3891,7 +3891,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
   }, [rawMaterials, searchCatalogQuery]);
 
   return (
-    <div className={`sap-doc-container w-full bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col ${
+    <div className={`sap-doc-container w-full max-w-full overflow-x-hidden bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col ${
       isFullscreen 
         ? 'fixed inset-0 z-[9999] w-screen h-screen overflow-y-auto' 
         : 'min-h-screen'
@@ -3899,16 +3899,16 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
       <style>{sapStyles}</style>
 
       {/* FULL SCREEN DOCUMENT WINDOW HEADER */}
-      <div className="w-full bg-[var(--sap-titlebar)] text-[var(--sap-titlebar-text)] px-4 py-2 flex items-center justify-between select-none border-b border-[var(--sap-border-inner)] shadow-sm">
+      <div className="w-full bg-[var(--sap-titlebar)] text-[var(--sap-titlebar-text)] px-3 sm:px-4 py-2 flex flex-col md:flex-row md:items-center justify-between gap-2.5 select-none border-b border-[var(--sap-border-inner)] shadow-sm">
         <div className="flex items-center gap-2.5 font-bold text-sm tracking-wide">
           <span className="text-amber-400 text-base">📋</span>
           <span>{editOrderId ? `Edit Order #${docNo || editOrderId}` : 'Sales Order'}</span>
-          <span className="text-xs font-normal text-slate-300 opacity-80 pl-2.5 border-l border-slate-600">
+          <span className="text-xs font-normal text-slate-300 opacity-80 pl-2.5 border-l border-slate-600 hidden sm:inline">
             Enterprise Document Studio • {editOrderId ? 'Update Mode' : 'Full View'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-1.5 sm:gap-2 w-full md:w-auto justify-start md:justify-end">
           {editOrderId && (
             <button
               type="button"
@@ -3967,10 +3967,6 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             )}
           </button>
 
-
-
-
-
           <button
             type="button"
             onClick={() => handleResetForm()}
@@ -3994,9 +3990,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
       </div>
 
       {/* COMMERCIAL SALES ORDER MODE SELECTOR */}
-      <div className="w-full bg-slate-900 border-b border-slate-700 px-4 py-2 flex items-center justify-between gap-3 shadow-inner select-none">
+      <div className="w-full bg-slate-900 border-b border-slate-700 px-3 sm:px-4 py-2 flex flex-col md:flex-row md:items-center justify-between gap-2.5 shadow-inner select-none">
         {/* Left: Mode Title */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1.5 bg-amber-500/10 px-2.5 py-1 rounded-sm border border-amber-500/20">
             <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
             <span>Commercial Order Mode:</span>
@@ -4004,7 +4000,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         </div>
 
         {/* Right: 3 Mode Buttons (Quotation / Standard Order / Invoice) */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-1.5 sm:gap-2 w-full md:w-auto">
           {/* Mode 1: Quotation (Price Quote) */}
           <button
             type="button"
@@ -4025,7 +4021,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           >
             <Sparkles className={`w-3.5 h-3.5 ${orderMode === 'QUOTATION' ? 'text-white font-black' : 'text-purple-400'}`} />
             <span>Quotation</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold hidden sm:inline-block ${
               orderMode === 'QUOTATION'
                 ? 'bg-white/20 text-white'
                 : 'bg-purple-950/60 text-purple-300 border border-purple-800'
@@ -4054,7 +4050,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           >
             <CheckCircle2 className={`w-3.5 h-3.5 ${orderMode === 'STANDARD' ? 'text-slate-950 font-black' : 'text-emerald-400'}`} />
             <span>Standard Order</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold hidden sm:inline-block ${
               orderMode === 'STANDARD'
                 ? 'bg-slate-950/20 text-slate-950'
                 : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'
@@ -4083,7 +4079,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           >
             <FileText className={`w-3.5 h-3.5 ${orderMode === 'INVOICE' ? 'text-white font-black' : 'text-blue-400'}`} />
             <span>Invoice</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold hidden sm:inline-block ${
               orderMode === 'INVOICE'
                 ? 'bg-white/20 text-white'
                 : 'bg-blue-950/60 text-blue-300 border border-blue-800'
@@ -4096,7 +4092,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
       {/* ── LINKED DOCUMENT FLOW BANNER (IF CONNECTED CHAIN) ── */}
       {loadedOrderData?.documentChain && loadedOrderData.documentChain.length > 1 && (
-        <div className="w-full bg-gradient-to-r from-indigo-900/90 via-purple-900/80 to-slate-900 text-white px-4 py-2 flex items-center justify-between gap-3 border-b border-indigo-700/50 shadow-sm text-xs">
+        <div className="w-full bg-gradient-to-r from-indigo-900/90 via-purple-900/80 to-slate-900 text-white px-3 sm:px-4 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 border-b border-indigo-700/50 shadow-sm text-xs">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-extrabold uppercase text-amber-300 flex items-center gap-1">
               <GitFork className="w-3.5 h-3.5" /> Linked Flow:
@@ -4127,7 +4123,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           <button
             type="button"
             onClick={() => setShowDocFlowModal(true)}
-            className="px-2.5 py-1 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer transition-colors shrink-0"
+            className="px-2.5 py-1 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer transition-colors shrink-0 self-start sm:self-center"
           >
             <GitFork className="w-3 h-3" />
             <span>Document Flow Map</span>
@@ -4137,9 +4133,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
       {/* ── ALERT BANNER: QUOTATION ALREADY CONVERTED TO ORDER (PERMANENTLY LOCKED) ── */}
       {orderMode === 'QUOTATION' && isConvertedQuote && (
-        <div className="w-full bg-purple-950/95 border-b border-purple-700/80 px-4 py-2.5 flex items-center justify-between gap-3 text-purple-200 text-xs shadow-inner">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+        <div className="w-full bg-purple-950/95 border-b border-purple-700/80 px-3 sm:px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-purple-200 text-xs shadow-inner">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0 mt-1 sm:mt-0" />
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="font-extrabold text-white text-[11px] bg-purple-800 px-2 py-0.5 rounded border border-purple-600 flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-amber-300" />
@@ -4151,7 +4147,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center flex-wrap gap-2 shrink-0 self-start sm:self-center">
             {convertedChildOrder && (
               <button
                 type="button"
@@ -4176,9 +4172,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
       {/* ── ALERT BANNER: SALES ORDER ALREADY INVOICED (PERMANENTLY LOCKED) ── */}
       {orderMode === 'STANDARD' && isInvoicedOrder && (
-        <div className="w-full bg-emerald-950/95 border-b border-emerald-700/80 px-4 py-2.5 flex items-center justify-between gap-3 text-emerald-200 text-xs shadow-inner">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+        <div className="w-full bg-emerald-950/95 border-b border-emerald-700/80 px-3 sm:px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-emerald-200 text-xs shadow-inner">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0 mt-1 sm:mt-0" />
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="font-extrabold text-white text-[11px] bg-emerald-800 px-2 py-0.5 rounded border border-emerald-600 flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-amber-300" />
@@ -4190,7 +4186,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center flex-wrap gap-2 shrink-0 self-start sm:self-center">
             {invoiceChildOrder && (
               <button
                 type="button"
@@ -4220,8 +4216,8 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         <div className="lg:col-span-7 space-y-1.5">
           
           {/* Customer Code */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
               Customer <span className="text-red-500">*</span>
             </label>
             <div className="flex items-center gap-1 flex-1 max-w-[420px]">
@@ -4245,7 +4241,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   <button
                     type="button"
                     onClick={() => setShowQuickAddModal(true)}
-                    className="px-2 h-[23px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] font-semibold text-[var(--sap-text)] flex items-center gap-1 rounded-xs"
+                    className="px-2 h-[23px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] font-semibold text-[var(--sap-text)] flex items-center gap-1 rounded-xs shrink-0"
                   >
                     <UserPlus className="w-3 h-3 text-amber-600" />
                     <span>+ Quick Add (+91)</span>
@@ -4256,11 +4252,11 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Customer Name */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
               Customer Name <span className="text-red-500">*</span>
             </label>
-            <div className="flex-1 max-w-[460px]">
+            <div className="flex-1 max-w-[460px] w-full">
               <SearchSelect
                 options={customers.map(c => ({
                   value: c.id,
@@ -4278,8 +4274,8 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Customer GST Number & Tax Supply Type Determination */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
               Customer GSTIN
             </label>
             <div className="flex-1 max-w-[460px] flex items-center gap-1.5 flex-wrap">
@@ -4301,8 +4297,8 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Tax Supply Type Rule (Auto-Applied & Locked if GST Available, Editable if Not Available) */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
               Tax Rule & Type
             </label>
             <div className="flex-1 max-w-[460px] flex items-center gap-2 flex-wrap">
@@ -4374,8 +4370,8 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Contact Person */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
               Contact Person
             </label>
             <input
@@ -4383,13 +4379,13 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               value={contactPerson}
               onChange={(e) => setContactPerson(e.target.value)}
               placeholder="Contact phone or person name"
-              className="flex-1 max-w-[420px] h-[23px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none focus:border-blue-500"
+              className="flex-1 max-w-[420px] w-full h-[23px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none focus:border-blue-500"
             />
           </div>
 
           {/* Customer Ref. No. */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
               Customer Ref. No.
             </label>
             <input
@@ -4397,13 +4393,13 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               value={customerRefNo}
               onChange={(e) => setCustomerRefNo(e.target.value)}
               placeholder="Buyer PO or Reference #"
-              className="flex-1 max-w-[320px] h-[23px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none focus:border-blue-500"
+              className="flex-1 max-w-[320px] w-full h-[23px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none focus:border-blue-500"
             />
           </div>
 
           {/* Ship To Address */}
-          <div className="flex items-start">
-            <label className="w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0 pt-0.5">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0 pt-0.5">
               Ship To Address
             </label>
             <input
@@ -4411,7 +4407,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               value={shipToAddress}
               onChange={(e) => setShipToAddress(e.target.value)}
               placeholder="Destination delivery address..."
-              className="flex-1 max-w-[460px] h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] truncate outline-none focus:border-blue-500"
+              className="flex-1 max-w-[460px] w-full h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] truncate outline-none focus:border-blue-500"
             />
           </div>
         </div>
@@ -4420,15 +4416,15 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         <div className="lg:col-span-5 space-y-1.5 lg:pl-6 lg:border-l lg:border-[var(--sap-border-inner)]">
           
           {/* Document Number & Series */}
-          <div className="flex items-center justify-between sm:justify-start">
-            <label className="w-28 text-[var(--sap-text-muted)] font-medium text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between sm:justify-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-28 text-[var(--sap-text-muted)] font-medium text-[11.5px] shrink-0">
               Document No.
             </label>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-1 max-w-[340px] w-full">
               <select
                 value={docSeries}
                 onChange={(e) => setDocSeries(e.target.value)}
-                className="h-[23px] px-2 text-[11px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                className="h-[23px] px-2 text-[11px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none shrink-0"
               >
                 <option value="Primary">Primary</option>
                 <option value="SO-2026">SO-2026</option>
@@ -4438,18 +4434,18 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 type="text"
                 value={docNo}
                 onChange={(e) => setDocNo(e.target.value)}
-                className="min-w-[170px] w-44 h-[23px] px-2 text-[11.5px] font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] text-right outline-none"
+                className="min-w-0 flex-1 sm:min-w-[170px] sm:w-44 h-[23px] px-2 text-[11.5px] font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] text-right outline-none"
               />
-              <span className="text-[var(--sap-text-muted)] text-xs font-mono">- | 0</span>
+              <span className="text-[var(--sap-text-muted)] text-xs font-mono shrink-0">- | 0</span>
             </div>
           </div>
 
           {/* Status */}
-          <div className="flex items-center justify-between sm:justify-start">
-            <label className="w-28 text-[var(--sap-text-muted)] font-medium text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between sm:justify-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-28 text-[var(--sap-text-muted)] font-medium text-[11.5px] shrink-0">
               Status
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <select
                 value={docStatus}
                 onChange={(e) => setDocStatus(e.target.value)}
@@ -4472,41 +4468,41 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Posting Date */}
-          <div className="flex items-center justify-between sm:justify-start">
-            <label className="w-28 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between sm:justify-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-28 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
               Posting Date
             </label>
             <input
               type="date"
               value={postingDate}
               onChange={(e) => setPostingDate(e.target.value)}
-              className="w-40 h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+              className="w-full sm:w-40 h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* Delivery Date */}
-          <div className="flex items-center justify-between sm:justify-start">
-            <label className="w-28 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between sm:justify-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-28 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
               Delivery Date
             </label>
             <input
               type="date"
               value={deliveryDate}
               onChange={(e) => setDeliveryDate(e.target.value)}
-              className="w-40 h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+              className="w-full sm:w-40 h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* Document Date */}
-          <div className="flex items-center justify-between sm:justify-start">
-            <label className="w-28 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between sm:justify-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-28 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
               Document Date
             </label>
             <input
               type="date"
               value={documentDate}
               onChange={(e) => setDocumentDate(e.target.value)}
-              className="w-40 h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+              className="w-full sm:w-40 h-[23px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
             />
           </div>
         </div>
@@ -4646,15 +4642,15 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           <div className="w-full flex-1 flex flex-col space-y-2">
             
             {/* Grid Controls Bar */}
-            <div className="flex items-center justify-between text-[11.5px] pb-1">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-[var(--sap-text)] flex items-center gap-1.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11.5px] pb-1">
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <span className="text-xs font-bold text-[var(--sap-text)] flex items-center gap-1.5 flex-wrap">
                   <Table className="w-3.5 h-3.5 text-amber-500" />
                   <span>Document Rows:</span>
                   <span className="text-slate-500 dark:text-slate-400 font-semibold text-[11px]">
                     ({lines.filter(l => l.productId || l.rawMaterialId).length} filled / {lines.length} total)
                   </span>
-                  <span className="ml-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 font-bold text-[11px] flex items-center gap-1 shadow-xs">
+                  <span className="ml-0 sm:ml-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 font-bold text-[11px] flex items-center gap-1 shadow-xs">
                     <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 uppercase font-medium">Total Qty:</span>
                     <span className="font-extrabold">{totalDocumentQuantity.toLocaleString()}</span>
                     <span className="text-[10px] opacity-75">units</span>
@@ -4669,11 +4665,11 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               </div>
 
               {!isDocumentLocked ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center flex-wrap gap-1.5 sm:gap-2">
                   <button
                     type="button"
                     onClick={() => setShowCatalogModal(true)}
-                    className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    className="px-2.5 sm:px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
                     title="Open full catalog browser modal"
                   >
                     <Package className="w-3.5 h-3.5 text-amber-500" />
@@ -4682,7 +4678,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   <button
                     type="button"
                     onClick={handleAddLine}
-                    className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 sm:px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 text-emerald-600" />
                     <span>+ Add Row</span>
@@ -4690,7 +4686,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   <button
                     type="button"
                     onClick={handleClearEmptyLines}
-                    className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
+                    className="px-2.5 sm:px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-red-500" />
                     <span>Clear Empty Rows</span>
@@ -4709,7 +4705,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <div className="w-full mb-2">
                 {/* CONVERTED FROM SOURCE ORDER BANNER */}
                 {sourceDocNo && orderMode === 'INVOICE' && (
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/60 dark:to-indigo-950/60 border border-blue-400 dark:border-blue-700 rounded-md p-2.5 flex items-center justify-between mb-2">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/60 dark:to-indigo-950/60 border border-blue-400 dark:border-blue-700 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-2">
                     <div className="flex items-center gap-2.5">
                       <div className="w-6 h-6 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-[11px] shrink-0">
                         INV
@@ -4730,7 +4726,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                       <button
                         type="button"
                         onClick={() => navigate(`/sales/order?id=${sourceOrderId}`)}
-                        className="px-2.5 py-1 text-xs font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 rounded shadow-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer shrink-0"
+                        className="px-2.5 py-1 text-xs font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 rounded shadow-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer shrink-0 self-start sm:self-center"
                       >
                         View Source Order #{sourceDocNo}
                       </button>
@@ -4740,14 +4736,14 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
                 {/* QUOTATION MODE */}
                 {orderMode === 'QUOTATION' && (
-                  <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800 rounded-md p-2.5 flex items-center justify-between text-purple-900 dark:text-purple-200">
+                  <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-purple-900 dark:text-purple-200">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
                       <span className="font-bold text-xs">
                         🟣 Commercial Quotation Mode: Non-binding price quote. Zero warehouse stock effect (neither reserved nor deducted).
                       </span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded text-purple-800 dark:text-purple-300">
+                    <span className="text-[10px] font-mono font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded text-purple-800 dark:text-purple-300 shrink-0 self-start sm:self-center">
                       Quotation (No Stock Effect)
                     </span>
                   </div>
@@ -4786,7 +4782,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
                 {/* STANDARD ORDER 100% IN-STOCK */}
                 {orderMode === 'STANDARD' && !stockDeficitSummary.hasShortages && (
-                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-md p-2.5 flex items-center justify-between text-emerald-900 dark:text-emerald-200">
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-emerald-900 dark:text-emerald-200">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <div>
@@ -4798,7 +4794,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                         </div>
                       </div>
                     </div>
-                    <span className="text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-300">
+                    <span className="text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-300 shrink-0 self-start sm:self-center">
                       Ready to Invoice
                     </span>
                   </div>
@@ -4806,7 +4802,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
                 {/* INVOICE MODE WITH SHORTAGE (BLOCKED) */}
                 {orderMode === 'INVOICE' && stockDeficitSummary.hasShortages && (
-                  <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-md p-2.5 flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
+                  <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-rose-900 dark:text-rose-200">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
                       <div>
@@ -4830,7 +4826,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                           text: 'Switched to Standard Order mode. You can commit the order and queue production.'
                         });
                       }}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-md shadow-xs shrink-0 flex items-center gap-1 cursor-pointer"
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-md shadow-xs shrink-0 flex items-center gap-1 cursor-pointer self-start sm:self-center"
                     >
                       <span>Switch to Standard Order</span>
                     </button>
@@ -4839,7 +4835,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
                 {/* INVOICE MODE 100% IN-STOCK */}
                 {orderMode === 'INVOICE' && !stockDeficitSummary.hasShortages && (
-                  <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 rounded-md p-2.5 flex items-center justify-between gap-3 text-blue-900 dark:text-blue-200">
+                  <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-blue-900 dark:text-blue-200">
                     <div className="flex items-center gap-2">
                       <FileText className="w-5 h-5 text-blue-600 shrink-0" />
                       <div>
@@ -4854,7 +4850,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                         </div>
                       </div>
                     </div>
-                    <span className="text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded text-blue-800 dark:text-blue-300">
+                    <span className="text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded text-blue-800 dark:text-blue-300 shrink-0 self-start sm:self-center">
                       Ready to Post
                     </span>
                   </div>
@@ -5662,12 +5658,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 text-xs">
                 Transport & Dispatch Logistics
               </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Shipping Method</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                <label className="w-full sm:w-36 text-[var(--sap-text-muted)] font-medium">Shipping Method</label>
                 <select
                   value={shippingMethod}
                   onChange={(e) => setShippingMethod(e.target.value)}
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="flex-1 w-full h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                 >
                   <option value="Road Transport">Road Transport</option>
                   <option value="Rail">Rail Cargo</option>
@@ -5676,44 +5672,44 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   <option value="Self Pickup">Customer Self-Pickup</option>
                 </select>
               </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Transporter Name</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                <label className="w-full sm:w-36 text-[var(--sap-text-muted)] font-medium">Transporter Name</label>
                 <input
                   type="text"
                   value={transporterName}
                   onChange={(e) => setTransporterName(e.target.value)}
                   placeholder="Carrier or Agency name..."
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="flex-1 w-full h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                 />
               </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Vehicle No</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                <label className="w-full sm:w-36 text-[var(--sap-text-muted)] font-medium">Vehicle No</label>
                 <input
                   type="text"
                   value={vehicleNo}
                   onChange={(e) => setVehicleNo(e.target.value)}
                   placeholder="e.g. TN-01-AB-1234"
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="flex-1 w-full h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                 />
               </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Docket / LR Number</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                <label className="w-full sm:w-36 text-[var(--sap-text-muted)] font-medium">Docket / LR Number</label>
                 <input
                   type="text"
                   value={lrNo}
                   onChange={(e) => setLrNo(e.target.value)}
                   placeholder="LR-000000"
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="flex-1 w-full h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                 />
               </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">e-Way Bill No.</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+                <label className="w-full sm:w-36 text-[var(--sap-text-muted)] font-medium">e-Way Bill No.</label>
                 <input
                   type="text"
                   value={ewayBillNo}
                   onChange={(e) => setEwayBillNo(e.target.value)}
                   placeholder="12-digit e-way bill number"
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="flex-1 w-full h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                 />
               </div>
             </div>
@@ -7189,14 +7185,14 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         
         {/* Left Column: Staff & Remarks (Cols 6) */}
         <div className="lg:col-span-6 space-y-2">
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
               Buyer / Employee
             </label>
             <select
               value={salesEmployee}
               onChange={(e) => setSalesEmployee(e.target.value)}
-              className="flex-1 max-w-[340px] h-[24px] px-2 text-[11.5px] font-medium border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+              className="flex-1 max-w-[340px] w-full h-[24px] px-2 text-[11.5px] font-medium border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
             >
               <option value="-No Sales Employee-">-No Sales Employee-</option>
               {mastersData?.users?.map(u => (
@@ -7208,20 +7204,20 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             </select>
           </div>
 
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
               Owner
             </label>
             <input
               type="text"
               readOnly
               value={owner}
-              className="flex-1 max-w-[340px] h-[24px] px-2 text-[11.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="flex-1 max-w-[340px] w-full h-[24px] px-2 text-[11.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
-          <div className="flex items-start">
-            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0 pt-0.5">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-0">
+            <label className="w-full sm:w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0 pt-0.5">
               Remarks
             </label>
             <textarea
@@ -7229,29 +7225,29 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Order remarks..."
-              className="flex-1 max-w-[420px] p-1.5 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none resize-none"
+              className="flex-1 max-w-[420px] w-full p-1.5 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none resize-none"
             />
           </div>
         </div>
 
         {/* Right Column: Totals & Tax Breakdown (Cols 6) */}
-        <div className="lg:col-span-6 flex flex-col items-end space-y-1.5 text-[11.5px]">
+        <div className="lg:col-span-6 flex flex-col items-stretch lg:items-end space-y-1.5 text-[11.5px]">
           
           {/* Total Product Amount (Finished Products & Raw Materials where Packing? is not checked) */}
-          <div className="flex items-center justify-end w-full max-w-[480px]">
-            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Total Product Amount</label>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">Total Product Amount</label>
             <input
               type="text"
               readOnly
               value={`₹${(financials.totalProductAmount !== undefined ? financials.totalProductAmount : financials.totalBeforeDiscount).toFixed(2)} INR`}
-              className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* Discount Amount with % and ₹ Option */}
-          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <div className="flex-1 flex items-center justify-end gap-1.5 pr-2">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right">Discount</label>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1">
+            <div className="flex-1 flex items-center justify-between sm:justify-end gap-1.5 sm:pr-2">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-left sm:text-right">Discount</label>
               {/* % or ₹ Mode Toggle */}
               <div className="inline-flex rounded-xs border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] p-0.5 text-[10px] font-bold">
                 <button
@@ -7281,58 +7277,60 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               </div>
             </div>
 
-            {discountMode === 'percent' ? (
-              <div className="flex items-center gap-0.5">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="100"
-                  value={discountPercent}
-                  onChange={(e) => {
-                    const pct = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
-                    setDiscountPercent(pct);
-                    const netSub = Math.max(0, financials.totalBeforeDiscount - financials.lineDiscountTotal);
-                    setDiscountAmountInput(round2(netSub * (pct / 100)));
-                  }}
-                  className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                  title="Discount Percentage (%)"
-                />
-                <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">%</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-0.5">
-                <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">₹</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={discountAmountInput}
-                  onChange={(e) => {
-                    const amt = Math.max(0, parseFloat(e.target.value) || 0);
-                    setDiscountAmountInput(amt);
-                    const netSub = Math.max(0, financials.totalBeforeDiscount - financials.lineDiscountTotal);
-                    const pct = netSub > 0 ? (amt / netSub) * 100 : 0;
-                    setDiscountPercent(round2(pct));
-                  }}
-                  className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                  title="Direct Rupee Amount (₹)"
-                />
-              </div>
-            )}
+            <div className="flex items-center justify-end gap-1">
+              {discountMode === 'percent' ? (
+                <div className="flex items-center gap-0.5">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={discountPercent}
+                    onChange={(e) => {
+                      const pct = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                      setDiscountPercent(pct);
+                      const netSub = Math.max(0, financials.totalBeforeDiscount - financials.lineDiscountTotal);
+                      setDiscountAmountInput(round2(netSub * (pct / 100)));
+                    }}
+                    className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    title="Discount Percentage (%)"
+                  />
+                  <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">%</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-0.5">
+                  <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">₹</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={discountAmountInput}
+                    onChange={(e) => {
+                      const amt = Math.max(0, parseFloat(e.target.value) || 0);
+                      setDiscountAmountInput(amt);
+                      const netSub = Math.max(0, financials.totalBeforeDiscount - financials.lineDiscountTotal);
+                      const pct = netSub > 0 ? (amt / netSub) * 100 : 0;
+                      setDiscountPercent(round2(pct));
+                    }}
+                    className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    title="Direct Rupee Amount (₹)"
+                  />
+                </div>
+              )}
 
-            <input
-              type="text"
-              readOnly
-              value={`-₹${financials.docDiscAmt.toFixed(2)} INR`}
-              className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-rose-600 dark:text-rose-400 outline-none"
-            />
+              <input
+                type="text"
+                readOnly
+                value={`-₹${financials.docDiscAmt.toFixed(2)} INR`}
+                className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-rose-600 dark:text-rose-400 outline-none"
+              />
+            </div>
           </div>
 
           {/* Freight & Logistics Charges */}
-          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1">
+            <div className="flex-1 flex items-center justify-between sm:justify-end gap-1 sm:pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-left sm:text-right text-[11.5px] truncate">
                 Freight & Logistics Charges
               </label>
               <span
@@ -7354,7 +7352,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 ➔
               </button>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center justify-end gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -7393,9 +7391,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Package Charges (Auto-Calculated from Packing lines or Manual) */}
-          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">Package Charges</label>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1">
+            <div className="flex-1 flex items-center justify-between sm:justify-end gap-1 sm:pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-left sm:text-right text-[11.5px] truncate">Package Charges</label>
               {packingItemsSum > 0 && (
                 <span
                   className="text-[9.5px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-bold shrink-0"
@@ -7423,7 +7421,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 ➔
               </button>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center justify-end gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -7462,9 +7460,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Loading Charges */}
-          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1">
+            <div className="flex-1 flex items-center justify-between sm:justify-end gap-1 sm:pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-left sm:text-right text-[11.5px] truncate">
                 Loading Charges
               </label>
               <span
@@ -7486,7 +7484,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 ➔
               </button>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center justify-end gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -7525,9 +7523,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Other Charges */}
-          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1">
+            <div className="flex-1 flex items-center justify-between sm:justify-end gap-1 sm:pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-left sm:text-right text-[11.5px] truncate">
                 Other Charges
               </label>
               <span
@@ -7549,7 +7547,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 ➔
               </button>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center justify-end gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -7588,9 +7586,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
 
           {/* Total Product & Available Charges Amount (Replaces Taxable Subtotal) */}
-          <div className="flex items-center justify-end w-full max-w-[480px]">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
             <label 
-              className="flex-1 text-[var(--sap-text-muted)] font-bold pr-3 text-right text-[11px] truncate"
+              className="flex-1 text-[var(--sap-text-muted)] font-bold sm:pr-3 text-left sm:text-right text-[11px] truncate"
               title={financials.productAndChargesLabel}
             >
               {financials.productAndChargesLabel}
@@ -7599,12 +7597,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               type="text"
               readOnly
               value={`₹${(financials.totalProductAndCharges !== undefined ? financials.totalProductAndCharges : (financials.taxableSubtotal || 0)).toFixed(2)} INR`}
-              className="w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* GST Tax Treatment & Supply Type Badge */}
-          <div className="flex items-center justify-between w-full max-w-[480px] px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-300 dark:border-slate-700 text-[11px]">
+          <div className="flex items-center justify-between w-full max-w-full lg:max-w-[480px] px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-300 dark:border-slate-700 text-[11px]">
             <span className="text-[var(--sap-text-muted)] font-bold">GST Supply Type:</span>
             <span className={`font-black flex items-center gap-1 ${
               isInterState ? 'text-blue-700 dark:text-blue-400' : 'text-emerald-700 dark:text-emerald-400'
@@ -7623,28 +7621,28 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 financials.gstSlabs.map(slab => (
                   <React.Fragment key={`slab_intra_${slab.rate}`}>
                     {/* CGST */}
-                    <div className="flex items-center justify-end w-full max-w-[480px]">
-                      <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+                      <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">
                         Central GST (CGST {slab.halfRate}%)
                       </label>
                       <input
                         type="text"
                         readOnly
                         value={`₹${(slab.cgstAmount || 0).toFixed(2)} INR`}
-                        className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                        className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                       />
                     </div>
 
                     {/* SGST */}
-                    <div className="flex items-center justify-end w-full max-w-[480px]">
-                      <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+                      <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">
                         State GST (SGST {slab.halfRate}%)
                       </label>
                       <input
                         type="text"
                         readOnly
                         value={`₹${(slab.sgstAmount || 0).toFixed(2)} INR`}
-                        className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                        className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                       />
                     </div>
                   </React.Fragment>
@@ -7652,28 +7650,28 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               ) : (
                 <>
                   {/* Central GST (CGST) */}
-                  <div className="flex items-center justify-end w-full max-w-[480px]">
-                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">
                       Central GST (CGST)
                     </label>
                     <input
                       type="text"
                       readOnly
                       value={`₹${(financials.cgst || 0).toFixed(2)} INR`}
-                      className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                      className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                     />
                   </div>
 
                   {/* State GST (SGST) */}
-                  <div className="flex items-center justify-end w-full max-w-[480px]">
-                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">
                       State GST (SGST)
                     </label>
                     <input
                       type="text"
                       readOnly
                       value={`₹${(financials.sgst || 0).toFixed(2)} INR`}
-                      className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                      className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                     />
                   </div>
                 </>
@@ -7684,28 +7682,28 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             <>
               {financials.gstSlabs && financials.gstSlabs.length > 0 ? (
                 financials.gstSlabs.map(slab => (
-                  <div key={`slab_inter_${slab.rate}`} className="flex items-center justify-end w-full max-w-[480px]">
-                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                  <div key={`slab_inter_${slab.rate}`} className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">
                       Integrated GST (IGST {slab.rate}%)
                     </label>
                     <input
                       type="text"
                       readOnly
                       value={`₹${(slab.igstAmount || 0).toFixed(2)} INR`}
-                      className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
+                      className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
                     />
                   </div>
                 ))
               ) : (
-                <div className="flex items-center justify-end w-full max-w-[480px]">
-                  <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+                  <label className="flex-1 text-[var(--sap-text-muted)] font-semibold sm:pr-3 text-left sm:text-right">
                     Integrated GST (IGST)
                   </label>
                   <input
                     type="text"
                     readOnly
                     value={`₹${(financials.igst || 0).toFixed(2)} INR`}
-                    className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
+                    className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
                   />
                 </div>
               )}
@@ -7713,19 +7711,19 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           )}
 
           {/* Total GST Taxes */}
-          <div className="flex items-center justify-end w-full max-w-[480px]">
-            <label className="flex-1 text-[var(--sap-text-muted)] font-bold pr-3 text-right">Total GST Tax</label>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-1 sm:gap-0">
+            <label className="flex-1 text-[var(--sap-text-muted)] font-bold sm:pr-3 text-left sm:text-right">Total GST Tax</label>
             <input
               type="text"
               readOnly
               value={`₹${(financials.totalTax || 0).toFixed(2)} INR`}
-              className="w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
+              className="w-full sm:w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
             />
           </div>
 
           {/* Round-Off Adjustment (PO Order Round-off Style) */}
-          <div className="flex items-center justify-end w-full max-w-[480px] gap-2">
-            <label className="flex-1 flex items-center justify-end gap-1.5 text-[var(--sap-text-muted)] font-bold cursor-pointer select-none pr-3">
+          <div className="flex items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] gap-2">
+            <label className="flex-1 flex items-center justify-start sm:justify-end gap-1.5 text-[var(--sap-text-muted)] font-bold cursor-pointer select-none sm:pr-3">
               <input
                 type="checkbox"
                 checked={isRoundingEnabled}
@@ -7738,41 +7736,41 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               type="text"
               readOnly
               value={`₹${financials.roundOff.toFixed(2)} INR`}
-              className="w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="w-32 sm:w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* Net Grand Total */}
-          <div className="flex items-center justify-end w-full max-w-[480px] pt-1">
-            <label className="flex-1 text-[var(--sap-text)] font-extrabold pr-3 text-right text-xs">
+          <div className="flex items-center justify-between sm:justify-end w-full max-w-full lg:max-w-[480px] pt-1">
+            <label className="flex-1 text-[var(--sap-text)] font-extrabold sm:pr-3 text-left sm:text-right text-xs">
               Net Grand Total
             </label>
             <input
               type="text"
               readOnly
               value={`₹${financials.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR`}
-              className="w-40 h-[26px] px-2 text-right font-mono font-black text-sm border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-emerald-700 dark:text-emerald-400 outline-none"
+              className="w-36 sm:w-40 h-[26px] px-2 text-right font-mono font-black text-sm border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-emerald-700 dark:text-emerald-400 outline-none"
             />
           </div>
 
           {/* Advance Paid & Balance Due */}
-          <div className="flex items-center justify-between w-full max-w-[480px] text-xs pt-1 px-1 text-slate-600 dark:text-slate-400">
+          <div className="flex items-center justify-between w-full max-w-full lg:max-w-[480px] text-xs pt-1 px-1 text-slate-600 dark:text-slate-400">
             <span>Advance Paid: <strong className="font-mono text-slate-800 dark:text-white">₹{(Number(advancePaid) || 0).toFixed(2)}</strong></span>
             <span>Balance Due: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">₹{(financials.balanceDue || 0).toFixed(2)}</strong></span>
           </div>
 
           {/* Amount in Words */}
-          <div className="text-[10.5px] text-slate-500 font-semibold italic w-full max-w-[480px] text-right truncate">
+          <div className="text-[10.5px] text-slate-500 font-semibold italic w-full max-w-full lg:max-w-[480px] text-left sm:text-right truncate">
             {financials.amountInWords}
           </div>
         </div>
       </div>
 
       {/* FULL SCREEN BOTTOM ACTIONS BAR (Golden Yellow Add/Update Button, Cancel, PDF Print) */}
-      <div className="w-full px-4 py-2.5 bg-[var(--sap-bg-window)] border-t border-[var(--sap-border-inner)] flex flex-wrap items-center justify-between gap-3 shadow-md">
+      <div className="w-full px-3 sm:px-4 py-2.5 bg-[var(--sap-bg-window)] border-t border-[var(--sap-border-inner)] flex flex-wrap items-center justify-between gap-2.5 shadow-md">
         
         {/* Left Actions */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap w-full sm:w-auto">
           {isDocumentLocked ? (
             <button
               type="button"
@@ -7788,7 +7786,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               type="button"
               disabled={createOrderMutation.isPending}
               onClick={handleSaveOrder}
-              className="px-8 h-[28px] bg-[var(--sap-btn-gold)] hover:bg-[var(--sap-btn-gold-hover)] text-[var(--sap-btn-gold-text)] font-bold text-xs border border-amber-600 rounded-xs shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50"
+              className="px-6 sm:px-8 h-[28px] bg-[var(--sap-btn-gold)] hover:bg-[var(--sap-btn-gold-hover)] text-[var(--sap-btn-gold-text)] font-bold text-xs border border-amber-600 rounded-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 max-sm:w-full"
             >
               {createOrderMutation.isPending ? (
                 <>
@@ -7810,7 +7808,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           {/* Workflow Conversion Action (When Viewing/Editing) */}
           {editOrderId && orderMode === 'QUOTATION' && (
             isConvertedQuote ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => {
@@ -7851,7 +7849,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
           {editOrderId && orderMode === 'STANDARD' && (
             isInvoicedOrder ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => {
@@ -7893,7 +7891,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           <button
             type="button"
             onClick={handleResetForm}
-            className="px-5 h-[28px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] text-[var(--sap-text)] font-bold text-xs border border-[var(--sap-border-inner)] rounded-xs transition-colors cursor-pointer"
+            className="px-4 sm:px-5 h-[28px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] text-[var(--sap-text)] font-bold text-xs border border-[var(--sap-border-inner)] rounded-xs transition-colors cursor-pointer"
           >
             Cancel
           </button>
@@ -7902,22 +7900,18 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             <button
               type="button"
               onClick={() => setShowDocFlowModal(true)}
-              className="px-3 h-[28px] bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs border border-slate-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-1 shadow-xs"
+              className="px-3 h-[28px] bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs border border-slate-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 sm:ml-1 shadow-xs"
               title="View Complete SAP Document Flow & Lifecycle History"
             >
               <GitFork className="w-3.5 h-3.5 text-indigo-300" />
               <span>Document Flow</span>
             </button>
           )}
-
-
-
-
         </div>
       </div>
 
       {/* FULL SCREEN BOTTOM STATUS MESSAGE STRIP */}
-      <div className={`w-full px-4 py-1.5 text-[11px] font-medium flex items-center justify-between border-t border-[var(--sap-border-inner)] ${
+      <div className={`w-full px-3 sm:px-4 py-1.5 text-[11px] font-medium flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 sm:gap-4 border-t border-[var(--sap-border-inner)] ${
         statusMessage.type === 'error'
           ? 'bg-red-700 text-white font-bold'
           : (statusMessage.type === 'info'
@@ -7928,7 +7922,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           {statusMessage.type === 'error' && <AlertTriangle className="w-4 h-4 shrink-0" />}
           <span>{statusMessage.text}</span>
         </div>
-        <div className="flex items-center gap-4 text-[10.5px] opacity-80 shrink-0 font-mono">
+        <div className="flex items-center flex-wrap gap-2 sm:gap-4 text-[10.5px] opacity-80 shrink-0 font-mono">
           <span>{formatDateDMY(new Date())}</span>
           <span>{currentUser?.name || 'Staff'}</span>
           <span>{getIndianStateName(supplierStateCode)} ({supplierStateCode}) • {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST+SGST)'}</span>
@@ -7953,8 +7947,8 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl rounded-sm w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden text-xs">
             
             {/* Modal Header */}
-            <div className="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between select-none">
-              <div className="flex items-center gap-3 font-bold text-sm">
+            <div className="bg-slate-800 text-white px-3 sm:px-4 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5 select-none">
+              <div className="flex items-center flex-wrap gap-2 sm:gap-3 font-bold text-sm">
                 <div className="flex items-center gap-2">
                   <Package className="w-4 h-4 text-amber-400" />
                   <span>Item Catalog Browser</span>
@@ -7983,7 +7977,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                     Raw Materials & Packing ({rawMaterials.length})
                   </button>
                 </div>
-                <span className="text-xs font-normal text-slate-300 opacity-80 pl-2 border-l border-slate-600 flex items-center gap-1.5">
+                <span className="text-xs font-normal text-slate-300 opacity-80 pl-2 border-l border-slate-600 hidden sm:flex items-center gap-1.5">
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   <span>Live Stock</span>
                   {lastStockSyncTime && (
@@ -7991,7 +7985,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   )}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center flex-wrap gap-2 w-full md:w-auto justify-between md:justify-end">
                 <button
                   type="button"
                   disabled={isSyncingStock}
@@ -8027,7 +8021,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 <button
                   type="button"
                   onClick={() => setShowCatalogModal(false)}
-                  className="text-slate-300 hover:text-white ml-2"
+                  className="text-slate-300 hover:text-white ml-2 cursor-pointer p-1"
                 >
                   <X className="w-5 h-5" />
                 </button>

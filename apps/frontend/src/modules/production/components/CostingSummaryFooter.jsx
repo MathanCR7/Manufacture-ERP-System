@@ -4,9 +4,9 @@ import useAuthStore from '@/app/store/authStore';
 
 export default function CostingSummaryFooter({
   subTotal = 0,
-  wastagePct = 6,
+  wastagePct = 0,
   wastageAmt = 0,
-  overheadPct = 10,
+  overheadPct = 0,
   overheadAmt = 0,
   grandTotal = 0,
   outputQty = 2000,
