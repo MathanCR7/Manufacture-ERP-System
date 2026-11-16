@@ -2306,6 +2306,10 @@ exports.getStock = async (req, res, next) => {
       currentStock: m.currentStock,
       stock: m.currentStock,
       availableQuantity: m.availableStock,
+      availableStock: m.availableStock,
+      inProgressStock: m.inProgressStock || 0,
+      periodIn: m.periodInQty || 0,
+      periodOut: m.periodOutQty || 0,
       floatingStock: 0,
       unit: m.uom,
       alertLevel: m.alertLevel,
@@ -2325,11 +2329,21 @@ exports.getStock = async (req, res, next) => {
       gstPercentage: m.gstPercentage,
       gstApplicable: m.gstApplicable,
 
-      // Stock Valuation
+      // Stock Valuation (Total On-Hand Stock)
       valueWithoutTax: m.valueWithoutTax,
       valueWithTax: m.valueWithTax,
       value: m.valueWithTax,
       taxValue: m.taxValue,
+
+      // Available Stock Valuation
+      availableValueWithTax: m.currentStock > 0 ? Math.round((m.valueWithTax * (m.availableStock / m.currentStock)) * 100) / 100 : 0,
+      availableValueWithoutTax: m.currentStock > 0 ? Math.round((m.valueWithoutTax * (m.availableStock / m.currentStock)) * 100) / 100 : 0,
+      availableTaxValue: m.currentStock > 0 ? Math.round((m.taxValue * (m.availableStock / m.currentStock)) * 100) / 100 : 0,
+
+      // In-Progress Floor WIP Valuation
+      wipValueWithTax: m.currentStock > 0 ? Math.round((m.valueWithTax * (m.inProgressStock / m.currentStock)) * 100) / 100 : 0,
+      wipValueWithoutTax: m.currentStock > 0 ? Math.round((m.valueWithoutTax * (m.inProgressStock / m.currentStock)) * 100) / 100 : 0,
+      wipTaxValue: m.currentStock > 0 ? Math.round((m.taxValue * (m.inProgressStock / m.currentStock)) * 100) / 100 : 0,
 
       // PO Line Details
       poReferenceNo: m.poReferenceNo,

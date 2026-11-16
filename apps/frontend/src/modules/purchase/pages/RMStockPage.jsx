@@ -203,27 +203,77 @@ export default function RMStockPage() {
     totalValuationWithTax,
     totalValuationWithoutTax,
     totalGstAmount,
+    availableValuationWithTax,
+    availableValuationWithoutTax,
+    availableGstAmount,
+    wipValuationWithTax,
+    wipValuationWithoutTax,
+    wipGstAmount,
     pricedCount,
     unpricedCount,
     totalStockQty,
-    totalAvailableQty
+    totalAvailableQty,
+    totalWipQty,
+    totalWastageQty
   } = useMemo(() => {
     let withTax = 0;
     let withoutTax = 0;
     let gst = 0;
+
+    let avlWithTax = 0;
+    let avlWithoutTax = 0;
+    let avlGst = 0;
+
+    let wipWithTax = 0;
+    let wipWithoutTax = 0;
+    let wipGst = 0;
+
     let priced = 0;
     let unpriced = 0;
     let stockQty = 0;
     let availableQty = 0;
+    let wipQty = 0;
+    let wastageQty = 0;
 
     for (const item of stock) {
-      stockQty += Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0);
-      availableQty += Number(item.availableQuantity ?? 0);
+      const cur = Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0);
+      const avl = Number(item.availableQuantity ?? 0);
+      const inProg = Number(item.inProgressStock ?? Math.max(0, cur - avl));
+      const out = Number(item.periodOut ?? 0);
+
+      stockQty += cur;
+      availableQty += avl;
+      wipQty += inProg;
+      wastageQty += out;
+
       if (item.hasPo) {
         priced++;
-        withTax += Number(item.valueWithTax || item.value || 0);
-        withoutTax += Number(item.valueWithoutTax || 0);
-        gst += Number(item.taxValue || 0);
+        const itemWithTax = Number(item.valueWithTax || item.value || 0);
+        const itemWithoutTax = Number(item.valueWithoutTax || 0);
+        const itemGst = Number(item.taxValue || 0);
+
+        withTax += itemWithTax;
+        withoutTax += itemWithoutTax;
+        gst += itemGst;
+
+        // Ratio-based exact allocation for Available vs WIP
+        const avlRatio = cur > 0 ? Math.min(1, avl / cur) : 0;
+        const itemAvlWithTax = item.availableValueWithTax !== undefined ? Number(item.availableValueWithTax) : (itemWithTax * avlRatio);
+        const itemAvlWithoutTax = item.availableValueWithoutTax !== undefined ? Number(item.availableValueWithoutTax) : (itemWithoutTax * avlRatio);
+        const itemAvlGst = item.availableTaxValue !== undefined ? Number(item.availableTaxValue) : (itemGst * avlRatio);
+
+        avlWithTax += itemAvlWithTax;
+        avlWithoutTax += itemAvlWithoutTax;
+        avlGst += itemAvlGst;
+
+        const wipRatio = cur > 0 ? Math.min(1, inProg / cur) : 0;
+        const itemWipWithTax = item.wipValueWithTax !== undefined ? Number(item.wipValueWithTax) : (itemWithTax * wipRatio);
+        const itemWipWithoutTax = item.wipValueWithoutTax !== undefined ? Number(item.wipValueWithoutTax) : (itemWithoutTax * wipRatio);
+        const itemWipGst = item.wipTaxValue !== undefined ? Number(item.wipTaxValue) : (itemGst * wipRatio);
+
+        wipWithTax += itemWipWithTax;
+        wipWithoutTax += itemWipWithoutTax;
+        wipGst += itemWipGst;
       } else {
         unpriced++;
       }
@@ -233,10 +283,18 @@ export default function RMStockPage() {
       totalValuationWithTax: withTax,
       totalValuationWithoutTax: withoutTax,
       totalGstAmount: gst,
+      availableValuationWithTax: avlWithTax,
+      availableValuationWithoutTax: avlWithoutTax,
+      availableGstAmount: avlGst,
+      wipValuationWithTax: wipWithTax,
+      wipValuationWithoutTax: wipWithoutTax,
+      wipGstAmount: wipGst,
       pricedCount: priced,
       unpricedCount: unpriced,
       totalStockQty: stockQty,
-      totalAvailableQty: availableQty
+      totalAvailableQty: availableQty,
+      totalWipQty: wipQty,
+      totalWastageQty: wastageQty
     };
   }, [stock]);
 
@@ -510,7 +568,7 @@ export default function RMStockPage() {
 
       {/* Executive KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-        {/* Card 1: Value With Tax */}
+        {/* Card 1: Value With Tax (Total & Available) */}
         <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/20 dark:via-slate-900 dark:to-slate-900 border border-emerald-200/80 dark:border-emerald-800/60 shadow-3xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-400">
@@ -526,18 +584,21 @@ export default function RMStockPage() {
               {totalStockQty.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total Qty
             </span>
           </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-between gap-1 flex-wrap">
-            <span className="flex items-center gap-1 truncate">
+          <div className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 flex items-center justify-between gap-1 flex-wrap pt-1 border-t border-emerald-100/80 dark:border-emerald-900/40">
+            <span className="flex items-center gap-1 font-medium">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-              PO-Derived Gross Inventory Value
+              Avl: <strong className="font-mono text-emerald-700 dark:text-emerald-300">₹{availableValuationWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              <span className="text-slate-400 text-[9.5px]">({totalAvailableQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })})</span>
             </span>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
-              Avl: <strong className="font-mono text-slate-700 dark:text-slate-300">{totalAvailableQty.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            </span>
+            {totalWipQty > 0 && (
+              <span className="font-mono text-[9.5px] text-amber-700 dark:text-amber-400 font-semibold" title="In-Progress Floor WIP Valuation">
+                WIP: ₹{wipValuationWithTax.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Card 2: Value Without Tax */}
+        {/* Card 2: Value Without Tax (Total & Available Base Rate) */}
         <div className="p-3 rounded-xl bg-gradient-to-br from-blue-500/10 via-blue-500/5 to-transparent dark:from-blue-500/20 dark:via-slate-900 dark:to-slate-900 border border-blue-200/80 dark:border-blue-800/60 shadow-3xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider font-bold text-blue-700 dark:text-blue-400">
@@ -547,16 +608,26 @@ export default function RMStockPage() {
               <IndianRupee className="w-3 h-3" />
             </span>
           </div>
-          <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5">
-            ₹{totalValuationWithoutTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5 flex items-baseline justify-between gap-1.5 flex-wrap">
+            <span>₹{totalValuationWithoutTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-[10px] text-blue-600 dark:text-blue-400 font-mono font-semibold">
+              Base PO Rate
+            </span>
           </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-            Base Purchase Rate Valuation
+          <div className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 flex items-center justify-between gap-1 flex-wrap pt-1 border-t border-blue-100/80 dark:border-blue-900/40">
+            <span className="flex items-center gap-1 font-medium">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+              Avl Net: <strong className="font-mono text-blue-700 dark:text-blue-300">₹{availableValuationWithoutTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </span>
+            {totalWipQty > 0 && (
+              <span className="font-mono text-[9.5px] text-slate-500 dark:text-slate-400" title="In-Progress Floor WIP Base Rate">
+                WIP: ₹{wipValuationWithoutTax.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Card 3: GST Amount */}
+        {/* Card 3: GST Tax Amount (Total & Available Tax) */}
         <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-500/10 via-indigo-500/5 to-transparent dark:from-indigo-500/20 dark:via-slate-900 dark:to-slate-900 border border-indigo-200/80 dark:border-indigo-800/60 shadow-3xs relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-400">
@@ -566,12 +637,22 @@ export default function RMStockPage() {
               <IndianRupee className="w-3 h-3" />
             </span>
           </div>
-          <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5">
-            ₹{totalGstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5 flex items-baseline justify-between gap-1.5 flex-wrap">
+            <span>₹{totalGstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-semibold">
+              Live Total GST
+            </span>
           </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-            Cumulative GST on Hand
+          <div className="text-[10px] text-slate-600 dark:text-slate-400 mt-1 flex items-center justify-between gap-1 flex-wrap pt-1 border-t border-indigo-100/80 dark:border-indigo-900/40">
+            <span className="flex items-center gap-1 font-medium">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
+              Avl Tax: <strong className="font-mono text-indigo-700 dark:text-indigo-300">₹{availableGstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </span>
+            {totalWipQty > 0 && (
+              <span className="font-mono text-[9.5px] text-slate-500 dark:text-slate-400" title="GST on In-Progress WIP Stock">
+                WIP: ₹{wipGstAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              </span>
+            )}
           </div>
         </div>
 
@@ -592,6 +673,74 @@ export default function RMStockPage() {
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
             Master rate excluded • 100% PO derived
+          </div>
+        </div>
+      </div>
+
+      {/* Realtime Stock Allocation & Valuation Breakdown Strip */}
+      <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 text-xs shadow-3xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+          <span className="font-bold uppercase tracking-wider text-[10.5px] text-slate-700 dark:text-slate-200">
+            Stock Valuation Reconciliation
+          </span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono font-semibold">
+            Live PO Derived
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1 text-[11px]">
+          {/* 1. Total On-Hand */}
+          <div className="px-2 py-1 rounded-lg bg-white dark:bg-slate-950/60 border border-slate-200/60 dark:border-slate-800">
+            <div className="text-[9.5px] font-bold text-slate-500 uppercase tracking-tight">Total Physical Stock</div>
+            <div className="font-mono font-black text-slate-900 dark:text-white text-xs">
+              ₹{totalValuationWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-[9.5px] text-slate-500 font-mono">
+              {totalStockQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} units • Base: ₹{totalValuationWithoutTax.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+
+          {/* 2. Free Available */}
+          <div className="px-2 py-1 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60">
+            <div className="text-[9.5px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-tight flex items-center justify-between">
+              <span>Available Stock</span>
+              <span className="text-[8.5px] px-1 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold">Ready</span>
+            </div>
+            <div className="font-mono font-black text-emerald-700 dark:text-emerald-300 text-xs">
+              ₹{availableValuationWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-[9.5px] text-emerald-800/80 dark:text-emerald-400/80 font-mono">
+              {totalAvailableQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} units • Tax: ₹{availableGstAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+
+          {/* 3. In-Progress Floor WIP */}
+          <div className="px-2 py-1 rounded-lg bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/60">
+            <div className="text-[9.5px] font-bold text-amber-800 dark:text-amber-300 uppercase tracking-tight flex items-center justify-between">
+              <span>In-Progress (WIP)</span>
+              <span className="text-[8.5px] px-1 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 font-bold">Floor</span>
+            </div>
+            <div className="font-mono font-black text-amber-800 dark:text-amber-300 text-xs">
+              ₹{wipValuationWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-[9.5px] text-amber-800/80 dark:text-amber-400/80 font-mono">
+              {totalWipQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} units • Base: ₹{wipValuationWithoutTax.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
+
+          {/* 4. Wastage & Removals */}
+          <div className="px-2 py-1 rounded-lg bg-rose-50/40 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40">
+            <div className="text-[9.5px] font-bold text-rose-800 dark:text-rose-300 uppercase tracking-tight flex items-center justify-between">
+              <span>Wastage & Removals</span>
+              <span className="text-[8.5px] px-1 rounded bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-300 font-bold">Adjusted</span>
+            </div>
+            <div className="font-mono font-black text-rose-700 dark:text-rose-300 text-xs">
+              {totalWastageQty.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} units
+            </div>
+            <div className="text-[9.5px] text-rose-700/80 dark:text-rose-400/80 font-mono">
+              Damage / Shelf Expiry / Deductions
+            </div>
           </div>
         </div>
       </div>
@@ -1340,8 +1489,13 @@ export default function RMStockPage() {
                                   ₹{Number(item.valueWithTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </div>
                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono leading-tight mt-0.5">
-                                  Base: ₹{Number(item.valueWithoutTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • <span className="text-emerald-600 dark:text-emerald-400">+₹{Number(item.taxValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  Base: ₹{Number(item.valueWithoutTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • <span className="text-emerald-600 dark:text-emerald-400">+₹{Number(item.taxValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GST</span>
                                 </div>
+                                {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))) > 0 && (
+                                  <div className="text-[9.5px] font-mono leading-tight text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Avl Val: <strong className="text-emerald-700 dark:text-emerald-300">₹{Number(item.availableValueWithTax !== undefined ? item.availableValueWithTax : (Number(item.valueWithTax || 0) * (Number(item.availableQuantity || 0) / Math.max(1, Number(item.currentStock || item.stock || 1))))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                  </div>
+                                )}
                               </div>
                             ) : taxViewMode === 'with_tax' ? (
                               <div className="text-right">
@@ -1351,6 +1505,11 @@ export default function RMStockPage() {
                                 <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium leading-tight mt-0.5">
                                   Incl. ₹{Number(item.taxValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GST
                                 </div>
+                                {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))) > 0 && (
+                                  <div className="text-[9.5px] font-mono leading-tight text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Avl Val: <strong className="text-emerald-700 dark:text-emerald-300">₹{Number(item.availableValueWithTax !== undefined ? item.availableValueWithTax : (Number(item.valueWithTax || 0) * (Number(item.availableQuantity || 0) / Math.max(1, Number(item.currentStock || item.stock || 1))))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                  </div>
+                                )}
                               </div>
                             ) : (
                               <div className="text-right">
@@ -1360,6 +1519,11 @@ export default function RMStockPage() {
                                 <div className="text-[10px] text-slate-400 font-medium leading-tight mt-0.5">
                                   Excl. ₹{Number(item.taxValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GST
                                 </div>
+                                {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))) > 0 && (
+                                  <div className="text-[9.5px] font-mono leading-tight text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Avl Net: <strong className="text-blue-700 dark:text-blue-300">₹{Number(item.availableValueWithoutTax !== undefined ? item.availableValueWithoutTax : (Number(item.valueWithoutTax || 0) * (Number(item.availableQuantity || 0) / Math.max(1, Number(item.currentStock || item.stock || 1))))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                  </div>
+                                )}
                               </div>
                             )
                           ) : (

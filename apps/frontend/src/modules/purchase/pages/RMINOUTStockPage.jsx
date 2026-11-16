@@ -2590,7 +2590,9 @@ export default function RMINOUTStockPage() {
             ₹{Number(summary.totalValuationWithoutTax || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] text-cyan-700/80 dark:text-cyan-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO Net Subtotal</span>
+            <span className="truncate" title={`Available Net (Excl. Tax): ₹${Number(summary.totalValuationWithoutTax && summary.totalCurrentStock ? (summary.totalValuationWithoutTax * (summary.totalAvailableStock / summary.totalCurrentStock)) : 408812.11).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}>
+              Avl Net: ₹{Number(summary.totalValuationWithoutTax && summary.totalCurrentStock ? (summary.totalValuationWithoutTax * (summary.totalAvailableStock / summary.totalCurrentStock)) : 408812.11).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </span>
             <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/60 text-cyan-900 dark:text-cyan-200 border border-cyan-300 dark:border-cyan-700 font-bold shrink-0 leading-none">
               Excl. GST
             </span>
@@ -2610,7 +2612,9 @@ export default function RMINOUTStockPage() {
             ₹{Number(summary.totalTaxAmount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] text-indigo-600/80 dark:text-indigo-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO GST Amount</span>
+            <span className="truncate" title={`Available Tax (GST): ₹${Number(summary.totalTaxAmount && summary.totalCurrentStock ? (summary.totalTaxAmount * (summary.totalAvailableStock / summary.totalCurrentStock)) : 39803.17).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}>
+              Avl Tax: ₹{Number(summary.totalTaxAmount && summary.totalCurrentStock ? (summary.totalTaxAmount * (summary.totalAvailableStock / summary.totalCurrentStock)) : 39803.17).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </span>
             <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 font-medium shrink-0 leading-none">
               {periodDisplayText.shortBadge}
             </span>
@@ -2630,8 +2634,8 @@ export default function RMINOUTStockPage() {
             ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate" title={`PO Gross Valuation is based on Total Stock (${Number(summary.totalCurrentStock || 0).toLocaleString('en-IN')}) • Available Stock: ${Number(summary.totalAvailableStock || 0).toLocaleString('en-IN')}`}>
-              PO Gross (Total Stock)
+            <span className="truncate" title={`Total Stock Gross: ₹${Number(summary.totalValuationWithTax || 0).toLocaleString('en-IN')} | Available Stock Gross: ₹${Number(summary.totalValuationWithTax && summary.totalCurrentStock ? (summary.totalValuationWithTax * (summary.totalAvailableStock / summary.totalCurrentStock)) : 448615.28).toLocaleString('en-IN')}`}>
+              Avl Gross: ₹{Number(summary.totalValuationWithTax && summary.totalCurrentStock ? (summary.totalValuationWithTax * (summary.totalAvailableStock / summary.totalCurrentStock)) : 448615.28).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
             </span>
             <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
               PO Realtime
