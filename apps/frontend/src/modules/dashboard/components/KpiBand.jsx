@@ -48,103 +48,7 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
   const [supplierSearch, setSupplierSearch] = useState('');
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // ── ROW 1: EXECUTIVE OPERATIONAL KPI TILES (8 TILES) ─────────────────────────
-  // ─────────────────────────────────────────────────────────────────────────────
-  const row1Tiles = [
-    {
-      id: 'active-batches',
-      title: 'Active Batches',
-      value: kpis.activeBatches?.count ?? 0,
-      sub: 'In execution on floor',
-      pill: { status: `${kpis.activeBatches?.count || 0} Running`, type: 'in-progress' },
-      icon: Factory,
-      sparkline: kpis.activeBatches?.sparkline,
-      route: '/production/batches'
-    },
-    {
-      id: 'output-today',
-      title: 'Output Today',
-      value: `${kpis.outputToday?.actual?.toLocaleString('en-IN') || 0} ${kpis.outputToday?.uom || 'L'}`,
-      sub: `Plan: ${kpis.outputToday?.planned?.toLocaleString('en-IN') || 0} ${kpis.outputToday?.uom || 'L'}`,
-      pill: { status: `${kpis.outputToday?.percentOfPlan || 100}% of plan`, type: (kpis.outputToday?.percentOfPlan >= 90 ? 'good' : 'warning') },
-      icon: BarChart3,
-      progress: kpis.outputToday?.percentOfPlan || 100,
-      route: '/production/batches'
-    },
-    {
-      id: 'rm-low-stock',
-      title: 'RM Low Stock',
-      value: kpis.rmLowStock?.totalAtRisk ?? 0,
-      sub: `${kpis.rmLowStock?.critical || 0} Critical • ${kpis.rmLowStock?.low || 0} Low`,
-      pill: {
-        status: (kpis.rmLowStock?.critical > 0 ? `${kpis.rmLowStock.critical} Critical` : 'Stock Healthy'),
-        type: (kpis.rmLowStock?.critical > 0 ? 'critical' : kpis.rmLowStock?.low > 0 ? 'warning' : 'good')
-      },
-      icon: AlertTriangle,
-      route: '/purchase/rm-low-stock'
-    },
-    {
-      id: 'qc-quarantine',
-      title: 'QC Quarantine',
-      value: kpis.qcQuarantine?.quarantineCount ?? 0,
-      sub: `${kpis.qcQuarantine?.approvedToday || 0} approved today`,
-      pill: {
-        status: (kpis.qcQuarantine?.quarantineCount > 0 ? `${kpis.qcQuarantine.quarantineCount} On Hold` : 'Queue Clear'),
-        type: (kpis.qcQuarantine?.quarantineCount > 0 ? 'warning' : 'good')
-      },
-      icon: ShieldCheck,
-      route: '/production/qc-queue'
-    },
-    {
-      id: 'orders-to-dispatch',
-      title: 'Orders to Dispatch',
-      value: kpis.ordersToDispatch?.readyForShipment ?? 0,
-      sub: `${kpis.ordersToDispatch?.dispatchedToday || 0} dispatched today`,
-      pill: {
-        status: `${kpis.ordersToDispatch?.readyForShipment || 0} Ready`,
-        type: 'good'
-      },
-      icon: Truck,
-      route: '/sales/order'
-    },
-    {
-      id: 'pos-pending-approval',
-      title: 'POs Pending Approval',
-      value: kpis.posPendingApproval?.count ?? 0,
-      sub: formatRupees(kpis.posPendingApproval?.totalAmount || 0),
-      pill: {
-        status: (kpis.posPendingApproval?.count > 0 ? `${kpis.posPendingApproval.count} Awaiting` : 'All Approved'),
-        type: (kpis.posPendingApproval?.count > 0 ? 'warning' : 'good')
-      },
-      icon: FileCheck2,
-      route: '/purchase-orders'
-    },
-    {
-      id: 'staff-on-floor',
-      title: 'Staff on Floor',
-      value: kpis.staffOnFloor?.clockedIn ?? 12,
-      sub: `Shift: ${kpis.staffOnFloor?.shift || data?.currentShift || 'Evening'}`,
-      pill: { status: 'Shift Active', type: 'good' },
-      icon: Users,
-      route: '/attendance'
-    },
-    {
-      id: 'revenue-today',
-      title: 'Revenue Today',
-      value: formatRupees(kpis.revenueToday?.revenue || 0),
-      sub: `Target: ${formatRupees(kpis.revenueToday?.dailyTarget || 50000)}`,
-      pill: {
-        status: `${kpis.revenueToday?.revenue >= (kpis.revenueToday?.dailyTarget || 50000) ? 'Target Met' : 'In Progress'}`,
-        type: (kpis.revenueToday?.revenue >= (kpis.revenueToday?.dailyTarget || 50000) ? 'good' : 'in-progress')
-      },
-      icon: IndianRupee,
-      sparkline: kpis.revenueToday?.sparkline,
-      route: '/sales/order'
-    }
-  ];
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // ── ROW 2: ENTERPRISE MASTER DATA & COMMERCIAL KPI TILES (8 TILES) ───────────
+  // ── ROW 1: ENTERPRISE MASTER DATA & COMMERCIAL KPI TILES (FIRST 8 CARDS) ─────
   // ─────────────────────────────────────────────────────────────────────────────
   const rm = enterprise.rawMaterials || {};
   const fg = enterprise.products || {};
@@ -155,7 +59,7 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
   const cust = enterprise.customers || {};
   const supp = enterprise.suppliers || {};
 
-  const row2Tiles = [
+  const enterpriseTiles = [
     // 1. Total Raw Materials (with category total)
     {
       id: 'total-raw-materials',
@@ -250,6 +154,102 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
       icon: Truck,
       isModal: true,
       onOpenModal: () => setSupplierModalOpen(true)
+    }
+  ];
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ── ROW 2: EXECUTIVE OPERATIONAL KPI TILES (DISPLAYED BELOW) ─────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+  const operationalTiles = [
+    {
+      id: 'active-batches',
+      title: 'Active Batches',
+      value: kpis.activeBatches?.count ?? 0,
+      sub: 'In execution on floor',
+      pill: { status: `${kpis.activeBatches?.count || 0} Running`, type: 'in-progress' },
+      icon: Factory,
+      sparkline: kpis.activeBatches?.sparkline,
+      route: '/production/batches'
+    },
+    {
+      id: 'output-today',
+      title: 'Output Today',
+      value: `${kpis.outputToday?.actual?.toLocaleString('en-IN') || 0} ${kpis.outputToday?.uom || 'L'}`,
+      sub: `Plan: ${kpis.outputToday?.planned?.toLocaleString('en-IN') || 0} ${kpis.outputToday?.uom || 'L'}`,
+      pill: { status: `${kpis.outputToday?.percentOfPlan || 100}% of plan`, type: (kpis.outputToday?.percentOfPlan >= 90 ? 'good' : 'warning') },
+      icon: BarChart3,
+      progress: kpis.outputToday?.percentOfPlan || 100,
+      route: '/production/batches'
+    },
+    {
+      id: 'rm-low-stock',
+      title: 'RM Low Stock',
+      value: kpis.rmLowStock?.totalAtRisk ?? 0,
+      sub: `${kpis.rmLowStock?.critical || 0} Critical • ${kpis.rmLowStock?.low || 0} Low`,
+      pill: {
+        status: (kpis.rmLowStock?.critical > 0 ? `${kpis.rmLowStock.critical} Critical` : 'Stock Healthy'),
+        type: (kpis.rmLowStock?.critical > 0 ? 'critical' : kpis.rmLowStock?.low > 0 ? 'warning' : 'good')
+      },
+      icon: AlertTriangle,
+      route: '/purchase/rm-low-stock'
+    },
+    {
+      id: 'qc-quarantine',
+      title: 'QC Quarantine',
+      value: kpis.qcQuarantine?.quarantineCount ?? 0,
+      sub: `${kpis.qcQuarantine?.approvedToday || 0} approved today`,
+      pill: {
+        status: (kpis.qcQuarantine?.quarantineCount > 0 ? `${kpis.qcQuarantine.quarantineCount} On Hold` : 'Queue Clear'),
+        type: (kpis.qcQuarantine?.quarantineCount > 0 ? 'warning' : 'good')
+      },
+      icon: ShieldCheck,
+      route: '/production/qc-queue'
+    },
+    {
+      id: 'orders-to-dispatch',
+      title: 'Orders to Dispatch',
+      value: kpis.ordersToDispatch?.readyForShipment ?? 0,
+      sub: `${kpis.ordersToDispatch?.dispatchedToday || 0} dispatched today`,
+      pill: {
+        status: `${kpis.ordersToDispatch?.readyForShipment || 0} Ready`,
+        type: 'good'
+      },
+      icon: Truck,
+      route: '/sales/order'
+    },
+    {
+      id: 'pos-pending-approval',
+      title: 'POs Pending Approval',
+      value: kpis.posPendingApproval?.count ?? 0,
+      sub: formatRupees(kpis.posPendingApproval?.totalAmount || 0),
+      pill: {
+        status: (kpis.posPendingApproval?.count > 0 ? `${kpis.posPendingApproval.count} Awaiting` : 'All Approved'),
+        type: (kpis.posPendingApproval?.count > 0 ? 'warning' : 'good')
+      },
+      icon: FileCheck2,
+      route: '/purchase-orders'
+    },
+    {
+      id: 'staff-on-floor',
+      title: 'Staff on Floor',
+      value: kpis.staffOnFloor?.clockedIn ?? 12,
+      sub: `Shift: ${kpis.staffOnFloor?.shift || data?.currentShift || 'Evening'}`,
+      pill: { status: 'Shift Active', type: 'good' },
+      icon: Users,
+      route: '/attendance'
+    },
+    {
+      id: 'revenue-today',
+      title: 'Revenue Today',
+      value: formatRupees(kpis.revenueToday?.revenue || 0),
+      sub: `Target: ${formatRupees(kpis.revenueToday?.dailyTarget || 50000)}`,
+      pill: {
+        status: `${kpis.revenueToday?.revenue >= (kpis.revenueToday?.dailyTarget || 50000) ? 'Target Met' : 'In Progress'}`,
+        type: (kpis.revenueToday?.revenue >= (kpis.revenueToday?.dailyTarget || 50000) ? 'good' : 'in-progress')
+      },
+      icon: IndianRupee,
+      sparkline: kpis.revenueToday?.sparkline,
+      route: '/sales/order'
     }
   ];
 
@@ -362,16 +362,16 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
   };
 
   return (
-    <div className="space-y-3" aria-label="Executive and Enterprise KPI Bands">
+    <div className="space-y-3" aria-label="Enterprise Master and Operational KPI Bands">
       
-      {/* ── ROW 1: 8 EXECUTIVE OPERATIONAL KPI CARDS ── */}
+      {/* ── ROW 1: 8 ENTERPRISE MASTER DATA & COMMERCIAL KPI CARDS (FIRST 8 CARDS) ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2.5 sm:gap-3">
-        {row1Tiles.map(renderTile)}
+        {enterpriseTiles.map(renderTile)}
       </div>
 
-      {/* ── ROW 2: 8 ENTERPRISE MASTER DATA & COMMERCIAL KPI CARDS ── */}
+      {/* ── ROW 2: 8 EXECUTIVE OPERATIONAL KPI CARDS (DISPLAYED BELOW) ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2.5 sm:gap-3">
-        {row2Tiles.map(renderTile)}
+        {operationalTiles.map(renderTile)}
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────────── */}
