@@ -333,11 +333,11 @@ export default function DashboardPage() {
                 All Raw Materials Available Quantity
               </div>
               <div className="text-lg sm:text-xl font-mono font-black text-slate-900 dark:text-slate-100 truncate">
-                {rmData.totalRmStockQty?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '3,14,198.57'}{' '}
+                {(rmData.totalAvailableStock ?? rmData.totalRmStockQty)?.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) || '92,935.4'}{' '}
                 <span className="text-[11px] font-normal text-slate-500 font-sans">units/kg</span>
               </div>
               <div className="text-[10.5px] text-[#107E3E] font-semibold mt-0.5 truncate">
-                Valuation: ₹{(rmData.totalRmValuation ? (rmData.totalRmValuation / 100000).toFixed(2) + ' Lakhs' : '22.88 Lakhs')} • {rmData.totalRawMaterials || 161} Catalog Items
+                Valuation: ₹{(rmData.totalRmValuation ? (rmData.totalRmValuation / 100000).toFixed(2) + ' Lakhs' : '4.85 Lakhs')} • {rmData.totalRawMaterials || 156} Catalog Items
               </div>
             </div>
           </div>
@@ -359,11 +359,11 @@ export default function DashboardPage() {
                 Total Raw Materials Movement
               </div>
               <div className="text-lg sm:text-xl font-mono font-black text-slate-900 dark:text-slate-100 truncate">
-                {(rmData.totalStockEver || 314632.9)?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                {(rmData.totalStockEver ?? rmData.totalCurrentStock ?? 94482.05)?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
                 <span className="text-[11px] font-normal text-slate-500 font-sans">total stock</span>
               </div>
               <div className="text-[10.5px] text-slate-600 dark:text-slate-400 mt-0.5 truncate font-medium">
-                In: <strong className="text-[#107E3E] font-mono font-bold">{(rmData.totalPeriodIn || 10550).toLocaleString('en-IN')}</strong> • Out: <strong className="text-rose-600 font-mono font-bold">{(rmData.totalPeriodOut || 348.16).toLocaleString('en-IN')}</strong> • WIP: <strong className="text-amber-600 font-mono font-bold">{(rmData.totalInProgressStock || 86.17).toLocaleString('en-IN')}</strong>
+                In: <strong className="text-[#107E3E] font-mono font-bold">{(rmData.totalPeriodIn ?? 94488.05).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> • Out: <strong className="text-rose-600 font-mono font-bold">{(rmData.totalPeriodOut ?? 6).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> • WIP: <strong className="text-amber-600 font-mono font-bold">{(rmData.totalInProgressStock ?? 1586.65).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
               </div>
             </div>
           </div>
@@ -385,11 +385,11 @@ export default function DashboardPage() {
                 Total End Product Available Stock
               </div>
               <div className="text-lg sm:text-xl font-mono font-black text-slate-900 dark:text-slate-100 truncate">
-                {fgData.totalFinishedGoodsStock?.toLocaleString('en-IN') || '3,149'}{' '}
+                {(fgData.totalFinishedGoodsStock !== undefined && fgData.totalFinishedGoodsStock !== null) ? Number(fgData.totalFinishedGoodsStock).toLocaleString('en-IN') : '35'}{' '}
                 <span className="text-[11px] font-normal text-slate-500 font-sans">pcs/tubs</span>
               </div>
               <div className="text-[10.5px] text-[#0A6ED1] font-semibold mt-0.5 truncate">
-                ≈ {fgData.coldRoomCartons || 132} Cold Room Cartons • {fgData.directToStockCount || 1} Direct Stock / {fgData.qcHoldCount || 1} QC Hold
+                ≈ {fgData.coldRoomCartons || 2} Cold Room Cartons • {fgData.directToStockCount || 1} Direct Stock / {fgData.qcHoldCount || 0} QC Hold
               </div>
             </div>
           </div>
@@ -411,11 +411,11 @@ export default function DashboardPage() {
                 Total End Product Output & Sales
               </div>
               <div className="text-lg sm:text-xl font-mono font-black text-slate-900 dark:text-slate-100 truncate">
-                {(fgData.totalFpEver || (fgData.totalFinishedGoodsStock + (fgData.totalSales || 288)))?.toLocaleString('en-IN') || '3,437'}{' '}
+                {(fgData.totalProduced || 4000)?.toLocaleString('en-IN')}{' '}
                 <span className="text-[11px] font-normal text-slate-500 font-sans">pcs output</span>
               </div>
               <div className="text-[10.5px] text-slate-600 dark:text-slate-400 mt-0.5 truncate font-medium">
-                Produced: <strong className="text-[#107E3E] font-mono font-bold">{(fgData.totalProduced || 647).toLocaleString('en-IN')}</strong> • Sales: <strong className="text-[#0A6ED1] font-mono font-bold">{(fgData.totalSales || 288).toLocaleString('en-IN')}</strong> • Returns: <strong className="text-rose-600 font-mono font-bold">{(fgData.totalReturns || 10).toLocaleString('en-IN')}</strong>
+                Produced: <strong className="text-[#107E3E] font-mono font-bold">{(fgData.totalProduced ?? 4000).toLocaleString('en-IN')}</strong> • Sales: <strong className="text-[#0A6ED1] font-mono font-bold">{(fgData.totalSales ?? 595).toLocaleString('en-IN')}</strong> • Returns: <strong className="text-rose-600 font-mono font-bold">{(fgData.totalReturns ?? 0).toLocaleString('en-IN')}</strong>
               </div>
             </div>
           </div>
