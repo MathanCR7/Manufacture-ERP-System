@@ -17,6 +17,7 @@ import { api } from '@/lib/axios';
 import Swal from 'sweetalert2';
 import { motion, AnimatePresence } from 'framer-motion';
 import { isVisibleToRole } from '@/config/notifications.config';
+import sseManager from '@/utils/sseManager';
 
 const playNotificationChime = () => {
   try {
@@ -1105,6 +1106,11 @@ const AppShell = () => {
       });
     };
 
+    // Subscribe to unified multi-tab SSE manager (BroadcastChannel leader election)
+    const unsubscribeSSE = sseManager.subscribe((notif) => {
+      handleIncomingNotification(notif);
+    });
+
     const handleCustomEvent = (e) => {
       if (e?.detail) {
         handleIncomingNotification(e.detail);
@@ -1113,45 +1119,9 @@ const AppShell = () => {
 
     window.addEventListener('notification-received', handleCustomEvent);
 
-    // Establish resilient direct SSE connection in AppShell
-    let eventSource = null;
-    try {
-      const sseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/notifications/stream?token=${token}`;
-      eventSource = new EventSource(sseUrl);
-
-      const onStreamEvent = (e) => {
-        try {
-          const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-          handleIncomingNotification(data);
-          window.dispatchEvent(new CustomEvent('notification-received', { detail: data }));
-        } catch (err) {
-          console.error('[AppShell SSE Parse Error]', err);
-        }
-      };
-
-      eventSource.addEventListener('notification', onStreamEvent);
-      eventSource.onmessage = onStreamEvent;
-
-      const specificEvents = [
-        'QUOTATION_RECEIVED', 'QUOTATION_RESUBMISSION_REQUESTED',
-        'EMAIL_SENT', 'EMAIL_FAILED',
-        'PO_CREATED', 'PO_STATUS_CHANGED', 'GRN_SUBMITTED',
-        'LAB_RM_APPROVED', 'LAB_RM_REJECTED', 'LAB_RM_RESAMPLE',
-        'PRODUCTION_QC_PASSED', 'PRODUCTION_QC_FAILED', 'PRODUCTION_COMPLETED',
-        'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
-        'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
-        'ASSET_INVOICE_PAID', 'ASSET_DECOMMISSIONED'
-      ];
-      specificEvents.forEach(evt => eventSource.addEventListener(evt, onStreamEvent));
-    } catch (err) {
-      console.error('[AppShell SSE Connection Error]', err);
-    }
-
     return () => {
+      unsubscribeSSE();
       window.removeEventListener('notification-received', handleCustomEvent);
-      if (eventSource) {
-        eventSource.close();
-      }
     };
   }, [token, user?.id, user?.role]);
 

@@ -39,7 +39,15 @@ export default function SalesListPage() {
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+
+  // Synchronize URL search parameter into searchTerm
+  useEffect(() => {
+    const q = searchParams.get('search');
+    if (q !== null && q !== undefined) {
+      setSearchTerm(q);
+    }
+  }, [searchParams]);
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('date_desc');

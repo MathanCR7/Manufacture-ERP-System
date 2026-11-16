@@ -4,6 +4,7 @@ import useAuthStore from '@/app/store/authStore';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
 import { isVisibleToRole } from '@/config/notifications.config';
+import sseManager from '@/utils/sseManager';
 
 const PhaseColors = {
   PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
@@ -76,8 +77,6 @@ const NotificationBell = () => {
   const knownNotificationIdsRef = useRef(new Set());
 
   useEffect(() => {
-    let eventSource = null;
-    let reconnectTimeout = null;
     let isSubscribed = true;
 
     // Fast sync function to guarantee live updates even if SSE is temporarily reconnecting
@@ -117,78 +116,22 @@ const NotificationBell = () => {
     // Initial fetch on mount
     syncNotifications();
 
-    // Establish live SSE stream with automatic reconnection (real-time push without polling)
-    const connectSSE = () => {
-      if (!isSubscribed) return;
-      const token = useAuthStore.getState().token;
-      if (!token) return;
+    // Subscribe to unified multi-tab SSE manager (BroadcastChannel leader election)
+    const handleIncoming = (newNotif) => {
+      if (!isSubscribed || !newNotif || !newNotif.id) return;
+      knownNotificationIdsRef.current.add(newNotif.id);
 
-      try {
-        const sseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/notifications/stream?token=${token}`;
-        eventSource = new EventSource(sseUrl);
-
-        const handleIncoming = (event) => {
-          try {
-            const newNotif = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-            if (!newNotif || !newNotif.id) return;
-
-            // Mark as known
-            knownNotificationIdsRef.current.add(newNotif.id);
-
-            // Deduplicate and update bell list live
-            setNotifications(prev => {
-              if (prev.some(n => n.id === newNotif.id)) return prev;
-              return [newNotif, ...prev];
-            });
-
-            // Dispatch custom event for AppShell live stacked toast
-            window.dispatchEvent(new CustomEvent('notification-received', { detail: newNotif }));
-          } catch (err) {
-            console.error("Failed to parse incoming live notification SSE event", err);
-          }
-        };
-
-        eventSource.addEventListener('notification', handleIncoming);
-        eventSource.onmessage = handleIncoming;
-
-        const events = [
-          'QUOTATION_RECEIVED', 'QUOTATION_RESUBMISSION_REQUESTED',
-          'EMAIL_SENT', 'EMAIL_FAILED',
-          'PO_CREATED', 'PO_AMENDED', 'PO_CANCELLED', 'PO_UPDATED', 'PO_STATUS_CHANGED',
-          'GRN_SUBMITTED', 'LAB_RM_APPROVED', 'LAB_RM_REJECTED', 
-          'LAB_RM_RESAMPLE', 'FINAL_QTY_SUBMITTED', 'PRODUCTION_STARTED', 
-          'PRODUCTION_ON_HOLD', 'PRODUCTION_COMPLETED', 'PRODUCTION_QC_PASSED', 
-          'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT',
-          'STOCK_CRITICAL', 'STOCK_REPRODUCTION', 'RM_LOW_STOCK_ALERT',
-          'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
-          'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
-          'ASSET_INVOICE_PAID', 'ASSET_DECOMMISSIONED', 'UPCOMING_DELIVERY'
-        ];
-        events.forEach(e => eventSource.addEventListener(e, handleIncoming));
-
-        eventSource.onerror = () => {
-          if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-          }
-          if (isSubscribed && !reconnectTimeout) {
-            reconnectTimeout = setTimeout(() => {
-              reconnectTimeout = null;
-              connectSSE();
-            }, 3000);
-          }
-        };
-      } catch (sseErr) {
-        console.error("Failed to connect Notification SSE stream", sseErr);
-      }
+      setNotifications(prev => {
+        if (prev.some(n => n.id === newNotif.id)) return prev;
+        return [newNotif, ...prev];
+      });
     };
 
-    connectSSE();
+    const unsubscribeSSE = sseManager.subscribe(handleIncoming);
 
     return () => {
       isSubscribed = false;
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (eventSource) eventSource.close();
+      unsubscribeSSE();
     };
   }, []);
 
