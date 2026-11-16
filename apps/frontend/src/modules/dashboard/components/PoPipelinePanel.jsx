@@ -63,7 +63,7 @@ export default function PoPipelinePanel({ data, pipeline, isLoading, isError, er
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 h-full">
           {columnKeys.map((colKey) => {
-            const col = pipelineData[colKey] || { items: [], totalAmount: 0 };
+            const col = pipelineData[colKey] || (colKey === 'RECEIVED' ? pipelineData['APPROVED'] : null) || { items: [], totalAmount: 0 };
             const items = col.items || [];
 
             return (

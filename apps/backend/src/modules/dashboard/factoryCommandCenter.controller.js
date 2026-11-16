@@ -567,7 +567,7 @@ class FactoryCommandCenterController {
           uom: { select: { abbreviation: true } }
         },
         orderBy: { createdAt: 'desc' },
-        take: 30
+        take: 100
       });
 
       const columns = {
@@ -579,8 +579,23 @@ class FactoryCommandCenterController {
       };
 
       pos.forEach(po => {
-        const colKey = po.status === 'APPROVED' ? 'ORDERED' : (columns[po.status] ? po.status : 'PENDING');
-        const amt = fmtNum(po.amount);
+        let colKey = 'PENDING';
+        const st = (po.status || '').toUpperCase();
+        if (st === 'APPROVED' || st === 'RECEIVED' || st === 'COMPLETED') {
+          colKey = 'RECEIVED';
+        } else if (st === 'ORDERED' || st === 'ISSUED') {
+          colKey = 'ORDERED';
+        } else if (st === 'PARTIALLY_RECEIVED' || st === 'PARTIAL') {
+          colKey = 'PARTIALLY_RECEIVED';
+        } else if (st === 'DRAFT') {
+          colKey = 'DRAFT';
+        } else if (st === 'PENDING') {
+          colKey = 'PENDING';
+        } else if (columns[po.status]) {
+          colKey = po.status;
+        }
+
+        const amt = fmtNum(po.grandTotal || po.amount);
         if (columns[colKey]) {
           columns[colKey].items.push({
             id: po.id,
