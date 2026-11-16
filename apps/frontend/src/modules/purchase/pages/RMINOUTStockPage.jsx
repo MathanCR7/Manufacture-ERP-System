@@ -2630,7 +2630,9 @@ export default function RMINOUTStockPage() {
             ₹{Number(summary.totalValuationWithTax || summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">PO Gross Valuation</span>
+            <span className="truncate" title={`PO Gross Valuation is based on Total Stock (${Number(summary.totalCurrentStock || 0).toLocaleString('en-IN')}) • Available Stock: ${Number(summary.totalAvailableStock || 0).toLocaleString('en-IN')}`}>
+              PO Gross (Total Stock)
+            </span>
             <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 font-bold shrink-0 leading-none">
               PO Realtime
             </span>
@@ -2711,16 +2713,16 @@ export default function RMINOUTStockPage() {
           title="Click to filter materials with free available stock"
         >
           <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[10px]">
-            <span className="font-semibold truncate uppercase tracking-wider">AVL STK</span>
+            <span className="font-semibold truncate uppercase tracking-wider">AVL STK (Available)</span>
             <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
           </div>
           <div className="text-[13px] sm:text-sm font-bold text-emerald-700 dark:text-emerald-300 font-mono leading-tight tracking-tight my-0.5">
             {Number(summary.totalAvailableStock !== undefined ? summary.totalAvailableStock : Math.max(0, (summary.totalCurrentStock || 0) - (summary.totalInProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-[9px] text-emerald-600/80 dark:text-emerald-400/80 truncate flex items-center justify-between gap-1 leading-none">
-            <span className="truncate">Ready for orders</span>
+            <span className="truncate">Available Quantity</span>
             <span className="text-[8px] sm:text-[8.5px] px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50 font-medium shrink-0 leading-none">
-              {movementFilter === 'FREE_AVAILABLE' ? 'Filtered' : periodDisplayText.shortBadge}
+              {movementFilter === 'FREE_AVAILABLE' ? 'Filtered' : 'Available'}
             </span>
           </div>
         </div>

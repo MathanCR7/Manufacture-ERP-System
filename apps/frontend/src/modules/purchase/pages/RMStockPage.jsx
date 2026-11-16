@@ -204,15 +204,21 @@ export default function RMStockPage() {
     totalValuationWithoutTax,
     totalGstAmount,
     pricedCount,
-    unpricedCount
+    unpricedCount,
+    totalStockQty,
+    totalAvailableQty
   } = useMemo(() => {
     let withTax = 0;
     let withoutTax = 0;
     let gst = 0;
     let priced = 0;
     let unpriced = 0;
+    let stockQty = 0;
+    let availableQty = 0;
 
     for (const item of stock) {
+      stockQty += Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0);
+      availableQty += Number(item.availableQuantity ?? 0);
       if (item.hasPo) {
         priced++;
         withTax += Number(item.valueWithTax || item.value || 0);
@@ -228,7 +234,9 @@ export default function RMStockPage() {
       totalValuationWithoutTax: withoutTax,
       totalGstAmount: gst,
       pricedCount: priced,
-      unpricedCount: unpriced
+      unpricedCount: unpriced,
+      totalStockQty: stockQty,
+      totalAvailableQty: availableQty
     };
   }, [stock]);
 
@@ -298,6 +306,12 @@ export default function RMStockPage() {
       if (sortBy === 'category_desc') {
         return (b.category || '').localeCompare(a.category || '', undefined, { sensitivity: 'base' });
       }
+      if (sortBy === 'stock_desc' || sortBy === 'total_qty_desc') {
+        return Number(b.currentStock ?? b.stock ?? b.availableQuantity ?? 0) - Number(a.currentStock ?? a.stock ?? a.availableQuantity ?? 0);
+      }
+      if (sortBy === 'stock_asc' || sortBy === 'total_qty_asc') {
+        return Number(a.currentStock ?? a.stock ?? a.availableQuantity ?? 0) - Number(b.currentStock ?? b.stock ?? b.availableQuantity ?? 0);
+      }
       if (sortBy === 'quantity_desc') {
         return Number(b.availableQuantity || 0) - Number(a.availableQuantity || 0);
       }
@@ -364,6 +378,11 @@ export default function RMStockPage() {
     setCurrentPage(1);
   };
 
+  const handleToggleSortStock = () => {
+    setSortBy(prev => (prev === 'stock_desc' ? 'stock_asc' : 'stock_desc'));
+    setCurrentPage(1);
+  };
+
   const handleToggleSortQty = () => {
     setSortBy(prev => (prev === 'quantity_desc' ? 'quantity_asc' : 'quantity_desc'));
     setCurrentPage(1);
@@ -403,11 +422,11 @@ export default function RMStockPage() {
       'Material Code': item.code,
       'Category': item.category || 'Uncategorised',
       'Material Name': item.name,
-      'Available Quantity': item.availableQuantity,
+      'Total Quantity': Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0),
+      'Available Quantity': Number(item.availableQuantity || 0),
       'Unit': item.unit,
       'Alternate Qty': item.hasAlternateUom && item.alternateUom ? Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)) : 'N/A',
       'Alternate Unit': item.hasAlternateUom && item.alternateUom ? item.alternateUom : 'N/A',
-      'Floating Stock': item.floatingStock,
       'Valuation Status': item.hasPo ? 'PO DERIVED PRICING' : 'AWAITING PO (UNVALUED)',
       'PO Reference No': item.poReferenceNo || 'N/A',
       'PO Date': item.poDate ? new Date(item.poDate).toLocaleDateString('en-IN') : 'N/A',
@@ -501,12 +520,20 @@ export default function RMStockPage() {
               <IndianRupee className="w-3 h-3" />
             </span>
           </div>
-          <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5">
-            ₹{totalValuationWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5 flex items-baseline justify-between gap-1.5 flex-wrap">
+            <span>₹{totalValuationWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-[10.5px] font-bold font-mono text-emerald-800 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/70 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 whitespace-nowrap">
+              {totalStockQty.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total Qty
+            </span>
           </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            PO-Derived Gross Inventory Value
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center justify-between gap-1 flex-wrap">
+            <span className="flex items-center gap-1 truncate">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+              PO-Derived Gross Inventory Value
+            </span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans">
+              Avl: <strong className="font-mono text-slate-700 dark:text-slate-300">{totalAvailableQty.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </span>
           </div>
         </div>
 
@@ -857,35 +884,40 @@ export default function RMStockPage() {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
                         <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">
-                          Available Qty
+                          Total Qty
                         </span>
                         <div className="flex items-baseline gap-1 mt-0.5">
-                          <span className={`font-mono font-black text-sm ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
-                            {Number(item.availableQuantity || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
+                          <span className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                            {Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                           </span>
                           <span className="text-[10px] text-slate-500 uppercase font-semibold">
                             {item.unit}
                           </span>
                         </div>
                         {item.hasAlternateUom && item.alternateUom && (
-                          <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 truncate" title={`Equivalent to ${Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} ${item.alternateUom}`}>
-                            ≈ {Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} {item.alternateUom}
+                          <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 truncate" title={`Equivalent to ${Number((Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} ${item.alternateUom}`}>
+                            ≈ {Number((Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} {item.alternateUom}
                           </div>
                         )}
                       </div>
 
                       <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
                         <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">
-                          Floating Stock
+                          Available Qty
                         </span>
                         <div className="flex items-baseline gap-1 mt-0.5">
-                          <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
-                            {Number(item.floatingStock || 0).toLocaleString()}
+                          <span className={`font-mono font-bold text-sm ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                            {Number(item.availableQuantity || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                           </span>
                           <span className="text-[10px] text-slate-400 uppercase font-semibold">
                             {item.unit}
                           </span>
                         </div>
+                        {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))) > 0 && (
+                          <div className="text-[9.5px] font-mono text-amber-600 dark:text-amber-400 mt-0.5 truncate">
+                            WIP: {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))).toLocaleString()} {item.unit}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1048,17 +1080,17 @@ export default function RMStockPage() {
                     </button>
                   </TableHead>
 
-                  {/* 5. Available Qty */}
+                  {/* 5. Total Qty */}
                   <TableHead className="py-2 px-3 w-32">
                     <button
-                      onClick={handleToggleSortQty}
+                      onClick={handleToggleSortStock}
                       className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
-                      title="Sort by Available Quantity"
+                      title="Sort by Total Quantity (Physical On-Hand Stock)"
                     >
-                      <span>Available Qty</span>
-                      {sortBy === 'quantity_desc' ? (
+                      <span>Total Qty</span>
+                      {sortBy === 'stock_desc' || sortBy === 'total_qty_desc' ? (
                         <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                      ) : sortBy === 'quantity_asc' ? (
+                      ) : sortBy === 'stock_asc' || sortBy === 'total_qty_asc' ? (
                         <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
                       ) : (
                         <ArrowUpDown className="w-3 h-3 text-slate-400 hover:text-slate-600" />
@@ -1066,17 +1098,17 @@ export default function RMStockPage() {
                     </button>
                   </TableHead>
 
-                  {/* 6. Floating Stock */}
-                  <TableHead className="py-2 px-3 w-28">
+                  {/* 6. Available Qty */}
+                  <TableHead className="py-2 px-3 w-32">
                     <button
-                      onClick={handleToggleSortFloating}
+                      onClick={handleToggleSortQty}
                       className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
-                      title="Sort by Floating Stock"
+                      title="Sort by Available Quantity (Free for Orders)"
                     >
-                      <span>Floating Stock</span>
-                      {sortBy === 'floating_desc' ? (
+                      <span>Available Qty</span>
+                      {sortBy === 'quantity_desc' ? (
                         <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                      ) : sortBy === 'floating_asc' ? (
+                      ) : sortBy === 'quantity_asc' ? (
                         <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
                       ) : (
                         <ArrowUpDown className="w-3 h-3 text-slate-400 hover:text-slate-600" />
@@ -1218,10 +1250,25 @@ export default function RMStockPage() {
                           </span>
                         </TableCell>
 
-                        {/* 5. Available Qty */}
+                        {/* 5. Total Qty */}
                         <TableCell className="py-1.5 px-3 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
-                            <span className={`font-mono font-bold text-xs ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                            <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
+                              {Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
+                            </span>
+                            <span className="text-[10px] text-slate-500 uppercase font-semibold">{item.unit}</span>
+                          </div>
+                          {item.hasAlternateUom && item.alternateUom && (
+                            <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 leading-tight mt-0.5">
+                              ≈ {Number((Number(item.currentStock ?? item.stock ?? item.availableQuantity ?? 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} {item.alternateUom}
+                            </div>
+                          )}
+                        </TableCell>
+
+                        {/* 6. Available Qty */}
+                        <TableCell className="py-1.5 px-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`font-mono font-bold text-xs ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
                               {Number(item.availableQuantity || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                             </span>
                             <span className="text-[10px] text-slate-500 uppercase font-semibold">{item.unit}</span>
@@ -1229,17 +1276,11 @@ export default function RMStockPage() {
                               <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" title="Low Stock Alert" />
                             )}
                           </div>
-                          {item.hasAlternateUom && item.alternateUom && (
-                            <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 leading-tight mt-0.5">
-                              ≈ {Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} {item.alternateUom}
+                          {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))) > 0 && (
+                            <div className="text-[9.5px] font-mono text-amber-600 dark:text-amber-400 leading-tight mt-0.5">
+                              WIP: {Number(item.inProgressStock || ((item.currentStock ?? item.stock ?? 0) - (item.availableQuantity ?? 0))).toLocaleString()} {item.unit}
                             </div>
                           )}
-                        </TableCell>
-
-                        {/* 6. Floating Stock */}
-                        <TableCell className="py-1.5 px-3 whitespace-nowrap font-mono text-xs">
-                          <span className="font-medium text-slate-700 dark:text-slate-300">{Number(item.floatingStock || 0).toLocaleString()}</span>
-                          <span className="text-[10px] text-slate-400 uppercase ml-1">{item.unit}</span>
                         </TableCell>
 
                         {/* 7. Derived Rate Per Unit */}
