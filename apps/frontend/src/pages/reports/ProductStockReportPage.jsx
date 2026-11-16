@@ -82,7 +82,7 @@ export default function ProductStockReportPage() {
   };
 
   const aggs = reportData.aggregates || {};
-  const items = reportData.data || [];
+  const items = Array.isArray(reportData?.data) ? reportData.data : [];
 
   // 1. Stock Valuation by Category (Cost vs Sale)
   const categoryValMap = {};

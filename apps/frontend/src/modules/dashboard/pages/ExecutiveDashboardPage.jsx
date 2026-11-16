@@ -267,7 +267,7 @@ export default function ExecutiveDashboardPage() {
             <CardContent className="p-6">
               <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={d.monthlyRevenue || []} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
+                  <AreaChart data={Array.isArray(d?.monthlyRevenue) ? d.monthlyRevenue : []} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
                     <defs>
                       <linearGradient id="revG" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
@@ -346,12 +346,17 @@ export default function ExecutiveDashboardPage() {
           </CardHeader>
           <CardContent className="p-6 pt-0">
             <div className="grid grid-cols-3 gap-2 mb-6">
-              {Object.entries(d.orderPipeline || {}).slice(0, 3).map(([status, count]) => (
-                <div key={status} className="bg-slate-50 dark:bg-slate-850 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-800">
-                  <div className="text-xl font-bold text-slate-800 dark:text-slate-100">{count}</div>
-                  <div className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-semibold mt-1 truncate">{status}</div>
-                </div>
-              ))}
+              {Object.entries(d.orderPipeline || {}).slice(0, 3).map(([status, count]) => {
+                const displayCount = (count !== null && typeof count === 'object')
+                  ? (count.count ?? count.value ?? 0)
+                  : (typeof count === 'number' || typeof count === 'string' ? count : 0);
+                return (
+                  <div key={status} className="bg-slate-50 dark:bg-slate-850 rounded-xl p-3 text-center border border-slate-100 dark:border-slate-800">
+                    <div className="text-xl font-bold text-slate-800 dark:text-slate-100">{displayCount}</div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-semibold mt-1 truncate">{status}</div>
+                  </div>
+                );
+              })}
             </div>
             
             {Object.keys(d.orderPipeline || {}).length === 0 ? (
@@ -361,7 +366,10 @@ export default function ExecutiveDashboardPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie 
-                      data={Object.entries(d.orderPipeline || {}).map(([k, v]) => ({ name: k, value: v }))} 
+                      data={Object.entries(d.orderPipeline || {}).map(([k, v]) => ({
+                        name: k,
+                        value: (v !== null && typeof v === 'object') ? (Number(v.count ?? v.value ?? 0)) : (Number(v) || 0)
+                      }))} 
                       cx="50%" 
                       cy="50%" 
                       innerRadius={45} 

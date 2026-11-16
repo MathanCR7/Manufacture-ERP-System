@@ -58,7 +58,7 @@ export default function RMConsumptionReportPage() {
   };
 
   const aggs = reportData.aggregates || {};
-  const items = reportData.data || [];
+  const items = Array.isArray(reportData?.data) ? reportData.data : [];
 
   const filteredItems = items.filter(item => {
     if (!searchTerm.trim()) return true;

@@ -2245,6 +2245,8 @@ const AppShell = () => {
             ? 'p-0 m-0 overflow-y-auto flex flex-col bg-[var(--sap-bg-window,#ece9d8)]' 
             : location.pathname.startsWith('/production/') || location.pathname.startsWith('/rm/stock')
             ? 'p-0 m-0 overflow-y-auto flex flex-col bg-slate-50 dark:bg-slate-950'
+            : location.pathname === '/dashboard'
+            ? 'p-0 m-0 overflow-y-auto flex flex-col bg-[#F3F5F7] dark:bg-slate-950'
             : 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8'
         }`}>
           <Outlet />

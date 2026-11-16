@@ -2398,7 +2398,7 @@ export default function ExpensesPage() {
 
   // Chart Data
   const chartData = useMemo(() => {
-    if (!summary?.categoryBreakdown || summary.categoryBreakdown.length === 0) {
+    if (!summary?.categoryBreakdown || !Array.isArray(summary.categoryBreakdown) || summary.categoryBreakdown.length === 0) {
       return [];
     }
     return summary.categoryBreakdown.map((item) => {
@@ -3078,7 +3078,7 @@ export default function ExpensesPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {[...chartData]
+                {[...(Array.isArray(chartData) ? chartData : [])]
                   .sort((a, b) => b.value - a.value)
                   .slice(0, 5)
                   .map((item, idx) => {

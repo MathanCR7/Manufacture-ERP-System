@@ -59,7 +59,7 @@ export default function OperatorProductivityReportPage() {
   }, [dateFilter]);
 
   const aggs = reportData.aggregates || {};
-  let items = reportData.data || [];
+  let items = Array.isArray(reportData?.data) ? reportData.data : [];
 
   if (searchTerm.trim()) {
     const q = searchTerm.toLowerCase();

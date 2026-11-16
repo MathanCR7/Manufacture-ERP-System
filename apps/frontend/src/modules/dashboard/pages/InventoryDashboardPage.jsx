@@ -158,7 +158,7 @@ export default function InventoryDashboardPage() {
         <div className="lg:col-span-2 min-w-0">
           <Card title="Stock Movement Trend (14 Days)" accent="#3b82f6">
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={d.movementTrend || []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+              <BarChart data={Array.isArray(d?.movementTrend) ? d.movementTrend : []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" />
                 <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />

@@ -160,7 +160,7 @@ export default function ProductionDashboardPage() {
       {/* Weekly Trend */}
       <Card title="Weekly Production Trend" accent="#3b82f6">
         <ResponsiveContainer width="100%" height={230}>
-          <BarChart data={d.weeklyTrend || []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+          <BarChart data={Array.isArray(d?.weeklyTrend) ? d.weeklyTrend : []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" />
             <XAxis dataKey="week" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />

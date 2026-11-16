@@ -132,7 +132,7 @@ export default function SalesDashboardPage() {
         <div className="lg:col-span-2">
           <Card title="Daily Revenue (Last 14 Days)" accent="#10b981">
             <ResponsiveContainer width="100%" height={230}>
-              <AreaChart data={d.dailySales || []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+              <AreaChart data={Array.isArray(d?.dailySales) ? d.dailySales : []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="salG" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
@@ -151,8 +151,13 @@ export default function SalesDashboardPage() {
         <Card title="Order Status Breakdown" accent="#6366f1">
           <ResponsiveContainer width="100%" height={230}>
             <PieChart>
-              <Pie data={Object.entries(d.orderStatusBreakdown || {}).map(([k, v]) => ({ name: k, value: v.count }))}
-                cx="50%" cy="45%" innerRadius={40} outerRadius={80} paddingAngle={3} dataKey="value">
+              <Pie
+                data={Object.entries(d.orderStatusBreakdown || {}).map(([k, v]) => ({
+                  name: k,
+                  value: (v !== null && typeof v === 'object') ? Number(v.count ?? v.value ?? 0) : (Number(v) || 0)
+                }))}
+                cx="50%" cy="45%" innerRadius={40} outerRadius={80} paddingAngle={3} dataKey="value"
+              >
                 {Object.keys(d.orderStatusBreakdown || {}).map((k, i) => (
                   <Cell key={k} fill={STATUS_COLORS[k] || COLORS[i % COLORS.length]} />
                 ))}

@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const dashboardController = require('./dashboard.controller');
 const authenticateToken = require('../../middlewares/auth.middleware');
+const factoryCommandCenterRoutes = require('./factoryCommandCenter.routes');
+
+// Factory Command Center Endpoints (/api/dashboard/overview, /api/dashboard/production/active-batches, etc.)
+router.use('/', factoryCommandCenterRoutes);
 
 // Original dashboard summary
 router.get('/summary', authenticateToken, dashboardController.getDashboardSummary);

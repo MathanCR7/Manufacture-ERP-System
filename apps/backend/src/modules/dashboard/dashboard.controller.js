@@ -190,8 +190,8 @@ class DashboardController {
       const topProductOrders = await prisma.customerOrderItem.groupBy({
         by: ['productId'], _sum: { quantity: true, subtotal: true }, orderBy: { _sum: { subtotal: 'desc' } }, take: 5
       });
-      const topProductIds = topProductOrders.map(x => x.productId);
-      const topProductData = await prisma.finishedProduct.findMany({ where: { id: { in: topProductIds } }, select: { id: true, name: true } });
+      const topProductIds = topProductOrders.map(x => x.productId).filter(Boolean);
+      const topProductData = topProductIds.length > 0 ? await prisma.finishedProduct.findMany({ where: { id: { in: topProductIds } }, select: { id: true, name: true } }) : [];
       const topProducts = topProductOrders.map(p => {
         const prod = topProductData.find(d => d.id === p.productId);
         return { name: prod?.name || 'Unknown', revenue: fmtNum(p._sum.subtotal), qty: fmtNum(p._sum.quantity) };
@@ -306,8 +306,8 @@ class DashboardController {
       const topProducts = await prisma.customerOrderItem.groupBy({
         by: ['productId'], _sum: { quantity: true, subtotal: true }, orderBy: { _sum: { subtotal: 'desc' } }, take: 6
       });
-      const productIds = topProducts.map(p => p.productId);
-      const productNames = await prisma.finishedProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, code: true } });
+      const productIds = topProducts.map(p => p.productId).filter(Boolean);
+      const productNames = productIds.length > 0 ? await prisma.finishedProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, code: true } }) : [];
       const topSellingProducts = topProducts.map(p => {
         const prod = productNames.find(d => d.id === p.productId);
         return { name: prod?.name || 'Unknown', code: prod?.code || '', qty: fmtNum(p._sum.quantity), revenue: fmtNum(p._sum.subtotal) };
