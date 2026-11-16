@@ -2709,14 +2709,29 @@ export default function SalesOrderPage() {
       setSalesEmployee(ord.salesEmployee || '-No Sales Employee-');
       setOwner(currentUser?.name || ord.creator?.name || 'Administrator');
 
+      const isInter = (ord.placeOfSupply && ord.placeOfSupply !== '33') || (ord.buyerStateCode && ord.buyerStateCode !== '33') || Boolean(isInterState);
+      const defaultTaxCode = isInter ? 'IGST18' : 'SCG18';
+
       setFreight(Number(ord.freight || 0));
-      setFreightGst(ord.freightGst !== undefined ? Boolean(ord.freightGst) : true);
+      if (ord.freightTaxCode) setFreightTaxCode(mapTaxCodeForSupplyType(ord.freightTaxCode, isInter));
+      else if (ord.freightGst !== undefined) setFreightTaxCode(ord.freightGst ? defaultTaxCode : 'EXEMPT');
+      else setFreightTaxCode(defaultTaxCode);
+
       setLoadingCharges(Number(ord.loadingCharges || 0));
-      setLoadingGst(ord.loadingGst !== undefined ? Boolean(ord.loadingGst) : true);
+      if (ord.loadingTaxCode) setLoadingTaxCode(mapTaxCodeForSupplyType(ord.loadingTaxCode, isInter));
+      else if (ord.loadingGst !== undefined) setLoadingTaxCode(ord.loadingGst ? defaultTaxCode : 'EXEMPT');
+      else setLoadingTaxCode(defaultTaxCode);
+
       setPackingCharges(Number(ord.packingCharges || 0));
-      setPackingGst(ord.packingGst !== undefined ? Boolean(ord.packingGst) : true);
+      if (ord.packingTaxCode) setPackingTaxCode(mapTaxCodeForSupplyType(ord.packingTaxCode, isInter));
+      else if (ord.packingGst !== undefined) setPackingTaxCode(ord.packingGst ? defaultTaxCode : 'EXEMPT');
+      else setPackingTaxCode(defaultTaxCode);
+
       setOtherCharges(Number(ord.otherCharges || 0));
-      setOtherGst(ord.otherGst !== undefined ? Boolean(ord.otherGst) : true);
+      if (ord.otherTaxCode) setOtherTaxCode(mapTaxCodeForSupplyType(ord.otherTaxCode, isInter));
+      else if (ord.otherGst !== undefined) setOtherTaxCode(ord.otherGst ? defaultTaxCode : 'EXEMPT');
+      else setOtherTaxCode(defaultTaxCode);
+
       setIsRoundingEnabled(true);
 
       const cleanNote = (ord.internalNote || ord.quotationNote || '')

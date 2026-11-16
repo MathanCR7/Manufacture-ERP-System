@@ -1532,7 +1532,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
               >
                 <CheckCheck className="w-3.5 h-3.5" /> View Tax Invoice #{selectedOrder.childOrders?.find(c => c.type === 'Invoice' || c.orderType === 'Invoice')?.docNo || 'INV'}
               </Button>
-            ) : ((isQuote && !isConvertedQuote) || isSO) && selectedOrder.status !== 'Delivered' && (
+            ) : isSO && selectedOrder.status !== 'Delivered' && (
               <Button
                 type="button"
                 onClick={() => navigate(`/sales/order?convertFrom=${selectedOrder.id}&mode=INVOICE`)}
@@ -3902,7 +3902,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                                   >
                                     <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
                                   </button>
-                                ) : (isSO || (isQuote && !isConvertedQuote)) && order.status !== 'Delivered' && (
+                                ) : isSO && order.status !== 'Delivered' && (
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/sales/order?convertFrom=${order.id}&mode=INVOICE`)}
@@ -4295,7 +4295,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                             >
                               <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
                             </button>
-                          ) : (isSO || (isQuote && !isConvertedQuote)) && order.status !== 'Delivered' && (
+                          ) : isSO && order.status !== 'Delivered' && (
                             <button
                               type="button"
                               onClick={() => navigate(`/sales/order?convertFrom=${order.id}&mode=INVOICE`)}
