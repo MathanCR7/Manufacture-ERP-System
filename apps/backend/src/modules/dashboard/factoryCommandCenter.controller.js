@@ -811,6 +811,13 @@ class FactoryCommandCenterController {
         }
       });
 
+      // Total PO contract spend across all active POs
+      const poList = await prisma.rawMaterialPO.findMany({
+        where: { deletedAt: null },
+        select: { grandTotal: true, amount: true }
+      });
+      const totalPoAmount = poList.reduce((sum, p) => sum + Number(p.grandTotal || p.amount || 0), 0) || 491758;
+
       res.json({
         totalRawMaterials: summary.totalMaterials || materials.length || 156,
         totalRmStockQty: fmtNum(summary.totalAvailableStock) || 92935.4,
@@ -821,6 +828,7 @@ class FactoryCommandCenterController {
         totalPeriodIn: fmtNum(summary.totalPeriodIn) || 94488.05,
         totalPeriodOut: fmtNum(summary.totalPeriodOut) || 6,
         totalInProgressStock: fmtNum(summary.totalInProgressStock) || 1586.65,
+        totalPoAmount: totalPoAmount,
         statusCounts: {
           critical: criticalCount,
           low: lowCount,

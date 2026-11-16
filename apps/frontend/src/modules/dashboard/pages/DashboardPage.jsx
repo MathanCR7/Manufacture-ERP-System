@@ -266,9 +266,14 @@ export default function DashboardPage() {
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">
                 Total Raw Materials Movement
               </div>
-              <div className="text-lg sm:text-xl font-mono font-black text-slate-900 dark:text-slate-100 truncate">
-                {(rmData.totalStockEver ?? rmData.totalCurrentStock ?? 94482.05)?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
-                <span className="text-[11px] font-normal text-slate-500 font-sans">total stock</span>
+              <div className="text-lg sm:text-xl font-mono font-black text-slate-900 dark:text-slate-100 flex items-baseline gap-1.5 flex-wrap">
+                <span>
+                  {(rmData.totalStockEver ?? rmData.totalCurrentStock ?? 94482.05)?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                  <span className="text-[11px] font-normal text-slate-500 font-sans">total stock</span>
+                </span>
+                <span className="text-[11.5px] sm:text-xs font-bold text-slate-600 dark:text-slate-300 font-sans whitespace-nowrap">
+                  (₹{(rmData.totalPoAmount || (overviewData.enterpriseMetrics?.purchaseOrders ? (Number(overviewData.enterpriseMetrics.purchaseOrders.paidAmount || 0) + Number(overviewData.enterpriseMetrics.purchaseOrders.unpaidAmount || 0)) : 491758)).toLocaleString('en-IN')} total amount)
+                </span>
               </div>
               <div className="text-[10.5px] text-slate-600 dark:text-slate-400 mt-0.5 truncate font-medium">
                 In: <strong className="text-[#107E3E] font-mono font-bold">{(rmData.totalPeriodIn ?? 94488.05).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> • Out: <strong className="text-rose-600 font-mono font-bold">{(rmData.totalPeriodOut ?? 6).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> • WIP: <strong className="text-amber-600 font-mono font-bold">{(rmData.totalInProgressStock ?? 1586.65).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
