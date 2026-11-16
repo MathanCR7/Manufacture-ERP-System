@@ -364,17 +364,17 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
     }
   }
 
-  // Update PO status to RECEIVED, deliveredStatus to FULLY_DELIVERED, and totalReceivedQty
+  // Update PO status to APPROVED (direct receive is lab exempt), deliveredStatus to FULLY_DELIVERED, and totalReceivedQty
   await tx.rawMaterialPO.update({
     where: { id: po.id },
     data: {
-      status: 'RECEIVED',
+      status: 'APPROVED',
       deliveredStatus: 'FULLY_DELIVERED',
       totalReceivedQty: totalReceivedSum,
     }
   });
 
-  return { grn, isAllExempt: true, finalPoStatus: 'RECEIVED' };
+  return { grn, isAllExempt: true, finalPoStatus: 'APPROVED' };
 }
 
 /**

@@ -36,7 +36,7 @@ router.patch('/po/:id/status',
         const procResult = await prisma.$transaction(async (tx) => {
           return await receivePOAndProcess({ po: existing, reqUserId: req.user.id, tx });
         }, { maxWait: 15000, timeout: 30000 });
-        finalStatus = procResult.finalPoStatus || 'RECEIVED';
+        finalStatus = procResult.finalPoStatus || 'APPROVED';
       } else if (status === 'PENDING') {
         // 2. Reverting to DRAFT (PENDING): completely clean up all receipts, batches, lab tests, and revert RM inventory stock
         await prisma.$transaction(async (tx) => {
@@ -634,10 +634,11 @@ router.post('/receive',
           ? po.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
           : (Number(po.quantity) || 0);
 
-        // Only mark PO as fully delivered if the receiver explicitly checked isFinalDelivery
-        const isFullyReceived = data.isFinalDelivery === true;
-        const newPoStatus = isFullyReceived ? (isAllExempt ? 'APPROVED' : 'RECEIVED') : 'PARTIALLY_RECEIVED';
-        const newDeliveredStatus = isFullyReceived ? 'FULLY_DELIVERED' : 'PARTIALLY_DELIVERED';
+        // If lab exempt, PO status automatically changes to APPROVED.
+        // Only if lab test is required (isAllExempt === false), then PO status is RECEIVED (pending lab test).
+        const isFullyReceived = data.isFinalDelivery === true || cumulativeReceivedQty >= totalOrderedQty;
+        const newPoStatus = isAllExempt ? 'APPROVED' : (isFullyReceived ? 'RECEIVED' : 'PARTIALLY_RECEIVED');
+        const newDeliveredStatus = (isFullyReceived || isAllExempt) ? 'FULLY_DELIVERED' : 'PARTIALLY_DELIVERED';
 
         await tx.rawMaterialPO.update({
           where: { id: data.poId },
@@ -1183,10 +1184,16 @@ router.post('/lab-test',
               }
             }
 
-            // Update PO status to APPROVED only if explicitly fully delivered, otherwise preserve PARTIALLY_RECEIVED
+            // Update PO status to APPROVED once lab test inspection is completed and approved
             const targetPo = await tx.rawMaterialPO.findUnique({ where: { id: grn.poId } });
-            if (targetPo && targetPo.deliveredStatus === 'FULLY_DELIVERED') {
-              await tx.rawMaterialPO.update({ where: { id: grn.poId }, data: { status: 'APPROVED' } });
+            if (targetPo) {
+              await tx.rawMaterialPO.update({
+                where: { id: grn.poId },
+                data: {
+                  status: 'APPROVED',
+                  deliveredStatus: 'FULLY_DELIVERED'
+                }
+              });
             }
           }
         }

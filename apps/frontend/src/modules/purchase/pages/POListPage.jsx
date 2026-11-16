@@ -299,8 +299,22 @@ export default function POListPage() {
       const due = Math.max(0, total - paid);
       const pStatus = po.paymentStatus || (paid >= total && total > 0 ? 'PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
 
+      // Check if Lab Exempt or already approved by lab test
+      const isExempt = 
+        po.grnReceives?.some(g => g.isExempt === true) ||
+        (Array.isArray(po.items) && po.items.length > 0 && po.items.every(i => i.labTestRequired === false));
+      const labApproved = po.grnReceives?.some(g => g.status === 'LAB_APPROVED' || g.labTest?.overallDecision === 'APPROVED');
+
+      // Rule: If lab exempt or already lab approved, PO status automatically displays APPROVED.
+      // Only if lab test is required and not yet approved does it display RECEIVED.
+      let effectiveStatus = po.status;
+      if (effectiveStatus === 'RECEIVED' && (isExempt || labApproved)) {
+        effectiveStatus = 'APPROVED';
+      }
+
       return {
         ...po,
+        status: effectiveStatus,
         totalAmount: total,
         paidAmount: paid,
         dueAmount: due,

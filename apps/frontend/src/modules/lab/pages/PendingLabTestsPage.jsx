@@ -40,10 +40,11 @@ export default function PendingLabTestsPage() {
     setCurrentPage(1);
   }, [search]);
 
-  // Strictly filter out any GRNs whose linked PO is in Draft (PENDING), DRAFT, or DELETED status
+  // Strictly filter out any GRNs whose linked PO is in Draft (PENDING), DRAFT, or DELETED status, or if Lab Exempt
   const validPending = pending.filter(grn => {
     const poStatus = grn.po?.status?.toUpperCase();
     if (!poStatus || poStatus === 'PENDING' || poStatus === 'DRAFT' || poStatus === 'DELETED') return false;
+    if (grn.isExempt === true || grn.status === 'LAB_APPROVED') return false;
     return true;
   });
 
