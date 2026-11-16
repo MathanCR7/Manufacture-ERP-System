@@ -222,6 +222,151 @@ class FactoryCommandCenterController {
         });
       }
 
+      // ─────────────────────────────────────────────────────────────
+      // ENTERPRISE MASTER & COMMERCIAL METRICS (8 TILES ROW 2)
+      // ─────────────────────────────────────────────────────────────
+      const [
+        rmCatCount,
+        fgCount,
+        mainCatCount,
+        subCatCount,
+        allPos,
+        allUsers,
+        allBatches,
+        allAssets,
+        allCustomerOrders,
+        allSuppliersData
+      ] = await Promise.all([
+        prisma.rMCategory.count(),
+        prisma.finishedProduct.count({ where: { deletedAt: null } }),
+        prisma.productCategory.count(),
+        prisma.productSubcategory.count(),
+        prisma.rawMaterialPO.findMany({
+          where: { status: { not: 'DELETED' } },
+          select: { id: true, referenceNo: true, status: true, grandTotal: true, amount: true, paidAmount: true }
+        }),
+        prisma.user.findMany({
+          select: { id: true, gender: true, isActive: true }
+        }),
+        prisma.productionBatchNew.findMany({
+          where: { deletedAt: null },
+          select: { id: true, status: true }
+        }),
+        prisma.asset.findMany({
+          select: { id: true, category: true, status: true }
+        }),
+        prisma.customerOrder.findMany({
+          where: { deletedAt: null },
+          select: { id: true, docNo: true, referenceNo: true, customerName: true, grandTotal: true, status: true, type: true, createdAt: true },
+          orderBy: { createdAt: 'desc' }
+        }),
+        prisma.supplier.findMany({
+          select: {
+            id: true,
+            name: true,
+            purchaseOrders: {
+              where: { status: { not: 'DELETED' } },
+              select: { id: true, referenceNo: true, grandTotal: true, amount: true, status: true, createdAt: true },
+              orderBy: { createdAt: 'desc' }
+            }
+          }
+        })
+      ]);
+
+      // 1. Raw Materials: Total count from allRms, category count
+      const rmCount = allRms.length;
+
+      // 3. Purchase Orders (Paid/Unpaid, Draft/Ordered/Approved)
+      let poPaidAmount = 0;
+      let poTotalValue = 0;
+      let poDraftCount = 0;
+      let poOrderedCount = 0;
+      let poApprovedCount = 0;
+      allPos.forEach(p => {
+        const val = Number(p.grandTotal || p.amount || 0);
+        const paid = Number(p.paidAmount || 0);
+        poTotalValue += val;
+        poPaidAmount += paid;
+        const st = (p.status || '').toUpperCase();
+        if (st === 'DRAFT') poDraftCount++;
+        else if (st === 'ORDERED' || st === 'ISSUED' || st === 'PENDING') poOrderedCount++;
+        else poApprovedCount++;
+      });
+      const poUnpaidAmount = Math.max(0, poTotalValue - poPaidAmount);
+
+      // 4. Staff (Male/Female/Others, Active/Inactive)
+      let staffMale = 0, staffFemale = 0, staffOthers = 0, staffActive = 0, staffInactive = 0;
+      allUsers.forEach(u => {
+        const g = (u.gender || '').toLowerCase();
+        if (g === 'male' || g === 'm') staffMale++;
+        else if (g === 'female' || g === 'f') staffFemale++;
+        else staffOthers++;
+        if (u.isActive) staffActive++;
+        else staffInactive++;
+      });
+
+      // 5. Production (Draft/In-Progress/Completed)
+      let batchDraft = 0, batchInProgress = 0, batchCompleted = 0;
+      allBatches.forEach(b => {
+        const st = (b.status || '').toLowerCase();
+        if (st.includes('draft') || st.includes('planned')) batchDraft++;
+        else if (st.includes('progress') || st.includes('running') || st.includes('active')) batchInProgress++;
+        else if (st.includes('complete') || st.includes('finish') || st.includes('closed') || st.includes('passed')) batchCompleted++;
+        else batchInProgress++;
+      });
+
+      // 6. Assets (Categories breakdown, Accepted/Decommissioned)
+      const assetCategoryMap = {};
+      let assetAccepted = 0, assetDecommissioned = 0;
+      allAssets.forEach(a => {
+        const cat = a.category || 'General Equipment';
+        assetCategoryMap[cat] = (assetCategoryMap[cat] || 0) + 1;
+        const st = (a.status || '').toLowerCase();
+        if (st.includes('decommission') || st.includes('scrap') || st.includes('retired')) assetDecommissioned++;
+        else assetAccepted++;
+      });
+      const assetCategories = Object.entries(assetCategoryMap).map(([category, count]) => ({ category, count }));
+
+      // 7. Customers & Orders (Top customers + full list with order IDs)
+      const customerMap = {};
+      allCustomerOrders.forEach(o => {
+        const name = o.customerName || 'Walk-in Customer';
+        if (!customerMap[name]) {
+          customerMap[name] = { customerName: name, orderCount: 0, totalAmount: 0, orders: [] };
+        }
+        customerMap[name].orderCount++;
+        customerMap[name].totalAmount += Number(o.grandTotal || 0);
+        customerMap[name].orders.push({
+          id: o.id,
+          docNo: o.docNo || o.referenceNo,
+          type: o.type,
+          status: o.status,
+          grandTotal: Number(o.grandTotal || 0),
+          createdAt: o.createdAt
+        });
+      });
+      const allCustomers = Object.values(customerMap).sort((a, b) => b.totalAmount - a.totalAmount);
+      const topCustomers = allCustomers.slice(0, 5);
+
+      // 8. Suppliers & POs (Top suppliers + full list with PO numbers)
+      const allSuppliers = allSuppliersData.map(s => {
+        const totalSpend = s.purchaseOrders.reduce((sum, p) => sum + Number(p.grandTotal || p.amount || 0), 0);
+        return {
+          id: s.id,
+          name: s.name,
+          poCount: s.purchaseOrders.length,
+          totalSpend,
+          pos: s.purchaseOrders.map(p => ({
+            id: p.id,
+            poNumber: p.referenceNo,
+            grandTotal: Number(p.grandTotal || p.amount || 0),
+            status: p.status,
+            createdAt: p.createdAt
+          }))
+        };
+      }).sort((a, b) => b.poCount - a.poCount || b.totalSpend - a.totalSpend);
+      const topSuppliers = allSuppliers.filter(s => s.poCount > 0).slice(0, 5);
+
       res.json({
         plantTime: now.toISOString(),
         plantTimeFormatted: now.toLocaleDateString('en-IN', {
@@ -265,6 +410,55 @@ class FactoryCommandCenterController {
             revenue: revenueToday,
             dailyTarget: 50000,
             sparkline: revenueSparkline
+          }
+        },
+        enterpriseMetrics: {
+          rawMaterials: {
+            totalCount: rmCount,
+            categoryCount: rmCatCount
+          },
+          products: {
+            totalCount: fgCount,
+            mainCategoryCount: mainCatCount,
+            subCategoryCount: subCatCount
+          },
+          purchaseOrders: {
+            totalCount: allPos.length,
+            paidAmount: poPaidAmount,
+            unpaidAmount: poUnpaidAmount,
+            draftCount: poDraftCount,
+            orderedCount: poOrderedCount,
+            approvedCount: poApprovedCount
+          },
+          staff: {
+            totalCount: allUsers.length,
+            maleCount: staffMale,
+            femaleCount: staffFemale,
+            othersCount: staffOthers,
+            activeCount: staffActive,
+            inactiveCount: staffInactive
+          },
+          production: {
+            totalCount: allBatches.length,
+            draftCount: batchDraft,
+            inProgressCount: batchInProgress,
+            completedCount: batchCompleted
+          },
+          assets: {
+            totalCount: allAssets.length,
+            categories: assetCategories,
+            acceptedCount: assetAccepted,
+            decommissionedCount: assetDecommissioned
+          },
+          customers: {
+            totalCount: allCustomers.length,
+            topCustomers,
+            allCustomers
+          },
+          suppliers: {
+            totalCount: allSuppliers.length,
+            topSuppliers,
+            allSuppliers
           }
         },
         attentionItems

@@ -3910,7 +3910,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                                   >
                                     <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
                                   </button>
-                                ) : isSO && order.status !== 'Delivered' && (
+                                ) : (!isQuote && isSO && order.status !== 'Delivered') && (
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/sales/order?convertFrom=${order.id}&mode=INVOICE`)}
@@ -4303,7 +4303,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                             >
                               <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
                             </button>
-                          ) : isSO && order.status !== 'Delivered' && (
+                          ) : (!isQuote && isSO && order.status !== 'Delivered') && (
                             <button
                               type="button"
                               onClick={() => navigate(`/sales/order?convertFrom=${order.id}&mode=INVOICE`)}
