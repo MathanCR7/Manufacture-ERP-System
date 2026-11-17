@@ -760,15 +760,6 @@ const MENU_GROUPS = [
           { name: '🧾 Sales Records', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
           { name: '↩️ Returns & Replacements', path: '/sales/return', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
         ]
-      },
-      {
-        id: 'analyticsSubmenu',
-        name: '📊 Reports & Analytics',
-        isNested: true,
-        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
-        children: [
-          { name: '📈 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
-        ]
       }
     ]
   },
@@ -820,13 +811,13 @@ const MENU_GROUPS = [
     ]
   },
   {
-    id: 'finance',
-    title: 'Finance',
+    id: 'expense',
+    title: 'Expense',
     icon: DollarSign,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'],
     items: [
       { name: '💸 Expenses', path: '/finance/expenses', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: '🏦 Accounts', path: '/finance/accounts', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '💳 Expense Master', path: '/setup/expense-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'] },
     ]
   },
 
@@ -862,8 +853,7 @@ const MENU_GROUPS = [
       { name: '🌾 Raw Material', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🚫 Non Inventory', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🗂️ Product Category', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: '💳 Expense Master', path: '/setup/expense-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'] }
+      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
     ]
   },
   {
@@ -912,7 +902,7 @@ const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'forecasting' },
   { type: 'group', id: 'production' },
   { type: 'group', id: 'products' },
-  { type: 'group', id: 'finance' },
+  { type: 'group', id: 'expense' },
   { type: 'group', id: 'reports' },
 
   { type: 'group', id: 'parties' },

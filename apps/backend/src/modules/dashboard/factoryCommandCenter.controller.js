@@ -223,7 +223,7 @@ class FactoryCommandCenterController {
       }
 
       // ─────────────────────────────────────────────────────────────
-      // ENTERPRISE MASTER & COMMERCIAL METRICS (8 TILES ROW 2)
+      // ENTERPRISE MASTER & OPERATIONAL METRICS (CARDS 1 TO 16)
       // ─────────────────────────────────────────────────────────────
       const [
         rmCatCount,
@@ -235,7 +235,17 @@ class FactoryCommandCenterController {
         allBatches,
         allAssets,
         allCustomerOrders,
-        allSuppliersData
+        allSuppliersData,
+        allRmWastes,
+        allStockAdjustments,
+        allExpenses,
+        expenseCategoryCount,
+        allCompanyReqs,
+        allGrnLabTests,
+        rmLabCategoryCount,
+        labInventoryItemCount,
+        baseMasterCount,
+        productionTemplateCount
       ] = await Promise.all([
         prisma.rMCategory.count(),
         prisma.finishedProduct.count({ where: { deletedAt: null } }),
@@ -257,7 +267,11 @@ class FactoryCommandCenterController {
         }),
         prisma.customerOrder.findMany({
           where: { deletedAt: null },
-          select: { id: true, docNo: true, referenceNo: true, customerName: true, grandTotal: true, status: true, type: true, createdAt: true },
+          select: { 
+            id: true, docNo: true, referenceNo: true, customerName: true, 
+            grandTotal: true, totalSubtotal: true, cgst: true, sgst: true, igst: true,
+            status: true, type: true, createdAt: true 
+          },
           orderBy: { createdAt: 'desc' }
         }),
         prisma.supplier.findMany({
@@ -270,7 +284,30 @@ class FactoryCommandCenterController {
               orderBy: { createdAt: 'desc' }
             }
           }
-        })
+        }),
+        // Operational Metrics (Cards 9-16)
+        prisma.rMWaste.findMany({
+          include: { items: true },
+          orderBy: { createdAt: 'desc' }
+        }),
+        prisma.rMStockAdjustment.findMany({
+          include: { rawMaterial: { select: { ratePerUnit: true } } },
+          orderBy: { createdAt: 'desc' }
+        }),
+        prisma.expense.findMany({
+          select: { id: true, amount: true, totalAmount: true, taxableAmount: true, cgstAmount: true, sgstAmount: true, igstAmount: true }
+        }),
+        prisma.expenseCategory.count(),
+        prisma.companyReqForm.findMany({
+          select: { id: true, type: true }
+        }),
+        prisma.gRNLabTest.findMany({
+          select: { id: true, status: true, overallDecision: true }
+        }),
+        prisma.rMLabCategory.count(),
+        prisma.labInventoryItem.count(),
+        prisma.baseMaster.count(),
+        prisma.productionTemplate.count()
       ]);
 
       // 1. Raw Materials: Total count from allRms, category count
@@ -367,6 +404,189 @@ class FactoryCommandCenterController {
       }).sort((a, b) => b.poCount - a.poCount || b.totalSpend - a.totalSpend);
       const topSuppliers = allSuppliers.filter(s => s.poCount > 0).slice(0, 5);
 
+      // ─────────────────────────────────────────────────────────────
+      // ROW 2: OPERATIONAL METRICS (CARDS 9 TO 16)
+      // ─────────────────────────────────────────────────────────────
+
+      // 9. RM Wastage Metric (/waste/raw-material)
+      let rmWasteTotalLoss = 0;
+      let rmWasteTotalQty = 0;
+      let rmWasteItemCount = 0;
+      allRmWastes.forEach(w => {
+        rmWasteTotalLoss += Number(w.totalLoss || 0);
+        if (w.items && w.items.length > 0) {
+          rmWasteItemCount += w.items.length;
+          w.items.forEach(it => {
+            rmWasteTotalQty += Number(it.quantity || 0);
+          });
+        }
+      });
+      const rmWasteMetric = {
+        totalRecords: allRmWastes.length,
+        totalItems: rmWasteItemCount || allRmWastes.length,
+        totalLoss: rmWasteTotalLoss,
+        totalQty: rmWasteTotalQty
+      };
+
+      // 10. RM Stock Adjustment Metric (/inventory/health-check)
+      let adjAdditionCount = 0;
+      let adjAdditionQty = 0;
+      let adjSubtractionCount = 0;
+      let adjSubtractionQty = 0;
+      let adjSubtractionAmount = 0;
+      allStockAdjustments.forEach(a => {
+        const qty = Number(a.quantity || 0);
+        const rate = Number(a.rawMaterial?.ratePerUnit || 0);
+        if (a.type === 'ADDITION') {
+          adjAdditionCount++;
+          adjAdditionQty += qty;
+        } else if (a.type === 'SUBTRACTION') {
+          adjSubtractionCount++;
+          adjSubtractionQty += qty;
+          adjSubtractionAmount += qty * rate;
+        }
+      });
+      const rmAdjustmentMetric = {
+        additionCount: adjAdditionCount,
+        additionQty: adjAdditionQty,
+        subtractionCount: adjSubtractionCount,
+        subtractionQty: adjSubtractionQty,
+        subtractionAmount: adjSubtractionAmount,
+        totalAdjustments: allStockAdjustments.length
+      };
+
+      // 11. RM Low Stock & Reorder Deficit Metric (/rm/stock/low)
+      let rmCriticalCount = 0;
+      let rmLowCount = 0;
+      let rmReorderAmount = 0;
+      allRms.forEach(rm => {
+        const stock = fmtNum(rm.currentStock);
+        const alert = fmtNum(rm.alertLevel);
+        const rate = fmtNum(rm.ratePerUnit);
+        if (alert > 0) {
+          if (stock <= alert) {
+            rmCriticalCount++;
+            const shortfall = Math.max(0, alert - stock);
+            rmReorderAmount += shortfall * rate;
+          } else if (stock <= alert * 2) {
+            rmLowCount++;
+          }
+        }
+      });
+      const rmLowStockMetric = {
+        critical: rmCriticalCount,
+        low: rmLowCount,
+        totalAtRisk: rmCriticalCount + rmLowCount,
+        reorderAmount: rmReorderAmount
+      };
+
+      // 12. Revenue & Sales Metric (/sales/list)
+      let quotationCount = 0;
+      let salesOrderCount = 0;
+      let invoiceCount = 0;
+      let invoicedRevenue = 0;
+      let totalSalesGross = 0;
+      let totalSalesNet = 0;
+      let totalSalesTax = 0;
+      allCustomerOrders.forEach(s => {
+        const type = (s.type || '').toLowerCase();
+        const status = (s.status || '').toLowerCase();
+        const gross = Number(s.grandTotal || 0);
+        const net = Number(s.totalSubtotal || 0);
+        const tax = Number(s.cgst || 0) + Number(s.sgst || 0) + Number(s.igst || 0);
+
+        const isInvoice = type.includes('invoice') ||
+                          (s.docNo && s.docNo.toUpperCase().startsWith('INV')) ||
+                          status.includes('invoice') ||
+                          status.includes('delivered') ||
+                          status === 'ready to invoice';
+
+        if (type.includes('quote') || status.includes('quote')) {
+          quotationCount++;
+        } else if (isInvoice) {
+          invoiceCount++;
+          invoicedRevenue += gross;
+        } else {
+          salesOrderCount++;
+        }
+
+        totalSalesGross += gross;
+        totalSalesNet += net;
+        totalSalesTax += tax;
+      });
+      const salesMetric = {
+        invoicedRevenue,
+        totalSales: totalSalesGross,
+        netSales: totalSalesNet,
+        taxSales: totalSalesTax,
+        quotationCount,
+        salesOrderCount,
+        invoiceCount
+      };
+
+      // 13. Expenses Metric (/finance/expenses & /setup/expense-master)
+      let totalExpenseAmount = 0;
+      let totalExpenseNet = 0;
+      let totalExpenseTax = 0;
+      allExpenses.forEach(e => {
+        const tot = Number(e.totalAmount || e.amount || 0);
+        const tax = Number(e.cgstAmount || 0) + Number(e.sgstAmount || 0) + Number(e.igstAmount || 0);
+        const net = Number(e.taxableAmount || (tot - tax));
+        totalExpenseAmount += tot;
+        totalExpenseNet += net;
+        totalExpenseTax += tax;
+      });
+      const expensesMetric = {
+        totalAmount: totalExpenseAmount,
+        netAmount: totalExpenseNet,
+        taxAmount: totalExpenseTax,
+        totalCount: allExpenses.length,
+        categoryCount: expenseCategoryCount
+      };
+
+      // 14. Company Requirement Directory Metric (/company-directory)
+      let dirMfr = 0, dirSupp = 0, dirTrader = 0, dirOther = 0;
+      allCompanyReqs.forEach(c => {
+        const t = (c.type || '').toLowerCase();
+        if (t.includes('manufactur')) dirMfr++;
+        else if (t.includes('supplier')) dirSupp++;
+        else if (t.includes('trader')) dirTrader++;
+        else dirOther++;
+      });
+      const companyDirMetric = {
+        totalCount: allCompanyReqs.length,
+        mfrCount: dirMfr,
+        suppCount: dirSupp,
+        traderCount: dirTrader,
+        otherCount: dirOther
+      };
+
+      // 15. Lab Testing (PO Raw Material) Metric (/lab/results)
+      let labCompleted = 0;
+      let labPending = 0;
+      allGrnLabTests.forEach(t => {
+        const st = (t.status || '').toUpperCase();
+        const dec = (t.overallDecision || '').toUpperCase();
+        if (['APPROVED', 'REJECTED', 'COMPLETED'].includes(st) || ['APPROVED', 'REJECTED'].includes(dec)) {
+          labCompleted++;
+        } else {
+          labPending++;
+        }
+      });
+      const labTestingMetric = {
+        totalTests: allGrnLabTests.length,
+        completedCount: labCompleted,
+        pendingCount: labPending,
+        categoryCount: rmLabCategoryCount,
+        inventoryCount: labInventoryItemCount
+      };
+
+      // 16. Product Base Master & Production Templates Metric (/production/masters/base)
+      const baseMasterMetric = {
+        baseCount: baseMasterCount,
+        templateCount: productionTemplateCount
+      };
+
       res.json({
         plantTime: now.toISOString(),
         plantTimeFormatted: now.toLocaleDateString('en-IN', {
@@ -460,6 +680,16 @@ class FactoryCommandCenterController {
             topSuppliers,
             allSuppliers
           }
+        },
+        operationalMetrics: {
+          rmWaste: rmWasteMetric,
+          rmAdjustment: rmAdjustmentMetric,
+          rmLowStock: rmLowStockMetric,
+          sales: salesMetric,
+          expenses: expensesMetric,
+          companyDirectory: companyDirMetric,
+          labTesting: labTestingMetric,
+          baseMaster: baseMasterMetric
         },
         attentionItems
       });

@@ -21,7 +21,9 @@ import {
   ChevronRight,
   Sparkles,
   ShoppingBag,
-  FileText
+  FileText,
+  Trash2,
+  ArrowUpDown
 } from 'lucide-react';
 import FioriStatusPill from './FioriStatusPill';
 import FioriSparkline from './FioriSparkline';
@@ -38,6 +40,7 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
   const navigate = useNavigate();
   const kpis = data?.kpis || {};
   const enterprise = data?.enterpriseMetrics || {};
+  const op = data?.operationalMetrics || {};
 
   // Popups State for Card 7 (Customers) and Card 8 (Suppliers)
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
@@ -58,6 +61,18 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
   const asset = enterprise.assets || {};
   const cust = enterprise.customers || {};
   const supp = enterprise.suppliers || {};
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ── ROW 2: OPERATIONAL METRICS DATA (CARDS 9 TO 16) ──────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────────
+  const waste = op.rmWaste || {};
+  const adj = op.rmAdjustment || {};
+  const lowStock = op.rmLowStock || {};
+  const sales = op.sales || {};
+  const expenses = op.expenses || {};
+  const companyDir = op.companyDirectory || {};
+  const lab = op.labTesting || {};
+  const baseMaster = op.baseMaster || {};
 
   const enterpriseTiles = [
     // 1. Total Raw Materials (with category total)
@@ -158,98 +173,120 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
   ];
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // ── ROW 2: EXECUTIVE OPERATIONAL KPI TILES (DISPLAYED BELOW) ─────────────────
+  // ── ROW 2: EXECUTIVE OPERATIONAL KPI TILES (CARDS 9 TO 16) ───────────────────
   // ─────────────────────────────────────────────────────────────────────────────
   const operationalTiles = [
+    // 9. No of Raw Material Wastage (/waste/raw-material)
     {
-      id: 'active-batches',
-      title: 'Active Batches',
-      value: kpis.activeBatches?.count ?? 0,
-      sub: 'In execution on floor',
-      pill: { status: `${kpis.activeBatches?.count || 0} Running`, type: 'in-progress' },
-      icon: Factory,
-      sparkline: kpis.activeBatches?.sparkline,
-      route: '/production/batches'
+      id: 'rm-wastage',
+      title: 'RM Wastage',
+      value: `${waste.totalRecords ?? 0} Record${(waste.totalRecords ?? 0) === 1 ? '' : 's'}`,
+      sub: `Loss: ${formatRupees(waste.totalLoss || 0)}`,
+      extraSub: `${(waste.totalQty || 0).toLocaleString('en-IN')} Qty • ${waste.totalItems ?? 0} Item${(waste.totalItems ?? 0) === 1 ? '' : 's'}`,
+      pill: {
+        status: (waste.totalRecords || 0) > 0 ? `${waste.totalRecords} Wasted` : 'Zero Waste',
+        type: (waste.totalRecords || 0) > 0 ? 'warning' : 'good'
+      },
+      icon: Trash2,
+      route: '/waste/raw-material'
     },
+    // 10. Raw Material Stock Adjustment (/inventory/health-check)
     {
-      id: 'output-today',
-      title: 'Output Today',
-      value: `${kpis.outputToday?.actual?.toLocaleString('en-IN') || 0} ${kpis.outputToday?.uom || 'L'}`,
-      sub: `Plan: ${kpis.outputToday?.planned?.toLocaleString('en-IN') || 0} ${kpis.outputToday?.uom || 'L'}`,
-      pill: { status: `${kpis.outputToday?.percentOfPlan || 100}% of plan`, type: (kpis.outputToday?.percentOfPlan >= 90 ? 'good' : 'warning') },
-      icon: BarChart3,
-      progress: kpis.outputToday?.percentOfPlan || 100,
-      route: '/production/batches'
+      id: 'rm-stock-adjustment',
+      title: 'RM Stock Adjustment',
+      value: `+${adj.additionCount ?? 0} Additions`,
+      sub: `Subtract: ${formatRupees(adj.subtractionAmount || 0)}`,
+      extraSub: `+${adj.additionQty ?? 0} In • -${adj.subtractionQty ?? 0} Out`,
+      pill: {
+        status: `${(adj.additionCount || 0) + (adj.subtractionCount || 0)} Audited`,
+        type: 'in-progress'
+      },
+      icon: ArrowUpDown,
+      route: '/inventory/health-check'
     },
+    // 11. RM Low Stock & Reorder Level (/rm/stock/low)
     {
       id: 'rm-low-stock',
       title: 'RM Low Stock',
-      value: kpis.rmLowStock?.totalAtRisk ?? 0,
-      sub: `${kpis.rmLowStock?.critical || 0} Critical • ${kpis.rmLowStock?.low || 0} Low`,
+      value: `${(lowStock.critical ?? 0) + (lowStock.low ?? 0)} Items Low`,
+      sub: `Reorder: ${formatRupees(lowStock.reorderAmount || 0)}`,
+      extraSub: `${lowStock.critical ?? 0} Critical • ${lowStock.low ?? 0} Low Stock`,
       pill: {
-        status: (kpis.rmLowStock?.critical > 0 ? `${kpis.rmLowStock.critical} Critical` : 'Stock Healthy'),
-        type: (kpis.rmLowStock?.critical > 0 ? 'critical' : kpis.rmLowStock?.low > 0 ? 'warning' : 'good')
+        status: (lowStock.critical ?? 0) > 0 ? `${lowStock.critical} Critical` : 'Stock Healthy',
+        type: (lowStock.critical ?? 0) > 0 ? 'critical' : 'good'
       },
       icon: AlertTriangle,
-      route: '/purchase/rm-low-stock'
+      route: '/rm/stock/low'
     },
+    // 12. Revenue & Sales Orders (/sales/list)
     {
-      id: 'qc-quarantine',
-      title: 'QC Quarantine',
-      value: kpis.qcQuarantine?.quarantineCount ?? 0,
-      sub: `${kpis.qcQuarantine?.approvedToday || 0} approved today`,
+      id: 'revenue-sales',
+      title: 'Revenue & Sales',
+      value: formatRupees(sales.invoicedRevenue || 0),
+      sub: `Sales: ${formatRupees(sales.totalSales || 0)} = Net: ${formatRupees(sales.netSales || 0)} + Tax: ${formatRupees(sales.taxSales || 0)}`,
+      extraSub: `Quotes: ${sales.quotationCount ?? 0} • Orders: ${sales.salesOrderCount ?? 0} • Invoices: ${sales.invoiceCount ?? 0}`,
       pill: {
-        status: (kpis.qcQuarantine?.quarantineCount > 0 ? `${kpis.qcQuarantine.quarantineCount} On Hold` : 'Queue Clear'),
-        type: (kpis.qcQuarantine?.quarantineCount > 0 ? 'warning' : 'good')
-      },
-      icon: ShieldCheck,
-      route: '/production/qc-queue'
-    },
-    {
-      id: 'orders-to-dispatch',
-      title: 'Orders to Dispatch',
-      value: kpis.ordersToDispatch?.readyForShipment ?? 0,
-      sub: `${kpis.ordersToDispatch?.dispatchedToday || 0} dispatched today`,
-      pill: {
-        status: `${kpis.ordersToDispatch?.readyForShipment || 0} Ready`,
+        status: `${sales.invoiceCount ?? 0} Invoices Raised`,
         type: 'good'
       },
-      icon: Truck,
-      route: '/sales/order'
-    },
-    {
-      id: 'pos-pending-approval',
-      title: 'POs Pending Approval',
-      value: kpis.posPendingApproval?.count ?? 0,
-      sub: formatRupees(kpis.posPendingApproval?.totalAmount || 0),
-      pill: {
-        status: (kpis.posPendingApproval?.count > 0 ? `${kpis.posPendingApproval.count} Awaiting` : 'All Approved'),
-        type: (kpis.posPendingApproval?.count > 0 ? 'warning' : 'good')
-      },
-      icon: FileCheck2,
-      route: '/purchase-orders'
-    },
-    {
-      id: 'staff-on-floor',
-      title: 'Staff on Floor',
-      value: kpis.staffOnFloor?.clockedIn ?? 12,
-      sub: `Shift: ${kpis.staffOnFloor?.shift || data?.currentShift || 'Evening'}`,
-      pill: { status: 'Shift Active', type: 'good' },
-      icon: Users,
-      route: '/attendance'
-    },
-    {
-      id: 'revenue-today',
-      title: 'Revenue Today',
-      value: formatRupees(kpis.revenueToday?.revenue || 0),
-      sub: `Target: ${formatRupees(kpis.revenueToday?.dailyTarget || 50000)}`,
-      pill: {
-        status: `${kpis.revenueToday?.revenue >= (kpis.revenueToday?.dailyTarget || 50000) ? 'Target Met' : 'In Progress'}`,
-        type: (kpis.revenueToday?.revenue >= (kpis.revenueToday?.dailyTarget || 50000) ? 'good' : 'in-progress')
-      },
       icon: IndianRupee,
-      sparkline: kpis.revenueToday?.sparkline,
-      route: '/sales/order'
+      route: '/sales/list'
+    },
+    // 13. Total Expenses (/finance/expenses & /setup/expense-master)
+    {
+      id: 'total-expenses',
+      title: 'Total Expenses',
+      value: `${formatRupees(expenses.totalAmount || 0)} (${expenses.totalCount ?? 0} Exp)`,
+      sub: `Total: ${formatRupees(expenses.totalAmount || 0)} = Net: ${formatRupees(expenses.netAmount || 0)} + Tax: ${formatRupees(expenses.taxAmount || 0)}`,
+      extraSub: `${expenses.totalCount ?? 0} Expenses • ${expenses.categoryCount ?? 0} Masters`,
+      pill: {
+        status: `${expenses.categoryCount ?? 0} Categories`,
+        type: 'neutral'
+      },
+      icon: ShoppingCart,
+      route: '/finance/expenses'
+    },
+    // 14. Company Requirement Directory (/company-directory)
+    {
+      id: 'company-directory',
+      title: 'Company Directory',
+      value: `${companyDir.totalCount ?? 0} Records`,
+      sub: `Total Companies: ${companyDir.totalCount ?? 0}`,
+      extraSub: `Mfr: ${companyDir.mfrCount ?? 0} • Supp: ${companyDir.suppCount ?? 0} • Trader: ${companyDir.traderCount ?? 0}`,
+      pill: {
+        status: `${companyDir.totalCount ?? 0} Directory`,
+        type: 'neutral'
+      },
+      icon: Building2,
+      route: '/company-directory'
+    },
+    // 15. Lab Testing for PO Raw Material (/lab/results)
+    {
+      id: 'lab-testing',
+      title: 'Lab Testing (PO RM)',
+      value: `${lab.completedCount ?? 0} Completed`,
+      sub: `Pending: ${lab.pendingCount ?? 0} • Completed: ${lab.completedCount ?? 0}`,
+      extraSub: `${lab.categoryCount ?? 0} Categories • ${lab.inventoryCount ?? 0} Items`,
+      pill: {
+        status: (lab.pendingCount ?? 0) > 0 ? `${lab.pendingCount} Pending` : 'All Approved',
+        type: (lab.pendingCount ?? 0) > 0 ? 'warning' : 'good'
+      },
+      icon: ShieldCheck,
+      route: '/lab/results'
+    },
+    // 16. Product Base Master & Templates (/production/masters/base)
+    {
+      id: 'product-base-master',
+      title: 'Product Base Master',
+      value: `${baseMaster.baseCount ?? 0} Base Masters`,
+      sub: `${baseMaster.templateCount ?? 0} Production Templates`,
+      extraSub: 'Master Recipe & BOM Structure',
+      pill: {
+        status: `${baseMaster.templateCount ?? 0} Templates`,
+        type: 'good'
+      },
+      icon: Cpu,
+      route: '/production/masters/base'
     }
   ];
 
@@ -348,7 +385,7 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
           )}
           <div className="flex items-center justify-between gap-1 pt-0.5">
             <span className="text-[9px] text-slate-400 dark:text-slate-500 font-mono truncate">
-              {tile.isModal ? 'Traceability' : 'Live Realtime'}
+              {tile.badgeText || (tile.isModal ? 'Traceability' : 'Live Realtime')}
             </span>
             <FioriStatusPill
               status={typeof tile.pill?.status === 'object' ? 'Active' : (tile.pill?.status || 'Active')}
