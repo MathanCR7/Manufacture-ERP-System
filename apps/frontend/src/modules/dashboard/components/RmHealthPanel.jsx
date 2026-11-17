@@ -4,6 +4,7 @@ import { Package, Plus, AlertTriangle, ArrowRight } from 'lucide-react';
 import FioriCard from './FioriCard';
 import FioriStatusPill from './FioriStatusPill';
 import { FioriSkeleton, FioriEmptyState, FioriErrorRetry } from './FioriStateHandlers';
+import DashboardDatePeriodFilter from './DashboardDatePeriodFilter';
 
 const formatRupees = (val) => {
   const num = Number(val || 0);
@@ -12,7 +13,19 @@ const formatRupees = (val) => {
   return `₹${num.toLocaleString('en-IN')}`;
 };
 
-export default function RmHealthPanel({ data, rmHealth, isLoading, isError, error, onRetry, updatedAt }) {
+export default function RmHealthPanel({
+  data,
+  rmHealth,
+  period = 'all_time',
+  onPeriodChange,
+  customRange,
+  onCustomRangeChange,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  updatedAt
+}) {
   const navigate = useNavigate();
   const d = data || rmHealth || {};
 
@@ -34,6 +47,14 @@ export default function RmHealthPanel({ data, rmHealth, isLoading, isError, erro
       icon={Package}
       redirectRoute="/purchase/rm-low-stock"
       updatedAt={updatedAt}
+      action={
+        <DashboardDatePeriodFilter
+          activePeriod={period}
+          onPeriodChange={onPeriodChange}
+          customRange={customRange}
+          onCustomRangeChange={onCustomRangeChange}
+        />
+      }
     >
       {isLoading ? (
         <FioriSkeleton rows={5} height="h-72" />

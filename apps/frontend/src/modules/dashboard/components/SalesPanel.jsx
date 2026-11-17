@@ -45,10 +45,27 @@ export default function SalesPanel({
   topSkus = [],
   topCustomersData,
   topCustomers,
+  // Commercial Velocity (Revenue)
   salesPeriod: propSalesPeriod,
   setSalesPeriod: propSetSalesPeriod,
   salesCustomRange: propSalesCustomRange,
   setSalesCustomRange: propSetSalesCustomRange,
+  // Top 5 SKUs
+  skusPeriod: propSkusPeriod,
+  onSkusPeriodChange: propOnSkusPeriodChange,
+  skusCustomRange: propSkusCustomRange,
+  onSkusCustomRangeChange: propOnSkusCustomRangeChange,
+  // PO Purchase Chart
+  poChartPeriod: propPoChartPeriod,
+  onPoChartPeriodChange: propOnPoChartPeriodChange,
+  poChartCustomRange: propPoChartCustomRange,
+  onPoChartCustomRangeChange: propOnPoChartCustomRangeChange,
+  // Top Purchasing Raw Material
+  topRmPeriod: propTopRmPeriod,
+  onTopRmPeriodChange: propOnTopRmPeriodChange,
+  topRmCustomRange: propTopRmCustomRange,
+  onTopRmCustomRangeChange: propOnTopRmCustomRangeChange,
+  // Backwards compatibility
   daysRange,
   onRangeChange,
   revenueDays = '7d',
@@ -61,7 +78,7 @@ export default function SalesPanel({
 }) {
   const navigate = useNavigate();
 
-  // Internal period state for fallback / standalone usage
+  // 1. Revenue
   const [internalPeriod, setInternalPeriod] = useState(
     propSalesPeriod || (typeof revenueDays === 'string' ? revenueDays : (revenueDays === 7 ? '7d' : '7d'))
   );
@@ -80,6 +97,48 @@ export default function SalesPanel({
     if (newCustomRange) {
       if (propSetSalesCustomRange) propSetSalesCustomRange(newCustomRange);
       setInternalCustomRange(newCustomRange);
+    }
+  };
+
+  // 2. Top SKUs
+  const [internalSkusPeriod, setInternalSkusPeriod] = useState(propSkusPeriod || 'all_time');
+  const [internalSkusCustomRange, setInternalSkusCustomRange] = useState(propSkusCustomRange || { startDate: '', endDate: '' });
+  const activeSkusPeriod = propSkusPeriod || internalSkusPeriod;
+  const activeSkusCustomRange = propSkusCustomRange || internalSkusCustomRange;
+  const handleSkusPeriodChange = (newPeriod, newRange) => {
+    if (propOnSkusPeriodChange) propOnSkusPeriodChange(newPeriod);
+    setInternalSkusPeriod(newPeriod);
+    if (newRange) {
+      if (propOnSkusCustomRangeChange) propOnSkusCustomRangeChange(newRange);
+      setInternalSkusCustomRange(newRange);
+    }
+  };
+
+  // 3. PO Purchase Chart
+  const [internalPoChartPeriod, setInternalPoChartPeriod] = useState(propPoChartPeriod || 'all_time');
+  const [internalPoChartCustomRange, setInternalPoChartCustomRange] = useState(propPoChartCustomRange || { startDate: '', endDate: '' });
+  const activePoChartPeriod = propPoChartPeriod || internalPoChartPeriod;
+  const activePoChartCustomRange = propPoChartCustomRange || internalPoChartCustomRange;
+  const handlePoChartPeriodChange = (newPeriod, newRange) => {
+    if (propOnPoChartPeriodChange) propOnPoChartPeriodChange(newPeriod);
+    setInternalPoChartPeriod(newPeriod);
+    if (newRange) {
+      if (propOnPoChartCustomRangeChange) propOnPoChartCustomRangeChange(newRange);
+      setInternalPoChartCustomRange(newRange);
+    }
+  };
+
+  // 4. Top Purchasing RM
+  const [internalTopRmPeriod, setInternalTopRmPeriod] = useState(propTopRmPeriod || 'all_time');
+  const [internalTopRmCustomRange, setInternalTopRmCustomRange] = useState(propTopRmCustomRange || { startDate: '', endDate: '' });
+  const activeTopRmPeriod = propTopRmPeriod || internalTopRmPeriod;
+  const activeTopRmCustomRange = propTopRmCustomRange || internalTopRmCustomRange;
+  const handleTopRmPeriodChange = (newPeriod, newRange) => {
+    if (propOnTopRmPeriodChange) propOnTopRmPeriodChange(newPeriod);
+    setInternalTopRmPeriod(newPeriod);
+    if (newRange) {
+      if (propOnTopRmCustomRangeChange) propOnTopRmCustomRangeChange(newRange);
+      setInternalTopRmCustomRange(newRange);
     }
   };
 
@@ -296,9 +355,15 @@ export default function SalesPanel({
             redirectRoute="/sales/order"
             updatedAt={updatedAt}
             action={
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 dark:bg-blue-950/60 text-[#0A6ED1] dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                {periodLabel}
-              </span>
+              <DashboardDatePeriodFilter
+                activePeriod={activeSkusPeriod}
+                onPeriodChange={handleSkusPeriodChange}
+                customRange={activeSkusCustomRange}
+                onCustomRangeChange={(r) => {
+                  if (propOnSkusCustomRangeChange) propOnSkusCustomRangeChange(r);
+                  setInternalSkusCustomRange(r);
+                }}
+              />
             }
           >
             {isLoading ? (
@@ -356,15 +421,26 @@ export default function SalesPanel({
             redirectRoute="/purchase/po"
             updatedAt={updatedAt}
             action={
-              <button
-                type="button"
-                onClick={() => navigate('/purchase/po')}
-                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer flex items-center gap-1"
-                title="Open Purchase Orders Management (/purchase/po)"
-              >
-                <span>/purchase/po</span>
-                <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />
-              </button>
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <DashboardDatePeriodFilter
+                  activePeriod={activePoChartPeriod}
+                  onPeriodChange={handlePoChartPeriodChange}
+                  customRange={activePoChartCustomRange}
+                  onCustomRangeChange={(r) => {
+                    if (propOnPoChartCustomRangeChange) propOnPoChartCustomRangeChange(r);
+                    setInternalPoChartCustomRange(r);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => navigate('/purchase/po')}
+                  className="hidden sm:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer items-center gap-1"
+                  title="Open Purchase Orders Management (/purchase/po)"
+                >
+                  <span>/purchase/po</span>
+                  <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />
+                </button>
+              </div>
             }
           >
             {isLoading ? (
@@ -427,21 +503,21 @@ export default function SalesPanel({
                   </div>
                 )}
 
-                {/* Recent Purchase Orders Table */}
+                {/* Recent Purchase Orders Table with Invoice Date */}
                 <div className="flex-1 overflow-x-auto">
                   <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between">
                     <span>Recent Purchase Orders</span>
-                    <span className="text-[9.5px] text-slate-400 font-normal">Latest vendor purchase dispatches</span>
+                    <span className="text-[9.5px] text-slate-400 font-normal">Filtered by supplier invoice date</span>
                   </div>
                   {recentDeliveries.length === 0 ? (
                     <div className="p-3 text-center text-xs text-slate-400 italic">
-                      No purchase orders registered yet.
+                      No purchase orders registered in this period.
                     </div>
                   ) : (
                     <table className="w-full text-left text-xs whitespace-nowrap">
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700/80 text-[10px] font-bold text-slate-500 uppercase">
-                          <th className="py-1 px-1">PO Ref</th>
+                          <th className="py-1 px-1">PO Ref & Inv Date</th>
                           <th className="py-1 px-1">Supplier</th>
                           <th className="py-1 px-1">Raw Material</th>
                           <th className="py-1 px-1">Qty</th>
@@ -456,8 +532,13 @@ export default function SalesPanel({
                             onClick={() => navigate('/purchase/po')}
                             className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer"
                           >
-                            <td className="py-1.5 px-1 font-mono font-bold text-[#0A6ED1] dark:text-blue-400">
-                              {d.referenceNo}
+                            <td className="py-1.5 px-1 font-mono">
+                              <div className="font-bold text-[#0A6ED1] dark:text-blue-400">{d.referenceNo}</div>
+                              <div className="text-[9px] text-slate-400">
+                                Inv: {d.supplierInvoiceDate
+                                  ? new Date(d.supplierInvoiceDate).toLocaleDateString('en-GB')
+                                  : (d.invoiceDate ? new Date(d.invoiceDate).toLocaleDateString('en-GB') : (d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'))}
+                              </div>
                             </td>
                             <td className="py-1.5 px-1 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[120px]">
                               {d.supplierName}
@@ -495,15 +576,26 @@ export default function SalesPanel({
             redirectRoute="/purchase/po"
             updatedAt={updatedAt}
             action={
-              <button
-                type="button"
-                onClick={() => setShowViewMoreModal(true)}
-                className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#0A6ED1] hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                title="View all raw materials order-wise with live UOM"
-              >
-                <span>View More</span>
-                <Eye className="w-3 h-3" />
-              </button>
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <DashboardDatePeriodFilter
+                  activePeriod={activeTopRmPeriod}
+                  onPeriodChange={handleTopRmPeriodChange}
+                  customRange={activeTopRmCustomRange}
+                  onCustomRangeChange={(r) => {
+                    if (propOnTopRmCustomRangeChange) propOnTopRmCustomRangeChange(r);
+                    setInternalTopRmCustomRange(r);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowViewMoreModal(true)}
+                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#0A6ED1] hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                  title="View all raw materials order-wise with live UOM"
+                >
+                  <span>View More</span>
+                  <Eye className="w-3 h-3" />
+                </button>
+              </div>
             }
           >
             {isLoading ? (
@@ -639,7 +731,7 @@ export default function SalesPanel({
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-700/80 text-[10px] font-bold text-slate-500 uppercase sticky top-0 bg-white dark:bg-slate-900 z-10">
                       <th className="py-2 px-2">PO Ref</th>
-                      <th className="py-2 px-2">Date</th>
+                      <th className="py-2 px-2">Invoice Date</th>
                       <th className="py-2 px-2">Raw Material</th>
                       <th className="py-2 px-2">Supplier / Vendor</th>
                       <th className="py-2 px-2">Quantity</th>
@@ -658,14 +750,12 @@ export default function SalesPanel({
                         <td className="py-2 px-2 font-mono font-bold text-[#0A6ED1] dark:text-blue-400">
                           {item.poReference}
                         </td>
-                        <td className="py-2 px-2 text-slate-500 dark:text-slate-400">
-                          {item.date
-                            ? new Date(item.date).toLocaleDateString('en-IN', {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric'
-                              })
-                            : '-'}
+                        <td className="py-2 px-2 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                          {item.supplierInvoiceDate
+                            ? new Date(item.supplierInvoiceDate).toLocaleDateString('en-GB')
+                            : (item.invoiceDate
+                                ? new Date(item.invoiceDate).toLocaleDateString('en-GB')
+                                : (item.date ? new Date(item.date).toLocaleDateString('en-GB') : '-'))}
                         </td>
                         <td className="py-2 px-2 font-medium text-slate-800 dark:text-slate-100">
                           <div>

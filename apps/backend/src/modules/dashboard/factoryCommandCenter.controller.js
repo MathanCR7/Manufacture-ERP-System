@@ -865,7 +865,11 @@ class FactoryCommandCenterController {
       if (period || startDate || endDate || days) {
         const { start, end } = parsePeriodRange(period, startDate, endDate, days);
         if (start && end) {
-          where.createdAt = { gte: start, lte: end };
+          // Use invoice date for PO filter (supplierInvoiceDate) if available, fallback to createdAt
+          where.OR = [
+            { supplierInvoiceDate: { gte: start, lte: end } },
+            { supplierInvoiceDate: null, createdAt: { gte: start, lte: end } }
+          ];
         }
       }
 
@@ -875,7 +879,10 @@ class FactoryCommandCenterController {
           supplier: { select: { id: true, name: true } },
           uom: { select: { abbreviation: true } }
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [
+          { supplierInvoiceDate: 'desc' },
+          { createdAt: 'desc' }
+        ],
         take: 100
       });
 
@@ -916,7 +923,10 @@ class FactoryCommandCenterController {
             amount: amt,
             expectedDelivery: po.expectedDelivery,
             status: po.status,
-            createdAt: po.createdAt
+            createdAt: po.createdAt,
+            supplierInvoiceDate: po.supplierInvoiceDate,
+            supplierInvoiceNo: po.supplierInvoiceNo,
+            invoiceDate: po.supplierInvoiceDate || po.createdAt
           });
           columns[colKey].totalAmount += amt;
         }
@@ -1122,8 +1132,20 @@ class FactoryCommandCenterController {
   // 7. GET /api/dashboard/inventory/rm-health (ALL RM Available Quantity & Valuation Reconciled)
   async getRmHealth(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const { start, end } = parsePeriodRange(period || 'all_time', startDate, endDate, days);
+
+      let computeParams = { period: 'all' };
+      if (start && end) {
+        computeParams = {
+          period: 'custom',
+          startDate: start.toISOString().split('T')[0],
+          endDate: end.toISOString().split('T')[0]
+        };
+      }
+
       // Reconciled stock balance from the single source of truth (computeRmStockCore)
-      const reconciled = await computeRmStockCore({ period: 'all' });
+      const reconciled = await computeRmStockCore(computeParams);
       const summary = reconciled.summary || {};
       const materials = reconciled.materials || [];
 
@@ -1171,12 +1193,19 @@ class FactoryCommandCenterController {
         }
       });
 
-      // Total PO contract spend across all active POs
+      // Total PO contract spend across all active POs matching invoice date
+      const poWhere = { deletedAt: null };
+      if (start && end) {
+        poWhere.OR = [
+          { supplierInvoiceDate: { gte: start, lte: end } },
+          { supplierInvoiceDate: null, createdAt: { gte: start, lte: end } }
+        ];
+      }
       const poList = await prisma.rawMaterialPO.findMany({
-        where: { deletedAt: null },
+        where: poWhere,
         select: { grandTotal: true, amount: true }
       });
-      const totalPoAmount = poList.reduce((sum, p) => sum + Number(p.grandTotal || p.amount || 0), 0) || 491758;
+      const totalPoAmount = poList.reduce((sum, p) => sum + Number(p.grandTotal || p.amount || 0), 0) || (start && end ? 0 : 491758);
 
       res.json({
         totalRawMaterials: summary.totalMaterials || materials.length || 156,
@@ -1212,6 +1241,9 @@ class FactoryCommandCenterController {
   // 8. GET /api/dashboard/inventory/finished-goods (TOTAL End Product Available Stock)
   async getFinishedGoods(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const { start, end } = parsePeriodRange(period || 'all_time', startDate, endDate, days);
+
       const allFps = await prisma.finishedProduct.findMany({
         where: { deletedAt: null },
         include: {
@@ -1234,13 +1266,15 @@ class FactoryCommandCenterController {
       // Cold room estimated cartons (average 24 units per carton)
       const coldRoomCartons = Math.ceil(totalFinishedGoodsStock / 24);
 
-      // Direct to stock vs QC Hold from active & completed day outputs
-      const qcHoldCount = await prisma.productionBatchNew.count({
-        where: { status: 'Completed', qcTests: { none: {} }, deletedAt: null }
-      });
-      const directToStockCount = await prisma.productionBatchNew.count({
-        where: { status: { in: ['Completed', 'qc_passed'] }, deletedAt: null }
-      });
+      // Direct to stock vs QC Hold
+      const qcHoldWhere = { status: 'Completed', qcTests: { none: {} }, deletedAt: null };
+      const directWhere = { status: { in: ['Completed', 'qc_passed'] }, deletedAt: null };
+      if (start && end) {
+        qcHoldWhere.createdAt = { gte: start, lte: end };
+        directWhere.createdAt = { gte: start, lte: end };
+      }
+      const qcHoldCount = await prisma.productionBatchNew.count({ where: qcHoldWhere });
+      const directToStockCount = await prisma.productionBatchNew.count({ where: directWhere });
 
       const topProducts = allFps.slice(0, 8).map(fp => ({
         id: fp.id,
@@ -1252,22 +1286,31 @@ class FactoryCommandCenterController {
         unit: fp.unit?.abbreviation || 'pcs'
       }));
 
-      // All-time lifecycle movement metrics for Finished Goods
+      // Lifecycle movement metrics for Finished Goods in period
+      const batchWhere = { deletedAt: null };
+      if (start && end) {
+        batchWhere.createdAt = { gte: start, lte: end };
+      }
       const totalProducedAgg = await prisma.productionBatchNew.aggregate({
         _sum: { actualOutput: true, quantity: true },
-        where: { deletedAt: null }
+        where: batchWhere
       });
-      // Realized Sales strictly from converted Tax Invoices
+
+      // Realized Sales strictly from converted Tax Invoices in period
+      const orderWhere = {
+        deletedAt: null,
+        OR: [
+          { orderMode: 'INVOICE' },
+          { type: 'Invoice' },
+          { docNo: { startsWith: 'INV' } },
+          { referenceNo: { startsWith: 'INV' } }
+        ]
+      };
+      if (start && end) {
+        orderWhere.createdAt = { gte: start, lte: end };
+      }
       const invoicedOrderIds = (await prisma.customerOrder.findMany({
-        where: {
-          deletedAt: null,
-          OR: [
-            { orderMode: 'INVOICE' },
-            { type: 'Invoice' },
-            { docNo: { startsWith: 'INV' } },
-            { referenceNo: { startsWith: 'INV' } }
-          ]
-        },
+        where: orderWhere,
         select: { id: true }
       })).map(o => o.id);
 
@@ -1275,8 +1318,13 @@ class FactoryCommandCenterController {
         _sum: { quantity: true },
         where: { orderId: { in: invoicedOrderIds } }
       });
+      const returnWhere = {};
+      if (start && end) {
+        returnWhere.createdAt = { gte: start, lte: end };
+      }
       const totalReturnsAgg = await prisma.salesReturnItem.aggregate({
-        _sum: { quantity: true }
+        _sum: { quantity: true },
+        where: returnWhere
       });
 
       const totalProduced = fmtNum(totalProducedAgg._sum.actualOutput) || fmtNum(totalProducedAgg._sum.quantity) || 647;
@@ -1306,15 +1354,21 @@ class FactoryCommandCenterController {
   async getExpiryWatchlist(req, res, next) {
     try {
       const now = new Date();
+      const { period, startDate, endDate, days } = req.query;
+      const { start, end } = parsePeriodRange(period || 'all_time', startDate, endDate, days);
 
       // 1. Production batches of finished products - ONLY COMPLETED (Not In-Progress)
       let batches = [];
       try {
+        const batchWhere = {
+          deletedAt: null,
+          status: { in: ['Completed', 'completed', 'qc_passed', 'QC_PASSED'] }
+        };
+        if (start && end) {
+          batchWhere.createdAt = { gte: start, lte: end };
+        }
         batches = await prisma.productionBatchNew.findMany({
-          where: {
-            deletedAt: null,
-            status: { in: ['Completed', 'completed', 'qc_passed', 'QC_PASSED'] }
-          },
+          where: batchWhere,
           include: {
             product: {
               select: {
@@ -1646,18 +1700,34 @@ class FactoryCommandCenterController {
   // 11. GET /api/dashboard/sales/pipeline -> PO Purchase Chart & Analytics
   async getSalesPipeline(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const where = { deletedAt: null };
+
+      if (period || startDate || endDate || days) {
+        const { start, end } = parsePeriodRange(period, startDate, endDate, days);
+        if (start && end) {
+          where.OR = [
+            { supplierInvoiceDate: { gte: start, lte: end } },
+            { supplierInvoiceDate: null, createdAt: { gte: start, lte: end } }
+          ];
+        }
+      }
+
       const uoms = await prisma.uOM.findMany();
       const uomMap = {};
       uoms.forEach(u => { uomMap[u.id] = u.abbreviation || u.name; });
 
       // Fetch all Raw Material Purchase Orders
       const allPOs = await prisma.rawMaterialPO.findMany({
-        where: { deletedAt: null },
+        where,
         include: {
           supplier: { select: { id: true, name: true } },
           uom: { select: { id: true, name: true, abbreviation: true } }
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: [
+          { supplierInvoiceDate: 'desc' },
+          { createdAt: 'desc' }
+        ]
       });
 
       let totalPoSpend = 0;
@@ -1686,7 +1756,8 @@ class FactoryCommandCenterController {
           statusCounts.Pending += 1;
         }
 
-        const monthKey = po.createdAt.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+        const effectiveDate = po.supplierInvoiceDate || po.createdAt;
+        const monthKey = effectiveDate.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
         if (!monthlyTrendMap[monthKey]) {
           monthlyTrendMap[monthKey] = { month: monthKey, spend: 0, poCount: 0 };
         }
@@ -1703,7 +1774,10 @@ class FactoryCommandCenterController {
             uom: uomMap[po.uomId] || po.uom?.abbreviation || 'kg',
             grandTotal: amt,
             status: po.status,
-            date: po.createdAt
+            date: effectiveDate,
+            invoiceDate: po.supplierInvoiceDate || po.createdAt,
+            supplierInvoiceDate: po.supplierInvoiceDate,
+            supplierInvoiceNo: po.supplierInvoiceNo
           });
         }
       });
@@ -1807,6 +1881,19 @@ class FactoryCommandCenterController {
   // 13. GET /api/dashboard/sales/top-customers -> Top Purchasing Raw Material & Order-Wise List
   async getTopCustomers(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const where = { deletedAt: null };
+
+      if (period || startDate || endDate || days) {
+        const { start, end } = parsePeriodRange(period, startDate, endDate, days);
+        if (start && end) {
+          where.OR = [
+            { supplierInvoiceDate: { gte: start, lte: end } },
+            { supplierInvoiceDate: null, createdAt: { gte: start, lte: end } }
+          ];
+        }
+      }
+
       const uoms = await prisma.uOM.findMany();
       const uomMap = {};
       uoms.forEach(u => { uomMap[u.id] = u.abbreviation || u.name; });
@@ -1821,12 +1908,15 @@ class FactoryCommandCenterController {
       });
 
       const pos = await prisma.rawMaterialPO.findMany({
-        where: { deletedAt: null },
+        where,
         include: {
           supplier: { select: { id: true, name: true } },
           uom: { select: { id: true, name: true, abbreviation: true } }
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: [
+          { supplierInvoiceDate: 'desc' },
+          { createdAt: 'desc' }
+        ]
       });
 
       const allOrderWiseRM = [];
@@ -1848,6 +1938,8 @@ class FactoryCommandCenterController {
           }];
         }
 
+        const effectiveDate = po.supplierInvoiceDate || po.createdAt;
+
         lines.forEach((line, idx) => {
           const rm = rmMap[line.rmId] || rmMap[line.name] || {};
           const liveUom = uomMap[line.uomId] || uomMap[rm.unitId] || line.uomLabel || po.uom?.abbreviation || 'Units';
@@ -1860,7 +1952,10 @@ class FactoryCommandCenterController {
             id: `${po.id}-${idx}`,
             poId: po.id,
             poReference: po.referenceNo || `PO-${po.id.slice(0, 6)}`,
-            date: po.createdAt,
+            date: effectiveDate,
+            invoiceDate: po.supplierInvoiceDate || po.createdAt,
+            supplierInvoiceDate: po.supplierInvoiceDate,
+            supplierInvoiceNo: po.supplierInvoiceNo,
             supplierName: po.supplier?.name || 'Direct Supplier',
             rmId: rmCode,
             rawMaterialName: rmName,

@@ -83,6 +83,21 @@ export default function DashboardPage() {
   const [salesPeriod, setSalesPeriod] = useState('7d');
   const [salesCustomRange, setSalesCustomRange] = useState({ startDate: '', endDate: '' });
 
+  const [skusPeriod, setSkusPeriod] = useState('all_time');
+  const [skusCustomRange, setSkusCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [poChartPeriod, setPoChartPeriod] = useState('all_time');
+  const [poChartCustomRange, setPoChartCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [topRmPeriod, setTopRmPeriod] = useState('all_time');
+  const [topRmCustomRange, setTopRmCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [rmHealthPeriod, setRmHealthPeriod] = useState('all_time');
+  const [rmHealthCustomRange, setRmHealthCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [fgPeriod, setFgPeriod] = useState('all_time');
+  const [fgCustomRange, setFgCustomRange] = useState({ startDate: '', endDate: '' });
+
   // 1. Overview & Attention Strip
   const overviewQuery = useDashboardOverview();
 
@@ -95,15 +110,15 @@ export default function DashboardPage() {
   const inflowQuery = useInflowData(inflowPeriod, inflowCustomRange);
 
   // 4. Inventory & Expiry
-  const rmHealthQuery = useRmHealth();
-  const finishedGoodsQuery = useFinishedGoods();
-  const expiryQuery = useExpiryWatchlist();
+  const rmHealthQuery = useRmHealth(rmHealthPeriod, rmHealthCustomRange);
+  const finishedGoodsQuery = useFinishedGoods(fgPeriod, fgCustomRange);
+  const expiryQuery = useExpiryWatchlist(fgPeriod, fgCustomRange);
 
   // 5. Sales & Orders
   const salesRevenueQuery = useSalesRevenue(salesPeriod, salesCustomRange);
-  const salesPipelineQuery = useSalesPipeline();
-  const topSkusQuery = useTopSkus(salesPeriod, salesCustomRange);
-  const topCustomersQuery = useTopCustomers();
+  const salesPipelineQuery = useSalesPipeline(poChartPeriod, poChartCustomRange);
+  const topSkusQuery = useTopSkus(skusPeriod, skusCustomRange);
+  const topCustomersQuery = useTopCustomers(topRmPeriod, topRmCustomRange);
 
   // 6. Quality & Cold Room
   const qualitySummaryQuery = useQualitySummary();
@@ -421,6 +436,10 @@ export default function DashboardPage() {
         <div className="lg:col-span-6 flex flex-col h-full">
           <RmHealthPanel
             data={rmHealthQuery.data}
+            period={rmHealthPeriod}
+            onPeriodChange={setRmHealthPeriod}
+            customRange={rmHealthCustomRange}
+            onCustomRangeChange={setRmHealthCustomRange}
             isLoading={rmHealthQuery.isLoading}
             error={rmHealthQuery.error}
             onRetry={() => rmHealthQuery.refetch()}
@@ -432,6 +451,10 @@ export default function DashboardPage() {
           <FinishedGoodsPanel
             fgData={finishedGoodsQuery.data}
             expiryData={expiryQuery.data}
+            period={fgPeriod}
+            onPeriodChange={setFgPeriod}
+            customRange={fgCustomRange}
+            onCustomRangeChange={setFgCustomRange}
             isLoading={finishedGoodsQuery.isLoading || expiryQuery.isLoading}
             error={finishedGoodsQuery.error || expiryQuery.error}
             onRetry={() => {
@@ -455,14 +478,27 @@ export default function DashboardPage() {
             setSalesPeriod={setSalesPeriod}
             salesCustomRange={salesCustomRange}
             setSalesCustomRange={setSalesCustomRange}
+            skusPeriod={skusPeriod}
+            onSkusPeriodChange={setSkusPeriod}
+            skusCustomRange={skusCustomRange}
+            onSkusCustomRangeChange={setSkusCustomRange}
+            poChartPeriod={poChartPeriod}
+            onPoChartPeriodChange={setPoChartPeriod}
+            poChartCustomRange={poChartCustomRange}
+            onPoChartCustomRangeChange={setPoChartCustomRange}
+            topRmPeriod={topRmPeriod}
+            onTopRmPeriodChange={setTopRmPeriod}
+            topRmCustomRange={topRmCustomRange}
+            onTopRmCustomRangeChange={setTopRmCustomRange}
             revenueDays={salesPeriod}
             setRevenueDays={setSalesPeriod}
-            isLoading={salesRevenueQuery.isLoading || salesPipelineQuery.isLoading || topSkusQuery.isLoading}
-            error={salesRevenueQuery.error || salesPipelineQuery.error || topSkusQuery.error}
+            isLoading={salesRevenueQuery.isLoading || salesPipelineQuery.isLoading || topSkusQuery.isLoading || topCustomersQuery.isLoading}
+            error={salesRevenueQuery.error || salesPipelineQuery.error || topSkusQuery.error || topCustomersQuery.error}
             onRetry={() => {
               salesRevenueQuery.refetch();
               topSkusQuery.refetch();
               salesPipelineQuery.refetch();
+              topCustomersQuery.refetch();
             }}
             updatedAt={salesRevenueQuery.dataUpdatedAt}
           />

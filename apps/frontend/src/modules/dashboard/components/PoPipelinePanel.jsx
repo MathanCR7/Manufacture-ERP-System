@@ -134,6 +134,23 @@ export default function PoPipelinePanel({
                           {po.materialName} • {po.quantity} {po.uom}
                         </div>
 
+                        {/* Invoice Date Display */}
+                        <div className="flex items-center justify-between text-[9.5px] text-slate-400 dark:text-slate-500 mt-1 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                          <span className="flex items-center gap-1">
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">Inv:</span>
+                            <span className="font-mono font-medium">
+                              {po.supplierInvoiceDate
+                                ? new Date(po.supplierInvoiceDate).toLocaleDateString('en-GB')
+                                : (po.invoiceDate ? new Date(po.invoiceDate).toLocaleDateString('en-GB') : new Date(po.createdAt).toLocaleDateString('en-GB'))}
+                            </span>
+                          </span>
+                          {po.supplierInvoiceNo ? (
+                            <span className="font-mono text-[9px] text-slate-400 truncate max-w-[80px]">#{po.supplierInvoiceNo}</span>
+                          ) : (
+                            <span className="text-[9px] text-slate-400">PO Logged</span>
+                          )}
+                        </div>
+
                         {/* Approve Quick Action for Pending POs */}
                         {colKey === 'PENDING' && canApprove && (
                           <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end">

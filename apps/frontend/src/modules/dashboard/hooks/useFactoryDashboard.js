@@ -127,12 +127,13 @@ export function useInflowData(periodOrDays = '7d', customRange = {}) {
 }
 
 // 6. Raw Material Stock Health (ALL RM Available Quantity)
-export function useRmHealth() {
+export function useRmHealth(periodOrDays = 'all_time', customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'rm-health'],
+    queryKey: ['factory-dashboard', 'rm-health', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/inventory/rm-health');
+      const res = await api.get(`/dashboard/inventory/rm-health${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(60000, token)
@@ -140,12 +141,13 @@ export function useRmHealth() {
 }
 
 // 7. Finished Goods Stock (TOTAL End Product Available Stock)
-export function useFinishedGoods() {
+export function useFinishedGoods(periodOrDays = 'all_time', customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'finished-goods'],
+    queryKey: ['factory-dashboard', 'finished-goods', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/inventory/finished-goods');
+      const res = await api.get(`/dashboard/inventory/finished-goods${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(60000, token)
@@ -153,12 +155,13 @@ export function useFinishedGoods() {
 }
 
 // 8. FIFO Expiry Watchlist
-export function useExpiryWatchlist() {
+export function useExpiryWatchlist(periodOrDays = 'all_time', customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'expiry-watchlist'],
+    queryKey: ['factory-dashboard', 'expiry-watchlist', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/inventory/expiry');
+      const res = await api.get(`/dashboard/inventory/expiry${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(120000, token)
@@ -168,48 +171,25 @@ export function useExpiryWatchlist() {
 // 9. Sales Revenue Trend (Accepts period '7d' | 'this_month' | 'last_month' | 'this_year' | 'custom' or days)
 export function useSalesRevenue(periodOrDays = '7d', customRange = {}) {
   const { token } = useAuthStore();
-
-  let period = '7d';
-  let startDate = '';
-  let endDate = '';
-  let days = null;
-
-  if (typeof periodOrDays === 'object' && periodOrDays !== null) {
-    period = periodOrDays.period || '7d';
-    startDate = periodOrDays.startDate || '';
-    endDate = periodOrDays.endDate || '';
-    days = periodOrDays.days;
-  } else if (typeof periodOrDays === 'number') {
-    days = periodOrDays;
-    period = `${periodOrDays}d`;
-  } else if (typeof periodOrDays === 'string') {
-    period = periodOrDays;
-    startDate = customRange?.startDate || '';
-    endDate = customRange?.endDate || '';
-  }
-
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
     queryKey: ['factory-dashboard', 'sales-revenue', period, startDate, endDate, days],
     queryFn: async () => {
-      const q = new URLSearchParams();
-      if (period) q.append('period', period);
-      if (startDate) q.append('startDate', startDate);
-      if (endDate) q.append('endDate', endDate);
-      if (days) q.append('days', days);
-      const res = await api.get(`/dashboard/sales/revenue?${q.toString()}`);
+      const res = await api.get(`/dashboard/sales/revenue${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(300000, token)
   });
 }
 
-// 10. Sales Pipeline & Deliveries
-export function useSalesPipeline() {
+// 10. Sales Pipeline & Deliveries (PO Purchase Chart)
+export function useSalesPipeline(periodOrDays = 'all_time', customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'sales-pipeline'],
+    queryKey: ['factory-dashboard', 'sales-pipeline', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/sales/pipeline');
+      const res = await api.get(`/dashboard/sales/pipeline${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(60000, token)
@@ -217,45 +197,27 @@ export function useSalesPipeline() {
 }
 
 // 11. Top SKUs (Filtered by period / statutory tax invoices)
-export function useTopSkus(periodOrDays, customRange = {}) {
+export function useTopSkus(periodOrDays = 'all_time', customRange = {}) {
   const { token } = useAuthStore();
-
-  let period = '';
-  let startDate = '';
-  let endDate = '';
-
-  if (typeof periodOrDays === 'object' && periodOrDays !== null) {
-    period = periodOrDays.period || '';
-    startDate = periodOrDays.startDate || '';
-    endDate = periodOrDays.endDate || '';
-  } else if (typeof periodOrDays === 'string') {
-    period = periodOrDays;
-    startDate = customRange?.startDate || '';
-    endDate = customRange?.endDate || '';
-  }
-
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'top-skus', period, startDate, endDate],
+    queryKey: ['factory-dashboard', 'top-skus', period, startDate, endDate, days],
     queryFn: async () => {
-      const q = new URLSearchParams();
-      if (period) q.append('period', period);
-      if (startDate) q.append('startDate', startDate);
-      if (endDate) q.append('endDate', endDate);
-      const qs = q.toString();
-      const res = await api.get(`/dashboard/sales/top-skus${qs ? `?${qs}` : ''}`);
+      const res = await api.get(`/dashboard/sales/top-skus${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(120000, token)
   });
 }
 
-// 12. Top Distributors
-export function useTopCustomers() {
+// 12. Top Purchasing Raw Material & Order-Wise RM
+export function useTopCustomers(periodOrDays = 'all_time', customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'top-customers'],
+    queryKey: ['factory-dashboard', 'top-customers', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/sales/top-customers');
+      const res = await api.get(`/dashboard/sales/top-customers${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(120000, token)

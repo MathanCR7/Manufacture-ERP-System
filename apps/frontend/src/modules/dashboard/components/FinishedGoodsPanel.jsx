@@ -3,11 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { Snowflake, PackageCheck, Layers, ArrowUpRight } from 'lucide-react';
 import FioriCard from './FioriCard';
 import { FioriSkeleton, FioriErrorRetry } from './FioriStateHandlers';
+import DashboardDatePeriodFilter from './DashboardDatePeriodFilter';
 
 export default function FinishedGoodsPanel({
   fgData,
   finishedGoods,
   expiryData = {},
+  period = 'all_time',
+  onPeriodChange,
+  customRange,
+  onCustomRangeChange,
   isLoading,
   isError,
   error,
@@ -39,11 +44,17 @@ export default function FinishedGoodsPanel({
       icon={Snowflake}
       redirectRoute="/products/stock"
       action={
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <DashboardDatePeriodFilter
+            activePeriod={period}
+            onPeriodChange={onPeriodChange}
+            customRange={customRange}
+            onCustomRangeChange={onCustomRangeChange}
+          />
           <button
             type="button"
             onClick={() => navigate('/products/stock')}
-            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer flex items-center gap-1"
+            className="hidden sm:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer items-center gap-1"
             title="Open Finished Products Stock Ledger (/products/stock)"
           >
             <span>/products/stock</span>
@@ -52,7 +63,7 @@ export default function FinishedGoodsPanel({
           <button
             type="button"
             onClick={() => navigate('/setup/product')}
-            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer flex items-center gap-1"
+            className="hidden md:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer items-center gap-1"
             title="Open Finished Products Master Setup (/setup/product)"
           >
             <span>/setup/product</span>
