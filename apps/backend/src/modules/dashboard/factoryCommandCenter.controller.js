@@ -1074,6 +1074,7 @@ class FactoryCommandCenterController {
   async getFinishedGoods(req, res, next) {
     try {
       const allFps = await prisma.finishedProduct.findMany({
+        where: { deletedAt: null },
         include: {
           category: { select: { id: true, name: true } },
           unit: { select: { abbreviation: true } }
@@ -1147,58 +1148,183 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 9. GET /api/dashboard/inventory/expiry (FIFO Expiry Buckets & Watchlist)
+  // 9. GET /api/dashboard/inventory/expiry (FIFO Finished Products Expiry Buckets & Watchlist)
   async getExpiryWatchlist(req, res, next) {
     try {
       const now = new Date();
-      const in7Days = new Date(now); in7Days.setDate(in7Days.getDate() + 7);
-      const in30Days = new Date(now); in30Days.setDate(in30Days.getDate() + 30);
 
-      const batches = await prisma.inventoryBatch.findMany({
-        where: {
-          expiryDate: { not: null },
-          status: 'AVAILABLE'
+      // 1. Production batches of finished products
+      let batches = [];
+      try {
+        batches = await prisma.productionBatchNew.findMany({
+          where: { deletedAt: null },
+          include: {
+            product: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                currentStock: true,
+                salePrice: true,
+                unit: { select: { abbreviation: true, name: true } },
+                category: { select: { id: true, name: true } }
+              }
+            }
+          },
+          orderBy: [
+            { expiryDate: 'asc' },
+            { createdAt: 'desc' }
+          ]
+        });
+      } catch (e) {
+        batches = [];
+      }
+
+      // 2. Barcode labels generated for product lots
+      let labels = [];
+      try {
+        labels = await prisma.productionBarcodeLabel.findMany({
+          orderBy: { expiryDate: 'asc' }
+        });
+      } catch (e) {
+        labels = [];
+      }
+
+      // 3. Finished Products with active stock (from /products/stock & /setup/product)
+      const inStockFps = await prisma.finishedProduct.findMany({
+        where: { deletedAt: null, currentStock: { gt: 0 } },
+        include: {
+          category: { select: { id: true, name: true } },
+          unit: { select: { abbreviation: true, name: true } }
         },
-        orderBy: { expiryDate: 'asc' },
-        take: 30
+        orderBy: { currentStock: 'desc' }
       });
 
+      const watchlist = [];
+      const seenProductKeys = new Set();
       let under7Count = 0;
       let days8to30Count = 0;
       let over30Count = 0;
 
-      const watchlist = [];
+      // Add batches of finished products
+      for (const b of batches) {
+        if (!b.product) continue;
+        const batchLot = b.batchNo || b.referenceNo;
+        const key = `${b.productId}-${batchLot}`;
+        if (seenProductKeys.has(key)) continue;
+        seenProductKeys.add(key);
 
-      batches.forEach(b => {
-        const exp = new Date(b.expiryDate);
-        const diffDays = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+        const expDate = b.expiryDate
+          ? new Date(b.expiryDate)
+          : new Date(now.getTime() + (b.shelfLifeDays || 180) * 86400000);
+        const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+        const qty = fmtNum(b.actualOutput || b.remainingQty || b.quantity || b.product.currentStock || 0);
 
-        if (diffDays <= 7) {
-          under7Count++;
-        } else if (diffDays <= 30) {
-          days8to30Count++;
-        } else {
-          over30Count++;
-        }
+        if (diffDays <= 7) under7Count++;
+        else if (diffDays <= 30) days8to30Count++;
+        else over30Count++;
 
-        if (watchlist.length < 8) {
-          watchlist.push({
-            id: b.id,
-            lotNumber: b.batchNumber,
-            materialName: b.rawMaterialName,
-            expiryDate: b.expiryDate,
-            daysRemaining: Math.max(0, diffDays),
-            quantity: fmtNum(b.netQty),
-            status: diffDays <= 7 ? 'Critical' : diffDays <= 30 ? 'Warning' : 'OK'
+        watchlist.push({
+          id: b.id,
+          productId: b.productId,
+          productCode: b.product.code,
+          lotNumber: batchLot,
+          materialName: b.product.name,
+          productName: b.product.name,
+          category: b.product.category?.name || 'Finished Goods',
+          expiryDate: expDate,
+          daysRemaining: Math.max(0, diffDays),
+          quantity: qty,
+          unit: b.product.unit?.abbreviation || 'pcs',
+          salePrice: fmtNum(b.product.salePrice),
+          status: diffDays <= 7 ? 'Critical' : diffDays <= 30 ? 'Warning' : 'OK'
+        });
+      }
+
+      // Add barcode labels for day-wise finished goods
+      for (const l of labels) {
+        const key = `${l.productId}-${l.batchNo}`;
+        if (seenProductKeys.has(key)) continue;
+        seenProductKeys.add(key);
+
+        let fp = null;
+        try {
+          fp = await prisma.finishedProduct.findUnique({
+            where: { id: l.productId },
+            include: { category: true, unit: true }
           });
-        }
-      });
+        } catch (e) {}
+        if (!fp) continue;
+
+        const expDate = l.expiryDate ? new Date(l.expiryDate) : new Date(now.getTime() + 180 * 86400000);
+        const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+        let labelQty = fmtNum(fp.currentStock);
+        try {
+          const payload = JSON.parse(l.qrPayload || '{}');
+          if (payload.qty) labelQty = fmtNum(payload.qty);
+        } catch (e) {}
+
+        if (diffDays <= 7) under7Count++;
+        else if (diffDays <= 30) days8to30Count++;
+        else over30Count++;
+
+        watchlist.push({
+          id: l.id,
+          productId: l.productId,
+          productCode: fp.code,
+          lotNumber: l.batchNo,
+          materialName: fp.name,
+          productName: fp.name,
+          category: fp.category?.name || 'Finished Goods',
+          expiryDate: expDate,
+          daysRemaining: Math.max(0, diffDays),
+          quantity: labelQty,
+          unit: fp.unit?.abbreviation || 'pcs',
+          salePrice: fmtNum(fp.salePrice),
+          status: diffDays <= 7 ? 'Critical' : diffDays <= 30 ? 'Warning' : 'OK'
+        });
+      }
+
+      // Add remaining in-stock finished products (from /products/stock)
+      for (const fp of inStockFps) {
+        const prodKey = `${fp.id}-stock`;
+        if (seenProductKeys.has(prodKey) || Array.from(seenProductKeys).some(k => k.startsWith(fp.id))) continue;
+        seenProductKeys.add(prodKey);
+
+        const mfd = fp.updatedAt || fp.createdAt || now;
+        const expDate = new Date(new Date(mfd).getTime() + 180 * 86400000);
+        const diffDays = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+        const qty = fmtNum(fp.currentStock);
+
+        if (diffDays <= 7) under7Count++;
+        else if (diffDays <= 30) days8to30Count++;
+        else over30Count++;
+
+        watchlist.push({
+          id: fp.id,
+          productId: fp.id,
+          productCode: fp.code,
+          lotNumber: `BATCH-${fp.code}-001`,
+          materialName: fp.name,
+          productName: fp.name,
+          category: fp.category?.name || 'Finished Goods',
+          expiryDate: expDate,
+          daysRemaining: Math.max(0, diffDays),
+          quantity: qty,
+          unit: fp.unit?.abbreviation || 'pcs',
+          salePrice: fmtNum(fp.salePrice),
+          status: diffDays <= 7 ? 'Critical' : diffDays <= 30 ? 'Warning' : 'OK'
+        });
+      }
+
+      // Sort by earliest expiry / lowest daysRemaining first (FIFO order)
+      watchlist.sort((a, b) => a.daysRemaining - b.daysRemaining);
 
       res.json({
         under7Days: under7Count,
         days8to30: days8to30Count,
         over30Days: over30Count,
-        watchlist
+        watchlist: watchlist.slice(0, 10)
       });
     } catch (error) {
       next(error);

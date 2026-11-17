@@ -2828,6 +2828,52 @@ export default function SalesOrderPage() {
     });
   }, [convertFromId, editOrderId, currentUser]);
 
+  // Handle "Push to Sales" from Finished Goods & FIFO Expiry dashboard card (/products/stock & /setup/product)
+  const pushProductId = searchParams.get('productId') || searchParams.get('product');
+  const pushBatchNo = searchParams.get('batchNo');
+  const pushQty = searchParams.get('qty');
+  const pushProductName = searchParams.get('productName');
+  const hasAutoPushedRef = useRef(false);
+
+  useEffect(() => {
+    if (hasAutoPushedRef.current) return;
+    if (editOrderId || convertFromId) return;
+    if (!pushProductId && !pushProductName) return;
+    if (!products || products.length === 0) return;
+
+    const matchedProd = products.find(p =>
+      (pushProductId && p.id === pushProductId) ||
+      (pushProductId && p.code?.toLowerCase() === pushProductId.toLowerCase()) ||
+      (pushProductName && p.name?.toLowerCase() === pushProductName.toLowerCase())
+    );
+    if (!matchedProd) return;
+
+    hasAutoPushedRef.current = true;
+    const targetLineId = lines[0]?.id || 1;
+    handleSelectProductForLine(targetLineId, matchedProd);
+
+    if (pushQty && !isNaN(Number(pushQty)) && Number(pushQty) > 0) {
+      setLines(prev => prev.map(l => {
+        if (l.id === targetLineId || l.productId === matchedProd.id) {
+          return {
+            ...l,
+            quantity: Number(pushQty)
+          };
+        }
+        return l;
+      }));
+    }
+
+    if (pushBatchNo) {
+      setRemarks(prev => prev ? `${prev} | Pushed Batch: ${pushBatchNo}` : `Pushed Batch: ${pushBatchNo}`);
+    }
+
+    setStatusMessage({
+      type: 'success',
+      text: `✔ Pushed ${matchedProd.name} (${pushBatchNo || 'Batch Ready'}) into Sales Order dispatch.`
+    });
+  }, [pushProductId, pushProductName, pushBatchNo, pushQty, products, editOrderId, convertFromId]);
+
   // Submit Sales Order Mutation
   const createOrderMutation = useMutation({
     mutationFn: async (payload) => {
