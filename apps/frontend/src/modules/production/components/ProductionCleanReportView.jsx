@@ -50,6 +50,28 @@ const formatStageDuration = (stages = []) => {
   return `${h}h ${m}m`;
 };
 
+const cleanStaffNameOnly = (val) => {
+  if (!val) return '';
+  if (typeof val === 'object') {
+    return cleanStaffNameOnly(val.name || val.fullName || val.userName || val.username || '');
+  }
+  return String(val)
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+};
+
+const formatAssignedStaff = (staffList, fallback) => {
+  if (Array.isArray(staffList) && staffList.length > 0) {
+    const names = staffList.map(u => cleanStaffNameOnly(u)).filter(Boolean);
+    if (names.length > 0) return names.join(', ');
+  }
+  const raw = fallback || 'Floor Operator';
+  const cleaned = String(raw).split(',').map(s => cleanStaffNameOnly(s)).filter(Boolean).join(', ');
+  return cleaned || raw;
+};
+
 export default function ProductionCleanReportView({
   batch,
   costingData,
@@ -180,22 +202,37 @@ export default function ProductionCleanReportView({
           ? r.allocatedBatches
           : (Array.isArray(bk.allocatedBatches) ? bk.allocatedBatches : []);
 
-        const lots = lotsRaw.map(ab => ({
-          batchId: ab.batchId || ab.inventoryBatchId || ab.lotNumber,
-          lotNumber: ab.lotNumber || ab.internalBatchNo || r.lotBatchNo || bk.lotBatchNo || 'BATCH-DIRECT',
-          allocatedQty: Number(ab.allocatedQty || 0),
-          uom: ab.uom || uom,
-          unitRate: Number(ab.unitRate ?? rate),
-          totalCost: round2(Number(ab.allocatedQty || 0) * Number(ab.unitRate ?? rate)),
-          expiryDate: ab.expiryDate || r.expiryDate || bk.expiryDate || null,
-          poNumber: ab.poNumber || 'PO-DIRECT',
-          grnNumber: ab.grnNumber || 'GRN-DIRECT'
-        }));
+        const lots = lotsRaw.map(ab => {
+          let exp = ab.expiryDate || r.expiryDate || bk.expiryDate || null;
+          if (!exp && (ab.mfgDate || r.mfgDate || bk.mfgDate)) {
+            const m = new Date(ab.mfgDate || r.mfgDate || bk.mfgDate);
+            if (!isNaN(m.getTime())) {
+              exp = new Date(m.getTime() + 180 * 24 * 60 * 60 * 1000).toISOString();
+            }
+          }
+          return {
+            batchId: ab.batchId || ab.inventoryBatchId || ab.lotNumber,
+            lotNumber: ab.lotNumber || ab.internalBatchNo || r.lotBatchNo || bk.lotBatchNo || 'BATCH-DIRECT',
+            allocatedQty: Number(ab.allocatedQty || 0),
+            uom: ab.uom || uom,
+            unitRate: Number(ab.unitRate ?? rate),
+            totalCost: round2(Number(ab.allocatedQty || 0) * Number(ab.unitRate ?? rate)),
+            expiryDate: exp,
+            poNumber: ab.poNumber || 'PO-DIRECT',
+            grnNumber: ab.grnNumber || 'GRN-DIRECT'
+          };
+        });
 
         const lotBatchNo = lots.length > 0
           ? lots.map(l => l.lotNumber).filter(Boolean).join(', ')
           : (r.lotBatchNo || r.lot_batch_no || bk.lotBatchNo || 'BATCH-DIRECT');
-        const expiryDate = r.expiryDate || lots.find(l => l.expiryDate)?.expiryDate || bk.expiryDate || null;
+        let expiryDate = r.expiryDate || lots.find(l => l.expiryDate)?.expiryDate || bk.expiryDate || r.lot_expiry_date || null;
+        if (!expiryDate && (r.mfgDate || r.mfg_date || bk.mfgDate)) {
+          const m = new Date(r.mfgDate || r.mfg_date || bk.mfgDate);
+          if (!isNaN(m.getTime())) {
+            expiryDate = new Date(m.getTime() + 180 * 24 * 60 * 60 * 1000).toISOString();
+          }
+        }
 
         return {
           rawMaterialId: rmId,
@@ -223,14 +260,36 @@ export default function ProductionCleanReportView({
     if (Array.isArray(costingData?.rmCostBreakdown) && costingData.rmCostBreakdown.length > 0) {
       return costingData.rmCostBreakdown
         .filter(l => Number(l.takenQty || 0) > 0)
-        .map(l => ({
-          ...l,
-          lots: Array.isArray(l.allocatedBatches) ? l.allocatedBatches : [],
-          expiryDate: l.expiryDate || l.allocatedBatches?.find(ab => ab.expiryDate)?.expiryDate || null
-        }));
+        .map(l => {
+          let exp = l.expiryDate || l.allocatedBatches?.find(ab => ab.expiryDate)?.expiryDate || null;
+          if (!exp && (l.mfgDate || l.mfg_date)) {
+            const m = new Date(l.mfgDate || l.mfg_date);
+            if (!isNaN(m.getTime())) {
+              exp = new Date(m.getTime() + 180 * 24 * 60 * 60 * 1000).toISOString();
+            }
+          }
+          return {
+            ...l,
+            lots: Array.isArray(l.allocatedBatches) ? l.allocatedBatches : [],
+            expiryDate: exp
+          };
+        });
     }
     return [];
   }, [rmRows, costingData]);
+
+  const totalBaseTakenQty = useMemo(
+    () => round2(baseRmLines.reduce((s, l) => s + Number(l.takenQty || 0), 0)),
+    [baseRmLines]
+  );
+  const baseUomEntries = useMemo(() => {
+    const map = {};
+    baseRmLines.forEach(l => {
+      const u = formatCleanUom(l.uom, 'kg', l);
+      map[u] = (map[u] || 0) + Number(l.takenQty || 0);
+    });
+    return Object.entries(map);
+  }, [baseRmLines]);
 
   const totalBaseConsumedCost = useMemo(
     () => round2(baseRmLines.reduce((s, l) => s + Number(l.totalCost || 0), 0)),
@@ -898,9 +957,7 @@ export default function ProductionCleanReportView({
                     <div className="flex items-center justify-between gap-2 text-[10.5px]">
                       <span className="text-slate-600 dark:text-slate-300 truncate flex items-center gap-1">
                         <Users className="w-3 h-3 text-emerald-600 shrink-0" />
-                        {staffList.length > 0
-                          ? staffList.map(u => `${u.name}${u.empId ? ` (${u.empId})` : ''}`).join(', ')
-                          : (d.completedBy || d.startedBy || batch?.startedBy || 'Floor Operator')}
+                        {formatAssignedStaff(staffList, d.completedBy || d.startedBy || batch?.startedBy)}
                       </span>
                       <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
                         {formatIndian(d.totalOutputQty, 0)} {productUom}
@@ -1081,10 +1138,7 @@ export default function ProductionCleanReportView({
                     <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded bg-emerald-50/90 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                       <Users className="w-3 h-3 shrink-0" />
                       <span>
-                        Staff:{' '}
-                        {Array.isArray(d.assignedUsers) && d.assignedUsers.length > 0
-                          ? d.assignedUsers.map(u => `${u.name}${u.empId ? ` (${u.empId})` : ''}`).join(', ')
-                          : (d.completedBy || d.startedBy || batch?.startedBy || 'Floor Operator')}
+                        Staff: {formatAssignedStaff(d.assignedUsers, d.completedBy || d.startedBy || batch?.startedBy)}
                       </span>
                     </span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -1438,8 +1492,17 @@ export default function ProductionCleanReportView({
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 font-mono">
                   <tr>
-                    <td colSpan={3} className="py-2.5 px-3 font-sans uppercase">Total Base Raw Materials Consumed</td>
-                    <td className="py-2.5 px-3 text-right">{baseRmLines.length} Materials</td>
+                    <td colSpan={3} className="py-2.5 px-3 font-sans uppercase">
+                      Total Base Raw Materials Consumed ({baseRmLines.length} Materials)
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                      <div>{formatIndian(totalBaseTakenQty)} {baseUomEntries.length === 1 ? baseUomEntries[0][0] : ''}</div>
+                      {baseUomEntries.length > 1 && (
+                        <div className="text-[10px] text-slate-500 font-normal">
+                          {baseUomEntries.map(([u, q]) => `${formatIndian(q)} ${u}`).join(', ')}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2.5 px-3 text-center text-slate-400">—</td>
                     {canViewCost && <td className="py-2.5 px-3 text-right">Blended Rate</td>}
                     {canViewCost && <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black">₹{formatIndian(totalBaseConsumedCost)}</td>}

@@ -1580,10 +1580,19 @@ class StandardProductionController {
               ELSE FALSE 
             END AS master_evaporates,
             ib."batchNumber" AS lot_batch_no,
-            ib."expiryDate" AS lot_expiry_date
+            COALESCE(
+              ib."expiryDate",
+              gri."expiryDate",
+              CASE 
+                WHEN ib."mfgDate" IS NOT NULL THEN (ib."mfgDate" + INTERVAL '180 days')
+                WHEN gri."mfgDate" IS NOT NULL THEN (gri."mfgDate" + INTERVAL '180 days')
+                ELSE NULL 
+              END
+            ) AS lot_expiry_date
           FROM production_batch_rm_line pbl
           LEFT JOIN "RawMaterial" rm ON rm.id = pbl.raw_material_id
           LEFT JOIN "InventoryBatch" ib ON ib.id = pbl.lot_id
+          LEFT JOIN "GRNReceiveItem" gri ON gri."grnId" = ib."grnId"
           LEFT JOIN "UOM" uom_tbl ON uom_tbl.id = rm."unitId"
           WHERE pbl.batch_id = $1
           ORDER BY pbl.created_at;
@@ -1633,10 +1642,21 @@ class StandardProductionController {
                 ELSE FALSE 
               END AS master_evaporates,
               COALESCE(u.internal_batch_no, ib."batchNumber") AS lot_batch_no,
-              ib."expiryDate" AS lot_expiry_date
+              COALESCE(
+                u.expiry_date,
+                ib."expiryDate",
+                gri."expiryDate",
+                CASE 
+                  WHEN u.mfg_date IS NOT NULL THEN (u.mfg_date + INTERVAL '180 days')
+                  WHEN ib."mfgDate" IS NOT NULL THEN (ib."mfgDate" + INTERVAL '180 days')
+                  WHEN gri."mfgDate" IS NOT NULL THEN (gri."mfgDate" + INTERVAL '180 days')
+                  ELSE NULL 
+                END
+              ) AS lot_expiry_date
             FROM production_batch_rm_usage u
             LEFT JOIN "RawMaterial" rm ON rm.id = u.rm_id
             LEFT JOIN "InventoryBatch" ib ON ib.id = u.allocated_batch_id
+            LEFT JOIN "GRNReceiveItem" gri ON gri."grnId" = ib."grnId"
             LEFT JOIN "UOM" uom_tbl ON uom_tbl.id = rm."unitId"
             WHERE u.batch_id = $1
             ORDER BY u.id;
@@ -1710,10 +1730,19 @@ class StandardProductionController {
           `SELECT 
              pba.*,
              COALESCE(u.rm_id, ib."rawMaterialId", pba.usage_id) AS matched_rm_id,
-             ib."expiryDate" AS expiry_date
+             COALESCE(
+               ib."expiryDate",
+               gri."expiryDate",
+               CASE 
+                 WHEN ib."mfgDate" IS NOT NULL THEN (ib."mfgDate" + INTERVAL '180 days')
+                 WHEN gri."mfgDate" IS NOT NULL THEN (gri."mfgDate" + INTERVAL '180 days')
+                 ELSE NULL 
+               END
+             ) AS expiry_date
            FROM "production_batch_allocations" pba
            LEFT JOIN production_batch_rm_usage u ON u.id = pba.usage_id
            LEFT JOIN "InventoryBatch" ib ON ib.id = pba.inventory_batch_id
+           LEFT JOIN "GRNReceiveItem" gri ON gri."grnId" = ib."grnId"
            WHERE pba.batch_id = $1`,
           id
         );
@@ -1730,11 +1759,20 @@ class StandardProductionController {
             ib.id,
             ib."rawMaterialId" AS raw_material_id,
             ib."batchNumber" AS batch_number,
-            ib."expiryDate" AS expiry_date,
+            COALESCE(
+              ib."expiryDate",
+              gri."expiryDate",
+              CASE 
+                WHEN ib."mfgDate" IS NOT NULL THEN (ib."mfgDate" + INTERVAL '180 days')
+                WHEN gri."mfgDate" IS NOT NULL THEN (gri."mfgDate" + INTERVAL '180 days')
+                ELSE NULL 
+              END
+            ) AS expiry_date,
             ib."netQty" AS remaining_qty
           FROM "InventoryBatch" ib
+          LEFT JOIN "GRNReceiveItem" gri ON gri."grnId" = ib."grnId" AND gri."rmId" = ib."rawMaterialId"
           WHERE ib."rawMaterialId" = ANY($1::text[]) AND ib."netQty" > 0
-          ORDER BY ib."expiryDate" ASC;
+          ORDER BY ib."expiryDate" ASC, ib."createdAt" ASC;
         `, rmIds);
         availableBatches.forEach(b => {
           if (!batchMap.has(b.raw_material_id)) batchMap.set(b.raw_material_id, []);

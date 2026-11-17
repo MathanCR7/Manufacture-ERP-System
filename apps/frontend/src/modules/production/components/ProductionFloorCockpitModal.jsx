@@ -2101,12 +2101,20 @@ export default function ProductionFloorCockpitModal({
       const lotAmount = Number((qty * unitRate).toFixed(4));
       weightedAmountSum += lotAmount;
 
+      let resolvedExp = lot.expiryDate || null;
+      if (!resolvedExp && lot.mfgDate) {
+        const m = new Date(lot.mfgDate);
+        if (!isNaN(m.getTime())) {
+          resolvedExp = new Date(m.getTime() + 180 * 24 * 60 * 60 * 1000).toISOString();
+        }
+      }
+
       allocatedBatches.push({
         batchId: lot.id,
         lotNumber: lot.internalBatchNo || lot.batchNumber || `#LOT-${String(lot.id).slice(-4)}`,
         internalBatchNo: lot.internalBatchNo || lot.batchNumber || `#LOT-${String(lot.id).slice(-4)}`,
         supplierBatchNo: manualSupplierBatches[lid] || lot.supplierBatchNo || 'BATCH-01',
-        expiryDate: lot.expiryDate || null,
+        expiryDate: resolvedExp,
         mfgDate: lot.mfgDate || null,
         grnNumber: lot.grnNumber || lot.grnRef || null,
         poNumber: lot.poNumber || lot.poReferenceNo || null,
@@ -2131,6 +2139,7 @@ export default function ProductionFloorCockpitModal({
         targetPrm.allocatedBatches = allocatedBatches;
         if (allocatedBatches.length > 0) {
           targetPrm.lotBatchNo = allocatedBatches.map(b => b.lotNumber).join(', ');
+          targetPrm.expiryDate = allocatedBatches.find(b => b.expiryDate)?.expiryDate || targetPrm.expiryDate || null;
           targetPrm.takenQty = totalAllocQty;
           targetPrm.qty = totalAllocQty;
           if (weightedAmountSum > 0 && totalAllocQty > 0) {
@@ -2189,6 +2198,7 @@ export default function ProductionFloorCockpitModal({
     targetRow.allocatedBatches = allocatedBatches;
     if (allocatedBatches.length > 0) {
       targetRow.lotBatchNo = allocatedBatches.map(b => b.lotNumber).join(', ');
+      targetRow.expiryDate = allocatedBatches.find(b => b.expiryDate)?.expiryDate || targetRow.expiryDate || null;
       targetRow.takenQty = totalAllocQty;
       targetRow.availableQty = totalAllocQty;
       targetRow.requiredQty = totalAllocQty;

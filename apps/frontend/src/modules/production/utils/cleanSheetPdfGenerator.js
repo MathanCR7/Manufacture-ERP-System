@@ -27,6 +27,20 @@ const DATE_DMY = (val, fallback = '-') => {
   }
 };
 
+const resolveExpiryDate = (lotOrLine) => {
+  if (!lotOrLine) return null;
+  if (lotOrLine.expiryDate) return lotOrLine.expiryDate;
+  if (lotOrLine.lot_expiry_date) return lotOrLine.lot_expiry_date;
+  if (lotOrLine.lotExpiryDate) return lotOrLine.lotExpiryDate;
+  if (lotOrLine.mfgDate) {
+    const d = new Date(lotOrLine.mfgDate);
+    if (!isNaN(d.getTime())) {
+      return new Date(d.getTime() + 180 * 86400000);
+    }
+  }
+  return null;
+};
+
 const safeText = (val, fallback = '-') => {
   if (val === null || val === undefined || val === '') return fallback;
   return String(val)
@@ -423,7 +437,7 @@ export function exportCleanSheetPdf({
           name: lIdx === 0 ? safeText(line.rawMaterialName) : `Lot ${lIdx + 1} for ${safeText(line.rawMaterialName)}`,
           batchNo: safeText(lot.lotNumber, 'BATCH-DIRECT'),
           qty: `${formatIndian(lot.allocatedQty)} ${formatCleanUom(lot.uom || uomClean, 'kg', line)}`,
-          expiry: DATE_DMY(lot.expiryDate, 'N/A'),
+          expiry: DATE_DMY(resolveExpiryDate(lot) || resolveExpiryDate(line), 'N/A'),
           rate: INR_FMT(lot.unitRate ?? line.unitRate),
           cost: INR_FMT(lot.totalCost ?? round2(Number(lot.allocatedQty || 0) * Number(lot.unitRate ?? line.unitRate ?? 0))),
           evap: lIdx === 0 ? `${formatIndian(line.liquidVolumeMl, 0)}ml` : '-'
@@ -436,7 +450,7 @@ export function exportCleanSheetPdf({
         name: safeText(line.rawMaterialName),
         batchNo: safeText(singleLot?.lotNumber || line.lotBatchNo, 'BATCH-DIRECT'),
         qty: `${formatIndian(line.takenQty)} ${uomClean}`,
-        expiry: DATE_DMY(singleLot?.expiryDate || line.expiryDate, 'N/A'),
+        expiry: DATE_DMY(resolveExpiryDate(singleLot) || resolveExpiryDate(line), 'N/A'),
         rate: INR_FMT(line.unitRate),
         cost: INR_FMT(line.totalCost),
         evap: line.evaporates ? `${formatIndian(line.liquidVolumeMl, 0)}ml (Evap)` : `${formatIndian(line.liquidVolumeMl, 0)}ml`
@@ -457,12 +471,23 @@ export function exportCleanSheetPdf({
     });
   }
 
+  const totalBaseQty = round2(baseRmLines.reduce((s, l) => s + Number(l.takenQty || 0), 0));
+  const baseUomMap = {};
+  baseRmLines.forEach(l => {
+    const u = formatCleanUom(l.uom, 'kg', l);
+    baseUomMap[u] = (baseUomMap[u] || 0) + Number(l.takenQty || 0);
+  });
+  const baseUomEntries = Object.entries(baseUomMap);
+  const baseQtyPdf = baseUomEntries.length === 1
+    ? `${formatIndian(totalBaseQty)} ${baseUomEntries[0][0]}`
+    : `${formatIndian(totalBaseQty)}`;
+
   const baseFooter = canViewCost
     ? {
         code: 'TOTAL',
         name: `${baseRmLines.length} Base Materials`,
         batchNo: '',
-        qty: '',
+        qty: baseQtyPdf,
         expiry: '',
         rate: 'Total Base:',
         cost: INR_FMT(summary.totalBaseConsumedCost),
@@ -472,7 +497,7 @@ export function exportCleanSheetPdf({
         code: 'TOTAL',
         name: `${baseRmLines.length} Base Materials`,
         batchNo: '',
-        qty: '',
+        qty: baseQtyPdf,
         expiry: '',
         evap: `${formatIndian(summary.totalBaseLiquidVolumeMl, 0)}ml`
       };
@@ -492,14 +517,32 @@ export function exportCleanSheetPdf({
     `${filteredDays.length} Production Date${filteredDays.length !== 1 ? 's' : ''} Recorded`
   );
 
+  const extractStaffNameOnly = (val) => {
+    if (!val) return '';
+    if (typeof val === 'object') {
+      const name = val.name || val.fullName || val.userName || val.username || '';
+      return extractStaffNameOnly(name);
+    }
+    return String(val)
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s*\[[^\]]*\]/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  };
+
   const formatDayUsersText = (dayObj) => {
     const users = Array.isArray(dayObj?.assignedUsers) ? dayObj.assignedUsers : [];
     if (users.length > 0) {
-      return users
-        .map(u => `${safeText(u.name)}${u.empId ? ` (${safeText(u.empId)})` : ''}${u.role ? ` [${safeText(u.role)}]` : ''}`)
-        .join(', ');
+      const names = users.map(u => extractStaffNameOnly(u)).filter(Boolean);
+      if (names.length > 0) return names.join(', ');
     }
-    return safeText(dayObj?.completedBy || dayObj?.startedBy || batch?.startedBy || batch?.started_by, 'Floor Operator');
+    const fallbackRaw = dayObj?.completedBy || dayObj?.startedBy || batch?.startedBy || batch?.started_by || 'Floor Operator';
+    const cleanedFallback = String(fallbackRaw)
+      .split(',')
+      .map(s => extractStaffNameOnly(s))
+      .filter(Boolean)
+      .join(', ');
+    return safeText(cleanedFallback || fallbackRaw, 'Floor Operator');
   };
 
   filteredDays.forEach((dayObj) => {
@@ -585,8 +628,40 @@ export function exportCleanSheetPdf({
       };
     });
 
+    const totMix = dayObj.allocatedMixMl || outputs.reduce((s, o) => s + Number(o.allocatedBaseMl || 0), 0);
+    const totPlanned = dayObj.totalExpectedQty || outputs.reduce((s, o) => s + Number(o.theoreticalQty || 0), 0);
+    const totActual = dayObj.totalOutputQty || outputs.reduce((s, o) => s + Number(o.actualYield || 0), 0);
+    const totReject = dayObj.totalRejectedQty || outputs.reduce((s, o) => s + Number(o.rejectOutput || 0), 0);
+    const totCost = outputs.reduce((s, o) => s + Number(o.totalCost || 0), 0);
+    const avgYield = totPlanned > 0
+      ? round2((totActual / totPlanned) * 100)
+      : (outputs.length > 0 ? round2(outputs.reduce((s, o) => s + Number(o.yieldPct || 0), 0) / outputs.length) : 100);
+
+    const prodFooter = canViewCost
+      ? {
+          seq: 'TOTAL',
+          product: `Day ${dayObj.dayNo} Output Total`,
+          spec: '',
+          mix: `${formatIndian(totMix, 0)} ml`,
+          expected: `${formatIndian(totPlanned, 0)}`,
+          actual: `${formatIndian(totActual, 0)}`,
+          reject: `${formatIndian(totReject, 0)}`,
+          yieldPct: `${avgYield}%`,
+          unitCost: INR_FMT(totCost)
+        }
+      : {
+          seq: 'TOTAL',
+          product: `Day ${dayObj.dayNo} Output Total`,
+          spec: '',
+          mix: `${formatIndian(totMix, 0)} ml`,
+          expected: `${formatIndian(totPlanned, 0)}`,
+          actual: `${formatIndian(totActual, 0)}`,
+          reject: `${formatIndian(totReject, 0)}`,
+          yieldPct: `${avgYield}%`
+        };
+
     if (prodRows.length > 0) {
-      drawTable(prodCols, prodRows, null, { fontSize: 6.8, headerBg: COLORS.slateDark });
+      drawTable(prodCols, prodRows, prodFooter, { fontSize: 6.8, headerBg: COLORS.slateDark });
     } else {
       ensureSpace(8);
       doc.setFont('helvetica', 'italic');
@@ -614,7 +689,7 @@ export function exportCleanSheetPdf({
               rmName: `${safeText(prm.rawMaterialCode || prm.rmCode, 'RM')} - ${safeText(prm.rawMaterialName || prm.rmName)}`,
               lotNo: safeText(lot.lotNumber || lot.internalBatchNo || prm.lotBatchNo, 'BATCH-DIRECT'),
               qty: `${formatIndian(qtyVal, 2)} ${formatCleanUom(lot.uom || pUom, 'pcs', prm)}`,
-              expiry: DATE_DMY(lot.expiryDate || prm.expiryDate, 'N/A'),
+              expiry: DATE_DMY(resolveExpiryDate(lot) || resolveExpiryDate(prm), 'N/A'),
               purpose: isMix ? `Mix (+${formatIndian(toMl(qtyVal, pUom, Number(prm.density || 1)), 0)}ml)` : 'Packaging',
               cost: INR_FMT(rowCost)
             });
@@ -627,7 +702,7 @@ export function exportCleanSheetPdf({
             rmName: `${safeText(prm.rawMaterialCode || prm.rmCode, 'RM')} - ${safeText(prm.rawMaterialName || prm.rmName)}`,
             lotNo: safeText(prm.lotBatchNo, 'BATCH-DIRECT'),
             qty: `${formatIndian(qtyVal, 2)} ${pUom}`,
-            expiry: DATE_DMY(prm.expiryDate, 'N/A'),
+            expiry: DATE_DMY(resolveExpiryDate(prm), 'N/A'),
             purpose: isMix ? `Mix (+${formatIndian(toMl(qtyVal, pUom, Number(prm.density || 1)), 0)}ml)` : 'Packaging',
             cost: INR_FMT(rowCost)
           });
@@ -662,7 +737,34 @@ export function exportCleanSheetPdf({
             { key: 'purpose', label: 'Type / Vol', width: 16, align: 'center' }
           ];
 
-      drawTable(dayRmCols, dayRmRows, null, { fontSize: 6.6, headerBg: [51, 65, 85] });
+      const dayRmTotQty = dayRmRows.reduce((s, r) => {
+        const n = parseFloat(String(r.qty).replace(/,/g, ''));
+        return s + (isNaN(n) ? 0 : n);
+      }, 0);
+      const dayRmTotCost = dayRmRows.reduce((s, r) => {
+        const c = parseFloat(String(r.cost).replace(/[^0-9.-]/g, ''));
+        return s + (isNaN(c) ? 0 : c);
+      }, 0);
+      const dayRmFooter = canViewCost
+        ? {
+            product: 'TOTAL',
+            rmName: `${dayRmRows.length} Ingredients / Items`,
+            lotNo: '',
+            qty: formatIndian(dayRmTotQty, 2),
+            expiry: '',
+            purpose: '',
+            cost: INR_FMT(dayRmTotCost)
+          }
+        : {
+            product: 'TOTAL',
+            rmName: `${dayRmRows.length} Ingredients / Items`,
+            lotNo: '',
+            qty: formatIndian(dayRmTotQty, 2),
+            expiry: '',
+            purpose: ''
+          };
+
+      drawTable(dayRmCols, dayRmRows, dayRmFooter, { fontSize: 6.6, headerBg: [51, 65, 85] });
     }
 
     // 2C. Day Factory Process Stages Strip
