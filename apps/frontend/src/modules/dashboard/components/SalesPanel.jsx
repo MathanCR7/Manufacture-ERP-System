@@ -421,26 +421,26 @@ export default function SalesPanel({
             redirectRoute="/purchase/po"
             updatedAt={updatedAt}
             action={
-              <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                <DashboardDatePeriodFilter
-                  activePeriod={activePoChartPeriod}
-                  onPeriodChange={handlePoChartPeriodChange}
-                  customRange={activePoChartCustomRange}
-                  onCustomRangeChange={(r) => {
-                    if (propOnPoChartCustomRangeChange) propOnPoChartCustomRangeChange(r);
-                    setInternalPoChartCustomRange(r);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => navigate('/purchase/po')}
-                  className="hidden sm:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer items-center gap-1"
-                  title="Open Purchase Orders Management (/purchase/po)"
-                >
-                  <span>/purchase/po</span>
-                  <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />
-                </button>
-              </div>
+              <DashboardDatePeriodFilter
+                activePeriod={activePoChartPeriod}
+                onPeriodChange={handlePoChartPeriodChange}
+                customRange={activePoChartCustomRange}
+                onCustomRangeChange={(r) => {
+                  if (propOnPoChartCustomRangeChange) propOnPoChartCustomRangeChange(r);
+                  setInternalPoChartCustomRange(r);
+                }}
+              />
+            }
+            footerContent={
+              <button
+                type="button"
+                onClick={() => navigate('/purchase/po')}
+                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer flex items-center gap-1"
+                title="Open Purchase Orders Management (/purchase/po)"
+              >
+                <span>/purchase/po</span>
+                <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />
+              </button>
             }
           >
             {isLoading ? (
@@ -576,26 +576,26 @@ export default function SalesPanel({
             redirectRoute="/purchase/po"
             updatedAt={updatedAt}
             action={
-              <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                <DashboardDatePeriodFilter
-                  activePeriod={activeTopRmPeriod}
-                  onPeriodChange={handleTopRmPeriodChange}
-                  customRange={activeTopRmCustomRange}
-                  onCustomRangeChange={(r) => {
-                    if (propOnTopRmCustomRangeChange) propOnTopRmCustomRangeChange(r);
-                    setInternalTopRmCustomRange(r);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowViewMoreModal(true)}
-                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#0A6ED1] hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
-                  title="View all raw materials order-wise with live UOM"
-                >
-                  <span>View More</span>
-                  <Eye className="w-3 h-3" />
-                </button>
-              </div>
+              <DashboardDatePeriodFilter
+                activePeriod={activeTopRmPeriod}
+                onPeriodChange={handleTopRmPeriodChange}
+                customRange={activeTopRmCustomRange}
+                onCustomRangeChange={(r) => {
+                  if (propOnTopRmCustomRangeChange) propOnTopRmCustomRangeChange(r);
+                  setInternalTopRmCustomRange(r);
+                }}
+              />
+            }
+            footerContent={
+              <button
+                type="button"
+                onClick={() => setShowViewMoreModal(true)}
+                className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#0A6ED1] hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                title="View all raw materials order-wise with live UOM"
+              >
+                <Eye className="w-2.5 h-2.5" />
+                <span>View More</span>
+              </button>
             }
           >
             {isLoading ? (
@@ -609,7 +609,7 @@ export default function SalesPanel({
                   <FioriEmptyState title="No Purchase History" message="No raw material PO orders recorded yet." />
                 ) : (
                   <div className="space-y-1.5">
-                    {topPurchasingRM.slice(0, 5).map((rm, idx) => (
+                    {topPurchasingRM.slice(0, 7).map((rm, idx) => (
                       <div
                         key={rm.rmId || idx}
                         className="p-2 rounded bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
@@ -647,7 +647,8 @@ export default function SalesPanel({
                     onClick={() => setShowViewMoreModal(true)}
                     className="text-[10.5px] font-bold text-[#0A6ED1] hover:underline flex items-center gap-1 cursor-pointer"
                   >
-                    <span>Inspect Order-Wise</span>
+                    <Eye className="w-3 h-3 text-[#0A6ED1]" />
+                    <span>View More (Order-Wise)</span>
                     <ArrowUpRight className="w-3 h-3" />
                   </button>
                 </div>

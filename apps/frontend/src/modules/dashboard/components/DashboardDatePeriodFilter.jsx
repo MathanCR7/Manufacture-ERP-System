@@ -57,17 +57,17 @@ export default function DashboardDatePeriodFilter({
   };
 
   return (
-    <div className={`flex items-center gap-1.5 relative ${className}`}>
+    <div className={`flex items-center gap-1 sm:gap-1.5 relative max-w-full ${className}`}>
       {badge}
 
-      {/* Pill Group */}
-      <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
+      {/* Pill Group - Responsive Touch-Scrollable Strip */}
+      <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700 max-w-full overflow-x-auto scrollbar-none touch-pan-x">
         {DASHBOARD_PERIOD_OPTIONS.map((item) => (
           <button
             key={item.key}
             type="button"
             onClick={() => handleSelectPeriod(item.key)}
-            className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded cursor-pointer transition-colors whitespace-nowrap ${
+            className={`px-1.5 py-0.5 text-[9px] font-bold rounded cursor-pointer transition-colors whitespace-nowrap shrink-0 ${
               activePeriod === item.key
                 ? 'bg-[#0A6ED1] text-white shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -78,7 +78,7 @@ export default function DashboardDatePeriodFilter({
         ))}
 
         {/* Set Date Range Button */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => {
@@ -86,14 +86,14 @@ export default function DashboardDatePeriodFilter({
               setTempEnd(activeCustomRange?.endDate || '');
               setShowCustomPopover((prev) => !prev);
             }}
-            className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded cursor-pointer transition-colors flex items-center gap-1 whitespace-nowrap ${
+            className={`px-1.5 py-0.5 text-[9px] font-bold rounded cursor-pointer transition-colors flex items-center gap-1 whitespace-nowrap shrink-0 ${
               activePeriod === 'custom'
                 ? 'bg-[#0A6ED1] text-white shadow-2xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
             }`}
             title="Set Custom Date Range"
           >
-            <Calendar className="w-3 h-3 shrink-0" />
+            <Calendar className="w-2.5 h-2.5 shrink-0" />
             <span>
               {activePeriod === 'custom' && activeCustomRange?.startDate && activeCustomRange?.endDate
                 ? `${activeCustomRange.startDate} → ${activeCustomRange.endDate}`
@@ -101,14 +101,14 @@ export default function DashboardDatePeriodFilter({
             </span>
           </button>
 
-          {/* Interactive Popover */}
+          {/* Interactive Popover (Centered modal on Mobile, Dropdown on Desktop) */}
           {showCustomPopover && (
             <>
               <div
-                className="fixed inset-0 z-40"
+                className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-2xs"
                 onClick={() => setShowCustomPopover(false)}
               />
-              <div className="absolute right-0 mt-2 w-68 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-3 space-y-2.5 animate-in fade-in zoom-in-95 duration-100">
+              <div className="fixed inset-x-3 top-1/2 -translate-y-1/2 sm:static sm:translate-y-0 sm:absolute sm:right-0 sm:inset-x-auto sm:mt-2 w-auto sm:w-72 max-w-sm mx-auto sm:mx-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 p-3 sm:p-3.5 space-y-2.5 animate-in fade-in zoom-in-95 duration-100">
                 <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-[#0A6ED1]" />

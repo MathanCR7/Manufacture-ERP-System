@@ -27,18 +27,18 @@ export default function FioriCard({
       aria-labelledby={title ? `header-${title.replace(/\s+/g, '-').toLowerCase()}` : undefined}
     >
       {/* SAP Fiori Shaded Header Strip */}
-      <header className="px-3.5 py-2.5 bg-slate-50/70 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
-        <div className="min-w-0">
+      <header className="px-3 py-2 sm:px-3.5 sm:py-2.5 bg-slate-50/70 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-x-2.5 sm:gap-x-3 gap-y-1.5 shrink-0">
+        <div className="min-w-0 sm:min-w-max shrink-0">
           {eyebrow && (
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">
+            <span className="block text-[9.5px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap">
               {eyebrow}
             </span>
           )}
-          <div className="flex items-center gap-1.5 min-w-0">
-            {Icon && <Icon className="w-4 h-4 text-[#0A6ED1] dark:text-blue-400 shrink-0" />}
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            {Icon && <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#0A6ED1] dark:text-blue-400 shrink-0" />}
             <h2
               id={title ? `header-${title.replace(/\s+/g, '-').toLowerCase()}` : undefined}
-              className="text-[13.5px] sm:text-[14px] font-semibold text-slate-900 dark:text-slate-100 truncate"
+              className="text-[12.5px] sm:text-[13.5px] font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap"
             >
               {title}
             </h2>
@@ -46,13 +46,13 @@ export default function FioriCard({
         </div>
 
         {/* Action Controls or Deep Link */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 ml-auto max-w-full overflow-x-auto scrollbar-none">
           {action}
           {redirectRoute && (
             <button
               type="button"
               onClick={() => navigate(redirectRoute)}
-              className="p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700/60 text-slate-500 hover:text-[#0A6ED1] dark:hover:text-blue-400 transition-colors cursor-pointer"
+              className="p-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-700/60 text-slate-500 hover:text-[#0A6ED1] dark:hover:text-blue-400 transition-colors cursor-pointer shrink-0"
               title="Open full module page"
               aria-label={`Open full module for ${title}`}
             >
@@ -63,16 +63,16 @@ export default function FioriCard({
       </header>
 
       {/* Content Area - Flex-1 absorbs row height so no card is ever shorter than its pair */}
-      <div className="p-3 sm:p-4 flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="p-2.5 sm:p-4 flex-1 flex flex-col min-h-0 overflow-hidden">
         {children}
       </div>
 
       {/* Card Footer with Live Timestamp */}
-      <footer className="px-3 py-1.5 bg-slate-50/40 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
+      <footer className="px-3 py-1.5 bg-slate-50/40 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 text-[10px] text-slate-400 dark:text-slate-500 shrink-0">
         <span className="font-mono">
           Updated {formatTime(updatedAt || Date.now())}
         </span>
-        {footerContent && <div>{footerContent}</div>}
+        {footerContent && <div className="max-w-full overflow-x-auto scrollbar-none">{footerContent}</div>}
       </footer>
     </section>
   );

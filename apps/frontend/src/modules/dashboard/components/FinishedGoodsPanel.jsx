@@ -44,17 +44,19 @@ export default function FinishedGoodsPanel({
       icon={Snowflake}
       redirectRoute="/products/stock"
       action={
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          <DashboardDatePeriodFilter
-            activePeriod={period}
-            onPeriodChange={onPeriodChange}
-            customRange={customRange}
-            onCustomRangeChange={onCustomRangeChange}
-          />
+        <DashboardDatePeriodFilter
+          activePeriod={period}
+          onPeriodChange={onPeriodChange}
+          customRange={customRange}
+          onCustomRangeChange={onCustomRangeChange}
+        />
+      }
+      footerContent={
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => navigate('/products/stock')}
-            className="hidden sm:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer items-center gap-1"
+            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer flex items-center gap-1"
             title="Open Finished Products Stock Ledger (/products/stock)"
           >
             <span>/products/stock</span>
@@ -63,7 +65,7 @@ export default function FinishedGoodsPanel({
           <button
             type="button"
             onClick={() => navigate('/setup/product')}
-            className="hidden md:inline-flex px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer items-center gap-1"
+            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer flex items-center gap-1"
             title="Open Finished Products Master Setup (/setup/product)"
           >
             <span>/setup/product</span>

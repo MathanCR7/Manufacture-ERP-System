@@ -1987,10 +1987,10 @@ class FactoryCommandCenterController {
         .sort((a, b) => b.totalAmount - a.totalAmount);
 
       res.json({
-        topPurchasingRM: topPurchasingRM.slice(0, 5),
+        topPurchasingRM: topPurchasingRM.slice(0, 10),
         allOrderWiseRM,
         totalRawMaterialsOrdered: Object.keys(aggregatedRM).length,
-        distributors: topPurchasingRM.slice(0, 5).map(r => ({
+        distributors: topPurchasingRM.slice(0, 10).map(r => ({
           id: r.rmId,
           customerName: r.name,
           revenue: r.totalAmount,

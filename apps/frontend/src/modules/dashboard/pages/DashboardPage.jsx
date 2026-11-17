@@ -249,12 +249,12 @@ export default function DashboardPage() {
   return (
     <div
       ref={containerRef}
-      className={`min-h-screen bg-[#F3F5F7] dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors p-3 sm:p-4 md:p-5 lg:p-6 space-y-3.5 ${
+      className={`min-h-screen bg-[#F3F5F7] dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors p-2.5 sm:p-4 md:p-5 lg:p-6 space-y-3 sm:space-y-3.5 ${
         isFullscreen ? 'fixed inset-0 z-50 overflow-y-auto w-full h-full' : ''
       }`}
     >
       {/* ── 2. PROMINENT RAW MATERIALS & END PRODUCTS LIVE STOCK & MOVEMENT STRIP (4 BALANCED CARDS) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3" aria-label="Inventory Stock and Movement Overview">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3" aria-label="Inventory Stock and Movement Overview">
         {/* Card 1: All Raw Materials Available Quantity */}
         <div
           onClick={() => navigate('/rm/stock')}
