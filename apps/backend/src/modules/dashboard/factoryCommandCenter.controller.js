@@ -1118,8 +1118,23 @@ class FactoryCommandCenterController {
         _sum: { actualOutput: true, quantity: true },
         where: { deletedAt: null }
       });
+      // Realized Sales strictly from converted Tax Invoices
+      const invoicedOrderIds = (await prisma.customerOrder.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { orderMode: 'INVOICE' },
+            { type: 'Invoice' },
+            { docNo: { startsWith: 'INV' } },
+            { referenceNo: { startsWith: 'INV' } }
+          ]
+        },
+        select: { id: true }
+      })).map(o => o.id);
+
       const totalSalesAgg = await prisma.customerOrderItem.aggregate({
-        _sum: { quantity: true }
+        _sum: { quantity: true },
+        where: { orderId: { in: invoicedOrderIds } }
       });
       const totalReturnsAgg = await prisma.salesReturnItem.aggregate({
         _sum: { quantity: true }
@@ -1340,7 +1355,7 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 10. GET /api/dashboard/sales/revenue?days=30
+  // 10. GET /api/dashboard/sales/revenue?days=30 (ONLY Converted Tax Invoices)
   async getSalesRevenue(req, res, next) {
     try {
       const days = parseInt(req.query.days) || 30;
@@ -1354,10 +1369,20 @@ class FactoryCommandCenterController {
         const start = new Date(d); start.setHours(0, 0, 0, 0);
         const end = new Date(d); end.setHours(23, 59, 59, 999);
 
+        // Strictly aggregate realized sales from statutory Tax Invoices
         const agg = await prisma.customerOrder.aggregate({
           _sum: { grandTotal: true },
           _count: true,
-          where: { createdAt: { gte: start, lte: end }, deletedAt: null }
+          where: {
+            createdAt: { gte: start, lte: end },
+            deletedAt: null,
+            OR: [
+              { orderMode: 'INVOICE' },
+              { type: 'Invoice' },
+              { docNo: { startsWith: 'INV' } },
+              { referenceNo: { startsWith: 'INV' } }
+            ]
+          }
         });
 
         const rev = fmtNum(agg._sum.grandTotal);
@@ -1384,72 +1409,117 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 11. GET /api/dashboard/sales/pipeline
+  // 11. GET /api/dashboard/sales/pipeline -> PO Purchase Chart & Analytics
   async getSalesPipeline(req, res, next) {
     try {
-      const statusCounts = await prisma.customerOrder.groupBy({
-        by: ['status'],
-        _count: true,
-        _sum: { grandTotal: true },
-        where: { deletedAt: null }
+      const uoms = await prisma.uOM.findMany();
+      const uomMap = {};
+      uoms.forEach(u => { uomMap[u.id] = u.abbreviation || u.name; });
+
+      // Fetch all Raw Material Purchase Orders
+      const allPOs = await prisma.rawMaterialPO.findMany({
+        where: { deletedAt: null },
+        include: {
+          supplier: { select: { id: true, name: true } },
+          uom: { select: { id: true, name: true, abbreviation: true } }
+        },
+        orderBy: { createdAt: 'desc' }
       });
 
-      const pipeline = {
-        Quotation: 0,
-        Confirmed: 0,
-        'In Production': 0,
-        'Ready for Shipment': 0,
-        Delivered: 0,
-        Shortage: 0
+      let totalPoSpend = 0;
+      const statusCounts = {
+        Received: 0,
+        Approved: 0,
+        Pending: 0,
+        Cancelled: 0
       };
 
-      statusCounts.forEach(s => {
-        if (s.status.includes('Shortage')) pipeline.Shortage += s._count;
-        else if (s.status.includes('Ready')) pipeline['Ready for Shipment'] += s._count;
-        else if (pipeline[s.status] !== undefined) pipeline[s.status] += s._count;
-        else pipeline.Confirmed += s._count;
+      const monthlyTrendMap = {};
+      const recentDeliveries = [];
+
+      allPOs.forEach(po => {
+        const amt = fmtNum(po.grandTotal || po.amount);
+        totalPoSpend += amt;
+
+        const st = (po.status || 'PENDING').toUpperCase();
+        if (st.includes('RECEIV') || st.includes('DELIVER')) {
+          statusCounts.Received += 1;
+        } else if (st.includes('APPROV')) {
+          statusCounts.Approved += 1;
+        } else if (st.includes('CANCEL')) {
+          statusCounts.Cancelled += 1;
+        } else {
+          statusCounts.Pending += 1;
+        }
+
+        const monthKey = po.createdAt.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+        if (!monthlyTrendMap[monthKey]) {
+          monthlyTrendMap[monthKey] = { month: monthKey, spend: 0, poCount: 0 };
+        }
+        monthlyTrendMap[monthKey].spend += amt;
+        monthlyTrendMap[monthKey].poCount += 1;
+
+        if (recentDeliveries.length < 8) {
+          recentDeliveries.push({
+            id: po.id,
+            referenceNo: po.referenceNo || `PO-${po.id.slice(0, 6)}`,
+            supplierName: po.supplier?.name || 'Standard Supplier',
+            rawMaterialName: po.name || 'Raw Material',
+            quantity: fmtNum(po.quantity),
+            uom: uomMap[po.uomId] || po.uom?.abbreviation || 'kg',
+            grandTotal: amt,
+            status: po.status,
+            date: po.createdAt
+          });
+        }
       });
 
-      // Today's scheduled deliveries
-      const startOfToday = getKolkataStartOfDay(new Date());
-      const deliveriesToday = await prisma.customerOrder.findMany({
-        where: {
-          deliveryDate: { gte: startOfToday },
-          deletedAt: null
-        },
-        include: {
-          customer: { select: { name: true, phone: true } }
-        },
-        orderBy: { deliveryDate: 'asc' },
-        take: 6
-      });
-
-      const formattedDeliveries = deliveriesToday.map(d => ({
-        id: d.id,
-        referenceNo: d.referenceNo,
-        customerName: d.customer?.name || 'Retail Client',
-        deliveryDate: d.deliveryDate,
-        grandTotal: fmtNum(d.grandTotal),
-        status: d.status
-      }));
+      const monthlyTrend = Object.values(monthlyTrendMap);
 
       res.json({
-        pipeline,
-        pipelineCounts: pipeline,
-        deliveriesToday: formattedDeliveries,
-        todayDeliveries: formattedDeliveries
+        totalPOs: allPOs.length,
+        totalPoSpend,
+        statusCounts,
+        monthlyTrend,
+        recentDeliveries,
+        deliveriesToday: recentDeliveries, // backward compatibility
+        todayDeliveries: recentDeliveries,
+        pipeline: {
+          'Total POs': allPOs.length,
+          'Received / Delivered': statusCounts.Received,
+          'Approved': statusCounts.Approved,
+          'Pending Approval': statusCounts.Pending
+        }
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // 12. GET /api/dashboard/sales/top-skus
+  // 12. GET /api/dashboard/sales/top-skus (Strictly Converted Tax Invoices)
   async getTopSkus(req, res, next) {
     try {
+      // Find all Tax Invoices
+      const invoices = await prisma.customerOrder.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { orderMode: 'INVOICE' },
+            { type: 'Invoice' },
+            { docNo: { startsWith: 'INV' } },
+            { referenceNo: { startsWith: 'INV' } }
+          ]
+        },
+        select: { id: true }
+      });
+      const invoiceIds = invoices.map(i => i.id);
+
       const items = await prisma.customerOrderItem.groupBy({
         by: ['productId'],
         _sum: { quantity: true, subtotal: true },
+        where: {
+          orderId: { in: invoiceIds }
+        },
         orderBy: { _sum: { subtotal: 'desc' } },
         take: 5
       });
@@ -1457,17 +1527,24 @@ class FactoryCommandCenterController {
       const productIds = items.map(i => i.productId).filter(Boolean);
       const products = productIds.length > 0 ? await prisma.finishedProduct.findMany({
         where: { id: { in: productIds } },
-        select: { id: true, name: true, code: true, currentStock: true }
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          currentStock: true,
+          unit: { select: { abbreviation: true, name: true } }
+        }
       }) : [];
 
       const result = items.map(it => {
         const prod = products.find(p => p.id === it.productId);
         return {
           id: it.productId,
-          productName: prod?.name || 'Artisanal Ice Cream SKU',
+          productName: prod?.name || 'Finished Product SKU',
           code: prod?.code || 'FP',
           revenue: fmtNum(it._sum.subtotal),
           unitsSold: fmtNum(it._sum.quantity),
+          unit: prod?.unit?.abbreviation || 'pcs',
           currentStock: fmtNum(prod?.currentStock)
         };
       });
@@ -1478,59 +1555,107 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 13. GET /api/dashboard/sales/top-customers
+  // 13. GET /api/dashboard/sales/top-customers -> Top Purchasing Raw Material & Order-Wise List
   async getTopCustomers(req, res, next) {
     try {
-      const topCustomers = await prisma.customerOrder.groupBy({
-        by: ['customerId'],
-        _sum: { grandTotal: true },
-        _count: true,
-        orderBy: { _sum: { grandTotal: 'desc' } },
-        take: 5,
-        where: { deletedAt: null }
+      const uoms = await prisma.uOM.findMany();
+      const uomMap = {};
+      uoms.forEach(u => { uomMap[u.id] = u.abbreviation || u.name; });
+
+      const rawMaterials = await prisma.rawMaterial.findMany({
+        select: { id: true, code: true, name: true, unitId: true }
+      });
+      const rmMap = {};
+      rawMaterials.forEach(r => {
+        rmMap[r.id] = r;
+        rmMap[r.code] = r;
       });
 
-      const customerIds = topCustomers.map(c => c.customerId);
-      const custData = await prisma.customer.findMany({
-        where: { id: { in: customerIds } },
-        select: { id: true, name: true, openingBalance: true, balanceType: true }
+      const pos = await prisma.rawMaterialPO.findMany({
+        where: { deletedAt: null },
+        include: {
+          supplier: { select: { id: true, name: true } },
+          uom: { select: { id: true, name: true, abbreviation: true } }
+        },
+        orderBy: { createdAt: 'desc' }
       });
 
-      const distributors = topCustomers.map(c => {
-        const cust = custData.find(d => d.id === c.customerId);
-        const openBal = fmtNum(cust?.openingBalance);
-        let paymentStatus = 'Paid';
-        if (openBal > 10000) paymentStatus = 'Payment Due';
-        else if (openBal > 0) paymentStatus = 'Partial Advance';
+      const allOrderWiseRM = [];
+      const aggregatedRM = {};
 
-        return {
-          id: c.customerId,
-          customerName: cust?.name || 'Premier Distributor',
-          revenue: fmtNum(c._sum.grandTotal),
-          orderCount: c._count,
-          openingBalance: openBal,
-          paymentStatus
-        };
+      pos.forEach(po => {
+        let lines = [];
+        if (Array.isArray(po.items) && po.items.length > 0) {
+          lines = po.items;
+        } else {
+          lines = [{
+            name: po.name,
+            rmId: po.rmId,
+            quantity: po.quantity,
+            subtotal: po.amount || po.grandTotal,
+            unitPrice: po.amount ? (Number(po.amount) / Number(po.quantity || 1)) : 0,
+            uomId: po.uomId,
+            uomLabel: po.uom?.abbreviation || po.uom?.name
+          }];
+        }
+
+        lines.forEach((line, idx) => {
+          const rm = rmMap[line.rmId] || rmMap[line.name] || {};
+          const liveUom = uomMap[line.uomId] || uomMap[rm.unitId] || line.uomLabel || po.uom?.abbreviation || 'Units';
+          const qty = fmtNum(line.quantity || 0);
+          const amt = fmtNum(line.subtotal || line.amount || (Number(line.unitPrice || 0) * qty) || 0);
+          const rmName = line.materialName || line.name || po.name;
+          const rmCode = rm.code || line.rmId || po.rmId || 'RM';
+
+          allOrderWiseRM.push({
+            id: `${po.id}-${idx}`,
+            poId: po.id,
+            poReference: po.referenceNo || `PO-${po.id.slice(0, 6)}`,
+            date: po.createdAt,
+            supplierName: po.supplier?.name || 'Direct Supplier',
+            rmId: rmCode,
+            rawMaterialName: rmName,
+            quantity: qty,
+            uom: liveUom,
+            unitPrice: line.unitPrice ? fmtNum(line.unitPrice) : (qty > 0 ? fmtNum(amt / qty) : 0),
+            totalAmount: amt,
+            status: po.status
+          });
+
+          const aggKey = rmCode;
+          if (!aggregatedRM[aggKey]) {
+            aggregatedRM[aggKey] = {
+              rmId: rmCode,
+              name: rmName,
+              totalQty: 0,
+              totalAmount: 0,
+              uom: liveUom,
+              orderCount: 0
+            };
+          }
+          aggregatedRM[aggKey].totalQty += qty;
+          aggregatedRM[aggKey].totalAmount += amt;
+          aggregatedRM[aggKey].orderCount += 1;
+        });
       });
 
-      // Shortfall alert items
-      const shortfallOrders = await prisma.customerOrder.findMany({
-        where: { status: 'Shortage (Production Required)', deletedAt: null },
-        take: 3,
-        include: { customer: true }
-      });
-
-      const shortfallAlerts = shortfallOrders.map(o => ({
-        id: o.id,
-        orderRef: o.referenceNo,
-        customerName: o.customer?.name || 'Customer',
-        grandTotal: fmtNum(o.grandTotal),
-        action: 'Create Production Order'
-      }));
+      const topPurchasingRM = Object.values(aggregatedRM)
+        .sort((a, b) => b.totalAmount - a.totalAmount);
 
       res.json({
-        distributors,
-        shortfallAlerts
+        topPurchasingRM: topPurchasingRM.slice(0, 5),
+        allOrderWiseRM,
+        totalRawMaterialsOrdered: Object.keys(aggregatedRM).length,
+        distributors: topPurchasingRM.slice(0, 5).map(r => ({
+          id: r.rmId,
+          customerName: r.name,
+          revenue: r.totalAmount,
+          orderCount: r.orderCount,
+          uom: r.uom,
+          quantity: r.totalQty,
+          paymentStatus: `${r.totalQty.toLocaleString('en-IN')} ${r.uom}`
+        })),
+        shortfallAlerts: []
       });
     } catch (error) {
       next(error);

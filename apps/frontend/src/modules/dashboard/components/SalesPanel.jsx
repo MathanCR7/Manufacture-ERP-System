@@ -1,19 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingUp,
   Award,
-  Truck,
-  Users,
-  AlertCircle,
-  PlusCircle,
+  ShoppingCart,
+  Boxes,
+  Eye,
+  X,
+  Search,
+  Filter,
+  ArrowUpRight,
+  Package,
   Calendar,
-  CheckCircle2
+  Layers,
+  FileText
 } from 'lucide-react';
 import {
   ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -49,6 +56,11 @@ export default function SalesPanel({
 }) {
   const navigate = useNavigate();
 
+  // Modal State for "View More" Order-Wise Raw Materials
+  const [showViewMoreModal, setShowViewMoreModal] = useState(false);
+  const [modalSearch, setModalSearch] = useState('');
+  const [modalStatusFilter, setModalStatusFilter] = useState('ALL');
+
   const selectedDays = daysRange !== undefined ? daysRange : revenueDays;
   const changeDays = onRangeChange || setRevenueDays || (() => {});
 
@@ -60,54 +72,57 @@ export default function SalesPanel({
     ? revenueData.dailySales
     : [];
 
-  // Extract pipeline counts safely - handling both pipeline and pipelineCounts structures
-  const rawPipeline = pipelineData?.pipeline || pipelineData?.pipelineCounts || (
-    pipelineData && typeof pipelineData === 'object' && !Array.isArray(pipelineData) ? pipelineData : {}
-  );
-  
-  // Clean pipeline so it only contains valid status key -> primitive numeric count pairs
-  const pipeline = {};
-  if (rawPipeline && typeof rawPipeline === 'object') {
-    for (const [key, val] of Object.entries(rawPipeline)) {
-      if (['todayDeliveries', 'deliveriesToday', 'shortfalls', 'shortfallAlerts', 'pipelineCounts', 'pipeline'].includes(key)) {
-        continue;
-      }
-      if (typeof val === 'number') {
-        pipeline[key] = val;
-      } else if (typeof val === 'string' && !isNaN(Number(val))) {
-        pipeline[key] = Number(val);
-      } else if (val && typeof val === 'object') {
-        pipeline[key] = Number(val.count ?? val.value ?? val.qty ?? 0);
-      }
-    }
-  }
-
-  const deliveries = Array.isArray(pipelineData?.deliveriesToday)
+  // PO Purchase Data
+  const totalPOs = pipelineData?.totalPOs || 0;
+  const totalPoSpend = pipelineData?.totalPoSpend || 0;
+  const poStatuses = pipelineData?.statusCounts || { Received: 0, Approved: 0, Pending: 0 };
+  const monthlyTrend = Array.isArray(pipelineData?.monthlyTrend) ? pipelineData.monthlyTrend : [];
+  const recentDeliveries = Array.isArray(pipelineData?.recentDeliveries)
+    ? pipelineData.recentDeliveries
+    : Array.isArray(pipelineData?.deliveriesToday)
     ? pipelineData.deliveriesToday
-    : Array.isArray(pipelineData?.todayDeliveries)
-    ? pipelineData.todayDeliveries
-    : Array.isArray(pipelineData)
-    ? pipelineData
     : [];
 
+  // Raw Material Procurement Data
   const custData = topCustomersData || topCustomers || {};
-  const distributors = Array.isArray(custData?.distributors)
-    ? custData.distributors
-    : Array.isArray(custData)
-    ? custData
+  const topPurchasingRM = Array.isArray(custData?.topPurchasingRM)
+    ? custData.topPurchasingRM
+    : Array.isArray(custData?.distributors)
+    ? custData.distributors.map(d => ({
+        rmId: d.id,
+        name: d.customerName,
+        totalQty: d.quantity || 0,
+        uom: d.uom || 'kg',
+        totalAmount: d.revenue || 0,
+        orderCount: d.orderCount || 1
+      }))
     : [];
 
-  const shortfalls = Array.isArray(custData?.shortfallAlerts)
-    ? custData.shortfallAlerts
-    : Array.isArray(pipelineData?.shortfalls)
-    ? pipelineData.shortfalls
-    : [];
+  const allOrderWiseRM = Array.isArray(custData?.allOrderWiseRM) ? custData.allOrderWiseRM : [];
+
+  // Filtered order-wise list for "View More" modal
+  const filteredOrderWiseRM = useMemo(() => {
+    return allOrderWiseRM.filter(item => {
+      const matchesSearch =
+        !modalSearch ||
+        item.poReference?.toLowerCase().includes(modalSearch.toLowerCase()) ||
+        item.rawMaterialName?.toLowerCase().includes(modalSearch.toLowerCase()) ||
+        item.rmId?.toLowerCase().includes(modalSearch.toLowerCase()) ||
+        item.supplierName?.toLowerCase().includes(modalSearch.toLowerCase());
+
+      const matchesStatus =
+        modalStatusFilter === 'ALL' ||
+        (item.status || '').toUpperCase() === modalStatusFilter.toUpperCase();
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [allOrderWiseRM, modalSearch, modalStatusFilter]);
 
   return (
     <div className="space-y-3">
       {/* ── PAIR 1: Revenue Line Chart (7) + Top 5 SKUs (5) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
-        {/* Col 7: Revenue Chart */}
+        {/* Col 7: Revenue Chart (Tax Invoices Only) */}
         <div className="lg:col-span-7 flex flex-col h-full">
           <FioriCard
             eyebrow="Commercial Velocity"
@@ -116,21 +131,26 @@ export default function SalesPanel({
             redirectRoute="/sales/order"
             updatedAt={updatedAt}
             action={
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
-                {[7, 14, 30].map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => changeDays(d)}
-                    className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer transition-colors ${
-                      selectedDays === d
-                        ? 'bg-[#0A6ED1] text-white shadow-2xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    {d}D
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5">
+                <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-[#107E3E] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  Tax Invoices Only
+                </span>
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
+                  {[7, 14, 30].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => changeDays(d)}
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer transition-colors ${
+                        selectedDays === d
+                          ? 'bg-[#0A6ED1] text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {d}D
+                    </button>
+                  ))}
+                </div>
               </div>
             }
           >
@@ -143,13 +163,13 @@ export default function SalesPanel({
                 {/* Summary Row */}
                 <div className="grid grid-cols-3 gap-2 pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 text-xs">
                   <div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">Today</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">Today (Invoiced)</div>
                     <div className="font-mono text-sm font-black text-slate-900 dark:text-slate-100">
                       {formatRupees(revenueData.todayRevenue || 0)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">Month to Date</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">Month to Date (Invoiced)</div>
                     <div className="font-mono text-sm font-black text-[#0A6ED1] dark:text-blue-400">
                       {formatRupees(revenueData.mtdRevenue || 0)}
                     </div>
@@ -166,7 +186,7 @@ export default function SalesPanel({
                 <div className="flex-1 w-full min-h-[170px]">
                   {safeTrend.length === 0 ? (
                     <div className="h-full flex items-center justify-center text-xs text-slate-400 italic py-8">
-                      No sales trend recorded for the selected window.
+                      No statutory tax invoices posted in this window.
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -175,11 +195,11 @@ export default function SalesPanel({
                         <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
                         <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
                         <Tooltip
-                          formatter={(val, name) => [formatRupees(val), name === 'target' ? 'Daily Target' : 'Actual Revenue']}
+                          formatter={(val, name) => [formatRupees(val), name === 'target' ? 'Daily Target' : 'Invoiced Revenue']}
                           contentStyle={{ backgroundColor: '#1e293b', borderRadius: 6, border: 'none', color: '#f8fafc', fontSize: 11 }}
                         />
                         <Legend wrapperStyle={{ fontSize: 10 }} />
-                        <Line type="monotone" dataKey="revenue" name="Actual Revenue" stroke="#0A6ED1" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                        <Line type="monotone" dataKey="revenue" name="Invoiced Revenue" stroke="#0A6ED1" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
                         <Line type="monotone" dataKey="target" name="Daily Target" stroke="#e11d48" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -190,11 +210,11 @@ export default function SalesPanel({
           </FioriCard>
         </div>
 
-        {/* Col 5: Top 5 SKUs */}
+        {/* Col 5: Top 5 SKUs (Strictly Invoiced Sales) */}
         <div className="lg:col-span-5 flex flex-col h-full">
           <FioriCard
             eyebrow="Fast Moving Items"
-            title="Top 5 Selling SKUs"
+            title="Top 5 Selling SKUs (Invoiced)"
             icon={Award}
             redirectRoute="/sales/order"
             updatedAt={updatedAt}
@@ -204,7 +224,10 @@ export default function SalesPanel({
             ) : error ? (
               <FioriErrorRetry error={error} onRetry={onRetry} />
             ) : topSkus.length === 0 ? (
-              <FioriEmptyState title="No Sales History" message="No product orders recorded yet." />
+              <FioriEmptyState
+                title="No Invoiced Sales History"
+                message="Sales are counted once orders are converted into statutory Tax Invoices."
+              />
             ) : (
               <div className="flex-1 flex flex-col justify-between space-y-2">
                 {topSkus.map((sku, idx) => (
@@ -217,9 +240,15 @@ export default function SalesPanel({
                         #{idx + 1}
                       </span>
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-800 dark:text-slate-100 truncate">{sku.productName}</div>
+                        <div className="font-bold text-slate-800 dark:text-slate-100 truncate">
+                          {sku.productName}
+                          {sku.code && <span className="ml-1 text-[10px] font-mono text-slate-400">({sku.code})</span>}
+                        </div>
                         <div className="font-mono text-[9.5px] text-slate-400">
-                          {sku.unitsSold?.toLocaleString('en-IN')} units sold • Stock: <strong className="text-slate-700 dark:text-slate-300">{sku.currentStock?.toLocaleString('en-IN')}</strong>
+                          {sku.unitsSold?.toLocaleString('en-IN')} {sku.unit || 'pcs'} invoiced • Stock:{' '}
+                          <strong className="text-slate-700 dark:text-slate-300">
+                            {sku.currentStock?.toLocaleString('en-IN')}
+                          </strong>
                         </div>
                       </div>
                     </div>
@@ -234,16 +263,27 @@ export default function SalesPanel({
         </div>
       </div>
 
-      {/* ── PAIR 2: Dispatch Pipeline & Deliveries (7) + Top Distributors & Shortfalls (5) ── */}
+      {/* ── PAIR 2: PO Purchase Chart (7) + Top Purchasing Raw Material (5) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
-        {/* Col 7: Dispatch Pipeline & Today's Deliveries */}
+        {/* Col 7: PO Purchase Chart & Analytics */}
         <div className="lg:col-span-7 flex flex-col h-full">
           <FioriCard
-            eyebrow="Order Fulfillment"
-            title="Dispatch Pipeline & Today's Deliveries"
-            icon={Truck}
-            redirectRoute="/sales/order"
+            eyebrow="Purchase & Procurement"
+            title="PO Purchase Chart"
+            icon={ShoppingCart}
+            redirectRoute="/purchase/po"
             updatedAt={updatedAt}
+            action={
+              <button
+                type="button"
+                onClick={() => navigate('/purchase/po')}
+                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 hover:bg-blue-100 text-[#0A6ED1] dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer flex items-center gap-1"
+                title="Open Purchase Orders Management (/purchase/po)"
+              >
+                <span>/purchase/po</span>
+                <ArrowUpRight className="w-2.5 h-2.5 opacity-70" />
+              </button>
+            }
           >
             {isLoading ? (
               <FioriSkeleton rows={4} height="h-64" />
@@ -251,48 +291,101 @@ export default function SalesPanel({
               <FioriErrorRetry error={error} onRetry={onRetry} />
             ) : (
               <div className="flex-1 flex flex-col justify-between space-y-3">
-                {/* Pipeline Stages Mini Pills */}
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 text-center">
-                  {Object.entries(pipeline).map(([st, cnt]) => {
-                    const displayCount = (cnt !== null && typeof cnt === 'object')
-                      ? (cnt.count ?? cnt.value ?? cnt.qty ?? 0)
-                      : (typeof cnt === 'number' || typeof cnt === 'string' ? cnt : 0);
-                    return (
-                      <div key={st} className="p-1.5 rounded bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
-                        <div className="font-mono text-sm font-black text-slate-800 dark:text-slate-100">{displayCount}</div>
-                        <div className="text-[9px] font-bold text-slate-500 truncate">{st}</div>
-                      </div>
-                    );
-                  })}
+                {/* PO Status & Spend Summary Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-center">
+                  <div className="p-2 rounded bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[9.5px] font-bold text-slate-400 uppercase">Total POs</div>
+                    <div className="font-mono text-base font-black text-slate-800 dark:text-slate-100">{totalPOs}</div>
+                    <div className="text-[9px] text-slate-400">{formatRupees(totalPoSpend)}</div>
+                  </div>
+
+                  <div className="p-2 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
+                    <div className="text-[9.5px] font-bold text-emerald-800 dark:text-emerald-300 uppercase">Received</div>
+                    <div className="font-mono text-base font-black text-[#107E3E] dark:text-emerald-400">
+                      {poStatuses.Received || 0}
+                    </div>
+                    <div className="text-[9px] text-emerald-600 dark:text-emerald-400">Delivered / GRN</div>
+                  </div>
+
+                  <div className="p-2 rounded bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800">
+                    <div className="text-[9.5px] font-bold text-blue-800 dark:text-blue-300 uppercase">Approved</div>
+                    <div className="font-mono text-base font-black text-[#0A6ED1] dark:text-blue-400">
+                      {poStatuses.Approved || 0}
+                    </div>
+                    <div className="text-[9px] text-blue-600 dark:text-blue-400">Ready to Ship</div>
+                  </div>
+
+                  <div className="p-2 rounded bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
+                    <div className="text-[9.5px] font-bold text-amber-800 dark:text-amber-300 uppercase">Pending</div>
+                    <div className="font-mono text-base font-black text-amber-700 dark:text-amber-400">
+                      {poStatuses.Pending || 0}
+                    </div>
+                    <div className="text-[9px] text-amber-600 dark:text-amber-400">Awaiting Action</div>
+                  </div>
                 </div>
 
-                {/* Today's Scheduled Delivery Table */}
-                <div className="flex-1 overflow-x-auto">
-                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Scheduled For Today
+                {/* Monthly PO Spend Bar Chart */}
+                {monthlyTrend.length > 0 && (
+                  <div className="h-28 w-full">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                      Procurement Spend Trend (Monthly)
+                    </div>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={monthlyTrend} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.5} vertical={false} />
+                        <XAxis dataKey="month" tick={{ fontSize: 9.5, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 9.5, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v >= 1000 ? Math.round(v / 1000) + 'k' : v}`} />
+                        <Tooltip
+                          formatter={(val) => [formatRupees(val), 'PO Spend']}
+                          contentStyle={{ backgroundColor: '#1e293b', borderRadius: 6, border: 'none', color: '#f8fafc', fontSize: 11 }}
+                        />
+                        <Bar dataKey="spend" name="Spend (₹)" fill="#0A6ED1" radius={[4, 4, 0, 0]} barSize={28} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
-                  {deliveries.length === 0 ? (
+                )}
+
+                {/* Recent Purchase Orders Table */}
+                <div className="flex-1 overflow-x-auto">
+                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between">
+                    <span>Recent Purchase Orders</span>
+                    <span className="text-[9.5px] text-slate-400 font-normal">Latest vendor purchase dispatches</span>
+                  </div>
+                  {recentDeliveries.length === 0 ? (
                     <div className="p-3 text-center text-xs text-slate-400 italic">
-                      No deliveries scheduled for today yet.
+                      No purchase orders registered yet.
                     </div>
                   ) : (
                     <table className="w-full text-left text-xs whitespace-nowrap">
                       <thead>
                         <tr className="border-b border-slate-200 dark:border-slate-700/80 text-[10px] font-bold text-slate-500 uppercase">
-                          <th className="py-1 px-1">Order Ref</th>
-                          <th className="py-1 px-1">Customer</th>
+                          <th className="py-1 px-1">PO Ref</th>
+                          <th className="py-1 px-1">Supplier</th>
+                          <th className="py-1 px-1">Raw Material</th>
+                          <th className="py-1 px-1">Qty</th>
                           <th className="py-1 px-1">Amount</th>
                           <th className="py-1 px-1 text-right">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                        {deliveries.map((d) => (
-                          <tr key={d.id} onClick={() => navigate(`/sales/order`)} className="hover:bg-slate-50 cursor-pointer">
+                        {recentDeliveries.slice(0, 4).map((d) => (
+                          <tr
+                            key={d.id}
+                            onClick={() => navigate('/purchase/po')}
+                            className="hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer"
+                          >
                             <td className="py-1.5 px-1 font-mono font-bold text-[#0A6ED1] dark:text-blue-400">
                               {d.referenceNo}
                             </td>
-                            <td className="py-1.5 px-1 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[140px]">
-                              {d.customerName}
+                            <td className="py-1.5 px-1 font-medium text-slate-800 dark:text-slate-200 truncate max-w-[120px]">
+                              {d.supplierName}
+                            </td>
+                            <td className="py-1.5 px-1 text-slate-700 dark:text-slate-300 truncate max-w-[130px]">
+                              {d.rawMaterialName}
+                            </td>
+                            <td className="py-1.5 px-1 font-mono text-slate-700 dark:text-slate-300">
+                              {Number(d.quantity || 0).toLocaleString('en-IN')}{' '}
+                              <span className="text-[10px] text-slate-400">{d.uom}</span>
                             </td>
                             <td className="py-1.5 px-1 font-mono font-bold text-slate-800 dark:text-slate-200">
                               {formatRupees(d.grandTotal)}
@@ -311,14 +404,25 @@ export default function SalesPanel({
           </FioriCard>
         </div>
 
-        {/* Col 5: Top Distributors & Shortfall Alerts */}
+        {/* Col 5: Top Purchasing Raw Material (with "View More" Modal) */}
         <div className="lg:col-span-5 flex flex-col h-full">
           <FioriCard
-            eyebrow="Channel & Stock Deficit"
-            title="Top Distributors & Shortfall Alerts"
-            icon={Users}
-            redirectRoute="/sales/order"
+            eyebrow="Raw Material Procurement"
+            title="Top Purchasing Raw Material"
+            icon={Boxes}
+            redirectRoute="/purchase/po"
             updatedAt={updatedAt}
+            action={
+              <button
+                type="button"
+                onClick={() => setShowViewMoreModal(true)}
+                className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#0A6ED1] hover:bg-blue-700 text-white transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                title="View all raw materials order-wise with live UOM"
+              >
+                <span>View More</span>
+                <Eye className="w-3 h-3" />
+              </button>
+            }
           >
             {isLoading ? (
               <FioriSkeleton rows={4} height="h-64" />
@@ -326,46 +430,214 @@ export default function SalesPanel({
               <FioriErrorRetry error={error} onRetry={onRetry} />
             ) : (
               <div className="flex-1 flex flex-col justify-between space-y-2.5">
-                {/* Distributors list */}
-                <div className="space-y-1.5">
-                  {distributors.slice(0, 3).map((dist) => (
-                    <div
-                      key={dist.id}
-                      className="p-1.5 px-2 rounded bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-800 dark:text-slate-100 truncate">{dist.customerName}</div>
-                        <div className="text-[10px] text-slate-400">{dist.orderCount} orders • {formatRupees(dist.revenue)}</div>
+                {/* Top Raw Materials List */}
+                {topPurchasingRM.length === 0 ? (
+                  <FioriEmptyState title="No Purchase History" message="No raw material PO orders recorded yet." />
+                ) : (
+                  <div className="space-y-1.5">
+                    {topPurchasingRM.slice(0, 5).map((rm, idx) => (
+                      <div
+                        key={rm.rmId || idx}
+                        className="p-2 rounded bg-slate-50/70 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-5 h-5 rounded-full bg-blue-100 text-[#0A6ED1] dark:bg-blue-950 dark:text-blue-300 font-bold flex items-center justify-center text-[10px] shrink-0">
+                            #{idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 dark:text-slate-100 truncate" title={rm.name}>
+                              {rm.name}
+                            </div>
+                            <div className="font-mono text-[9.5px] text-slate-400">
+                              {Number(rm.totalQty || 0).toLocaleString('en-IN')}{' '}
+                              <strong className="text-slate-700 dark:text-slate-300 font-bold">{rm.uom}</strong> •{' '}
+                              {rm.orderCount} PO{rm.orderCount > 1 ? 's' : ''}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="font-mono font-black text-slate-900 dark:text-slate-100 text-right shrink-0">
+                          {formatRupees(rm.totalAmount)}
+                        </div>
                       </div>
-                      <FioriStatusPill status={dist.paymentStatus} type={dist.paymentStatus} size="xs" />
-                    </div>
-                  ))}
-                </div>
-
-                {/* Shortfall Alert Box */}
-                {shortfalls.length > 0 && (
-                  <div className="p-2 rounded bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900">
-                    <div className="flex items-center gap-1.5 text-rose-800 dark:text-rose-300 font-bold text-[11px] mb-1">
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                      <span>Stock Shortfall Deficit</span>
-                    </div>
-                    <div className="text-[10.5px] text-rose-700 dark:text-rose-400 mb-1.5">
-                      {shortfalls.length} customer orders require manufacturing to fulfill cold-room deficit.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/production/standard/add')}
-                      className="w-full py-1 rounded bg-[#0A6ED1] hover:bg-blue-700 text-white text-[10.5px] font-bold cursor-pointer transition-colors shadow-2xs"
-                    >
-                      Schedule Production Order
-                    </button>
+                    ))}
                   </div>
                 )}
+
+                {/* Bottom Quick-Launch Bar */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <span className="text-[10px] text-slate-400">
+                    Live raw material master UOM synchronization
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowViewMoreModal(true)}
+                    className="text-[10.5px] font-bold text-[#0A6ED1] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Inspect Order-Wise</span>
+                    <ArrowUpRight className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             )}
           </FioriCard>
         </div>
       </div>
+
+      {/* ── MODAL: "VIEW MORE" ALL PURCHASED RAW MATERIALS ORDER-WISE ── */}
+      {showViewMoreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-rm-title"
+          >
+            {/* Modal Header */}
+            <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2">
+                <Boxes className="w-5 h-5 text-[#0A6ED1] dark:text-blue-400" />
+                <div>
+                  <h3 id="modal-rm-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    All Purchased Raw Materials (Order-Wise Audit)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Live procurement logs with order references and live UOMs from Raw Material Master
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowViewMoreModal(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Search & Filters */}
+            <div className="p-3 bg-slate-50/50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="relative flex-1 min-w-[200px] max-w-sm">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  placeholder="Search PO #, Raw Material, Code, Vendor..."
+                  className="w-full pl-8 pr-3 py-1 text-xs rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-[#0A6ED1]"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-400 font-medium">Status:</span>
+                <select
+                  value={modalStatusFilter}
+                  onChange={(e) => setModalStatusFilter(e.target.value)}
+                  className="text-xs px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-hidden"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="RECEIVED">Received</option>
+                  <option value="APPROVED">Approved</option>
+                  <option value="PENDING">Pending</option>
+                </select>
+                <span className="text-[11px] font-mono font-bold text-slate-500">
+                  {filteredOrderWiseRM.length} lines
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Table Body */}
+            <div className="flex-1 overflow-y-auto p-3">
+              {filteredOrderWiseRM.length === 0 ? (
+                <div className="py-12 text-center text-xs text-slate-400 italic">
+                  No purchase records matched your search filter.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs whitespace-nowrap">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700/80 text-[10px] font-bold text-slate-500 uppercase sticky top-0 bg-white dark:bg-slate-900 z-10">
+                      <th className="py-2 px-2">PO Ref</th>
+                      <th className="py-2 px-2">Date</th>
+                      <th className="py-2 px-2">Raw Material</th>
+                      <th className="py-2 px-2">Supplier / Vendor</th>
+                      <th className="py-2 px-2">Quantity</th>
+                      <th className="py-2 px-2">Live UOM</th>
+                      <th className="py-2 px-2">Unit Rate</th>
+                      <th className="py-2 px-2">Total Amount</th>
+                      <th className="py-2 px-2 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 font-normal">
+                    {filteredOrderWiseRM.map((item) => (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                      >
+                        <td className="py-2 px-2 font-mono font-bold text-[#0A6ED1] dark:text-blue-400">
+                          {item.poReference}
+                        </td>
+                        <td className="py-2 px-2 text-slate-500 dark:text-slate-400">
+                          {item.date
+                            ? new Date(item.date).toLocaleDateString('en-IN', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric'
+                              })
+                            : '-'}
+                        </td>
+                        <td className="py-2 px-2 font-medium text-slate-800 dark:text-slate-100">
+                          <div>
+                            <span>{item.rawMaterialName}</span>
+                            {item.rmId && (
+                              <span className="ml-1 text-[9.5px] font-mono text-slate-400 dark:text-slate-500">
+                                ({item.rmId})
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
+                          {item.supplierName}
+                        </td>
+                        <td className="py-2 px-2 font-mono font-bold text-slate-800 dark:text-slate-100">
+                          {Number(item.quantity || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="py-2 px-2">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10.5px] font-mono font-semibold text-slate-700 dark:text-slate-300">
+                            {item.uom}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 font-mono text-slate-600 dark:text-slate-400">
+                          {formatRupees(item.unitPrice)}
+                        </td>
+                        <td className="py-2 px-2 font-mono font-black text-slate-900 dark:text-slate-100">
+                          {formatRupees(item.totalAmount)}
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          <FioriStatusPill status={item.status} type={item.status} size="xs" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shrink-0">
+              <span className="text-slate-500 text-[11px]">
+                Showing {filteredOrderWiseRM.length} of {allOrderWiseRM.length} total raw material order lines
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowViewMoreModal(false)}
+                className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
