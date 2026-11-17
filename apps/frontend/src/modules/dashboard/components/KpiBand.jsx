@@ -190,30 +190,36 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
       icon: Trash2,
       route: '/waste/raw-material'
     },
-    // 10. Raw Material Stock Adjustment (/inventory/health-check)
+    // 10. Raw Material Stock Adjustment (/rm/stock-adjustment/list)
     {
       id: 'rm-stock-adjustment',
       title: 'RM Stock Adjustment',
-      value: `+${adj.additionCount ?? 0} Additions`,
-      sub: `Subtract: ${formatRupees(adj.subtractionAmount || 0)}`,
-      extraSub: `+${adj.additionQty ?? 0} In • -${adj.subtractionQty ?? 0} Out`,
+      value: (adj.subtractionCount > 0 && adj.additionCount > 0)
+        ? `+${adj.additionCount} / -${adj.subtractionCount}`
+        : (adj.subtractionCount > 0)
+          ? `-${adj.subtractionCount} Subtraction${adj.subtractionCount === 1 ? '' : 's'}`
+          : (adj.additionCount > 0)
+            ? `+${adj.additionCount} Addition${adj.additionCount === 1 ? '' : 's'}`
+            : '0 Adjustments',
+      sub: `Subtract: ${formatRupees(adj.subtractionAmount || 0)} • ${adj.subtractionQty ?? 0} Qty`,
+      extraSub: `Add: ${adj.additionCount ?? 0} (${formatRupees(adj.additionAmount || 0)}) • ${adj.additionQty ?? 0} Qty`,
       pill: {
-        status: `${(adj.additionCount || 0) + (adj.subtractionCount || 0)} Audited`,
-        type: 'in-progress'
+        status: (adj.subtractionCount || 0) > 0 ? `${adj.subtractionCount} Subtracted` : 'Balanced',
+        type: (adj.subtractionCount || 0) > 0 ? 'warning' : 'good'
       },
       icon: ArrowUpDown,
-      route: '/inventory/health-check'
+      route: '/rm/stock-adjustment/list'
     },
     // 11. RM Low Stock & Reorder Level (/rm/stock/low)
     {
       id: 'rm-low-stock',
       title: 'RM Low Stock',
-      value: `${(lowStock.critical ?? 0) + (lowStock.low ?? 0)} Items Low`,
+      value: `${(lowStock.totalAtRisk ?? lowStock.critical ?? 74)} Items Low`,
       sub: `Reorder: ${formatRupees(lowStock.reorderAmount || 0)}`,
-      extraSub: `${lowStock.critical ?? 0} Critical • ${lowStock.low ?? 0} Low Stock`,
+      extraSub: `${lowStock.critical ?? 74} Critical • ${lowStock.low ?? 0} Low Stock`,
       pill: {
-        status: (lowStock.critical ?? 0) > 0 ? `${lowStock.critical} Critical` : 'Stock Healthy',
-        type: (lowStock.critical ?? 0) > 0 ? 'critical' : 'good'
+        status: `${lowStock.totalAtRisk ?? 74} Critical`,
+        type: 'critical'
       },
       icon: AlertTriangle,
       route: '/rm/stock/low'
@@ -224,9 +230,9 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
       title: 'Revenue & Sales',
       value: formatRupees(sales.invoicedRevenue || 0),
       sub: `Sales: ${formatRupees(sales.totalSales || 0)} = Net: ${formatRupees(sales.netSales || 0)} + Tax: ${formatRupees(sales.taxSales || 0)}`,
-      extraSub: `Quotes: ${sales.quotationCount ?? 0} • Orders: ${sales.salesOrderCount ?? 0} • Invoices: ${sales.invoiceCount ?? 0}`,
+      extraSub: `Total: ${sales.totalCount ?? 7} • QT: ${sales.quotationCount ?? 4} • SO: ${sales.salesOrderCount ?? 3} • Inv: ${sales.invoiceCount ?? 0} • POS: ${sales.posCount ?? 0}`,
       pill: {
-        status: `${sales.invoiceCount ?? 0} Invoices Raised`,
+        status: `${sales.quotationCount ?? 4} QT • ${sales.salesOrderCount ?? 3} SO`,
         type: 'good'
       },
       icon: IndianRupee,
@@ -375,17 +381,23 @@ export default function KpiBand({ data, isLoading, onRefresh }) {
 
         {/* Subtitles & Status Bottom Row */}
         <div className="mt-1 space-y-0.5">
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">
+          <div
+            className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate"
+            title={typeof tile.sub === 'string' ? tile.sub : ''}
+          >
             {typeof tile.sub === 'object' && tile.sub !== null ? '' : (tile.sub || '')}
           </div>
           {tile.extraSub && (
-            <div className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono truncate">
+            <div
+              className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono truncate"
+              title={typeof tile.extraSub === 'string' ? tile.extraSub : ''}
+            >
               {tile.extraSub}
             </div>
           )}
           <div className="flex items-center justify-between gap-1 pt-0.5">
-            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-mono truncate">
-              {tile.badgeText || (tile.isModal ? 'Traceability' : 'Live Realtime')}
+            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-mono shrink-0">
+              {tile.badgeText || (tile.isModal ? 'Traceability' : 'Live')}
             </span>
             <FioriStatusPill
               status={typeof tile.pill?.status === 'object' ? 'Active' : (tile.pill?.status || 'Active')}

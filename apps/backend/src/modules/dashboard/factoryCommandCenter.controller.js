@@ -79,25 +79,29 @@ class FactoryCommandCenterController {
       });
       const outputPercent = plannedToday > 0 ? Math.min(100, Math.round((actualToday / plannedToday) * 100)) : 100;
 
-      // C. RM Low Stock (Critical <= alertLevel, Low <= 2 * alertLevel)
-      const allRms = await prisma.rawMaterial.findMany({
-        select: { id: true, name: true, code: true, currentStock: true, alertLevel: true, ratePerUnit: true }
-      });
+      // C. RM Low Stock (Matches /rm/stock/low exactly: availableStock <= alertLevel)
+      const rmStockResult = await computeRmStockCore({ period: 'all' });
+      const allStockMaterials = rmStockResult.materials || [];
+      const criticalRmList = [];
       let rmCritical = 0;
       let rmLow = 0;
-      const criticalRmList = [];
-      allRms.forEach(rm => {
-        const stock = fmtNum(rm.currentStock);
-        const alert = fmtNum(rm.alertLevel);
-        if (alert > 0) {
-          if (stock <= alert) {
-            rmCritical++;
-            if (criticalRmList.length < 5) criticalRmList.push({ id: rm.id, name: rm.name, code: rm.code, stock, alert });
-          } else if (stock <= alert * 2) {
-            rmLow++;
-          }
+      let rmReorderDeficit = 0;
+
+      allStockMaterials.forEach(m => {
+        const avl = Number(m.availableStock || 0);
+        const alert = Number(m.alertLevel || 0);
+        const rate = Number(m.rateWithTax || m.rateWithoutTax || m.ratePerUnit || 0);
+
+        if (avl <= alert) {
+          rmCritical++;
+          if (criticalRmList.length < 5) criticalRmList.push({ id: m.id, name: m.name, code: m.code, stock: avl, alert });
+          const shortfall = Math.max(0, alert - avl);
+          rmReorderDeficit += shortfall * rate;
+        } else if (alert > 0 && avl <= alert * 2) {
+          rmLow++;
         }
       });
+      const rmLowStockTotal = rmCritical + rmLow;
 
       // D. QC Quarantine Queue
       const unverifiedCompletedBatches = await prisma.productionBatchNew.count({
@@ -310,8 +314,8 @@ class FactoryCommandCenterController {
         prisma.productionTemplate.count()
       ]);
 
-      // 1. Raw Materials: Total count from allRms, category count
-      const rmCount = allRms.length;
+      // 1. Raw Materials: Total count from allStockMaterials, category count
+      const rmCount = allStockMaterials.length;
 
       // 3. Purchase Orders (Paid/Unpaid, Draft/Ordered/Approved)
       let poPaidAmount = 0;
@@ -428,9 +432,10 @@ class FactoryCommandCenterController {
         totalQty: rmWasteTotalQty
       };
 
-      // 10. RM Stock Adjustment Metric (/inventory/health-check)
+      // 10. RM Stock Adjustment Metric (/rm/stock-adjustment/list)
       let adjAdditionCount = 0;
       let adjAdditionQty = 0;
+      let adjAdditionAmount = 0;
       let adjSubtractionCount = 0;
       let adjSubtractionQty = 0;
       let adjSubtractionAmount = 0;
@@ -440,6 +445,7 @@ class FactoryCommandCenterController {
         if (a.type === 'ADDITION') {
           adjAdditionCount++;
           adjAdditionQty += qty;
+          adjAdditionAmount += qty * rate;
         } else if (a.type === 'SUBTRACTION') {
           adjSubtractionCount++;
           adjSubtractionQty += qty;
@@ -449,6 +455,7 @@ class FactoryCommandCenterController {
       const rmAdjustmentMetric = {
         additionCount: adjAdditionCount,
         additionQty: adjAdditionQty,
+        additionAmount: adjAdditionAmount,
         subtractionCount: adjSubtractionCount,
         subtractionQty: adjSubtractionQty,
         subtractionAmount: adjSubtractionAmount,
@@ -456,54 +463,35 @@ class FactoryCommandCenterController {
       };
 
       // 11. RM Low Stock & Reorder Deficit Metric (/rm/stock/low)
-      let rmCriticalCount = 0;
-      let rmLowCount = 0;
-      let rmReorderAmount = 0;
-      allRms.forEach(rm => {
-        const stock = fmtNum(rm.currentStock);
-        const alert = fmtNum(rm.alertLevel);
-        const rate = fmtNum(rm.ratePerUnit);
-        if (alert > 0) {
-          if (stock <= alert) {
-            rmCriticalCount++;
-            const shortfall = Math.max(0, alert - stock);
-            rmReorderAmount += shortfall * rate;
-          } else if (stock <= alert * 2) {
-            rmLowCount++;
-          }
-        }
-      });
       const rmLowStockMetric = {
-        critical: rmCriticalCount,
-        low: rmLowCount,
-        totalAtRisk: rmCriticalCount + rmLowCount,
-        reorderAmount: rmReorderAmount
+        critical: rmCritical,
+        low: rmLow,
+        totalAtRisk: rmLowStockTotal,
+        reorderAmount: rmReorderDeficit
       };
 
       // 12. Revenue & Sales Metric (/sales/list)
       let quotationCount = 0;
       let salesOrderCount = 0;
       let invoiceCount = 0;
+      let posCount = 0;
       let invoicedRevenue = 0;
       let totalSalesGross = 0;
       let totalSalesNet = 0;
       let totalSalesTax = 0;
+
       allCustomerOrders.forEach(s => {
-        const type = (s.type || '').toLowerCase();
-        const status = (s.status || '').toLowerCase();
+        const type = (s.type || '').trim();
         const gross = Number(s.grandTotal || 0);
         const net = Number(s.totalSubtotal || 0);
         const tax = Number(s.cgst || 0) + Number(s.sgst || 0) + Number(s.igst || 0);
 
-        const isInvoice = type.includes('invoice') ||
-                          (s.docNo && s.docNo.toUpperCase().startsWith('INV')) ||
-                          status.includes('invoice') ||
-                          status.includes('delivered') ||
-                          status === 'ready to invoice';
-
-        if (type.includes('quote') || status.includes('quote')) {
+        if (type === 'Quotation' || type.toLowerCase().includes('quote')) {
           quotationCount++;
-        } else if (isInvoice) {
+        } else if (type === 'POS' || type.toLowerCase().includes('pos')) {
+          posCount++;
+          invoicedRevenue += gross;
+        } else if (type === 'Invoice' || type.toLowerCase().includes('invoice')) {
           invoiceCount++;
           invoicedRevenue += gross;
         } else {
@@ -514,14 +502,17 @@ class FactoryCommandCenterController {
         totalSalesNet += net;
         totalSalesTax += tax;
       });
+
       const salesMetric = {
         invoicedRevenue,
         totalSales: totalSalesGross,
         netSales: totalSalesNet,
         taxSales: totalSalesTax,
+        totalCount: allCustomerOrders.length,
         quotationCount,
         salesOrderCount,
-        invoiceCount
+        invoiceCount,
+        posCount
       };
 
       // 13. Expenses Metric (/finance/expenses & /setup/expense-master)

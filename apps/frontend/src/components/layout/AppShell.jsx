@@ -8,7 +8,7 @@ import {
   Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell, Info, CheckCircle2,
   AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff, HardDrive,
   BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity, Mail, Calendar,
-  Building2
+  Building2, Maximize2, Minimize2
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
@@ -931,6 +931,58 @@ const AppShell = () => {
   const [showQRScanner, setShowQRScanner] = useState(false);
   const { language, setLanguage } = useLanguageStore();
 
+  // Fullscreen state and browser event listeners
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      );
+      setIsFullscreen(isCurrentlyFullscreen);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+          await elem.requestFullscreen();
+        } else if (elem.webkitRequestFullscreen) {
+          await elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) {
+          await elem.msRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          await document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          await document.msExitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.warn('Fullscreen toggle failed or blocked by browser policy:', err);
+    }
+  };
+
   const [lowStockCount, setLowStockCount] = useState(0);
   const [rmLowStockCount, setRmLowStockCount] = useState(0);
   const [qcPendingCount, setQcPendingCount] = useState(0);
@@ -1585,7 +1637,7 @@ const AppShell = () => {
               </button>
             </div>
           ) : (
-            <div className="w-full flex items-center justify-between px-6">
+            <div className="w-full flex items-center justify-between px-4 sm:px-6">
               <div className="flex items-center space-x-3 text-indigo-600 dark:text-indigo-400 font-bold text-xl tracking-tight overflow-hidden">
                 <img 
                   src="/favicon.ico" 
@@ -1598,10 +1650,27 @@ const AppShell = () => {
                 </span>
               </div>
               
-              {/* Mobile Close Button (Hidden on Desktop) */}
-              <button className="md:hidden text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-lg" onClick={() => setIsMobileMenuOpen(false)}>
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center space-x-1">
+                {/* Maximize / Minimize Fullscreen Toggle in Sidebar */}
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                  title={isFullscreen ? "Minimize / Exit Fullscreen (Esc)" : "Maximize / Full Screen Browser"}
+                  aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                >
+                  {isFullscreen ? (
+                    <Minimize2 className="w-4 h-4" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4" />
+                  )}
+                </button>
+
+                {/* Mobile Close Button (Hidden on Desktop) */}
+                <button className="md:hidden text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-lg" onClick={() => setIsMobileMenuOpen(false)}>
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -2018,6 +2087,7 @@ const AppShell = () => {
             <button 
               className="md:hidden mr-4 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
               onClick={() => setIsMobileMenuOpen(true)}
+              title="Open Navigation Menu"
             >
               <Menu className="w-6 h-6" />
             </button>
@@ -2029,6 +2099,21 @@ const AppShell = () => {
           {/* Header Right Actions */}
           <div className="flex items-center space-x-2 sm:space-x-4">
             
+            {/* Fullscreen Maximize / Minimize Button (Left side of Search anything) */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700 flex items-center justify-center group"
+              title={isFullscreen ? "Minimize / Exit Fullscreen (Esc)" : "Maximize / Full Screen Browser"}
+              aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform text-slate-600 dark:text-slate-300" />
+              ) : (
+                <Maximize2 className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform text-slate-600 dark:text-slate-300" />
+              )}
+            </button>
+
             {/* Global Search Button */}
             <button 
               onClick={() => setShowSearch(true)}
