@@ -1637,7 +1637,7 @@ const AppShell = () => {
               </button>
             </div>
           ) : (
-            <div className="w-full flex items-center justify-between px-4 sm:px-6">
+            <div className="w-full flex items-center justify-between px-6">
               <div className="flex items-center space-x-3 text-indigo-600 dark:text-indigo-400 font-bold text-xl tracking-tight overflow-hidden">
                 <img 
                   src="/favicon.ico" 
@@ -1650,27 +1650,10 @@ const AppShell = () => {
                 </span>
               </div>
               
-              <div className="flex items-center space-x-1">
-                {/* Maximize / Minimize Fullscreen Toggle in Sidebar */}
-                <button
-                  type="button"
-                  onClick={toggleFullscreen}
-                  className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                  title={isFullscreen ? "Minimize / Exit Fullscreen (Esc)" : "Maximize / Full Screen Browser"}
-                  aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-                >
-                  {isFullscreen ? (
-                    <Minimize2 className="w-4 h-4" />
-                  ) : (
-                    <Maximize2 className="w-4 h-4" />
-                  )}
-                </button>
-
-                {/* Mobile Close Button (Hidden on Desktop) */}
-                <button className="md:hidden text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-lg" onClick={() => setIsMobileMenuOpen(false)}>
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              {/* Mobile Close Button (Hidden on Desktop) */}
+              <button className="md:hidden text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-lg" onClick={() => setIsMobileMenuOpen(false)}>
+                <X className="w-5 h-5" />
+              </button>
             </div>
           )}
         </div>
