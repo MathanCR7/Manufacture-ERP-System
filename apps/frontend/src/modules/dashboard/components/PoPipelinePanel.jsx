@@ -4,6 +4,7 @@ import { ShoppingCart, Check, CheckCircle2, Clock, Truck, ShieldAlert } from 'lu
 import FioriCard from './FioriCard';
 import FioriStatusPill from './FioriStatusPill';
 import { FioriSkeleton, FioriEmptyState, FioriErrorRetry } from './FioriStateHandlers';
+import DashboardDatePeriodFilter from './DashboardDatePeriodFilter';
 import { useApprovePo } from '../hooks/useFactoryDashboard';
 import useAuthStore from '@/app/store/authStore';
 
@@ -14,7 +15,20 @@ const formatRupees = (val) => {
   return `₹${num.toLocaleString('en-IN')}`;
 };
 
-export default function PoPipelinePanel({ data, pipeline, isLoading, isError, error, onRetry, updatedAt, canApprove: canApproveProp }) {
+export default function PoPipelinePanel({
+  data,
+  pipeline,
+  period = 'all_time',
+  onPeriodChange,
+  customRange,
+  onCustomRangeChange,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  updatedAt,
+  canApprove: canApproveProp
+}) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const approveMutation = useApprovePo();
@@ -55,6 +69,14 @@ export default function PoPipelinePanel({ data, pipeline, isLoading, isError, er
       icon={ShoppingCart}
       redirectRoute="/purchase-orders"
       updatedAt={updatedAt}
+      action={
+        <DashboardDatePeriodFilter
+          activePeriod={period}
+          onPeriodChange={onPeriodChange}
+          customRange={customRange}
+          onCustomRangeChange={onCustomRangeChange}
+        />
+      }
     >
       {isLoading ? (
         <FioriSkeleton rows={4} height="h-56" />

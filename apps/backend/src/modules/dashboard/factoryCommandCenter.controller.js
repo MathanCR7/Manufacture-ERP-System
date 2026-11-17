@@ -27,6 +27,75 @@ function getKolkataStartOfDay(now = new Date()) {
   return k;
 }
 
+// Parse date periods in Asia/Kolkata timezone: 7d, this_month, last_month, this_year, all_time, custom
+function parsePeriodRange(period = '7d', customStart, customEnd, daysParam) {
+  const now = new Date();
+  const kolkataNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const year = kolkataNow.getFullYear();
+  const month = kolkataNow.getMonth(); // 0-based
+  const date = kolkataNow.getDate();
+
+  let start, end, mode = 'daily', label = 'Last 7 Days';
+  const normalized = String(period || '').toLowerCase().trim();
+
+  if (normalized === 'all_time' || normalized === 'all') {
+    start = null;
+    end = null;
+    mode = 'all';
+    label = 'All Time';
+  } else if (normalized === '7d' || normalized === '7' || normalized === 'last_7d') {
+    start = new Date(year, month, date - 6, 0, 0, 0, 0);
+    end = new Date(year, month, date, 23, 59, 59, 999);
+    mode = 'daily';
+    label = 'Last 7 Days';
+  } else if (normalized === 'this_month') {
+    start = new Date(year, month, 1, 0, 0, 0, 0);
+    end = new Date(year, month, date, 23, 59, 59, 999);
+    mode = 'daily';
+    label = 'This Month';
+  } else if (normalized === 'last_month') {
+    start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    end = new Date(year, month, 0, 23, 59, 59, 999);
+    mode = 'daily';
+    label = 'Last Month';
+  } else if (normalized === 'this_year') {
+    start = new Date(year, 0, 1, 0, 0, 0, 0);
+    end = new Date(year, month, date, 23, 59, 59, 999);
+    mode = 'monthly';
+    label = 'This Year';
+  } else if (normalized === 'custom' || customStart) {
+    if (customStart) {
+      const [sy, sm, sd] = String(customStart).split('-').map(Number);
+      start = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+    } else {
+      start = new Date(year, month, 1, 0, 0, 0, 0);
+    }
+    if (customEnd) {
+      const [ey, em, ed] = String(customEnd).split('-').map(Number);
+      end = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+    } else {
+      end = new Date(year, month, date, 23, 59, 59, 999);
+    }
+    const diffDays = Math.round((end - start) / (1000 * 60 * 60 * 24));
+    mode = diffDays > 62 ? 'monthly' : 'daily';
+    label = 'Custom Range';
+  } else if (daysParam || normalized === '14d' || normalized === '30d') {
+    const days = parseInt(daysParam || normalized) || 30;
+    start = new Date(year, month, date - (days - 1), 0, 0, 0, 0);
+    end = new Date(year, month, date, 23, 59, 59, 999);
+    mode = 'daily';
+    label = `Last ${days} Days`;
+  } else {
+    // default
+    start = new Date(year, month, date - 6, 0, 0, 0, 0);
+    end = new Date(year, month, date, 23, 59, 59, 999);
+    mode = 'daily';
+    label = 'Last 7 Days';
+  }
+
+  return { start, end, mode, label, year, month, date };
+}
+
 class FactoryCommandCenterController {
 
   // 1. GET /api/dashboard/overview (KPI Band & Needs Attention Strip)
@@ -689,21 +758,30 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 2. GET /api/dashboard/production/active-batches
+  // 2. GET /api/dashboard/production/active-batches?period=7d&startDate=...&endDate=...
   async getActiveBatches(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const where = { deletedAt: null };
+
+      if (period || startDate || endDate || days) {
+        const { start, end } = parsePeriodRange(period, startDate, endDate, days);
+        if (start && end) {
+          where.createdAt = { gte: start, lte: end };
+        }
+      } else {
+        where.status = 'In Progress';
+      }
+
       const activeBatches = await prisma.productionBatchNew.findMany({
-        where: {
-          status: 'In Progress',
-          deletedAt: null
-        },
+        where,
         include: {
           product: {
             select: { id: true, name: true, code: true }
           }
         },
         orderBy: { updatedAt: 'desc' },
-        take: 6
+        take: 20
       });
 
       const STAGES = [
@@ -778,11 +856,21 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 3. GET /api/dashboard/procurement/pipeline (PO Kanban Columns)
+  // 3. GET /api/dashboard/procurement/pipeline?period=7d&startDate=...&endDate=... (PO Kanban Columns)
   async getPoPipeline(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const where = { deletedAt: null };
+
+      if (period || startDate || endDate || days) {
+        const { start, end } = parsePeriodRange(period, startDate, endDate, days);
+        if (start && end) {
+          where.createdAt = { gte: start, lte: end };
+        }
+      }
+
       const pos = await prisma.rawMaterialPO.findMany({
-        where: { deletedAt: null },
+        where,
         include: {
           supplier: { select: { id: true, name: true } },
           uom: { select: { abbreviation: true } }
@@ -888,13 +976,23 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 5. GET /api/dashboard/procurement/grn-recent
+  // 5. GET /api/dashboard/procurement/grn-recent?period=7d&startDate=...&endDate=...
   async getGrnRecent(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+      const where = {
+        po: { status: { notIn: ['PENDING', 'DELETED'] } }
+      };
+
+      if (period || startDate || endDate || days) {
+        const { start, end } = parsePeriodRange(period, startDate, endDate, days);
+        if (start && end) {
+          where.receivedDate = { gte: start, lte: end };
+        }
+      }
+
       const grns = await prisma.gRNReceive.findMany({
-        where: {
-          po: { status: { notIn: ['PENDING', 'DELETED'] } }
-        },
+        where,
         include: {
           po: {
             include: {
@@ -906,7 +1004,7 @@ class FactoryCommandCenterController {
           receiver: { select: { name: true } }
         },
         orderBy: { receivedDate: 'desc' },
-        take: 8
+        take: 20
       });
 
       const formatted = grns.map(g => {
@@ -942,36 +1040,77 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 6. GET /api/dashboard/procurement/inflow?days=7
+  // 6. GET /api/dashboard/procurement/inflow?period=7d&startDate=...&endDate=...
   async getInboundInflow(req, res, next) {
     try {
-      const days = parseInt(req.query.days) || 7;
+      const { period = '7d', startDate, endDate, days } = req.query;
+      const { start, end, mode, label, year, month, date } = parsePeriodRange(period, startDate, endDate, days);
+
+      const where = {};
+      if (start && end) {
+        where.grn = { receivedDate: { gte: start, lte: end } };
+      }
+
+      const items = await prisma.gRNReceiveItem.findMany({
+        where,
+        select: {
+          actualReceivedQty: true,
+          grn: { select: { receivedDate: true } }
+        }
+      });
+
       const result = [];
-      const now = new Date();
 
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const start = new Date(d);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(d);
-        end.setHours(23, 59, 59, 999);
+      if (mode === 'daily') {
+        const cur = new Date(start);
+        while (cur <= end) {
+          const dayKey = cur.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+          const displayDate = cur.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' });
 
-        const items = await prisma.gRNReceiveItem.findMany({
-          where: {
-            grn: {
-              receivedDate: { gte: start, lte: end }
-            }
-          },
-          select: { actualReceivedQty: true }
-        });
+          const dayItems = items.filter(it => {
+            if (!it.grn?.receivedDate) return false;
+            const itemKey = new Date(it.grn.receivedDate).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+            return itemKey === dayKey;
+          });
 
-        const totalQty = items.reduce((s, it) => s + fmtNum(it.actualReceivedQty), 0);
-        result.push({
-          date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-          qty_kg: Math.round(totalQty) || (i === 1 ? 450 : i === 3 ? 1200 : i === 5 ? 850 : 0),
-          count: items.length
-        });
+          const totalQty = dayItems.reduce((s, it) => s + fmtNum(it.actualReceivedQty), 0);
+          result.push({
+            date: displayDate,
+            fullDate: dayKey,
+            qty_kg: Math.round(totalQty),
+            count: dayItems.length
+          });
+
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else {
+        // monthly mode (e.g. for this_year, all_time, or wide custom range)
+        const startYear = start ? start.getFullYear() : (year - 1);
+        const endYear = end ? end.getFullYear() : year;
+        const startM = start ? start.getMonth() : 0;
+        const endM = end ? end.getMonth() : month;
+
+        for (let y = startYear; y <= endYear; y++) {
+          const mFrom = (y === startYear) ? startM : 0;
+          const mTo = (y === endYear) ? endM : 11;
+          for (let m = mFrom; m <= mTo; m++) {
+            const mDate = new Date(y, m, 1);
+            const displayMonth = mDate.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+
+            const mItems = items.filter(it => {
+              if (!it.grn?.receivedDate) return false;
+              const d = new Date(new Date(it.grn.receivedDate).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+              return d.getFullYear() === y && d.getMonth() === m;
+            });
+
+            const totalQty = mItems.reduce((s, it) => s + fmtNum(it.actualReceivedQty), 0);
+            result.push({
+              date: displayMonth,
+              qty_kg: Math.round(totalQty),
+              count: mItems.length
+            });
+          }
+        }
       }
 
       res.json(result);
@@ -1355,54 +1494,149 @@ class FactoryCommandCenterController {
     }
   }
 
-  // 10. GET /api/dashboard/sales/revenue?days=30 (ONLY Converted Tax Invoices)
+  // 10. GET /api/dashboard/sales/revenue?period=7d&startDate=...&endDate=... (ONLY Converted Tax Invoices)
   async getSalesRevenue(req, res, next) {
     try {
-      const days = parseInt(req.query.days) || 30;
-      const now = new Date();
+      const { period = '7d', startDate, endDate, days } = req.query;
+      const { start, end, mode, label, year, month, date } = parsePeriodRange(period, startDate, endDate, days);
+
+      // Strictly aggregate realized sales from statutory Tax Invoices
+      const invoiceWhere = {
+        deletedAt: null,
+        OR: [
+          { orderMode: 'INVOICE' },
+          { type: 'Invoice' },
+          { docNo: { startsWith: 'INV' } },
+          { referenceNo: { startsWith: 'INV' } }
+        ]
+      };
+      if (start && end) {
+        invoiceWhere.createdAt = { gte: start, lte: end };
+      }
+
+      const invoices = await prisma.customerOrder.findMany({
+        where: invoiceWhere,
+        select: { grandTotal: true, createdAt: true }
+      });
+
       const trend = [];
-      let totalMtd = 0;
+      let periodRevenue = 0;
 
-      for (let i = days - 1; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const start = new Date(d); start.setHours(0, 0, 0, 0);
-        const end = new Date(d); end.setHours(23, 59, 59, 999);
+      if (mode === 'daily') {
+        const cur = new Date(start);
+        while (cur <= end) {
+          const dayKey = cur.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+          const displayDate = cur.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' });
 
-        // Strictly aggregate realized sales from statutory Tax Invoices
-        const agg = await prisma.customerOrder.aggregate({
-          _sum: { grandTotal: true },
-          _count: true,
-          where: {
-            createdAt: { gte: start, lte: end },
-            deletedAt: null,
-            OR: [
-              { orderMode: 'INVOICE' },
-              { type: 'Invoice' },
-              { docNo: { startsWith: 'INV' } },
-              { referenceNo: { startsWith: 'INV' } }
-            ]
+          const dayInvoices = invoices.filter(inv => {
+            const invKey = inv.createdAt.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+            return invKey === dayKey;
+          });
+
+          const rev = dayInvoices.reduce((sum, inv) => sum + fmtNum(inv.grandTotal), 0);
+          periodRevenue += rev;
+          trend.push({
+            date: displayDate,
+            fullDate: dayKey,
+            revenue: rev,
+            ordersCount: dayInvoices.length,
+            target: 15000 // Daily benchmark target
+          });
+
+          cur.setDate(cur.getDate() + 1);
+        }
+      } else {
+        // monthly mode (e.g. for this_year, all_time, or wide custom range)
+        const startYear = start ? start.getFullYear() : year;
+        const endYear = end ? end.getFullYear() : year;
+        const startM = start ? start.getMonth() : 0;
+        const endM = end ? end.getMonth() : month;
+
+        for (let y = startYear; y <= endYear; y++) {
+          const mFrom = (y === startYear) ? startM : 0;
+          const mTo = (y === endYear) ? endM : 11;
+          for (let m = mFrom; m <= mTo; m++) {
+            const mDate = new Date(y, m, 1);
+            const displayMonth = mDate.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+
+            const mInvoices = invoices.filter(inv => {
+              const invDate = new Date(inv.createdAt.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+              return invDate.getFullYear() === y && invDate.getMonth() === m;
+            });
+
+            const rev = mInvoices.reduce((sum, inv) => sum + fmtNum(inv.grandTotal), 0);
+            periodRevenue += rev;
+            trend.push({
+              date: displayMonth,
+              revenue: rev,
+              ordersCount: mInvoices.length,
+              target: 450000 // Monthly benchmark target
+            });
           }
-        });
+        }
+      }
 
-        const rev = fmtNum(agg._sum.grandTotal);
-        totalMtd += rev;
-        trend.push({
-          date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-          revenue: rev,
-          ordersCount: agg._count,
-          target: 15000 // Daily benchmark target
-        });
+      // Compute Today & Month-to-date (MTD) accurately for statutory invoices
+      const todayStart = new Date(year, month, date, 0, 0, 0, 0);
+      const todayEnd = new Date(year, month, date, 23, 59, 59, 999);
+      const todayAgg = await prisma.customerOrder.aggregate({
+        _sum: { grandTotal: true },
+        where: {
+          createdAt: { gte: todayStart, lte: todayEnd },
+          deletedAt: null,
+          OR: [
+            { orderMode: 'INVOICE' },
+            { type: 'Invoice' },
+            { docNo: { startsWith: 'INV' } },
+            { referenceNo: { startsWith: 'INV' } }
+          ]
+        }
+      });
+      const todayRevenue = fmtNum(todayAgg._sum.grandTotal);
+
+      const mtdStart = new Date(year, month, 1, 0, 0, 0, 0);
+      const mtdAgg = await prisma.customerOrder.aggregate({
+        _sum: { grandTotal: true },
+        where: {
+          createdAt: { gte: mtdStart, lte: todayEnd },
+          deletedAt: null,
+          OR: [
+            { orderMode: 'INVOICE' },
+            { type: 'Invoice' },
+            { docNo: { startsWith: 'INV' } },
+            { referenceNo: { startsWith: 'INV' } }
+          ]
+        }
+      });
+      const mtdRevenue = fmtNum(mtdAgg._sum.grandTotal);
+
+      const normalizedPeriod = String(period || '').toLowerCase().trim();
+      let pacePercent = 0;
+      if (mode === 'monthly' || mode === 'all') {
+        const monthsCount = Math.max(1, trend.length);
+        pacePercent = Math.round((periodRevenue / (450000 * monthsCount)) * 100);
+      } else if (normalizedPeriod === 'this_month') {
+        pacePercent = Math.round((mtdRevenue / 450000) * 100);
+      } else if (normalizedPeriod === 'last_month') {
+        pacePercent = Math.round((periodRevenue / 450000) * 100);
+      } else if (normalizedPeriod === '7d' || normalizedPeriod === '7') {
+        pacePercent = Math.round((periodRevenue / (15000 * 7)) * 100);
+      } else {
+        const daysCount = Math.max(1, trend.length);
+        pacePercent = Math.round((periodRevenue / (15000 * daysCount)) * 100);
       }
 
       res.json({
-        days,
+        period,
+        label,
+        mode,
         trend,
-        todayRevenue: trend[trend.length - 1]?.revenue || 0,
-        mtdRevenue: totalMtd,
+        periodRevenue,
+        todayRevenue,
+        mtdRevenue,
         targetDaily: 15000,
         targetMonthly: 450000,
-        pacePercent: Math.round((totalMtd / 450000) * 100)
+        pacePercent
       });
     } catch (error) {
       next(error);
@@ -1499,20 +1733,35 @@ class FactoryCommandCenterController {
   // 12. GET /api/dashboard/sales/top-skus (Strictly Converted Tax Invoices)
   async getTopSkus(req, res, next) {
     try {
+      const { period, startDate, endDate, days } = req.query;
+
+      const invoiceWhere = {
+        deletedAt: null,
+        OR: [
+          { orderMode: 'INVOICE' },
+          { type: 'Invoice' },
+          { docNo: { startsWith: 'INV' } },
+          { referenceNo: { startsWith: 'INV' } }
+        ]
+      };
+
+      if (period || startDate || endDate || days) {
+        const { start, end } = parsePeriodRange(period, startDate, endDate, days);
+        if (start && end) {
+          invoiceWhere.createdAt = { gte: start, lte: end };
+        }
+      }
+
       // Find all Tax Invoices
       const invoices = await prisma.customerOrder.findMany({
-        where: {
-          deletedAt: null,
-          OR: [
-            { orderMode: 'INVOICE' },
-            { type: 'Invoice' },
-            { docNo: { startsWith: 'INV' } },
-            { referenceNo: { startsWith: 'INV' } }
-          ]
-        },
+        where: invoiceWhere,
         select: { id: true }
       });
       const invoiceIds = invoices.map(i => i.id);
+
+      if (invoiceIds.length === 0) {
+        return res.json([]);
+      }
 
       const items = await prisma.customerOrderItem.groupBy({
         by: ['productId'],

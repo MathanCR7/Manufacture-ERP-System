@@ -67,18 +67,32 @@ export default function DashboardPage() {
   const isSales = isAdmin || isSupervisor || role === 'SALES_TEAM' || role === 'SALES_EXECUTIVE';
   const isQC = isAdmin || isSupervisor || role === 'LAB_ASSISTANT';
 
-  const [salesDays, setSalesDays] = useState(30);
+  // Date Period Filter States for Panels
+  const [batchesPeriod, setBatchesPeriod] = useState('all_time');
+  const [batchesCustomRange, setBatchesCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [poPeriod, setPoPeriod] = useState('all_time');
+  const [poCustomRange, setPoCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [inflowPeriod, setInflowPeriod] = useState('7d');
+  const [inflowCustomRange, setInflowCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [grnPeriod, setGrnPeriod] = useState('all_time');
+  const [grnCustomRange, setGrnCustomRange] = useState({ startDate: '', endDate: '' });
+
+  const [salesPeriod, setSalesPeriod] = useState('7d');
+  const [salesCustomRange, setSalesCustomRange] = useState({ startDate: '', endDate: '' });
 
   // 1. Overview & Attention Strip
   const overviewQuery = useDashboardOverview();
 
   // 2. Production Batches
-  const activeBatchesQuery = useActiveBatches();
+  const activeBatchesQuery = useActiveBatches(batchesPeriod, batchesCustomRange);
 
   // 3. Procurement & Inbound
-  const pipelineQuery = usePoPipeline();
-  const recentGrnQuery = useRecentGrn();
-  const inflowQuery = useInflowData(7);
+  const pipelineQuery = usePoPipeline(poPeriod, poCustomRange);
+  const recentGrnQuery = useRecentGrn(grnPeriod, grnCustomRange);
+  const inflowQuery = useInflowData(inflowPeriod, inflowCustomRange);
 
   // 4. Inventory & Expiry
   const rmHealthQuery = useRmHealth();
@@ -86,9 +100,9 @@ export default function DashboardPage() {
   const expiryQuery = useExpiryWatchlist();
 
   // 5. Sales & Orders
-  const salesRevenueQuery = useSalesRevenue(salesDays);
+  const salesRevenueQuery = useSalesRevenue(salesPeriod, salesCustomRange);
   const salesPipelineQuery = useSalesPipeline();
-  const topSkusQuery = useTopSkus();
+  const topSkusQuery = useTopSkus(salesPeriod, salesCustomRange);
   const topCustomersQuery = useTopCustomers();
 
   // 6. Quality & Cold Room
@@ -349,6 +363,10 @@ export default function DashboardPage() {
         <div id="production" className="scroll-mt-16 sm:scroll-mt-20">
           <ActiveBatchesPanel
             data={activeBatchesQuery.data}
+            period={batchesPeriod}
+            onPeriodChange={setBatchesPeriod}
+            customRange={batchesCustomRange}
+            onCustomRangeChange={setBatchesCustomRange}
             isLoading={activeBatchesQuery.isLoading}
             error={activeBatchesQuery.error}
             onRetry={() => activeBatchesQuery.refetch()}
@@ -362,6 +380,10 @@ export default function DashboardPage() {
         <div id="procurement" className="scroll-mt-16 sm:scroll-mt-20">
           <PoPipelinePanel
             data={pipelineQuery.data}
+            period={poPeriod}
+            onPeriodChange={setPoPeriod}
+            customRange={poCustomRange}
+            onCustomRangeChange={setPoCustomRange}
             isLoading={pipelineQuery.isLoading}
             error={pipelineQuery.error}
             onRetry={() => pipelineQuery.refetch()}
@@ -376,6 +398,14 @@ export default function DashboardPage() {
         <InboundPanel
           inflowData={inflowQuery.data}
           grnData={recentGrnQuery.data}
+          inflowPeriod={inflowPeriod}
+          onInflowPeriodChange={setInflowPeriod}
+          inflowCustomRange={inflowCustomRange}
+          onInflowCustomRangeChange={setInflowCustomRange}
+          grnPeriod={grnPeriod}
+          onGrnPeriodChange={setGrnPeriod}
+          grnCustomRange={grnCustomRange}
+          onGrnCustomRangeChange={setGrnCustomRange}
           isLoading={recentGrnQuery.isLoading || inflowQuery.isLoading}
           error={recentGrnQuery.error || inflowQuery.error}
           onRetry={() => {
@@ -421,12 +451,17 @@ export default function DashboardPage() {
             pipelineData={salesPipelineQuery.data}
             topSkus={topSkusQuery.data}
             topCustomersData={topCustomersQuery.data}
-            revenueDays={salesDays}
-            setRevenueDays={setSalesDays}
-            isLoading={salesRevenueQuery.isLoading || salesPipelineQuery.isLoading}
-            error={salesRevenueQuery.error || salesPipelineQuery.error}
+            salesPeriod={salesPeriod}
+            setSalesPeriod={setSalesPeriod}
+            salesCustomRange={salesCustomRange}
+            setSalesCustomRange={setSalesCustomRange}
+            revenueDays={salesPeriod}
+            setRevenueDays={setSalesPeriod}
+            isLoading={salesRevenueQuery.isLoading || salesPipelineQuery.isLoading || topSkusQuery.isLoading}
+            error={salesRevenueQuery.error || salesPipelineQuery.error || topSkusQuery.error}
             onRetry={() => {
               salesRevenueQuery.refetch();
+              topSkusQuery.refetch();
               salesPipelineQuery.refetch();
             }}
             updatedAt={salesRevenueQuery.dataUpdatedAt}

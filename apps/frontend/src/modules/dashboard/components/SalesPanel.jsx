@@ -30,6 +30,7 @@ import {
 import FioriCard from './FioriCard';
 import FioriStatusPill from './FioriStatusPill';
 import { FioriSkeleton, FioriEmptyState, FioriErrorRetry } from './FioriStateHandlers';
+import DashboardDatePeriodFilter from './DashboardDatePeriodFilter';
 
 const formatRupees = (val) => {
   const num = Number(val || 0);
@@ -44,9 +45,13 @@ export default function SalesPanel({
   topSkus = [],
   topCustomersData,
   topCustomers,
+  salesPeriod: propSalesPeriod,
+  setSalesPeriod: propSetSalesPeriod,
+  salesCustomRange: propSalesCustomRange,
+  setSalesCustomRange: propSetSalesCustomRange,
   daysRange,
   onRangeChange,
-  revenueDays = 30,
+  revenueDays = '7d',
   setRevenueDays,
   isLoading,
   isError,
@@ -56,13 +61,56 @@ export default function SalesPanel({
 }) {
   const navigate = useNavigate();
 
+  // Internal period state for fallback / standalone usage
+  const [internalPeriod, setInternalPeriod] = useState(
+    propSalesPeriod || (typeof revenueDays === 'string' ? revenueDays : (revenueDays === 7 ? '7d' : '7d'))
+  );
+  const [internalCustomRange, setInternalCustomRange] = useState(
+    propSalesCustomRange || { startDate: '', endDate: '' }
+  );
+
+  const activePeriod = propSalesPeriod || internalPeriod;
+  const activeCustomRange = propSalesCustomRange || internalCustomRange;
+
+  const handlePeriodChange = (newPeriod, newCustomRange) => {
+    if (propSetSalesPeriod) propSetSalesPeriod(newPeriod);
+    if (setRevenueDays) setRevenueDays(newPeriod);
+    if (onRangeChange) onRangeChange(newPeriod);
+    setInternalPeriod(newPeriod);
+    if (newCustomRange) {
+      if (propSetSalesCustomRange) propSetSalesCustomRange(newCustomRange);
+      setInternalCustomRange(newCustomRange);
+    }
+  };
+
+  const periodLabel = useMemo(() => {
+    if (activePeriod === 'all_time' || activePeriod === 'all') return 'All Time';
+    if (activePeriod === '7d' || activePeriod === '7') return 'Last 7D';
+    if (activePeriod === 'this_month') return 'This Month';
+    if (activePeriod === 'last_month') return 'Last Month';
+    if (activePeriod === 'this_year') return 'This Year';
+    if (activePeriod === 'custom') {
+      if (activeCustomRange?.startDate && activeCustomRange?.endDate) {
+        return `${activeCustomRange.startDate} → ${activeCustomRange.endDate}`;
+      }
+      return 'Custom Range';
+    }
+    return `Last ${activePeriod}D`;
+  }, [activePeriod, activeCustomRange]);
+
+  const periodTotalLabel = useMemo(() => {
+    if (activePeriod === 'all_time' || activePeriod === 'all') return 'All Time Total';
+    if (activePeriod === 'this_month') return 'Month to Date';
+    if (activePeriod === 'last_month') return 'Last Month';
+    if (activePeriod === 'this_year') return 'Year to Date';
+    if (activePeriod === '7d' || activePeriod === '7') return 'Last 7 Days';
+    return 'Period Total';
+  }, [activePeriod]);
+
   // Modal State for "View More" Order-Wise Raw Materials
   const [showViewMoreModal, setShowViewMoreModal] = useState(false);
   const [modalSearch, setModalSearch] = useState('');
   const [modalStatusFilter, setModalStatusFilter] = useState('ALL');
-
-  const selectedDays = daysRange !== undefined ? daysRange : revenueDays;
-  const changeDays = onRangeChange || setRevenueDays || (() => {});
 
   const safeTrend = Array.isArray(revenueData?.trend)
     ? revenueData.trend
@@ -131,27 +179,20 @@ export default function SalesPanel({
             redirectRoute="/sales/order"
             updatedAt={updatedAt}
             action={
-              <div className="flex items-center gap-1.5">
-                <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-[#107E3E] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                  Tax Invoices Only
-                </span>
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded border border-slate-200 dark:border-slate-700">
-                  {[7, 14, 30].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => changeDays(d)}
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded cursor-pointer transition-colors ${
-                        selectedDays === d
-                          ? 'bg-[#0A6ED1] text-white shadow-2xs'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                      }`}
-                    >
-                      {d}D
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <DashboardDatePeriodFilter
+                activePeriod={activePeriod}
+                onPeriodChange={handlePeriodChange}
+                customRange={activeCustomRange}
+                onCustomRangeChange={(r) => {
+                  if (propSetSalesCustomRange) propSetSalesCustomRange(r);
+                  setInternalCustomRange(r);
+                }}
+                badge={
+                  <span className="hidden xl:inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-[#107E3E] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                    Tax Invoices Only
+                  </span>
+                }
+              />
             }
           >
             {isLoading ? (
@@ -169,13 +210,19 @@ export default function SalesPanel({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">Month to Date (Invoiced)</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">{periodTotalLabel} (Invoiced)</div>
                     <div className="font-mono text-sm font-black text-[#0A6ED1] dark:text-blue-400">
-                      {formatRupees(revenueData.mtdRevenue || 0)}
+                      {formatRupees(
+                        revenueData.periodRevenue !== undefined
+                          ? revenueData.periodRevenue
+                          : revenueData.mtdRevenue || 0
+                      )}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">Monthly Pace</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase">
+                      {activePeriod === 'this_year' ? 'Annual Pace' : 'Target Pace'}
+                    </div>
                     <div className="font-mono text-sm font-black text-[#107E3E] dark:text-emerald-400">
                       {revenueData.pacePercent || 0}%
                     </div>
@@ -192,15 +239,45 @@ export default function SalesPanel({
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={safeTrend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.6} vertical={false} />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 10, fill: '#64748b' }}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                          tickLine={false}
+                          interval="preserveStartEnd"
+                          minTickGap={15}
+                        />
                         <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} />
                         <Tooltip
-                          formatter={(val, name) => [formatRupees(val), name === 'target' ? 'Daily Target' : 'Invoiced Revenue']}
+                          formatter={(val, name) => [
+                            formatRupees(val),
+                            name === 'target'
+                              ? revenueData?.mode === 'monthly'
+                                ? 'Monthly Target'
+                                : 'Daily Target'
+                              : 'Invoiced Revenue'
+                          ]}
                           contentStyle={{ backgroundColor: '#1e293b', borderRadius: 6, border: 'none', color: '#f8fafc', fontSize: 11 }}
                         />
                         <Legend wrapperStyle={{ fontSize: 10 }} />
-                        <Line type="monotone" dataKey="revenue" name="Invoiced Revenue" stroke="#0A6ED1" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                        <Line type="monotone" dataKey="target" name="Daily Target" stroke="#e11d48" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+                        <Line
+                          type="monotone"
+                          dataKey="revenue"
+                          name="Invoiced Revenue"
+                          stroke="#0A6ED1"
+                          strokeWidth={2}
+                          dot={{ r: 2 }}
+                          activeDot={{ r: 4 }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="target"
+                          name={revenueData?.mode === 'monthly' ? 'Monthly Target' : 'Daily Target'}
+                          stroke="#e11d48"
+                          strokeWidth={1.5}
+                          strokeDasharray="4 4"
+                          dot={false}
+                        />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
@@ -218,6 +295,11 @@ export default function SalesPanel({
             icon={Award}
             redirectRoute="/sales/order"
             updatedAt={updatedAt}
+            action={
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 dark:bg-blue-950/60 text-[#0A6ED1] dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                {periodLabel}
+              </span>
+            }
           >
             {isLoading ? (
               <FioriSkeleton rows={5} height="h-64" />
@@ -225,8 +307,8 @@ export default function SalesPanel({
               <FioriErrorRetry error={error} onRetry={onRetry} />
             ) : topSkus.length === 0 ? (
               <FioriEmptyState
-                title="No Invoiced Sales History"
-                message="Sales are counted once orders are converted into statutory Tax Invoices."
+                title="No Invoiced Sales in this Period"
+                message={`No statutory tax invoices found for ${periodLabel}. Try selecting 'Last Month' or 'This Year' to view invoices.`}
               />
             ) : (
               <div className="flex-1 flex flex-col justify-between space-y-2">

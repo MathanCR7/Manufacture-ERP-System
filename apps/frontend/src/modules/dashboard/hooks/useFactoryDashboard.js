@@ -26,13 +26,43 @@ export function useDashboardOverview() {
   });
 }
 
+function buildPeriodQuery(periodOrDays, customRange) {
+  let period = '';
+  let startDate = '';
+  let endDate = '';
+  let days = null;
+
+  if (typeof periodOrDays === 'object' && periodOrDays !== null) {
+    period = periodOrDays.period || '';
+    startDate = periodOrDays.startDate || '';
+    endDate = periodOrDays.endDate || '';
+    days = periodOrDays.days;
+  } else if (typeof periodOrDays === 'number') {
+    days = periodOrDays;
+    period = `${periodOrDays}d`;
+  } else if (typeof periodOrDays === 'string') {
+    period = periodOrDays;
+    startDate = customRange?.startDate || '';
+    endDate = customRange?.endDate || '';
+  }
+
+  const q = new URLSearchParams();
+  if (period) q.append('period', period);
+  if (startDate) q.append('startDate', startDate);
+  if (endDate) q.append('endDate', endDate);
+  if (days) q.append('days', days);
+
+  return { period, startDate, endDate, days, queryString: q.toString() };
+}
+
 // 2. Active Batches
-export function useActiveBatches() {
+export function useActiveBatches(periodOrOptions, customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrOptions, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'active-batches'],
+    queryKey: ['factory-dashboard', 'active-batches', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/production/active-batches');
+      const res = await api.get(`/dashboard/production/active-batches${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(30000, token) // 30s polling
@@ -40,12 +70,13 @@ export function useActiveBatches() {
 }
 
 // 3. PO Kanban Pipeline
-export function usePoPipeline() {
+export function usePoPipeline(periodOrOptions, customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrOptions, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'po-pipeline'],
+    queryKey: ['factory-dashboard', 'po-pipeline', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/procurement/pipeline');
+      const res = await api.get(`/dashboard/procurement/pipeline${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(60000, token)
@@ -68,25 +99,27 @@ export function useApprovePo() {
 }
 
 // 4. Inbound Recent GRNs
-export function useRecentGrn() {
+export function useRecentGrn(periodOrOptions, customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrOptions, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'recent-grn'],
+    queryKey: ['factory-dashboard', 'recent-grn', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get('/dashboard/procurement/grn-recent');
+      const res = await api.get(`/dashboard/procurement/grn-recent${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(60000, token)
   });
 }
 
-// 5. Inbound 7-Day Inflow
-export function useInflowData(days = 7) {
+// 5. Inbound Inflow
+export function useInflowData(periodOrDays = '7d', customRange = {}) {
   const { token } = useAuthStore();
+  const { period, startDate, endDate, days, queryString } = buildPeriodQuery(periodOrDays, customRange);
   return useQuery({
-    queryKey: ['factory-dashboard', 'inflow', days],
+    queryKey: ['factory-dashboard', 'inflow', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get(`/dashboard/procurement/inflow?days=${days}`);
+      const res = await api.get(`/dashboard/procurement/inflow${queryString ? `?${queryString}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(300000, token) // 5 min
@@ -132,13 +165,38 @@ export function useExpiryWatchlist() {
   });
 }
 
-// 9. Sales Revenue Trend
-export function useSalesRevenue(days = 30) {
+// 9. Sales Revenue Trend (Accepts period '7d' | 'this_month' | 'last_month' | 'this_year' | 'custom' or days)
+export function useSalesRevenue(periodOrDays = '7d', customRange = {}) {
   const { token } = useAuthStore();
+
+  let period = '7d';
+  let startDate = '';
+  let endDate = '';
+  let days = null;
+
+  if (typeof periodOrDays === 'object' && periodOrDays !== null) {
+    period = periodOrDays.period || '7d';
+    startDate = periodOrDays.startDate || '';
+    endDate = periodOrDays.endDate || '';
+    days = periodOrDays.days;
+  } else if (typeof periodOrDays === 'number') {
+    days = periodOrDays;
+    period = `${periodOrDays}d`;
+  } else if (typeof periodOrDays === 'string') {
+    period = periodOrDays;
+    startDate = customRange?.startDate || '';
+    endDate = customRange?.endDate || '';
+  }
+
   return useQuery({
-    queryKey: ['factory-dashboard', 'sales-revenue', days],
+    queryKey: ['factory-dashboard', 'sales-revenue', period, startDate, endDate, days],
     queryFn: async () => {
-      const res = await api.get(`/dashboard/sales/revenue?days=${days}`);
+      const q = new URLSearchParams();
+      if (period) q.append('period', period);
+      if (startDate) q.append('startDate', startDate);
+      if (endDate) q.append('endDate', endDate);
+      if (days) q.append('days', days);
+      const res = await api.get(`/dashboard/sales/revenue?${q.toString()}`);
       return res.data;
     },
     ...createPollingConfig(300000, token)
@@ -158,13 +216,33 @@ export function useSalesPipeline() {
   });
 }
 
-// 11. Top SKUs
-export function useTopSkus() {
+// 11. Top SKUs (Filtered by period / statutory tax invoices)
+export function useTopSkus(periodOrDays, customRange = {}) {
   const { token } = useAuthStore();
+
+  let period = '';
+  let startDate = '';
+  let endDate = '';
+
+  if (typeof periodOrDays === 'object' && periodOrDays !== null) {
+    period = periodOrDays.period || '';
+    startDate = periodOrDays.startDate || '';
+    endDate = periodOrDays.endDate || '';
+  } else if (typeof periodOrDays === 'string') {
+    period = periodOrDays;
+    startDate = customRange?.startDate || '';
+    endDate = customRange?.endDate || '';
+  }
+
   return useQuery({
-    queryKey: ['factory-dashboard', 'top-skus'],
+    queryKey: ['factory-dashboard', 'top-skus', period, startDate, endDate],
     queryFn: async () => {
-      const res = await api.get('/dashboard/sales/top-skus');
+      const q = new URLSearchParams();
+      if (period) q.append('period', period);
+      if (startDate) q.append('startDate', startDate);
+      if (endDate) q.append('endDate', endDate);
+      const qs = q.toString();
+      const res = await api.get(`/dashboard/sales/top-skus${qs ? `?${qs}` : ''}`);
       return res.data;
     },
     ...createPollingConfig(120000, token)

@@ -5,8 +5,26 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGri
 import FioriCard from './FioriCard';
 import FioriStatusPill from './FioriStatusPill';
 import { FioriSkeleton, FioriEmptyState, FioriErrorRetry } from './FioriStateHandlers';
+import DashboardDatePeriodFilter from './DashboardDatePeriodFilter';
 
-export default function InboundPanel({ inflowData = [], grnData, grns, isLoading, isError, error, onRetry, updatedAt }) {
+export default function InboundPanel({
+  inflowData = [],
+  grnData,
+  grns,
+  inflowPeriod = '7d',
+  onInflowPeriodChange,
+  inflowCustomRange,
+  onInflowCustomRangeChange,
+  grnPeriod = 'all_time',
+  onGrnPeriodChange,
+  grnCustomRange,
+  onGrnCustomRangeChange,
+  isLoading,
+  isError,
+  error,
+  onRetry,
+  updatedAt
+}) {
   const navigate = useNavigate();
   const list = (Array.isArray(grnData) && grnData.length > 0) ? grnData : (Array.isArray(grns) ? grns : []);
   const safeInflow = Array.isArray(inflowData)
@@ -17,25 +35,33 @@ export default function InboundPanel({ inflowData = [], grnData, grns, isLoading
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
-      {/* Col 5: 7-Day Inbound Receipts Volume Bar Chart */}
+      {/* Col 5: Inbound Receipts Volume Bar Chart */}
       <div className="lg:col-span-5 flex flex-col h-full">
         <FioriCard
           eyebrow="Inflow Volume"
-          title="7-Day Material Receipts"
+          title={inflowPeriod === '7d' ? '7-Day Material Receipts' : 'Material Receipts Inflow'}
           icon={Truck}
           redirectRoute="/grn/list"
           updatedAt={updatedAt}
+          action={
+            <DashboardDatePeriodFilter
+              activePeriod={inflowPeriod}
+              onPeriodChange={onInflowPeriodChange}
+              customRange={inflowCustomRange}
+              onCustomRangeChange={onInflowCustomRangeChange}
+            />
+          }
         >
           {isLoading ? (
             <FioriSkeleton rows={4} height="h-64" />
           ) : error ? (
             <FioriErrorRetry error={error} onRetry={onRetry} />
           ) : safeInflow.length === 0 ? (
-            <FioriEmptyState title="No Inbound Volume" message="No material intake logged in the last 7 days." />
+            <FioriEmptyState title="No Inbound Volume" message="No material intake logged in the selected period." />
           ) : (
             <div className="flex-1 flex flex-col min-h-[220px]">
               <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-2">
-                Daily raw material intake weight (kg/L)
+                Raw material intake weight (kg/L)
               </div>
               <div className="flex-1 w-full min-h-[180px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -79,6 +105,14 @@ export default function InboundPanel({ inflowData = [], grnData, grns, isLoading
           icon={ThermometerSnowflake}
           redirectRoute="/grn/list"
           updatedAt={updatedAt}
+          action={
+            <DashboardDatePeriodFilter
+              activePeriod={grnPeriod}
+              onPeriodChange={onGrnPeriodChange}
+              customRange={grnCustomRange}
+              onCustomRangeChange={onGrnCustomRangeChange}
+            />
+          }
         >
           {isLoading ? (
             <FioriSkeleton rows={5} height="h-64" />

@@ -4,8 +4,20 @@ import { Factory, Play, PlusCircle, ArrowRight, User, Layers, Flame, Droplets } 
 import FioriCard from './FioriCard';
 import FioriStatusPill from './FioriStatusPill';
 import { FioriSkeleton, FioriEmptyState, FioriErrorRetry } from './FioriStateHandlers';
+import DashboardDatePeriodFilter from './DashboardDatePeriodFilter';
 
-export default function ActiveBatchesPanel({ data, batches, isLoading, error, onRetry, updatedAt }) {
+export default function ActiveBatchesPanel({
+  data,
+  batches,
+  period = 'all_time',
+  onPeriodChange,
+  customRange,
+  onCustomRangeChange,
+  isLoading,
+  error,
+  onRetry,
+  updatedAt
+}) {
   const navigate = useNavigate();
   const batchList = (Array.isArray(data) && data.length > 0) ? data : (Array.isArray(batches) ? batches : []);
 
@@ -17,14 +29,22 @@ export default function ActiveBatchesPanel({ data, batches, isLoading, error, on
       redirectRoute="/production/batches"
       updatedAt={updatedAt}
       action={
-        <button
-          type="button"
-          onClick={() => navigate('/production/standard/add')}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#0A6ED1] hover:bg-blue-700 text-white text-[11px] font-semibold transition-colors cursor-pointer shadow-xs"
-        >
-          <Play className="w-3 h-3 fill-current" />
-          <span>New Batch Order</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <DashboardDatePeriodFilter
+            activePeriod={period}
+            onPeriodChange={onPeriodChange}
+            customRange={customRange}
+            onCustomRangeChange={onCustomRangeChange}
+          />
+          <button
+            type="button"
+            onClick={() => navigate('/production/standard/add')}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0A6ED1] hover:bg-blue-700 text-white text-[10px] font-semibold transition-colors cursor-pointer shadow-xs whitespace-nowrap"
+          >
+            <Play className="w-3 h-3 fill-current" />
+            <span>New Batch</span>
+          </button>
+        </div>
       }
     >
       {isLoading ? (
