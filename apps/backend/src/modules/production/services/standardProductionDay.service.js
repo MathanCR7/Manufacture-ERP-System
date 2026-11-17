@@ -631,7 +631,7 @@ async function syncParentBatchAggregate(tx, batchId) {
  * Fetches structured multi-day execution history & outputs for getBatchDetails / CleanReportView.
  */
 async function getBatchDaysData(db, batchId, userCanViewCost = true) {
-  await ensureMultiDaySchema(db);
+  await ensureMultiDaySchema(prisma);
 
   const days = await db.$queryRawUnsafe(`
     SELECT * FROM production_batch_days WHERE batch_id = $1 ORDER BY day_no ASC;
@@ -1234,7 +1234,7 @@ async function completeDayRun({
             id, batch_id, day_output_id, product_id, batch_no, product_serial_no,
             qr_payload, mfd, expiry_date, mrp, net_weight, created_at, updated_at
           ) VALUES (
-            gen_random_uuid(), $1, $2::uuid, $3, $4, $5,
+            gen_random_uuid()::text, $1, $2::uuid, $3, $4, $5,
             $6, $7, $8, 0, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
           );
         `,
@@ -1267,12 +1267,12 @@ async function completeDayRun({
           await tx.$executeRawUnsafe(`
             UPDATE production_batch_items
             SET planned_qty = $1, actual_qty = $2, cost_per_unit = $3
-            WHERE id = $4::uuid;
+            WHERE id = $4;
           `, Number(prodCum[0]?.total_planned || out.theoreticalQty), Number(prodCum[0]?.total_actual || out.actualYield), out.unitCost, existingItem[0].id);
         } else {
           await tx.$executeRawUnsafe(`
             INSERT INTO production_batch_items (id, batch_id, product_id, planned_qty, actual_qty, factor, cost_per_unit, created_at)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4, 1.0, $5, CURRENT_TIMESTAMP);
+            VALUES (gen_random_uuid()::text, $1, $2, $3, $4, 1.0, $5, CURRENT_TIMESTAMP);
           `, batchId, out.productId, Number(prodCum[0]?.total_planned || out.theoreticalQty), Number(prodCum[0]?.total_actual || out.actualYield), out.unitCost);
         }
       }
