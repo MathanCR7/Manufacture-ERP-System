@@ -1153,11 +1153,14 @@ class FactoryCommandCenterController {
     try {
       const now = new Date();
 
-      // 1. Production batches of finished products
+      // 1. Production batches of finished products - ONLY COMPLETED (Not In-Progress)
       let batches = [];
       try {
         batches = await prisma.productionBatchNew.findMany({
-          where: { deletedAt: null },
+          where: {
+            deletedAt: null,
+            status: { in: ['Completed', 'completed', 'qc_passed', 'QC_PASSED'] }
+          },
           include: {
             product: {
               select: {
@@ -1180,12 +1183,18 @@ class FactoryCommandCenterController {
         batches = [];
       }
 
-      // 2. Barcode labels generated for product lots
+      // 2. Barcode labels generated for product lots (only for completed batches)
       let labels = [];
       try {
-        labels = await prisma.productionBarcodeLabel.findMany({
-          orderBy: { expiryDate: 'asc' }
-        });
+        const completedBatchIds = batches.map(b => b.id);
+        if (completedBatchIds.length > 0) {
+          labels = await prisma.productionBarcodeLabel.findMany({
+            where: {
+              batchId: { in: completedBatchIds }
+            },
+            orderBy: { expiryDate: 'asc' }
+          });
+        }
       } catch (e) {
         labels = [];
       }
