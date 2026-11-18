@@ -69,6 +69,7 @@ export function exportCleanSheetPdf({
   dayEntries = [],
   yieldRows = [],
   timelineStages = [],
+  productStagesMap = {},
   canViewCost = true,
   completionNotes = '',
   labTestRequired = false
@@ -505,9 +506,12 @@ export function exportCleanSheetPdf({
   drawTable(baseCols, basePdfRows, baseFooter, { fontSize: 6.9 });
 
   // ── SECTION 2: DATE-WISE / DAY-WISE PRODUCT PRODUCTION & PER-PRODUCT RM CONSUMPTION ──
+  // Filter days: Only include completed days when completed days exist
+  const completedOnly = dayEntries.filter(d => d.status === 'COMPLETED' || d.status === 'Completed' || Boolean(d.pushedToSales) || Boolean(d.is_completed) || Boolean(d.isCompleted));
+  const activeDayPool = completedOnly.length > 0 ? completedOnly : dayEntries;
   const filteredDays = targetDayNo
-    ? dayEntries.filter(d => Number(d.dayNo) === Number(targetDayNo))
-    : dayEntries;
+    ? activeDayPool.filter(d => Number(d.dayNo) === Number(targetDayNo))
+    : activeDayPool;
 
   drawSectionHeading(
     '2',
@@ -615,9 +619,14 @@ export function exportCleanSheetPdf({
         out.productBatchNo ? `B: ${out.productBatchNo}` : '',
         out.productSerialNo ? `S: ${out.productSerialNo}` : ''
       ].filter(Boolean).join(' | ');
+      const pStages = (productStagesMap && (productStagesMap[out.productId] || productStagesMap[out.id])) || out.timelineStages || out.stages || [];
+      const stagesLine = Array.isArray(pStages) && pStages.length > 0
+        ? `Stages: ${pStages.map((s, si) => `${si + 1}.${safeText(s.name)}`).join(' -> ')}`
+        : '';
+      const productCell = [safeText(out.productName), batchSerialLine, stagesLine].filter(Boolean).join('\n');
       return {
         seq: `#${out.seq || idx + 1}`,
-        product: batchSerialLine ? `${safeText(out.productName)}\n${batchSerialLine}` : safeText(out.productName),
+        product: productCell,
         spec: specText,
         mix: `${formatIndian(out.allocatedBaseMl, 0)} ml`,
         expected: `${formatIndian(out.theoreticalQty, 0)} ${uom}`,
@@ -847,7 +856,7 @@ export function exportCleanSheetPdf({
       { key: 'amount', label: 'Amount (INR)', width: 38, align: 'right', color: COLORS.navy, bold: true }
     ];
     const costRows = [
-      { head: '1. Base Raw Materials Consumed', notes: `${baseRmLines.length} base ingredients (live PO lot rates)`, amount: INR_FMT(summary.totalBaseConsumedCost) },
+      { head: '1. Base Raw Materials Consumed (Allocated Mix)', notes: `Allocated share: ${formatIndian(summary.totalAllocatedMixMl, 0)} ml @ base mix rate`, amount: INR_FMT(summary.totalBaseConsumedCost) },
       { head: '2. Product-Specific Added RMs & Packaging', notes: 'Flavours, essences, sticks & poly covers', amount: INR_FMT(summary.totalAddedRmsCost) },
       { head: '3. Direct Production Labour', notes: `Total crew cost across ${filteredDays.length || 1} day(s)`, amount: INR_FMT(summary.directLabourCost) },
       { head: '4. Electricity & Freezer Utilities (EB)', notes: 'Metered chiller / tank / tunnel consumption', amount: INR_FMT(summary.electricityCost) },

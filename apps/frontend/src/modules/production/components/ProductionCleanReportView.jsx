@@ -102,6 +102,23 @@ export default function ProductionCleanReportView({
       : (Array.isArray(batch?.days) ? batch.days : [])
   ), [daysHistory, batch]);
 
+  // Clean sheet inclusion rule: Only completed days are included.
+  // If Day 1 is completed and Day 2 is IN_PROGRESS, Day 2 is not added to the clean sheet!
+  const effectiveRawDays = useMemo(() => {
+    const completedList = rawDays.filter(d =>
+      d.status === 'COMPLETED' ||
+      d.status === 'Completed' ||
+      Boolean(d.pushedToSales) ||
+      Boolean(d.is_completed) ||
+      Boolean(d.isCompleted)
+    );
+    if (completedList.length > 0) {
+      return completedList;
+    }
+    // If no days are marked completed yet, fallback to the first day (Day 1)
+    return rawDays.length > 0 ? [rawDays[0]] : [];
+  }, [rawDays]);
+
   // Day/Date Scope Filter ('ALL' shows entire batch clean sheet; numeric selects a specific production Day)
   const [selectedReportDayNo, setSelectedReportDayNo] = useState('ALL');
   const [standaloneEditDay, setStandaloneEditDay] = useState(null);
@@ -328,10 +345,10 @@ export default function ProductionCleanReportView({
     0
   );
 
-  // ── NORMALIZE DAY-WISE EXECUTION ENTRIES ──
+  // ── NORMALIZE DAY-WISE EXECUTION ENTRIES (COMPLETED DAYS ONLY) ──
   const normalizedDays = useMemo(() => {
-    if (rawDays.length > 0) {
-      return rawDays.map(d => {
+    if (effectiveRawDays.length > 0) {
+      return effectiveRawDays.map(d => {
         const outs = Array.isArray(d.outputs) ? d.outputs : [];
         const dayAllocMl = Number(d.allocatedMixMl || outs.reduce((s, o) => s + Number(o.allocatedBaseMl || 0), 0));
         const dayExpected = outs.reduce((s, o) => s + Number(o.theoreticalQty || o.actualYield || 0), 0);
@@ -447,7 +464,7 @@ export default function ProductionCleanReportView({
       durationText: formatStageDuration(resolvedLegacyStages),
       outputs: synthesizedOutputs
     }];
-  }, [rawDays, allocations, liveAllocationsResult, costingData, actualYieldPieces, batch, isCompleted, labTestRequired, netPostEvapMixMl, timelineStages, productStagesMap]);
+  }, [effectiveRawDays, allocations, liveAllocationsResult, costingData, actualYieldPieces, batch, isCompleted, labTestRequired, netPostEvapMixMl, timelineStages, productStagesMap]);
 
   const scopedDays = useMemo(() => (
     selectedReportDayNo === 'ALL'
@@ -535,17 +552,23 @@ export default function ProductionCleanReportView({
   }, [scopedDays]);
 
   const totalAddedRmsCost = round2(productSpecificRmGroups.reduce((s, g) => s + g.totalCost, 0));
-  const grandTotalMaterialCost = round2(totalBaseConsumedCost + totalAddedRmsCost);
 
-  // Scoped base RM cost share (100% if viewing All Days; mix-ratio share if filtered to 1 Day)
-  const scopedBaseRmCost = selectedReportDayNo === 'ALL'
-    ? totalBaseConsumedCost
-    : round2(totalBaseConsumedCost * (netPostEvapMixMl > 0 ? Math.min(1, totalAllocatedMixMl / netPostEvapMixMl) : 1));
+  // Base raw material costing:
+  // When only Day 1 is completed (or completed days do not use 100% of mix),
+  // base total mix value should NOT be taken in full; only Day 1's allocated base mixing cost should be taken!
+  const baseCostPerMl = (totalBaseConsumedCost > 0 && netPostEvapMixMl > 0)
+    ? (totalBaseConsumedCost / netPostEvapMixMl)
+    : 0;
+
+  // Scoped base RM cost: strictly the allocated mixing cost of completed days (or single day if selected)
+  const scopedBaseRmCost = (totalAllocatedMixMl > 0 && netPostEvapMixMl > 0)
+    ? round2(totalAllocatedMixMl * baseCostPerMl)
+    : totalBaseConsumedCost;
+
+  const grandTotalMaterialCost = round2(scopedBaseRmCost + totalAddedRmsCost);
 
   const totalCost = round2(
-    selectedReportDayNo === 'ALL' && Number(costingData?.totalProductionCost || 0) > 0
-      ? Number(costingData.totalProductionCost)
-      : (scopedBaseRmCost + totalAddedRmsCost + directLabourCost + electricityCost + overheadCost)
+    scopedBaseRmCost + totalAddedRmsCost + directLabourCost + electricityCost + overheadCost
   );
   const costPerUnit = actualGood > 0 ? round2(totalCost / actualGood) : 0;
 
@@ -599,17 +622,17 @@ export default function ProductionCleanReportView({
     normalizedDays.flatMap(d => (Array.isArray(d.timelineStages) ? d.timelineStages : []))
   );
 
-  // Day short batch codes list
+  // Day short batch codes list (strictly calculated from completed days only)
   const allBatchCodes = Array.from(
-    new Set([batch?.shortBatchCode, ...normalizedDays.map(d => d.dayBatchCode)].filter(Boolean))
-  ).join(', ') || '—';
+    new Set(normalizedDays.map(d => d.dayBatchCode).filter(Boolean))
+  ).join(', ') || batch?.shortBatchCode || '—';
 
   const triggerPdfDownload = (pdfMode = 'full', forceDayNo = null) => {
     const targetDay = forceDayNo !== null
       ? Number(forceDayNo)
       : (selectedReportDayNo === 'ALL' ? null : Number(selectedReportDayNo));
     exportCleanSheetPdf({
-      mode: pdfMode,
+      mode: 'full',
       targetDayNo: targetDay,
       companyDetails: liveCompany,
       batch,
@@ -632,7 +655,7 @@ export default function ProductionCleanReportView({
         totalAllocatedMixMl,
         totalWasteMixMl,
         remainingMixBalanceMl: isCompleted ? 0 : remainingTankMixMl,
-        totalBaseConsumedCost,
+        totalBaseConsumedCost: scopedBaseRmCost,
         totalBaseLiquidVolumeMl,
         totalAddedRmsCost,
         totalMaterialCost: grandTotalMaterialCost,
@@ -646,6 +669,7 @@ export default function ProductionCleanReportView({
       dayEntries: normalizedDays,
       yieldRows: consolidatedYieldRows,
       timelineStages,
+      productStagesMap,
       canViewCost,
       completionNotes,
       labTestRequired
@@ -764,34 +788,12 @@ export default function ProductionCleanReportView({
             <Button
               type="button"
               size="sm"
-              onClick={() => triggerPdfDownload('datewise')}
-              className="h-8 px-3.5 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
-              title="Download structured Date-Wise PDF with Production No, Duration, Product RM Lots & Expiry Dates"
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-              <span>{selectedReportDayNo === 'ALL' ? 'Date-Wise PDF' : `Day ${selectedReportDayNo} PDF`}</span>
-            </Button>
-
-            <Button
-              type="button"
-              size="sm"
               onClick={() => triggerPdfDownload('full')}
-              className="h-8 px-3.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
+              className="h-8 px-4 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
               title="Download Full Clean Sheet PDF"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Download Full PDF</span>
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handlePrint}
-              className="h-8 px-3 text-xs font-bold rounded-xl border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
             </Button>
           </div>
         </div>
@@ -1170,17 +1172,6 @@ export default function ProductionCleanReportView({
                         <span>Edit EB / Labour</span>
                       </Button>
                     )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => triggerPdfDownload('datewise', d.dayNo)}
-                      className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-emerald-300 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 cursor-pointer no-print flex items-center gap-1"
-                      title={`Download Day ${d.dayNo} (${formatDateDMY(d.productionDate)}) PDF`}
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>Day {d.dayNo} PDF</span>
-                    </Button>
                   </div>
                 </div>
 
@@ -1212,6 +1203,28 @@ export default function ProductionCleanReportView({
                                 <td className="py-2 px-2.5 font-sans">
                                   <div className="font-extrabold text-slate-900 dark:text-white">{out.productName}</div>
                                   <div className="font-mono text-[10px] text-slate-400">{out.productCode || 'FP'}</div>
+                                  {(() => {
+                                    const pStages = (productStagesMap && (productStagesMap[out.productId] || productStagesMap[out.id])) || out.timelineStages || out.stages;
+                                    if (!Array.isArray(pStages) || pStages.length === 0) return null;
+                                    return (
+                                      <div className="flex items-center gap-1 flex-wrap mt-1 text-[9px] font-mono">
+                                        <span className="font-bold text-slate-400 font-sans text-[8.5px] uppercase">Stages:</span>
+                                        {pStages.map((stg, si) => (
+                                          <span
+                                            key={`p-stg-${out.productId || oIdx}-${stg.id || si}`}
+                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                                          >
+                                            <strong className="text-indigo-600 dark:text-indigo-400">{si + 1}.</strong>
+                                            <span>{stg.name}</span>
+                                            {stg.targetTemp && <span className="text-blue-600 dark:text-blue-400">({stg.targetTemp})</span>}
+                                            {(stg.durationHours || stg.durationMinutes) ? (
+                                              <span className="text-slate-400">[{stg.durationHours || 0}h {stg.durationMinutes || 0}m]</span>
+                                            ) : null}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="py-2 px-2.5">
                                   <div className="text-indigo-700 dark:text-indigo-300 font-bold text-[10.5px]">{out.productBatchNo || '—'}</div>
@@ -1609,10 +1622,10 @@ export default function ProductionCleanReportView({
           {canViewCost && (
             <div className="p-3 rounded-xl bg-slate-900 text-white flex items-center justify-between flex-wrap gap-2 text-xs font-mono print-break-avoid">
               <span className="font-sans font-bold uppercase text-[11px] text-slate-300">
-                Total Direct Materials Consumed (Base Mix + Product Specific Additions):
+                Total Direct Materials Consumed (Allocated Base Mix + Product Specific Additions):
               </span>
               <div className="flex items-center gap-4 flex-wrap">
-                <span>Base RMs: <strong className="text-white">₹{formatIndian(totalBaseConsumedCost)}</strong></span>
+                <span>Allocated Base Mix: <strong className="text-white">₹{formatIndian(scopedBaseRmCost)}</strong></span>
                 <span>+</span>
                 <span>Added RMs: <strong className="text-amber-400">₹{formatIndian(totalAddedRmsCost)}</strong></span>
                 <span>=</span>
@@ -1730,9 +1743,9 @@ export default function ProductionCleanReportView({
 
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs font-mono">
               <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">1. Base RMs</span>
+                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">1. Base RMs (Allocated)</span>
                 <div className="text-base font-black text-slate-900 dark:text-white mt-1">₹{formatIndian(scopedBaseRmCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">{baseRmLines.length} tank RMs</span>
+                <span className="text-[10px] text-slate-400 font-sans">{formatIndian(totalAllocatedMixMl, 0)} ml allocated ({baseRmLines.length} tank RMs)</span>
               </div>
               <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">2. Added RMs</span>

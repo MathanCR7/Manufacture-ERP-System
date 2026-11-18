@@ -5,7 +5,7 @@ import {
   Flame, Droplets, Snowflake, CheckCircle2, AlertCircle, RotateCcw,
   Plus, Trash2, ChevronRight, HardHat, FileSpreadsheet, Eye,
   DollarSign, TrendingDown, Package, HelpCircle, ArrowDownRight, Layers2,
-  Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, ChevronLeft,
+  Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, CalendarDays, ChevronLeft,
   Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon, Zap, Users, Search,
   Edit3, History
 } from 'lucide-react';
@@ -52,6 +52,18 @@ const formatDateDMY = (dateVal) => {
   } catch {
     return 'dd-mm-yyyy';
   }
+};
+
+const cleanStaffNameOnly = (val) => {
+  if (!val) return '';
+  if (typeof val === 'object') {
+    return cleanStaffNameOnly(val.name || val.fullName || val.userName || val.username || '');
+  }
+  return String(val)
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s*\[[^\]]*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 };
 
 // Mould Specifications Packaging Mapping (Wooden Sticks & Suggested Poly Packing Covers)
@@ -439,6 +451,7 @@ export default function ProductionFloorCockpitModal({
   const [productLabourMap, setProductLabourMap] = useState({}); // { [productId]: number }
   const [selectedProductStageTab, setSelectedProductStageTab] = useState('ALL');
   const [productStagesMap, setProductStagesMap] = useState({}); // { [productId]: stages[] }
+  const [staffLabourDetails, setStaffLabourDetails] = useState({}); // { [userKey]: { ratePerHour, hours, minutes, amount } }
 
   // Step 3 Finished Products Navigation & Master-Detail Sidebar State
   const [selectedStep3Index, setSelectedStep3Index] = useState(0);
@@ -988,7 +1001,20 @@ export default function ProductionFloorCockpitModal({
       const resolvedShortCode = activeDayRec?.dayBatchCode || b.shortBatchCode || b.short_batch_code || formatDateToDDMMYY(effDayDate);
       setDayBatchCode(resolvedShortCode);
       setDayBatchCodeCustomized(resolvedShortCode !== formatDateToDDMMYY(effDayDate));
-      setDayAssignedUsers(Array.isArray(activeDayRec?.assignedUsers) ? activeDayRec.assignedUsers : []);
+      const usersList = Array.isArray(activeDayRec?.assignedUsers) ? activeDayRec.assignedUsers : [];
+      setDayAssignedUsers(usersList);
+      if (usersList.length > 0) {
+        const initStaffMap = {};
+        usersList.forEach(u => {
+          const k = String(u.id || u.name);
+          const rate = Number(u.ratePerHour ?? u.hourlyRate ?? 150);
+          const hrs = Number(u.hours ?? 8);
+          const mins = Number(u.minutes ?? 0);
+          const amt = Number(u.amount ?? Math.round(((hrs) + (mins / 60)) * rate * 100) / 100);
+          initStaffMap[k] = { ratePerHour: rate, hours: hrs, minutes: mins, amount: amt };
+        });
+        setStaffLabourDetails(initStaffMap);
+      }
       if (detailRes.data.companyDetails?.companyPrefix) {
         setResolvedCompanyPrefix(detailRes.data.companyDetails.companyPrefix);
       }
@@ -1637,6 +1663,58 @@ export default function ProductionFloorCockpitModal({
       });
       setProductLabourMap(nextMap);
     }
+  };
+
+  // Synchronize staffLabourDetails whenever dayAssignedUsers changes
+  useEffect(() => {
+    if (!Array.isArray(dayAssignedUsers) || dayAssignedUsers.length === 0) return;
+    setStaffLabourDetails(prev => {
+      let changed = false;
+      const next = { ...prev };
+      dayAssignedUsers.forEach(u => {
+        const k = String(u.id || u.name);
+        if (!next[k]) {
+          changed = true;
+          const rate = Number(u.ratePerHour ?? u.hourlyRate ?? 150);
+          const hrs = Number(u.hours ?? 8);
+          const mins = Number(u.minutes ?? 0);
+          const amt = Number(u.amount ?? Math.round(((hrs) + (mins / 60)) * rate * 100) / 100);
+          next[k] = { ratePerHour: rate, hours: hrs, minutes: mins, amount: amt };
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [dayAssignedUsers]);
+
+  // Reactive staff labour hours & amount calculation handler:
+  // When hours or minutes or rate is entered, calculates amount automatically for each worker
+  // and sums all worker amounts to automatically update total labourCost
+  const handleStaffLabourChange = (userKey, field, value) => {
+    setStaffLabourDetails(prev => {
+      const cur = prev[userKey] || { ratePerHour: 150, hours: 8, minutes: 0, amount: 1200 };
+      const updated = { ...cur, [field]: value };
+      const rate = Math.max(0, Number(updated.ratePerHour) || 0);
+      const hrs = Math.max(0, Number(updated.hours) || 0);
+      const mins = Math.max(0, Math.min(59, Number(updated.minutes) || 0));
+      updated.ratePerHour = rate;
+      updated.hours = hrs;
+      updated.minutes = mins;
+      updated.amount = Math.round(((hrs) + (mins / 60)) * rate * 100) / 100;
+
+      const nextMap = { ...prev, [userKey]: updated };
+
+      // Auto-sum all assigned staff amounts to update labourCost
+      const totalStaffLabour = round2(
+        dayAssignedUsers.reduce((sum, u) => {
+          const k = String(u.id || u.name);
+          const entry = nextMap[k] || { amount: 0 };
+          return sum + Number(entry.amount || 0);
+        }, 0)
+      );
+
+      handleTotalLabourChange(totalStaffLabour);
+      return nextMap;
+    });
   };
 
   const handleEbCalc = (start, end, rate) => {
@@ -3851,6 +3929,18 @@ export default function ProductionFloorCockpitModal({
       return;
     }
 
+    // Mandatory labour staff assignment check
+    if (!Array.isArray(dayAssignedUsers) || dayAssignedUsers.length === 0) {
+      Swal.fire({
+        title: 'Labour Staff Required (*)',
+        text: `Please assign production labour staff for Day ${activeDayNo}. Labour staff assignment is mandatory.`,
+        icon: 'warning'
+      });
+      setShowYieldModal(false);
+      setShowDayUserPopover(true);
+      return;
+    }
+
     let yieldsList = Array.isArray(customYieldsList) && customYieldsList.length > 0
       ? customYieldsList
       : (Array.isArray(productYields) && productYields.length > 0 ? productYields : buildDefaultYields());
@@ -3871,7 +3961,20 @@ export default function ProductionFloorCockpitModal({
         dayNo: activeDayNo,
         dayBatchCode: dayBatchCode || formatDateToDDMMYY(dayProductionDate),
         productionDate: dayProductionDate,
-        assignedUsers: dayAssignedUsers,
+        assignedUsers: dayAssignedUsers.map(u => {
+          const k = String(u.id || u.name);
+          const det = staffLabourDetails[k] || {};
+          return {
+            id: u.id,
+            name: u.name,
+            empId: u.empId || '',
+            role: u.role || 'PRODUCTION_STAFF',
+            ratePerHour: Number(det.ratePerHour ?? 150),
+            hours: Number(det.hours ?? 8),
+            minutes: Number(det.minutes ?? 0),
+            amount: Number(det.amount ?? 1200)
+          };
+        }),
         timelineStages,
         productStagesMap,
         ebStartReading: ebStartReading !== '' ? Number(ebStartReading) : null,
@@ -7064,9 +7167,9 @@ export default function ProductionFloorCockpitModal({
                         </div>
                       </div>
 
-                      {/* Card 2: Labour Amount (with Multi-Product Allocation) */}
-                      <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2.5">
-                        <div className="flex items-center justify-between">
+                      {/* Card 2: Labour Amount (with Mandatory Assigned Staff Breakdown & Auto-Calculation) */}
+                      <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
                             <Users className="w-3.5 h-3.5 text-indigo-600" />
                             <span>2. Direct Labour Amount (₹)</span>
@@ -7075,6 +7178,107 @@ export default function ProductionFloorCockpitModal({
                             Total: ₹{labourCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </div>
+
+                        {/* Mandatory Staff Assignment Check & Roster with Hourly Math */}
+                        {dayAssignedUsers.length === 0 ? (
+                          <div className="p-2.5 rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50/90 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span className="font-bold">
+                                Assigned Labour Staff is Required (* Mandatory). No staff assigned for Day {activeDayNo}.
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => setShowDayUserPopover(true)}
+                              className="h-6 text-[10px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded cursor-pointer shrink-0"
+                            >
+                              + Assign Staff Now
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase flex-wrap gap-1">
+                              <span>Assigned Labour Staff ({dayAssignedUsers.length} Staff • Hourly Calculation):</span>
+                              <span className="text-indigo-600 dark:text-indigo-400 font-mono">1 hr = ₹ rate • Auto: Rate × (Hrs + Mins/60)</span>
+                            </div>
+
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                              {dayAssignedUsers.map((u, uIdx) => {
+                                const k = String(u.id || u.name);
+                                const det = staffLabourDetails[k] || { ratePerHour: 150, hours: 8, minutes: 0, amount: 1200 };
+                                const cleanName = cleanStaffNameOnly(u);
+                                return (
+                                  <div
+                                    key={`labour-staff-${k}-${uIdx}`}
+                                    className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between gap-2 text-xs"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <div className="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5 text-[11px]">
+                                        <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[9px] flex items-center justify-center font-bold shrink-0">
+                                          {uIdx + 1}
+                                        </span>
+                                        <span className="truncate">{cleanName}</span>
+                                        {u.empId && <span className="font-mono text-[9.5px] text-slate-400 shrink-0">({u.empId})</span>}
+                                      </div>
+                                      <div className="text-[9.5px] text-slate-400 font-mono">
+                                        Role: {u.role || 'PRODUCTION_STAFF'}
+                                      </div>
+                                    </div>
+
+                                    {/* Hourly Calculation Inputs */}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[10px] text-slate-500 font-bold">Rate/hr:</span>
+                                        <Input
+                                          type="number"
+                                          min="0"
+                                          step="any"
+                                          disabled={isCompleted || isViewMode}
+                                          value={det.ratePerHour !== undefined ? det.ratePerHour : 150}
+                                          onChange={(e) => handleStaffLabourChange(k, 'ratePerHour', parseFloat(e.target.value) || 0)}
+                                          className="h-6 w-16 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800"
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[10px] text-slate-500 font-bold">Hrs:</span>
+                                        <Input
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          disabled={isCompleted || isViewMode}
+                                          value={det.hours !== undefined ? det.hours : 8}
+                                          onChange={(e) => handleStaffLabourChange(k, 'hours', parseFloat(e.target.value) || 0)}
+                                          className="h-6 w-12 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800"
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[10px] text-slate-500 font-bold">Min:</span>
+                                        <Input
+                                          type="number"
+                                          min="0"
+                                          max="59"
+                                          step="5"
+                                          disabled={isCompleted || isViewMode}
+                                          value={det.minutes !== undefined ? det.minutes : 0}
+                                          onChange={(e) => handleStaffLabourChange(k, 'minutes', parseFloat(e.target.value) || 0)}
+                                          className="h-6 w-12 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800"
+                                        />
+                                      </div>
+
+                                      <div className="w-20 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-xs">
+                                        ₹{formatIndian(det.amount || 0)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
 
                         <div>
                           <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
@@ -7140,6 +7344,90 @@ export default function ProductionFloorCockpitModal({
                             </div>
                           </div>
                         )}
+
+                        {/* Date-Wise Labour Charge Breakdown Ledger */}
+                        <div className="p-2.5 rounded-lg border border-indigo-200/80 dark:border-indigo-900/60 bg-white dark:bg-slate-900 space-y-2">
+                          <div className="flex items-center justify-between flex-wrap gap-1">
+                            <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
+                              <CalendarDays className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Date-Wise Labour Charge Ledger</span>
+                            </span>
+                            <span className="text-[9.5px] font-mono text-slate-500">
+                              Day-by-Day Shift Labour Cost Audit
+                            </span>
+                          </div>
+
+                          <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left text-[10.5px] font-mono border-collapse">
+                              <thead>
+                                <tr className="bg-slate-100 dark:bg-slate-800 text-[9px] uppercase text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
+                                  <th className="py-1.5 px-2">Day &amp; Date</th>
+                                  <th className="py-1.5 px-2">Batch No</th>
+                                  <th className="py-1.5 px-2 font-sans">Assigned Staff</th>
+                                  <th className="py-1.5 px-2 text-right">Crew / Hrs</th>
+                                  <th className="py-1.5 px-2 text-right text-indigo-700 dark:text-indigo-300 font-bold">Labour Cost</th>
+                                  <th className="py-1.5 px-2 text-center font-sans">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                {completedDaysList.map(d => {
+                                  const staff = Array.isArray(d.assignedUsers) ? d.assignedUsers : [];
+                                  const staffNames = staff.map(u => cleanStaffNameOnly(u)).filter(Boolean).join(', ') || 'Floor Operator';
+                                  const totalHrs = staff.reduce((s, u) => s + Number(u.hours || 8), 0);
+                                  return (
+                                    <tr key={`date-labour-comp-${d.id || d.dayNo}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                      <td className="py-1.5 px-2 font-bold text-slate-800 dark:text-slate-200">
+                                        Day {d.dayNo} • {formatDateDMY(d.productionDate)}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {d.dayBatchCode || '—'}
+                                      </td>
+                                      <td className="py-1.5 px-2 font-sans text-slate-700 dark:text-slate-300 truncate max-w-[150px]">
+                                        {staffNames}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-right text-slate-600 dark:text-slate-400">
+                                        {staff.length} crew ({totalHrs}h)
+                                      </td>
+                                      <td className="py-1.5 px-2 text-right font-black text-amber-600 dark:text-amber-400">
+                                        ₹{formatIndian(d.labourTotalCost || 0)}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center">
+                                        <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[9px] font-bold">
+                                          Completed
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+
+                                {activeDayNo && (
+                                  <tr className="bg-indigo-50/40 dark:bg-indigo-950/20 font-bold">
+                                    <td className="py-1.5 px-2 text-indigo-700 dark:text-indigo-300">
+                                      Day {activeDayNo} • {formatDateDMY(dayProductionDate)} (Active)
+                                    </td>
+                                    <td className="py-1.5 px-2 text-indigo-600 dark:text-indigo-400">
+                                      {dayBatchCode || '—'}
+                                    </td>
+                                    <td className="py-1.5 px-2 font-sans text-slate-800 dark:text-slate-200 truncate max-w-[150px]">
+                                      {dayAssignedUsers.map(u => cleanStaffNameOnly(u)).filter(Boolean).join(', ') || 'No staff assigned'}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-right text-slate-600 dark:text-slate-400">
+                                      {dayAssignedUsers.length} crew
+                                    </td>
+                                    <td className="py-1.5 px-2 text-right font-black text-amber-600 dark:text-amber-400">
+                                      ₹{formatIndian(labourCost || 0)}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-center">
+                                      <span className="px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 text-[9px] font-bold">
+                                        Current Day
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -7351,6 +7639,20 @@ export default function ProductionFloorCockpitModal({
                               <td className="py-1 px-2 font-bold text-slate-900 dark:text-white">
                                 <div>{a.productName}</div>
                                 <div className="font-mono text-[9px] text-slate-400">{a.productCode} • {isM ? `Mould: ${a.mouldCode || 'Standard'}` : `Bulk: ${bUom}`}</div>
+                                {(() => {
+                                  const pStages = (productStagesMap && (productStagesMap[a.productId] || productStagesMap[a.seq])) || a.stages;
+                                  if (!Array.isArray(pStages) || pStages.length === 0) return null;
+                                  return (
+                                    <div className="flex items-center gap-1 flex-wrap mt-0.5 text-[9px] font-mono text-indigo-700 dark:text-indigo-300">
+                                      <span className="font-bold text-slate-400 font-sans text-[8px] uppercase">Stages:</span>
+                                      {pStages.map((stg, si) => (
+                                        <span key={`p-stg-exec-${a.productId || aIdx}-${si}`} className="px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800">
+                                          {si + 1}. {stg.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </td>
                               <td className="py-1 px-2 font-mono">
                                 <div className="text-[10px] font-black text-indigo-700 dark:text-indigo-300">{rowBatchNo}</div>
