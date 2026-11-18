@@ -1,6 +1,14 @@
 // 1. MUST BE FIRST: Load env variables
 const env = require('./config/env'); 
 
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception caught:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection caught at:', promise, 'reason:', reason);
+});
+
 // 2. Load app (which uses Prisma)
 const app = require('./app');
 const { ensureProductionBatchesRedesignSchema } = require('./database/migrations/ensure_production_batches_redesign_schema');
