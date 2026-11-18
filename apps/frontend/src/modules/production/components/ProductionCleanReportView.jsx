@@ -72,6 +72,81 @@ const formatAssignedStaff = (staffList, fallback) => {
   return cleaned || raw;
 };
 
+const PRODUCT_THEMES = [
+  {
+    name: 'indigo',
+    border: 'border-indigo-400 dark:border-indigo-700',
+    bg: 'bg-indigo-50/40 dark:bg-indigo-950/20',
+    headerBg: 'bg-indigo-600 text-white',
+    badge: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-300',
+    text: 'text-indigo-700 dark:text-indigo-300',
+    subText: 'text-indigo-600 dark:text-indigo-400',
+    tableHead: 'bg-indigo-100/70 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200',
+    footBg: 'bg-indigo-50 dark:bg-indigo-950/40',
+    costAccent: 'text-indigo-600 dark:text-indigo-400'
+  },
+  {
+    name: 'emerald',
+    border: 'border-emerald-400 dark:border-emerald-700',
+    bg: 'bg-emerald-50/40 dark:bg-emerald-950/20',
+    headerBg: 'bg-emerald-600 text-white',
+    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-300',
+    text: 'text-emerald-700 dark:text-emerald-300',
+    subText: 'text-emerald-600 dark:text-emerald-400',
+    tableHead: 'bg-emerald-100/70 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200',
+    footBg: 'bg-emerald-50 dark:bg-emerald-950/40',
+    costAccent: 'text-emerald-600 dark:text-emerald-400'
+  },
+  {
+    name: 'purple',
+    border: 'border-purple-400 dark:border-purple-700',
+    bg: 'bg-purple-50/40 dark:bg-purple-950/20',
+    headerBg: 'bg-purple-600 text-white',
+    badge: 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border-purple-300',
+    text: 'text-purple-700 dark:text-purple-300',
+    subText: 'text-purple-600 dark:text-purple-400',
+    tableHead: 'bg-purple-100/70 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200',
+    footBg: 'bg-purple-50 dark:bg-purple-950/40',
+    costAccent: 'text-purple-600 dark:text-purple-400'
+  },
+  {
+    name: 'amber',
+    border: 'border-amber-400 dark:border-amber-700',
+    bg: 'bg-amber-50/40 dark:bg-amber-950/20',
+    headerBg: 'bg-amber-600 text-white',
+    badge: 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-amber-300',
+    text: 'text-amber-700 dark:text-amber-300',
+    subText: 'text-amber-600 dark:text-amber-400',
+    tableHead: 'bg-amber-100/70 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200',
+    footBg: 'bg-amber-50 dark:bg-amber-950/40',
+    costAccent: 'text-amber-600 dark:text-amber-400'
+  },
+  {
+    name: 'rose',
+    border: 'border-rose-400 dark:border-rose-700',
+    bg: 'bg-rose-50/40 dark:bg-rose-950/20',
+    headerBg: 'bg-rose-600 text-white',
+    badge: 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 border-rose-300',
+    text: 'text-rose-700 dark:text-rose-300',
+    subText: 'text-rose-600 dark:text-rose-400',
+    tableHead: 'bg-rose-100/70 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200',
+    footBg: 'bg-rose-50 dark:bg-rose-950/40',
+    costAccent: 'text-rose-600 dark:text-rose-400'
+  },
+  {
+    name: 'cyan',
+    border: 'border-cyan-400 dark:border-cyan-700',
+    bg: 'bg-cyan-50/40 dark:bg-cyan-950/20',
+    headerBg: 'bg-cyan-600 text-white',
+    badge: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/60 dark:text-cyan-200 border-cyan-300',
+    text: 'text-cyan-700 dark:text-cyan-300',
+    subText: 'text-cyan-600 dark:text-cyan-400',
+    tableHead: 'bg-cyan-100/70 dark:bg-cyan-950/60 text-cyan-900 dark:text-cyan-200',
+    footBg: 'bg-cyan-50 dark:bg-cyan-950/40',
+    costAccent: 'text-cyan-600 dark:text-cyan-400'
+  }
+];
+
 export default function ProductionCleanReportView({
   batch,
   costingData,
@@ -316,6 +391,25 @@ export default function ProductionCleanReportView({
     () => round2(baseRmLines.reduce((s, l) => s + Number(l.liquidVolumeMl || 0), 0)),
     [baseRmLines]
   );
+
+  const baseMixExpiryDate = useMemo(() => {
+    const dates = [];
+    baseRmLines.forEach(l => {
+      if (l.expiryDate) {
+        const d = new Date(l.expiryDate);
+        if (!isNaN(d.getTime())) dates.push(d);
+      }
+      (l.lots || []).forEach(lot => {
+        if (lot.expiryDate) {
+          const d = new Date(lot.expiryDate);
+          if (!isNaN(d.getTime())) dates.push(d);
+        }
+      });
+    });
+    if (dates.length === 0) return null;
+    dates.sort((a, b) => a.getTime() - b.getTime());
+    return dates[0].toISOString();
+  }, [baseRmLines]);
 
   // Mix / Evaporation Math (real numbers, zero fake hardcoded fallbacks)
   const netPostEvapMixMl = Number(
@@ -655,7 +749,9 @@ export default function ProductionCleanReportView({
         totalAllocatedMixMl,
         totalWasteMixMl,
         remainingMixBalanceMl: isCompleted ? 0 : remainingTankMixMl,
+        totalBasePreparedCost: totalBaseConsumedCost,
         totalBaseConsumedCost: scopedBaseRmCost,
+        baseCostPerMl,
         totalBaseLiquidVolumeMl,
         totalAddedRmsCost,
         totalMaterialCost: grandTotalMaterialCost,
@@ -1096,7 +1192,7 @@ export default function ProductionCleanReportView({
           </div>
         </div>
 
-        {/* ── 3. SECTION 1: DAY-WISE / DATE-WISE PRODUCTION & PER-PRODUCT RM TRACEABILITY ── */}
+        {/* ── 3. SECTION 1: BASE RAW MATERIAL CONSUMPTION & INVENTORY LOT TRACEABILITY ── */}
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -1104,535 +1200,506 @@ export default function ProductionCleanReportView({
                 1
               </span>
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                Day-Wise / Date-Wise Production &amp; Per-Product Raw Material Ledger
+                Base Raw Material Consumption &amp; Inventory Lot Traceability
               </h3>
             </div>
             <span className="text-xs text-slate-500 font-mono">
-              Showing {scopedDays.length} of {normalizedDays.length} Day{normalizedDays.length > 1 ? 's' : ''} • Product Batches, 8-Digit Serials &amp; Lot Expiry Dates
+              {baseRmLines.length} Base Materials Used • Tank Preparation &amp; Formulation Valuation
             </span>
           </div>
 
-          <div className="space-y-4">
-            {scopedDays.map(d => (
-              <div
-                key={`report-day-${d.id || d.dayNo}`}
-                className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/70 rounded-xl overflow-hidden shadow-2xs print-break-avoid"
-              >
-                {/* Day Header Strip */}
-                <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 via-slate-50 to-white dark:from-indigo-950/60 dark:via-slate-900 dark:to-slate-900 border-b border-indigo-200/80 dark:border-indigo-900/60 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-md bg-indigo-600 text-white font-mono text-xs font-black">
-                      Day {d.dayNo}
-                    </span>
-                    <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                      {formatDateDMY(d.productionDate)}
-                    </span>
-                    <span className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100/70 dark:bg-indigo-950/70 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                      Day Batch: {d.dayBatchCode || '—'}
-                    </span>
-                    <span className="text-xs font-mono text-purple-700 dark:text-purple-300 font-bold">
-                      Mix: {formatIndian(d.openingMixMl, 0)} → Used {formatIndian(d.allocatedMixMl, 0)} ml → Rem {formatIndian(d.remainingMixMl, 0)} ml
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      ({d.durationText})
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded bg-emerald-50/90 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      <Users className="w-3 h-3 shrink-0" />
-                      <span>
-                        Staff: {formatAssignedStaff(d.assignedUsers, d.completedBy || d.startedBy || batch?.startedBy)}
-                      </span>
-                    </span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      d.pushedToSales
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
-                        : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
-                    }`}>
-                      {d.statusLabel}
-                    </span>
-                  </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                  <th className="py-2.5 px-3">Code</th>
+                  <th className="py-2.5 px-3">Raw Material Name</th>
+                  <th className="py-2.5 px-3 font-mono">RM Batch / Lot No</th>
+                  <th className="py-2.5 px-3 text-right">Consumed Qty</th>
+                  <th className="py-2.5 px-3 text-center">Expiry Date</th>
+                  {canViewCost && <th className="py-2.5 px-3 text-right">Unit Rate</th>}
+                  {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost</th>}
+                  <th className="py-2.5 px-3 text-right">Liquid / Evap</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                {baseRmLines.length === 0 ? (
+                  <tr>
+                    <td colSpan={canViewCost ? 8 : 6} className="py-4 px-3 text-center font-sans text-slate-400">
+                      No base raw materials recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  baseRmLines.flatMap((line, idx) => {
+                    const uomClean = formatCleanUom(line.uom, 'kg', line);
+                    const lots = Array.isArray(line.lots) && line.lots.length > 0 ? line.lots : null;
+                    const liquidMl = Number(line.liquidVolumeMl || 0);
+                    const evaporates = Boolean(line.evaporates);
+                    const evapLoss = evaporates ? round2(liquidMl * (evaporationPct / 100)) : 0;
 
-                  <div className="flex items-center gap-2.5 text-xs font-mono flex-wrap">
-                    {canViewCost && (
-                      <>
-                        <span>EB: <strong className="text-blue-600 dark:text-blue-400">₹{formatIndian(d.ebTotalCost)}</strong></span>
-                        <span>Labour: <strong className="text-amber-600 dark:text-amber-400">₹{formatIndian(d.labourTotalCost)}</strong></span>
-                        <span>OH: <strong className="text-slate-700 dark:text-slate-300">₹{formatIndian(d.overheadAmt)}</strong></span>
-                      </>
-                    )}
-                    {canViewCost && d.status !== 'IN_PROGRESS' && d.id && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleOpenReportDayCostEdit(d)}
-                        className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-indigo-300 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 cursor-pointer no-print flex items-center gap-1"
-                      >
-                        <Edit3 className="w-3 h-3" />
-                        <span>Edit EB / Labour</span>
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                    if (lots && lots.length > 1) {
+                      return lots.map((lot, lIdx) => {
+                        const expInfo = getExpiryBadge(lot.expiryDate || line.expiryDate);
+                        return (
+                          <tr key={`base-rm-${idx}-lot-${lIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                            <td className="py-2 px-3 text-slate-500 font-bold">{lIdx === 0 ? (line.rawMaterialCode || 'RM') : '↳ Lot'}</td>
+                            <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
+                              {lIdx === 0 ? line.rawMaterialName : `${line.rawMaterialName} (Lot ${lIdx + 1})`}
+                            </td>
+                            <td className="py-2 px-3 font-black text-indigo-600 dark:text-indigo-400">{lot.lotNumber}</td>
+                            <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
+                              {formatIndian(lot.allocatedQty)} {formatCleanUom(lot.uom || uomClean, 'kg', line)}
+                            </td>
+                            <td className={`py-2 px-3 text-center ${expInfo.cls}`}>{expInfo.label}</td>
+                            {canViewCost && <td className="py-2 px-3 text-right">₹{formatIndian(lot.unitRate ?? line.unitRate)} / {uomClean}</td>}
+                            {canViewCost && <td className="py-2 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(lot.totalCost)}</td>}
+                            <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">{lIdx === 0 ? `${formatIndian(liquidMl)} ml` : '—'}</td>
+                          </tr>
+                        );
+                      });
+                    }
 
-                {/* Day Body: Products Table + Per-Product RM Traceability */}
-                <div className="p-3.5 space-y-3">
-                  {Array.isArray(d.outputs) && d.outputs.length > 0 ? (
-                    <>
-                      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-                        <table className="w-full text-left text-[11.5px] font-mono border-collapse">
-                          <thead>
-                            <tr className="bg-slate-100 dark:bg-slate-800/90 text-[10px] uppercase text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700">
-                              <th className="py-2 px-2.5">Seq</th>
-                              <th className="py-2 px-2.5 font-sans">Product Finished Item</th>
-                              <th className="py-2 px-2.5">Product Batch &amp; Serial</th>
-                              <th className="py-2 px-2.5 font-sans">Mould / Bulk</th>
-                              <th className="py-2 px-2.5 text-right">Mix Used</th>
-                              <th className="py-2 px-2.5 text-right">Planned</th>
-                              <th className="py-2 px-2.5 text-right text-emerald-700 dark:text-emerald-400">Actual Good</th>
-                              <th className="py-2 px-2.5 text-right text-rose-600">Reject</th>
-                              <th className="py-2 px-2.5 text-right">Yield %</th>
-                              {canViewCost && <th className="py-2 px-2.5 text-right">Total Cost</th>}
-                              {canViewCost && <th className="py-2 px-2.5 text-right text-emerald-600 font-black">Unit Cost</th>}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {d.outputs.map((out, oIdx) => (
-                              <tr key={`rep-day-out-${d.dayNo}-${out.id || oIdx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
-                                <td className="py-2 px-2.5 font-bold text-slate-500">#{out.seq || oIdx + 1}</td>
-                                <td className="py-2 px-2.5 font-sans">
-                                  <div className="font-extrabold text-slate-900 dark:text-white">{out.productName}</div>
-                                  <div className="font-mono text-[10px] text-slate-400">{out.productCode || 'FP'}</div>
-                                  {(() => {
-                                    const pStages = (productStagesMap && (productStagesMap[out.productId] || productStagesMap[out.id])) || out.timelineStages || out.stages;
-                                    if (!Array.isArray(pStages) || pStages.length === 0) return null;
-                                    return (
-                                      <div className="flex items-center gap-1 flex-wrap mt-1 text-[9px] font-mono">
-                                        <span className="font-bold text-slate-400 font-sans text-[8.5px] uppercase">Stages:</span>
-                                        {pStages.map((stg, si) => (
-                                          <span
-                                            key={`p-stg-${out.productId || oIdx}-${stg.id || si}`}
-                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
-                                          >
-                                            <strong className="text-indigo-600 dark:text-indigo-400">{si + 1}.</strong>
-                                            <span>{stg.name}</span>
-                                            {stg.targetTemp && <span className="text-blue-600 dark:text-blue-400">({stg.targetTemp})</span>}
-                                            {(stg.durationHours || stg.durationMinutes) ? (
-                                              <span className="text-slate-400">[{stg.durationHours || 0}h {stg.durationMinutes || 0}m]</span>
-                                            ) : null}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    );
-                                  })()}
-                                </td>
-                                <td className="py-2 px-2.5">
-                                  <div className="text-indigo-700 dark:text-indigo-300 font-bold text-[10.5px]">{out.productBatchNo || '—'}</div>
-                                  <div className="text-emerald-700 dark:text-emerald-300 font-bold text-[10px]">{out.productSerialNo || '—'}</div>
-                                </td>
-                                <td className="py-2 px-2.5 font-sans text-[11px] text-slate-600 dark:text-slate-300">
-                                  {out.useMould !== false && out.mouldCode
-                                    ? `${out.mouldCode} (${out.trays || 0}T × ${out.cavities || 1}C)`
-                                    : `Bulk (${out.bulkUom || out.uom})`}
-                                </td>
-                                <td className="py-2 px-2.5 text-right font-bold text-purple-700 dark:text-purple-400">
-                                  {formatIndian(out.allocatedBaseMl, 0)} ml
-                                </td>
-                                <td className="py-2 px-2.5 text-right text-slate-600 dark:text-slate-400">
-                                  {formatIndian(out.theoreticalQty, 0)} {out.uom}
-                                </td>
-                                <td className="py-2 px-2.5 text-right font-black text-emerald-700 dark:text-emerald-400">
-                                  {formatIndian(out.actualYield, 0)} {out.uom}
-                                </td>
-                                <td className="py-2 px-2.5 text-right font-bold text-rose-600 dark:text-rose-400">
-                                  {formatIndian(out.rejectOutput, 0)}
-                                </td>
-                                <td className="py-2 px-2.5 text-right font-bold text-slate-800 dark:text-slate-200">
-                                  {out.yieldPct}%
-                                </td>
-                                {canViewCost && (
-                                  <td className="py-2 px-2.5 text-right font-bold text-slate-900 dark:text-white">
-                                    ₹{formatIndian(out.totalCost)}
-                                  </td>
-                                )}
-                                {canViewCost && (
-                                  <td className="py-2 px-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">
-                                    ₹{formatIndian(out.unitCost)}
-                                  </td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t border-slate-200 dark:border-slate-700">
-                            <tr>
-                              <td colSpan={4} className="py-1.5 px-2.5 font-sans uppercase text-[10px] text-slate-600 dark:text-slate-300">
-                                Day {d.dayNo} Production Subtotal
-                              </td>
-                              <td className="py-1.5 px-2.5 text-right text-purple-700 dark:text-purple-400">{formatIndian(d.allocatedMixMl, 0)} ml</td>
-                              <td className="py-1.5 px-2.5 text-right">{formatIndian(d.totalExpectedQty, 0)}</td>
-                              <td className="py-1.5 px-2.5 text-right text-emerald-700 dark:text-emerald-400 font-black">{formatIndian(d.totalOutputQty, 0)}</td>
-                              <td className="py-1.5 px-2.5 text-right text-rose-600">{formatIndian(d.totalRejectedQty, 0)}</td>
-                              <td className="py-1.5 px-2.5 text-right">
-                                {d.totalExpectedQty > 0 ? `${round2((d.totalOutputQty / d.totalExpectedQty) * 100)}%` : '—'}
-                              </td>
-                              {canViewCost && (
-                                <td className="py-1.5 px-2.5 text-right text-slate-900 dark:text-white">
-                                  ₹{formatIndian(d.outputs.reduce((s, o) => s + Number(o.totalCost || 0), 0))}
-                                </td>
-                              )}
-                              {canViewCost && <td className="py-1.5 px-2.5 text-right text-slate-400">—</td>}
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
+                    const singleLot = lots?.[0];
+                    const expInfo = getExpiryBadge(singleLot?.expiryDate || line.expiryDate);
+                    return [(
+                      <tr key={`base-rm-${line.rawMaterialCode || idx}-${idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <td className="py-2.5 px-3 text-slate-500 font-bold">{line.rawMaterialCode || 'RM'}</td>
+                        <td className="py-2.5 px-3 font-sans font-extrabold text-slate-900 dark:text-white">{line.rawMaterialName}</td>
+                        <td className="py-2.5 px-3 font-black text-indigo-600 dark:text-indigo-400">{singleLot?.lotNumber || line.lotBatchNo || 'BATCH-DIRECT'}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-white">{formatIndian(line.takenQty)} {uomClean}</td>
+                        <td className={`py-2.5 px-3 text-center ${expInfo.cls}`}>{expInfo.label}</td>
+                        {canViewCost && <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">₹{formatIndian(line.unitRate)} / {uomClean}</td>}
+                        {canViewCost && <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(line.totalCost)}</td>}
+                        <td className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400 font-bold">
+                          {formatIndian(liquidMl)} ml {evaporates ? '(Evap)' : ''}
+                        </td>
+                      </tr>
+                    )];
+                  })
+                )}
+              </tbody>
+              <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 font-mono">
+                <tr className="divide-x divide-slate-200 dark:divide-slate-700">
+                  <td colSpan={3} className="py-2.5 px-3 font-sans uppercase">
+                    TOTAL: {baseRmLines.length} Base Materials
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                    <div>{formatIndian(totalBaseTakenQty)} {baseUomEntries.length === 1 ? baseUomEntries[0][0] : ''}</div>
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-slate-400">—</td>
+                  {canViewCost && <td className="py-2.5 px-3 text-right">Total Base:</td>}
+                  {canViewCost && <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black">₹{formatIndian(totalBaseConsumedCost)}</td>}
+                  <td className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400 font-black">{formatIndian(totalBaseLiquidVolumeMl)} ml</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
-                      {/* Day Product-Wise Added RM Lots & Expiry Table */}
-                      {d.outputs.some(o => Array.isArray(o.productRms) && o.productRms.length > 0) && (
-                        <div className="rounded-lg border border-purple-200/80 dark:border-purple-900/50 bg-purple-50/30 dark:bg-purple-950/10 p-2.5 space-y-1.5">
-                          <div className="text-[10.5px] font-extrabold uppercase tracking-wider text-purple-800 dark:text-purple-300 flex items-center gap-1.5">
-                            <Boxes className="w-3.5 h-3.5" />
-                            <span>Day {d.dayNo} ({formatDateDMY(d.productionDate)}) — Raw Materials Consumed Per Product (Batch # • Qty • Expiry Date)</span>
-                          </div>
-                          <div className="overflow-x-auto rounded border border-purple-100 dark:border-purple-900/40 bg-white dark:bg-slate-900">
-                            <table className="w-full text-left text-[11px] font-mono border-collapse">
-                              <thead>
-                                <tr className="bg-slate-50 dark:bg-slate-800 text-[9.5px] uppercase text-slate-500 border-b border-slate-200 dark:border-slate-700">
-                                  <th className="py-1.5 px-2.5 font-sans">Finished Product</th>
-                                  <th className="py-1.5 px-2.5 font-sans">RM Code &amp; Material</th>
-                                  <th className="py-1.5 px-2.5">RM Batch / Lot #</th>
-                                  <th className="py-1.5 px-2.5 text-right">Consumed Qty</th>
-                                  <th className="py-1.5 px-2.5 text-center">Lot Expiry Date</th>
-                                  <th className="py-1.5 px-2.5 font-sans">Purpose / Mix</th>
-                                  {canViewCost && <th className="py-1.5 px-2.5 text-right">Cost</th>}
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {d.outputs.flatMap(out =>
-                                  (out.productRms || []).flatMap((prm, pIdx) => {
-                                    const lots = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0 ? prm.allocatedBatches : null;
-                                    const pUom = prm.uom || 'pcs';
-                                    const rate = Number(prm.unitRate ?? prm.rate ?? 0);
-                                    const isMix = prm.addToMix !== false;
-                                    if (lots && lots.length > 0) {
-                                      return lots.map((lot, lIdx) => {
-                                        const qtyVal = Number(lot.allocatedQty ?? prm.takenQty ?? prm.qty ?? 0);
-                                        const rowCost = round2(qtyVal * Number(lot.unitRate ?? rate));
-                                        const expInfo = getExpiryBadge(lot.expiryDate || prm.expiryDate);
-                                        return (
-                                          <tr key={`d-prm-${d.dayNo}-${out.seq}-${pIdx}-${lIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                                            <td className="py-1.5 px-2.5 font-sans font-bold text-slate-900 dark:text-white">
-                                              {out.productName}
-                                            </td>
-                                            <td className="py-1.5 px-2.5 font-sans text-slate-700 dark:text-slate-300">
-                                              <span className="font-mono text-[10px] text-slate-400 mr-1">{prm.rawMaterialCode || prm.rmCode || 'RM'}</span>
-                                              <span className="font-bold">{prm.rawMaterialName || prm.rmName}</span>
-                                            </td>
-                                            <td className="py-1.5 px-2.5 font-bold text-indigo-600 dark:text-indigo-400">
-                                              {lot.lotNumber || lot.internalBatchNo || prm.lotBatchNo || 'BATCH-DIRECT'}
-                                            </td>
-                                            <td className="py-1.5 px-2.5 text-right font-bold text-slate-900 dark:text-white">
-                                              {formatIndian(qtyVal, 2)} {formatCleanUom(lot.uom || pUom, 'pcs', prm)}
-                                            </td>
-                                            <td className={`py-1.5 px-2.5 text-center ${expInfo.cls}`}>
-                                              {expInfo.label}
-                                            </td>
-                                            <td className="py-1.5 px-2.5 font-sans text-[10px] text-slate-500">
-                                              {isMix ? `Mix (+${formatIndian(toMl(qtyVal, pUom, Number(prm.density || 1)), 0)} ml)` : 'Packaging'}
-                                            </td>
-                                            {canViewCost && (
-                                              <td className="py-1.5 px-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">
-                                                ₹{formatIndian(rowCost)}
-                                              </td>
-                                            )}
-                                          </tr>
-                                        );
-                                      });
-                                    }
-                                    const qtyVal = Number(prm.takenQty ?? prm.qty ?? 0);
-                                    const rowCost = Number(prm.totalCost) > 0 ? Number(prm.totalCost) : round2(qtyVal * rate);
-                                    const expInfo = getExpiryBadge(prm.expiryDate);
-                                    return [(
-                                      <tr key={`d-prm-${d.dayNo}-${out.seq}-${pIdx}-single`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                                        <td className="py-1.5 px-2.5 font-sans font-bold text-slate-900 dark:text-white">{out.productName}</td>
-                                        <td className="py-1.5 px-2.5 font-sans text-slate-700 dark:text-slate-300">
-                                          <span className="font-mono text-[10px] text-slate-400 mr-1">{prm.rawMaterialCode || prm.rmCode || 'RM'}</span>
-                                          <span className="font-bold">{prm.rawMaterialName || prm.rmName}</span>
-                                        </td>
-                                        <td className="py-1.5 px-2.5 font-bold text-indigo-600 dark:text-indigo-400">{prm.lotBatchNo || 'BATCH-DIRECT'}</td>
-                                        <td className="py-1.5 px-2.5 text-right font-bold text-slate-900 dark:text-white">{formatIndian(qtyVal, 2)} {pUom}</td>
-                                        <td className={`py-1.5 px-2.5 text-center ${expInfo.cls}`}>{expInfo.label}</td>
-                                        <td className="py-1.5 px-2.5 font-sans text-[10px] text-slate-500">
-                                          {isMix ? `Mix (+${formatIndian(toMl(qtyVal, pUom, Number(prm.density || 1)), 0)} ml)` : 'Packaging'}
-                                        </td>
-                                        {canViewCost && (
-                                          <td className="py-1.5 px-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(rowCost)}</td>
-                                        )}
-                                      </tr>
-                                    )];
-                                  })
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      <span>Day {d.dayNo} is currently In Progress with {formatIndian(d.openingMixMl, 0)} ml opening mix available and no submitted product outputs yet.</span>
-                    </div>
-                  )}
-
-                  {/* Day Process Stages Compact Strip */}
-                  {Array.isArray(d.timelineStages) && d.timelineStages.length > 0 && (
-                    <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[10.5px]">
-                      <span className="font-bold uppercase text-slate-400 text-[9.5px] mr-1">Day {d.dayNo} Process Stages ({d.durationText}):</span>
-                      {d.timelineStages.map((stg, si) => (
-                        <span
-                          key={`d-stg-${d.dayNo}-${stg.id || si}`}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-slate-700 dark:text-slate-300"
-                        >
-                          <strong className="text-indigo-600 dark:text-indigo-400">{si + 1}.</strong>
-                          <span className="font-sans font-bold">{stg.name}</span>
-                          <span className="text-blue-600 dark:text-blue-400">{stg.targetTemp || stg.defaultTemp || '—'}</span>
-                          <span className="text-slate-400">({stg.durationHours || 0}h {stg.durationMinutes || 0}m)</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+          {/* Audited Multi-Day Base Mix Allocation Callout */}
+          <div className="p-3.5 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 text-xs font-mono">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2 pb-2 border-b border-indigo-200/80 dark:border-indigo-900/40">
+              <span className="font-sans font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                <Factory className="w-3.5 h-3.5 text-indigo-600" />
+                Base Mix Allocation Audit &amp; Multi-Day Economics
+              </span>
+              <span className="text-[10px] text-indigo-700 dark:text-indigo-300 font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                Formula Rate: ₹{baseCostPerMl.toFixed(4)} / ml
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-indigo-200/70 dark:border-indigo-900/40">
+                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">1. Base Mix Prepared (Tank)</span>
+                <span className="text-sm font-black text-slate-900 dark:text-white">{formatIndian(netPostEvapMixMl, 0)} ml</span>
+                <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">₹{formatIndian(totalBaseConsumedCost)} total value</span>
               </div>
-            ))}
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-indigo-200/70 dark:border-indigo-900/40">
+                <span className="block text-[9.5px] uppercase font-bold text-purple-600 dark:text-purple-400 font-sans">2. Allocated Mix Consumed ({durationDaysLabel})</span>
+                <span className="text-sm font-black text-purple-700 dark:text-purple-300">{formatIndian(totalAllocatedMixMl, 0)} ml</span>
+                <span className="block text-[10px] text-purple-600 dark:text-purple-400 font-bold">₹{formatIndian(scopedBaseRmCost)} ({round2(netPostEvapMixMl > 0 ? (totalAllocatedMixMl / netPostEvapMixMl) * 100 : 0)}% of pool)</span>
+              </div>
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-indigo-200/70 dark:border-indigo-900/40">
+                <span className="block text-[9.5px] uppercase font-bold text-amber-600 dark:text-amber-400 font-sans">3. Unallocated Tank Balance</span>
+                <span className="text-sm font-black text-amber-700 dark:text-amber-300">{formatIndian(isCompleted ? 0 : remainingTankMixMl, 0)} ml</span>
+                <span className="block text-[10px] text-slate-500 font-sans">{isCompleted ? 'Batch finalized' : `₹${formatIndian(round2(remainingTankMixMl * baseCostPerMl))} available for next day`}</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* ── 4. SECTION 2: CONSOLIDATED RAW MATERIAL CONSUMPTION & LOT EXPIRY REPORT ── */}
+        {/* ── 4. SECTION 2: DAY-WISE PRODUCTION BREAKDOWN & PER-PRODUCT RM TRACEABILITY ── */}
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-md bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+              <span className="w-6 h-6 rounded-md bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
                 2
               </span>
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                Raw Material Consumption Report (Batch Lot # • Quantity • Expiry Date)
+                Day-Wise Production Breakdown &amp; Per-Product RM Traceability
               </h3>
             </div>
-            <span className="text-xs text-slate-500 font-medium">
-              Full warehouse batch traceability &amp; valuation
+            <span className="text-xs text-slate-500 font-mono">
+              Showing {scopedDays.length} of {normalizedDays.length} Day{normalizedDays.length > 1 ? 's' : ''} Recorded • Product Batches, Moulds &amp; Direct RM Traceability
             </span>
           </div>
 
-          {/* 2A. Base Raw Materials */}
-          <div className="space-y-1.5 print-break-avoid">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-              <Factory className="w-3.5 h-3.5 text-indigo-500" />
-              <span>2A. Base Formulation Raw Materials Consumed (Day 1 Tank Preparation)</span>
-            </div>
+          <div className="space-y-5">
+            {scopedDays.map(d => {
+              const dayBaseCost = round2(Number(d.allocatedMixMl || 0) * baseCostPerMl);
+              return (
+                <div
+                  key={`report-day-${d.id || d.dayNo}`}
+                  className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/70 rounded-xl overflow-hidden shadow-2xs print-break-avoid"
+                >
+                  {/* Day Header Strip */}
+                  <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 via-slate-50 to-white dark:from-indigo-950/60 dark:via-slate-900 dark:to-slate-900 border-b border-indigo-200/80 dark:border-indigo-900/60 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-md bg-indigo-600 text-white font-mono text-xs font-black">
+                        DAY {d.dayNo}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                        PRODUCTION DATE: {formatDateDMY(d.productionDate)}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100/70 dark:bg-indigo-950/70 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                        DAY BATCH NO: {d.dayBatchCode || '—'}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        d.pushedToSales
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                          : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                      }`}>
+                        {d.pushedToSales ? 'Pushed to Sales' : d.statusLabel}
+                      </span>
+                    </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                    <th className="py-2.5 px-3">RM Code</th>
-                    <th className="py-2.5 px-3">Raw Material Name</th>
-                    <th className="py-2.5 px-3 font-mono">Batch / Lot No</th>
-                    <th className="py-2.5 px-3 text-right">Consumed Qty</th>
-                    <th className="py-2.5 px-3 text-center">Lot Expiry Date</th>
-                    {canViewCost && <th className="py-2.5 px-3 text-right">Unit Rate</th>}
-                    {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost</th>}
-                    <th className="py-2.5 px-3 text-right">Liquid Vol</th>
-                    <th className="py-2.5 px-3 text-right">Evaporation</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
-                  {baseRmLines.length === 0 ? (
-                    <tr>
-                      <td colSpan={canViewCost ? 9 : 7} className="py-4 px-3 text-center font-sans text-slate-400">
-                        No base raw materials recorded yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    baseRmLines.flatMap((line, idx) => {
-                      const uomClean = formatCleanUom(line.uom, 'kg', line);
-                      const lots = Array.isArray(line.lots) && line.lots.length > 0 ? line.lots : null;
-                      const liquidMl = Number(line.liquidVolumeMl || 0);
-                      const evaporates = Boolean(line.evaporates);
-                      const evapLoss = evaporates ? round2(liquidMl * (evaporationPct / 100)) : 0;
-
-                      if (lots && lots.length > 1) {
-                        return lots.map((lot, lIdx) => {
-                          const expInfo = getExpiryBadge(lot.expiryDate || line.expiryDate);
-                          return (
-                            <tr key={`base-rm-${idx}-lot-${lIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                              <td className="py-2 px-3 text-slate-500 font-bold">{lIdx === 0 ? (line.rawMaterialCode || 'RM') : '↳ Lot'}</td>
-                              <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
-                                {lIdx === 0 ? line.rawMaterialName : `${line.rawMaterialName} (Lot ${lIdx + 1})`}
-                              </td>
-                              <td className="py-2 px-3 font-black text-indigo-600 dark:text-indigo-400">{lot.lotNumber}</td>
-                              <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
-                                {formatIndian(lot.allocatedQty)} {formatCleanUom(lot.uom || uomClean, 'kg', line)}
-                              </td>
-                              <td className={`py-2 px-3 text-center ${expInfo.cls}`}>{expInfo.label}</td>
-                              {canViewCost && <td className="py-2 px-3 text-right">₹{formatIndian(lot.unitRate ?? line.unitRate)} / {uomClean}</td>}
-                              {canViewCost && <td className="py-2 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(lot.totalCost)}</td>}
-                              <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">{lIdx === 0 ? `${formatIndian(liquidMl)} ml` : '—'}</td>
-                              <td className="py-2 px-3 text-right">{lIdx === 0 && evaporates ? <span className="text-amber-600 font-bold">-{formatIndian(evapLoss)} ml</span> : '—'}</td>
-                            </tr>
-                          );
-                        });
-                      }
-
-                      const singleLot = lots?.[0];
-                      const expInfo = getExpiryBadge(singleLot?.expiryDate || line.expiryDate);
-                      return [(
-                        <tr key={`base-rm-${line.rawMaterialCode || idx}-${idx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                          <td className="py-2.5 px-3 text-slate-500 font-bold">{line.rawMaterialCode || 'RM'}</td>
-                          <td className="py-2.5 px-3 font-sans font-extrabold text-slate-900 dark:text-white">{line.rawMaterialName}</td>
-                          <td className="py-2.5 px-3 font-black text-indigo-600 dark:text-indigo-400">{singleLot?.lotNumber || line.lotBatchNo || 'BATCH-DIRECT'}</td>
-                          <td className="py-2.5 px-3 text-right font-bold text-slate-900 dark:text-white">{formatIndian(line.takenQty)} {uomClean}</td>
-                          <td className={`py-2.5 px-3 text-center ${expInfo.cls}`}>{expInfo.label}</td>
-                          {canViewCost && <td className="py-2.5 px-3 text-right text-slate-700 dark:text-slate-300">₹{formatIndian(line.unitRate)} / {uomClean}</td>}
-                          {canViewCost && <td className="py-2.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(line.totalCost)}</td>}
-                          <td className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400 font-bold">{formatIndian(liquidMl)} ml</td>
-                          <td className="py-2.5 px-3 text-right text-slate-600 dark:text-slate-400">
-                            {evaporates ? <span className="text-amber-600 dark:text-amber-400 font-bold">-{formatIndian(evapLoss)} ml ({evaporationPct}%)</span> : <span className="text-slate-400 font-normal">No loss</span>}
-                          </td>
-                        </tr>
-                      )];
-                    })
-                  )}
-                </tbody>
-                <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 font-mono">
-                  <tr>
-                    <td colSpan={3} className="py-2.5 px-3 font-sans uppercase">
-                      Total Base Raw Materials Consumed ({baseRmLines.length} Materials)
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
-                      <div>{formatIndian(totalBaseTakenQty)} {baseUomEntries.length === 1 ? baseUomEntries[0][0] : ''}</div>
-                      {baseUomEntries.length > 1 && (
-                        <div className="text-[10px] text-slate-500 font-normal">
-                          {baseUomEntries.map(([u, q]) => `${formatIndian(q)} ${u}`).join(', ')}
-                        </div>
+                    <div className="flex items-center gap-2.5 text-xs font-mono flex-wrap">
+                      {canViewCost && (
+                        <>
+                          <span>EB: <strong className="text-blue-600 dark:text-blue-400">₹{formatIndian(d.ebTotalCost)}</strong></span>
+                          <span>Labour: <strong className="text-amber-600 dark:text-amber-400">₹{formatIndian(d.labourTotalCost)}</strong></span>
+                          <span>OH: <strong className="text-slate-700 dark:text-slate-300">₹{formatIndian(d.overheadAmt)}</strong></span>
+                        </>
                       )}
-                    </td>
-                    <td className="py-2.5 px-3 text-center text-slate-400">—</td>
-                    {canViewCost && <td className="py-2.5 px-3 text-right">Blended Rate</td>}
-                    {canViewCost && <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black">₹{formatIndian(totalBaseConsumedCost)}</td>}
-                    <td className="py-2.5 px-3 text-right text-blue-600 dark:text-blue-400 font-black">{formatIndian(totalBaseLiquidVolumeMl)} ml</td>
-                    <td className="py-2.5 px-3 text-right text-amber-600 dark:text-amber-400">-{formatIndian(evaporationLossMl)} ml</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
+                      {canViewCost && d.status !== 'IN_PROGRESS' && d.id && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenReportDayCostEdit(d)}
+                          className="h-7 px-2.5 text-[11px] font-bold rounded-lg border-indigo-300 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 cursor-pointer no-print flex items-center gap-1"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>Edit EB / Labour</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-          {/* 2B. Product-Specific Added RMs, Flavours & Packaging Summary */}
-          {productSpecificRmGroups.length > 0 && (
-            <div className="space-y-2.5 pt-1 print-break-avoid">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Boxes className="w-3.5 h-3.5 text-purple-600" />
-                  <span>2B. Consolidated Product-Specific Added Ingredients &amp; Packaging Traceability</span>
-                </div>
-                <span className="text-[10px] text-slate-400 font-normal">
-                  {productSpecificRmGroups.length} product run(s) with direct RM additions
-                </span>
-              </div>
+                  {/* Day Staff & Flow Meta */}
+                  <div className="px-4 py-2 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-[11px] font-mono flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                      <strong className="text-slate-500 uppercase font-sans text-[10px]">ASSIGNED STAFF:</strong>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {formatAssignedStaff(d.assignedUsers, d.completedBy || d.startedBy || batch?.startedBy)}
+                      </span>
+                    </div>
+                    <div className="text-purple-700 dark:text-purple-300 font-bold">
+                      Mix Flow: Open {formatIndian(d.openingMixMl, 0)} ml → Used {formatIndian(d.allocatedMixMl, 0)} ml → Rem {formatIndian(d.remainingMixMl, 0)} ml | Output: {formatIndian(d.totalOutputQty, 0)} (Rej: {formatIndian(d.totalRejectedQty, 0)})
+                    </div>
+                  </div>
 
-              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full text-left text-xs border-collapse font-mono">
-                  <thead>
-                    <tr className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                      <th className="py-2 px-3 font-sans">Day / Date</th>
-                      <th className="py-2 px-3 font-sans">Finished Product</th>
-                      <th className="py-2 px-3 font-sans">RM Code &amp; Description</th>
-                      <th className="py-2 px-3">Batch / Lot No</th>
-                      <th className="py-2 px-3 text-right">Consumed Qty</th>
-                      <th className="py-2 px-3 text-center">Expiry Date</th>
-                      <th className="py-2 px-3 font-sans">Type</th>
-                      {canViewCost && <th className="py-2 px-3 text-right">Rate</th>}
-                      {canViewCost && <th className="py-2 px-3 text-right">Total Cost</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {productSpecificRmGroups.flatMap(grp =>
-                      grp.items.flatMap((it, itIdx) => {
-                        const lotList = Array.isArray(it.lots) && it.lots.length > 0 ? it.lots : null;
-                        if (lotList && lotList.length > 0) {
-                          return lotList.map((lot, lIdx) => {
-                            const qtyVal = Number(lot.allocatedQty ?? it.takenQty ?? 0);
-                            const rCost = round2(qtyVal * Number(lot.unitRate ?? it.unitRate ?? 0));
-                            const expInfo = getExpiryBadge(lot.expiryDate || it.expiryDate);
-                            return (
-                              <tr key={`${grp.key}-${itIdx}-${lIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                                <td className="py-2 px-3 text-[11px] text-indigo-700 dark:text-indigo-300 font-bold">
-                                  D{grp.dayNo} • {formatDateDMY(grp.productionDate)}
-                                </td>
-                                <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
-                                  {grp.productName}
-                                </td>
-                                <td className="py-2 px-3 font-sans">
-                                  <span className="font-mono text-[10px] text-slate-400 mr-1">{it.rmCode}</span>
-                                  <span className="font-bold text-slate-800 dark:text-slate-200">{it.rmName}</span>
-                                </td>
-                                <td className="py-2 px-3 font-bold text-indigo-600 dark:text-indigo-400">
-                                  {lot.lotNumber || lot.internalBatchNo || it.lotBatchNo}
-                                </td>
-                                <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
-                                  {formatIndian(qtyVal, 2)} {formatCleanUom(lot.uom || it.uom, 'pcs', it)}
-                                </td>
-                                <td className={`py-2 px-3 text-center ${expInfo.cls}`}>{expInfo.label}</td>
-                                <td className="py-2 px-3 font-sans text-[10.5px] text-slate-500">
-                                  {it.isMix ? `Mix (+${formatIndian(toMl(qtyVal, it.uom, 1), 0)} ml)` : 'Packaging'}
-                                </td>
-                                {canViewCost && <td className="py-2 px-3 text-right">₹{Number(lot.unitRate ?? it.unitRate).toFixed(2)}</td>}
-                                {canViewCost && <td className="py-2 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(rCost)}</td>}
+                  {/* Day Body: Products Table */}
+                  <div className="p-3.5 space-y-4">
+                    {Array.isArray(d.outputs) && d.outputs.length > 0 ? (
+                      <>
+                        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                          <table className="w-full text-left text-[11.5px] font-mono border-collapse">
+                            <thead>
+                              <tr className="bg-slate-900 text-white text-[10px] uppercase border-b border-slate-800">
+                                <th className="py-2 px-2.5">#</th>
+                                <th className="py-2 px-2.5 font-sans">Product / Batch &amp; Serial No</th>
+                                <th className="py-2 px-2.5 font-sans">Mould / Spec</th>
+                                <th className="py-2 px-2.5 text-right">Mix Used &amp; Base Cost</th>
+                                <th className="py-2 px-2.5 text-right">Planned</th>
+                                <th className="py-2 px-2.5 text-right text-emerald-400">Actual Good</th>
+                                <th className="py-2 px-2.5 text-right text-rose-400">Reject</th>
+                                <th className="py-2 px-2.5 text-right">Yield %</th>
+                                {canViewCost && <th className="py-2 px-2.5 text-right text-emerald-400 font-black">Cost / Unit</th>}
                               </tr>
-                            );
-                          });
-                        }
-                        const expInfo = getExpiryBadge(it.expiryDate);
-                        return [(
-                          <tr key={`${grp.key}-${itIdx}-single`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                            <td className="py-2 px-3 text-[11px] text-indigo-700 dark:text-indigo-300 font-bold">
-                              D{grp.dayNo} • {formatDateDMY(grp.productionDate)}
-                            </td>
-                            <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">{grp.productName}</td>
-                            <td className="py-2 px-3 font-sans">
-                              <span className="font-mono text-[10px] text-slate-400 mr-1">{it.rmCode}</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{it.rmName}</span>
-                            </td>
-                            <td className="py-2 px-3 font-bold text-indigo-600 dark:text-indigo-400">{it.lotBatchNo}</td>
-                            <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">{formatIndian(it.takenQty, 2)} {it.uom}</td>
-                            <td className={`py-2 px-3 text-center ${expInfo.cls}`}>{expInfo.label}</td>
-                            <td className="py-2 px-3 font-sans text-[10.5px] text-slate-500">{it.purpose}</td>
-                            {canViewCost && <td className="py-2 px-3 text-right">₹{it.unitRate.toFixed(2)}</td>}
-                            {canViewCost && <td className="py-2 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">₹{formatIndian(it.totalCost)}</td>}
-                          </tr>
-                        )];
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {d.outputs.map((out, oIdx) => {
+                                const outBaseCost = round2(Number(out.allocatedBaseMl || 0) * baseCostPerMl);
+                                return (
+                                  <tr key={`rep-day-out-${d.dayNo}-${out.id || oIdx}`} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
+                                    <td className="py-2.5 px-2.5 font-bold text-slate-500">#{out.seq || oIdx + 1}</td>
+                                    <td className="py-2.5 px-2.5 font-sans">
+                                      <div className="font-extrabold text-slate-900 dark:text-white text-xs">{out.productName}</div>
+                                      <div className="font-mono text-[10px] text-indigo-700 dark:text-indigo-300 font-bold mt-0.5">
+                                        B: {out.productBatchNo || '—'} | S: {out.productSerialNo || '—'}
+                                      </div>
+                                    </td>
+                                    <td className="py-2.5 px-2.5 font-sans text-[11px] text-slate-600 dark:text-slate-300">
+                                      {out.useMould !== false && out.mouldCode
+                                        ? `${out.mouldCode} (${out.trays || 0}T × ${out.cavities || 1}C)`
+                                        : `Bulk (${out.bulkUom || out.uom})`}
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-right font-bold text-purple-700 dark:text-purple-400">
+                                      <div>{formatIndian(out.allocatedBaseMl, 0)} ml</div>
+                                      {canViewCost && (
+                                        <div className="text-[10px] text-slate-500 font-normal">
+                                          (₹{formatIndian(outBaseCost)})
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-right text-slate-600 dark:text-slate-400">
+                                      {formatIndian(out.theoreticalQty, 0)} {out.uom}
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-right font-black text-emerald-700 dark:text-emerald-400">
+                                      {formatIndian(out.actualYield, 0)} {out.uom}
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-right font-bold text-rose-600 dark:text-rose-400">
+                                      {formatIndian(out.rejectOutput, 0)}
+                                    </td>
+                                    <td className="py-2.5 px-2.5 text-right font-bold text-slate-800 dark:text-slate-200">
+                                      {out.yieldPct}%
+                                    </td>
+                                    {canViewCost && (
+                                      <td className="py-2.5 px-2.5 text-right font-bold text-slate-900 dark:text-white">
+                                        <div className="text-emerald-600 dark:text-emerald-400 font-black">
+                                          ₹{formatIndian(out.unitCost)}
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 font-normal">
+                                          (Tot ₹{formatIndian(out.totalCost)})
+                                        </div>
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t border-slate-200 dark:border-slate-700">
+                              <tr>
+                                <td colSpan={3} className="py-2 px-2.5 font-sans uppercase text-[10px] text-slate-700 dark:text-slate-200">
+                                  TOTAL Day {d.dayNo} Output Total
+                                </td>
+                                <td className="py-2 px-2.5 text-right text-purple-700 dark:text-purple-400">
+                                  <div>{formatIndian(d.allocatedMixMl, 0)} ml</div>
+                                  {canViewCost && (
+                                    <div className="text-[10px] text-slate-500 font-normal">
+                                      (₹{formatIndian(dayBaseCost)})
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2 px-2.5 text-right">{formatIndian(d.totalExpectedQty, 0)}</td>
+                                <td className="py-2 px-2.5 text-right text-emerald-700 dark:text-emerald-400 font-black">{formatIndian(d.totalOutputQty, 0)}</td>
+                                <td className="py-2 px-2.5 text-right text-rose-600">{formatIndian(d.totalRejectedQty, 0)}</td>
+                                <td className="py-2 px-2.5 text-right">
+                                  {d.totalExpectedQty > 0 ? `${round2((d.totalOutputQty / d.totalExpectedQty) * 100)}%` : '—'}
+                                </td>
+                                {canViewCost && (
+                                  <td className="py-2 px-2.5 text-right font-black text-slate-900 dark:text-white">
+                                    ₹{formatIndian(d.outputs.reduce((s, o) => s + Number(o.totalCost || 0), 0))}
+                                  </td>
+                                )}
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
 
-          {canViewCost && (
-            <div className="p-3 rounded-xl bg-slate-900 text-white flex items-center justify-between flex-wrap gap-2 text-xs font-mono print-break-avoid">
-              <span className="font-sans font-bold uppercase text-[11px] text-slate-300">
-                Total Direct Materials Consumed (Allocated Base Mix + Product Specific Additions):
-              </span>
-              <div className="flex items-center gap-4 flex-wrap">
-                <span>Allocated Base Mix: <strong className="text-white">₹{formatIndian(scopedBaseRmCost)}</strong></span>
-                <span>+</span>
-                <span>Added RMs: <strong className="text-amber-400">₹{formatIndian(totalAddedRmsCost)}</strong></span>
-                <span>=</span>
-                <span className="text-base font-black text-emerald-400">₹{formatIndian(grandTotalMaterialCost)}</span>
-              </div>
-            </div>
-          )}
+                        {/* Dedicated Single Table Per Finished Product with Distinct Theme Colors */}
+                        <div className="space-y-3 pt-1">
+                          <div className="text-[11px] font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Boxes className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Product-Wise Raw Material Consumption &amp; Formulation Ledger — Day {d.dayNo} ({formatDateDMY(d.productionDate)})</span>
+                          </div>
+
+                          <div className="space-y-3">
+                            {d.outputs.map((out, oIdx) => {
+                              const theme = PRODUCT_THEMES[oIdx % PRODUCT_THEMES.length];
+                              const outBaseCost = round2(Number(out.allocatedBaseMl || 0) * baseCostPerMl);
+                              const prms = Array.isArray(out.productRms) ? out.productRms : [];
+                              const addedCost = round2(
+                                prms.reduce((s, prm) => {
+                                  const taken = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+                                  const rate = Number(prm.unitRate ?? prm.rate ?? 0);
+                                  const cost = Number(prm.totalCost) > 0 ? Number(prm.totalCost) : taken * rate;
+                                  return s + cost;
+                                }, 0)
+                              );
+                              const totalMatCost = round2(outBaseCost + addedCost);
+                              const matUnitCost = out.actualYield > 0 ? round2(totalMatCost / out.actualYield) : 0;
+
+                              return (
+                                <div
+                                  key={`prod-rm-box-${d.dayNo}-${out.seq || oIdx}`}
+                                  className={`rounded-xl border ${theme.border} bg-white dark:bg-slate-900 overflow-hidden shadow-2xs`}
+                                >
+                                  {/* Distinct Color Header Strip */}
+                                  <div className={`px-3 py-2 ${theme.headerBg} flex items-center justify-between flex-wrap gap-2 text-xs font-mono`}>
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-5 h-5 rounded-md bg-white/20 text-white font-bold text-[11px] flex items-center justify-center">
+                                        #{out.seq || oIdx + 1}
+                                      </span>
+                                      <span className="font-sans font-black text-sm tracking-wide text-white">
+                                        {out.productName}
+                                      </span>
+                                      <span className="text-[10.5px] opacity-90 font-mono">
+                                        ({out.productCode || 'FP'})
+                                      </span>
+                                      <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded text-white font-bold">
+                                        {out.useMould !== false && out.mouldCode ? out.mouldCode : `Bulk (${out.bulkUom || out.uom})`}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2.5 text-xs">
+                                      <span>Good: <strong>{formatIndian(out.actualYield, 0)} {out.uom}</strong></span>
+                                      <span>•</span>
+                                      <span>Batch: <strong>{out.productBatchNo || '—'}</strong></span>
+                                    </div>
+                                  </div>
+
+                                  {/* Unified Per-Product Material Table (Base Mix Row 1 + Added RMs) */}
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-[11px] font-mono border-collapse">
+                                      <thead>
+                                        <tr className={`${theme.tableHead} text-[9.5px] uppercase font-bold border-b border-slate-200 dark:border-slate-800`}>
+                                          <th className="py-1.5 px-3">Item / Code</th>
+                                          <th className="py-1.5 px-3 font-sans">Raw Material Description</th>
+                                          <th className="py-1.5 px-3">Lot / Batch No</th>
+                                          <th className="py-1.5 px-3 text-right">Consumed Qty</th>
+                                          <th className="py-1.5 px-3 text-center">Lot Expiry</th>
+                                          <th className="py-1.5 px-3 font-sans">Purpose / Mix</th>
+                                          {canViewCost && <th className="py-1.5 px-3 text-right">Unit Rate</th>}
+                                          {canViewCost && <th className="py-1.5 px-3 text-right">Total Cost</th>}
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                        {/* Line 1: Allocated Base Mix Formulation */}
+                                        <tr className="bg-indigo-50/40 dark:bg-indigo-950/20 font-semibold">
+                                          <td className="py-2 px-3 font-bold text-indigo-700 dark:text-indigo-300">[BASE-MIX]</td>
+                                          <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
+                                            Base Mix Formulation (Allocated Share)
+                                          </td>
+                                          <td className="py-2 px-3 font-bold text-indigo-600 dark:text-indigo-400">
+                                            {d.dayBatchCode || batch?.shortBatchCode || 'BASE-MIX'}
+                                          </td>
+                                          <td className="py-2 px-3 text-right font-black text-purple-700 dark:text-purple-300">
+                                            {formatIndian(out.allocatedBaseMl, 0)} ml
+                                          </td>
+                                          <td className="py-2 px-3 text-center text-slate-600 dark:text-slate-300">
+                                            {baseMixExpiryDate ? formatDateDMY(baseMixExpiryDate) : '—'}
+                                          </td>
+                                          <td className="py-2 px-3 font-sans text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                            Primary Base Form
+                                          </td>
+                                          {canViewCost && (
+                                            <td className="py-2 px-3 text-right text-slate-600 dark:text-slate-400">
+                                              ₹{baseCostPerMl.toFixed(4)} / ml
+                                            </td>
+                                          )}
+                                          {canViewCost && (
+                                            <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                                              ₹{formatIndian(outBaseCost)}
+                                            </td>
+                                          )}
+                                        </tr>
+
+                                        {/* Subsequent Lines: Product-Specific Added RMs & Packaging */}
+                                        {prms.map((prm, pIdx) => {
+                                          const taken = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+                                          const rate = Number(prm.unitRate ?? prm.rate ?? 0);
+                                          const rowCost = Number(prm.totalCost) > 0 ? Number(prm.totalCost) : round2(taken * rate);
+                                          const expInfo = getExpiryBadge(prm.expiryDate);
+                                          const isMix = prm.addToMix !== false;
+                                          return (
+                                            <tr key={`prm-row-${d.dayNo}-${out.seq}-${pIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                              <td className="py-1.5 px-3 text-slate-500 font-bold">
+                                                {prm.rawMaterialCode || prm.rmCode || `RM-${pIdx + 1}`}
+                                              </td>
+                                              <td className="py-1.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                                                {prm.rawMaterialName || prm.rmName || 'Added Ingredient'}
+                                              </td>
+                                              <td className="py-1.5 px-3 font-bold text-indigo-600 dark:text-indigo-400">
+                                                {prm.lotBatchNo || (Array.isArray(prm.allocatedBatches) && prm.allocatedBatches[0]?.lotNumber) || 'BATCH-DIRECT'}
+                                              </td>
+                                              <td className="py-1.5 px-3 text-right font-bold text-slate-900 dark:text-white">
+                                                {formatIndian(taken, 2)} {formatCleanUom(prm.uom, 'pcs', prm)}
+                                              </td>
+                                              <td className={`py-1.5 px-3 text-center ${expInfo.cls}`}>
+                                                {expInfo.label}
+                                              </td>
+                                              <td className="py-1.5 px-3 font-sans text-[10px] text-slate-500">
+                                                {isMix ? `Mix (+${formatIndian(toMl(taken, prm.uom, Number(prm.density || 1)), 0)} ml)` : 'Packaging / Stick'}
+                                              </td>
+                                              {canViewCost && (
+                                                <td className="py-1.5 px-3 text-right text-slate-700 dark:text-slate-300">
+                                                  ₹{formatIndian(rate)}
+                                                </td>
+                                              )}
+                                              {canViewCost && (
+                                                <td className="py-1.5 px-3 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                                                  ₹{formatIndian(rowCost)}
+                                                </td>
+                                              )}
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                      {canViewCost && (
+                                        <tfoot className={`${theme.footBg} font-bold border-t border-slate-200 dark:border-slate-800`}>
+                                          <tr>
+                                            <td colSpan={3} className="py-2 px-3 font-sans uppercase text-[10px] text-slate-700 dark:text-slate-300">
+                                              Total Direct Materials Consumed — {out.productName}
+                                            </td>
+                                            <td colSpan={3} className="py-2 px-3 text-[10.5px] font-sans text-slate-600 dark:text-slate-400">
+                                              Base Mix: <strong>₹{formatIndian(outBaseCost)}</strong> + Added RMs: <strong>₹{formatIndian(addedCost)}</strong>
+                                            </td>
+                                            <td className="py-2 px-3 text-right text-[10px] font-sans text-slate-500">
+                                              ₹{formatIndian(matUnitCost)} / {out.uom}
+                                            </td>
+                                            <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs">
+                                              ₹{formatIndian(totalMatCost)}
+                                            </td>
+                                          </tr>
+                                        </tfoot>
+                                      )}
+                                    </table>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>Day {d.dayNo} is currently In Progress with {formatIndian(d.openingMixMl, 0)} ml opening mix available and no submitted product outputs yet.</span>
+                      </div>
+                    )}
+
+                    {/* Day Process Stages Compact Strip */}
+                    {Array.isArray(d.timelineStages) && d.timelineStages.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[10.5px]">
+                        <span className="font-bold uppercase text-slate-400 text-[9.5px] mr-1">Day {d.dayNo} Process Stages ({d.durationText}):</span>
+                        {d.timelineStages.map((stg, si) => (
+                          <span
+                            key={`d-stg-${d.dayNo}-${stg.id || si}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-slate-700 dark:text-slate-300"
+                          >
+                            <strong className="text-indigo-600 dark:text-indigo-400">{si + 1}.</strong>
+                            <span className="font-sans font-bold">{stg.name}</span>
+                            <span className="text-blue-600 dark:text-blue-400">{stg.targetTemp || stg.defaultTemp || '—'}</span>
+                            <span className="text-slate-400">({stg.durationHours || 0}h {stg.durationMinutes || 0}m)</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* ── 5. SECTION 3: CONSOLIDATED YIELD REPORT & VARIANCE ACCOUNTING ── */}
@@ -1724,55 +1791,240 @@ export default function ProductionCleanReportView({
           </div>
         </div>
 
-        {/* ── 6. SECTION 4: COMPREHENSIVE FINANCIAL COST BREAKDOWN STATEMENT ── */}
+        {/* ── 6. SECTION 4: COMPREHENSIVE FINANCIAL COST STATEMENT ── */}
         {canViewCost && (
-          <div className="space-y-3 print-break-avoid">
+          <div className="space-y-4 print-break-avoid">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-md bg-slate-900 text-white font-bold text-xs flex items-center justify-center">
                   4
                 </span>
                 <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                  Comprehensive Production Cost Statement
+                  Comprehensive Financial Cost Statement
                 </h3>
               </div>
-              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-700">
-                AUDITED FINANCIAL LEDGER
+              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-700">
+                AUDITED BATCH ECONOMICS
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs font-mono">
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">1. Base RMs (Allocated)</span>
-                <div className="text-base font-black text-slate-900 dark:text-white mt-1">₹{formatIndian(scopedBaseRmCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">{formatIndian(totalAllocatedMixMl, 0)} ml allocated ({baseRmLines.length} tank RMs)</span>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">2. Added RMs</span>
-                <div className="text-base font-black text-purple-700 dark:text-purple-400 mt-1">₹{formatIndian(totalAddedRmsCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">Flavours &amp; packing</span>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">3. Direct Labour</span>
-                <div className="text-base font-black text-amber-600 dark:text-amber-400 mt-1">₹{formatIndian(directLabourCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">{batch?.labourCount || batch?.labour_count || 1} staff crew</span>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">4. Electricity (EB)</span>
-                <div className="text-base font-black text-blue-600 dark:text-blue-400 mt-1">₹{formatIndian(electricityCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">Utilities consumed</span>
-              </div>
-              <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <span className="block text-[9.5px] uppercase font-bold text-slate-500 font-sans">5. Overheads</span>
-                <div className="text-base font-black text-slate-800 dark:text-slate-200 mt-1">₹{formatIndian(overheadCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">Plant overhead</span>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-900 dark:bg-slate-950 text-white border border-slate-800">
-                <span className="block text-[9.5px] uppercase font-bold text-emerald-400 font-sans">Grand Total Cost</span>
-                <div className="text-base font-black text-emerald-300 mt-1">₹{formatIndian(totalCost)}</div>
-                <span className="text-[10px] text-slate-400 font-sans">
-                  = <strong className="text-emerald-300">₹{formatIndian(costPerUnit)}</strong> / {productUom}
+            {/* 4A. Overall Batch Audited Economics Table */}
+            <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700">
+              <table className="w-full text-left text-xs font-mono border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-[10.5px] uppercase font-bold">
+                    <th className="py-2.5 px-3 font-sans">Cost Component</th>
+                    <th className="py-2.5 px-3 font-sans">Basis / Remarks</th>
+                    <th className="py-2.5 px-3 text-right">Amount (INR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                      1. Base Raw Materials Consumed (Allocated Mix)
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">
+                      Allocated share: {formatIndian(totalAllocatedMixMl, 0)} ml @ base mix rate (₹{baseCostPerMl.toFixed(4)}/ml)
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                      ₹{formatIndian(scopedBaseRmCost)}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                      2. Product-Specific Added RMs &amp; Packaging
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">
+                      Flavours, essences, sticks &amp; poly covers
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-black text-purple-700 dark:text-purple-300">
+                      ₹{formatIndian(totalAddedRmsCost)}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                      3. Direct Production Labour
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">
+                      Total crew cost across {scopedDays.length} day(s)
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-black text-amber-600 dark:text-amber-400">
+                      ₹{formatIndian(directLabourCost)}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                      4. Electricity &amp; Freezer Utilities (EB)
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">
+                      Metered chiller / tank / tunnel consumption
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-black text-blue-600 dark:text-blue-400">
+                      ₹{formatIndian(electricityCost)}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                      5. Factory Overheads
+                    </td>
+                    <td className="py-2.5 px-3 font-sans text-slate-600 dark:text-slate-400">
+                      Allocated plant overhead charges
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-black text-slate-800 dark:text-slate-200">
+                      ₹{formatIndian(overheadCost)}
+                    </td>
+                  </tr>
+                </tbody>
+                <tfoot className="bg-slate-900 text-white font-bold border-t-2 border-slate-900">
+                  <tr>
+                    <td className="py-3 px-3 font-sans uppercase font-black tracking-wider text-emerald-400 text-xs">
+                      GRAND TOTAL PRODUCTION COST
+                    </td>
+                    <td className="py-3 px-3 font-sans text-emerald-300 text-xs">
+                      Unit Cost = <strong className="text-white">₹{formatIndian(costPerUnit)}</strong> / {productUom} (Good Output: {formatIndian(actualGood, 0)} {productUom})
+                    </td>
+                    <td className="py-3 px-3 text-right font-black text-emerald-300 text-sm">
+                      ₹{formatIndian(totalCost)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* 4B. Comprehensive Financial Cost Statement For Each Finished Product */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5 font-sans">
+                  <Boxes className="w-3.5 h-3.5 text-indigo-600" />
+                  Comprehensive Financial Cost Statement For Each Finished Product
+                </h4>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Direct Cost Attribution &amp; Per-SKU Unit Valuation
                 </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {scopedDays.flatMap(d => d.outputs || []).map((out, oIdx) => {
+                  const theme = PRODUCT_THEMES[oIdx % PRODUCT_THEMES.length];
+                  const outBaseCost = round2(Number(out.allocatedBaseMl || 0) * baseCostPerMl);
+                  const prms = Array.isArray(out.productRms) ? out.productRms : [];
+                  const addedCost = round2(
+                    prms.reduce((s, prm) => {
+                      const taken = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+                      const rate = Number(prm.unitRate ?? prm.rate ?? 0);
+                      const cost = Number(prm.totalCost) > 0 ? Number(prm.totalCost) : taken * rate;
+                      return s + cost;
+                    }, 0)
+                  );
+                  const outLabour = Number(out.allocatedLabourCost ?? out.labourAllocatedAmt ?? 0);
+                  const outEb = Number(out.allocatedEbCost ?? out.ebAllocatedAmt ?? 0);
+                  const outOh = round2(Number(out.totalCost || 0) - (outBaseCost + addedCost + outLabour + outEb));
+                  const safeOh = outOh > 0 ? outOh : 0;
+                  const finalTotalCost = Number(out.totalCost || 0) > 0 ? Number(out.totalCost) : round2(outBaseCost + addedCost + outLabour + outEb + safeOh);
+                  const finalUnitCost = Number(out.unitCost || 0) > 0 ? Number(out.unitCost) : (out.actualYield > 0 ? round2(finalTotalCost / out.actualYield) : 0);
+
+                  return (
+                    <div
+                      key={`prod-cost-stmt-${out.productId || oIdx}`}
+                      className={`rounded-xl border ${theme.border} bg-white dark:bg-slate-900 overflow-hidden shadow-2xs`}
+                    >
+                      {/* Product Card Header */}
+                      <div className={`px-3 py-2.5 ${theme.headerBg} flex items-center justify-between flex-wrap gap-2 text-xs font-mono`}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-md bg-white/20 text-white font-bold text-[11px] flex items-center justify-center">
+                            #{out.seq || oIdx + 1}
+                          </span>
+                          <div>
+                            <span className="font-sans font-black text-sm tracking-wide text-white block">
+                              {out.productName}
+                            </span>
+                            <span className="text-[10px] opacity-80 font-mono">
+                              Batch: {out.productBatchNo || '—'} • Serial: {out.productSerialNo || '—'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-sans uppercase opacity-90 block">Good Output</span>
+                          <span className="text-sm font-black text-white">{formatIndian(out.actualYield, 0)} {out.uom}</span>
+                        </div>
+                      </div>
+
+                      {/* Product Cost Table */}
+                      <table className="w-full text-left text-[11px] font-mono border-collapse">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                          <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <td className="py-1.5 px-3 font-sans text-slate-700 dark:text-slate-300">
+                              1. Base Mix Formulation (Allocated)
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-500 text-[10px]">
+                              {formatIndian(out.allocatedBaseMl, 0)} ml @ ₹{baseCostPerMl.toFixed(4)}/ml
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-bold text-slate-900 dark:text-white">
+                              ₹{formatIndian(outBaseCost)}
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <td className="py-1.5 px-3 font-sans text-slate-700 dark:text-slate-300">
+                              2. Added RMs &amp; Packaging
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-500 text-[10px]">
+                              {prms.length} specific addition(s)
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-bold text-purple-700 dark:text-purple-300">
+                              ₹{formatIndian(addedCost)}
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <td className="py-1.5 px-3 font-sans text-slate-700 dark:text-slate-300">
+                              3. Direct Production Labour
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-500 text-[10px]">
+                              Assigned floor labour share
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-bold text-amber-600 dark:text-amber-400">
+                              ₹{formatIndian(outLabour)}
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <td className="py-1.5 px-3 font-sans text-slate-700 dark:text-slate-300">
+                              4. Electricity &amp; Utilities (EB)
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-500 text-[10px]">
+                              Metered / allocated power
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-bold text-blue-600 dark:text-blue-400">
+                              ₹{formatIndian(outEb)}
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <td className="py-1.5 px-3 font-sans text-slate-700 dark:text-slate-300">
+                              5. Factory Overheads
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-500 text-[10px]">
+                              Allocated plant charges
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-bold text-slate-800 dark:text-slate-200">
+                              ₹{formatIndian(safeOh)}
+                            </td>
+                          </tr>
+                        </tbody>
+                        <tfoot className={`${theme.footBg} font-bold border-t border-slate-200 dark:border-slate-800`}>
+                          <tr>
+                            <td colSpan={2} className="py-2 px-3 font-sans uppercase text-[10px] text-slate-800 dark:text-slate-100">
+                              Total Cost — {out.productName}
+                              <span className="block font-normal text-[10px] text-emerald-600 dark:text-emerald-400">
+                                Unit Cost = <strong>₹{formatIndian(finalUnitCost)}</strong> / {out.uom}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400 text-xs">
+                              ₹{formatIndian(finalTotalCost)}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
