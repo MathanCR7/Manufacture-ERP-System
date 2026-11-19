@@ -219,7 +219,14 @@ function normalizeAssignedUsers(usersInput) {
       id: id || null,
       name: name || 'Production User',
       empId: item.empId ? String(item.empId).trim() : '',
-      role: item.role ? String(item.role).trim() : 'PRODUCTION_STAFF'
+      role: item.role ? String(item.role).trim() : 'PRODUCTION_STAFF',
+      ratePerHour: item.ratePerHour !== undefined && item.ratePerHour !== null ? Number(item.ratePerHour) : undefined,
+      hours: item.hours !== undefined && item.hours !== null ? Number(item.hours) : undefined,
+      minutes: item.minutes !== undefined && item.minutes !== null ? Number(item.minutes) : undefined,
+      amount: item.amount !== undefined && item.amount !== null ? Number(item.amount) : undefined,
+      grossPay: item.grossPay !== undefined && item.grossPay !== null ? Number(item.grossPay) : undefined,
+      yearlyCtc: item.yearlyCtc !== undefined && item.yearlyCtc !== null ? Number(item.yearlyCtc) : undefined,
+      workingHours: item.workingHours ? String(item.workingHours).trim() : undefined
     });
   }
   return normalized;

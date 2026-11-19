@@ -66,6 +66,82 @@ const cleanStaffNameOnly = (val) => {
     .trim();
 };
 
+/**
+ * Calculates user compensation metrics:
+ * 1. Monthly salary = yearlyCtc / 12 (or grossPay if yearlyCtc is missing / 0).
+ * 2. Daily salary = monthlySalary / 30.
+ * 3. Hourly rate = dailySalary / hoursPerDay (default 8 hrs/day).
+ */
+const resolveUserSalaryInfo = (userObj, catalog = []) => {
+  if (!userObj) {
+    return {
+      yearlyCtc: 0,
+      grossPay: 0,
+      monthlySalary: 0,
+      dailySalary: 0,
+      hourlyRate: 150,
+      hoursPerDay: 8,
+      hasSalary: false
+    };
+  }
+
+  // Look up full user record in catalog (productionUsersList / availableUsers) by id or name
+  let matched = userObj;
+  if (Array.isArray(catalog) && catalog.length > 0) {
+    const found = catalog.find(m =>
+      (m.id && userObj.id && String(m.id) === String(userObj.id)) ||
+      (m.name && userObj.name && String(m.name).trim().toLowerCase() === String(userObj.name).trim().toLowerCase())
+    );
+    if (found) {
+      matched = { ...found, ...userObj };
+      if (!matched.yearlyCtc && found.yearlyCtc) matched.yearlyCtc = found.yearlyCtc;
+      if (!matched.grossPay && found.grossPay) matched.grossPay = found.grossPay;
+      if (!matched.workingHours && found.workingHours) matched.workingHours = found.workingHours;
+    }
+  }
+
+  const yearlyCtc = Math.max(0, Number(matched.yearlyCtc ?? userObj.yearlyCtc ?? 0));
+  const grossPay = Math.max(0, Number(matched.grossPay ?? userObj.grossPay ?? 0));
+
+  // Determine monthly salary: yearlyCtc / 12, or grossPay
+  let monthlySalary = 0;
+  if (yearlyCtc > 0) {
+    monthlySalary = Math.round((yearlyCtc / 12) * 100) / 100;
+  } else if (grossPay > 0) {
+    monthlySalary = Math.round(grossPay * 100) / 100;
+  }
+
+  // Determine daily salary: monthly / 30 rounded off to nearest integer
+  let dailySalary = 0;
+  if (monthlySalary > 0) {
+    dailySalary = Math.round(monthlySalary / 30);
+  }
+
+  // Determine working hours per day (standard 8 hrs)
+  let hoursPerDay = 8;
+  const wh = String(matched.workingHours || userObj.workingHours || '');
+  const whMatch = wh.match(/(\d+(\.\d+)?)/);
+  if (whMatch && Number(whMatch[1]) > 0) {
+    hoursPerDay = Number(whMatch[1]);
+  }
+
+  const hasSalary = dailySalary > 0;
+  // Per-hour rate: dailySalary / hoursPerDay (or fallback to 150 if no salary defined)
+  const hourlyRate = hasSalary
+    ? Math.round((dailySalary / hoursPerDay) * 100) / 100
+    : 150;
+
+  return {
+    yearlyCtc,
+    grossPay,
+    monthlySalary,
+    dailySalary,
+    hourlyRate,
+    hoursPerDay,
+    hasSalary
+  };
+};
+
 // Mould Specifications Packaging Mapping (Wooden Sticks & Suggested Poly Packing Covers)
 // Formulated per factory mould master specifications:
 // 1. SG-2006 Egypt Small (18 ml, 42 cav): STICK 65 MM (RM-00119) + packing cover=130 mm (provisional) (RM-00130)
@@ -619,7 +695,10 @@ export default function ProductionFloorCockpitModal({
           id: u.id,
           name: u.name || u.email || 'User',
           empId: u.empId || '',
-          role: u.role || 'PRODUCTION_STAFF'
+          role: u.role || 'PRODUCTION_STAFF',
+          grossPay: u.grossPay !== null && u.grossPay !== undefined ? Number(u.grossPay) : 0,
+          yearlyCtc: u.yearlyCtc !== null && u.yearlyCtc !== undefined ? Number(u.yearlyCtc) : 0,
+          workingHours: u.workingHours ? String(u.workingHours) : '8 hrs/day'
         }))
         .sort((a, b) => {
           const aIsProd = a.role === 'PRODUCTION_STAFF' ? 0 : 1;
@@ -1003,15 +1082,27 @@ export default function ProductionFloorCockpitModal({
       setDayBatchCodeCustomized(resolvedShortCode !== formatDateToDDMMYY(effDayDate));
       const usersList = Array.isArray(activeDayRec?.assignedUsers) ? activeDayRec.assignedUsers : [];
       setDayAssignedUsers(usersList);
+      let initialStaffLabourSum = 0;
       if (usersList.length > 0) {
         const initStaffMap = {};
         usersList.forEach(u => {
           const k = String(u.id || u.name);
-          const rate = Number(u.ratePerHour ?? u.hourlyRate ?? 150);
-          const hrs = Number(u.hours ?? 8);
+          const sal = resolveUserSalaryInfo(u, normalizedUsersList);
+          const hasSavedCustomRate = u.ratePerHour !== undefined && Number(u.ratePerHour) > 0 && Number(u.ratePerHour) !== 150;
+          const rate = hasSavedCustomRate
+            ? Number(u.ratePerHour)
+            : (sal.hasSalary ? sal.hourlyRate : Number(u.ratePerHour ?? 150));
+          const hrs = Number(u.hours ?? (sal.hasSalary ? sal.hoursPerDay : 8));
           const mins = Number(u.minutes ?? 0);
-          const amt = Number(u.amount ?? Math.round(((hrs) + (mins / 60)) * rate * 100) / 100);
+          const amt = Number(
+            u.amount !== undefined && Number(u.amount) > 0 && hasSavedCustomRate
+              ? Math.round(Number(u.amount))
+              : (sal.hasSalary && hrs === (sal.hoursPerDay || 8) && mins === 0
+                  ? sal.dailySalary
+                  : Math.round(((hrs) + (mins / 60)) * rate))
+          );
           initStaffMap[k] = { ratePerHour: rate, hours: hrs, minutes: mins, amount: amt };
+          initialStaffLabourSum += amt;
         });
         setStaffLabourDetails(initStaffMap);
       }
@@ -1226,7 +1317,10 @@ export default function ProductionFloorCockpitModal({
       const rawLabour = activeDayRec
         ? Number(activeDayRec.labourTotalCost || 0)
         : Number(b.labour_total_cost ?? detailRes.data.costingSummary?.labourCost ?? 0);
-      setLabourCost(rawLabour);
+      const effectiveLabour = (rawLabour === 0 && initialStaffLabourSum > 0)
+        ? Math.round(initialStaffLabourSum)
+        : rawLabour;
+      setLabourCost(effectiveLabour);
       const rawEb = activeDayRec
         ? Number(activeDayRec.ebTotalCost || 0)
         : Number(b.eb_total_cost ?? detailRes.data.costingSummary?.utilityCost ?? 0);
@@ -1477,17 +1571,26 @@ export default function ProductionFloorCockpitModal({
 
   const handleToggleDayUser = useCallback((userObj) => {
     if (!userObj) return;
+    const sal = resolveUserSalaryInfo(userObj, productionUsersList);
     setDayAssignedUsers(prev => {
       const exists = prev.some(u => (u.id && userObj.id && u.id === userObj.id) || u.name === userObj.name);
       const next = exists
         ? prev.filter(u => !((u.id && userObj.id && u.id === userObj.id) || u.name === userObj.name))
-        : [...prev, { id: userObj.id, name: userObj.name, empId: userObj.empId || '', role: userObj.role || 'PRODUCTION_STAFF' }];
+        : [...prev, {
+            id: userObj.id,
+            name: userObj.name,
+            empId: userObj.empId || '',
+            role: userObj.role || 'PRODUCTION_STAFF',
+            grossPay: userObj.grossPay !== undefined ? userObj.grossPay : sal.grossPay,
+            yearlyCtc: userObj.yearlyCtc !== undefined ? userObj.yearlyCtc : sal.yearlyCtc,
+            workingHours: userObj.workingHours || `${sal.hoursPerDay} hrs/day`
+          }];
       if (currentDayRecId && !isEditingCompletedDay) {
         syncDayMetaToServer({ nextUsers: next });
       }
       return next;
     });
-  }, [currentDayRecId, isEditingCompletedDay, syncDayMetaToServer]);
+  }, [productionUsersList, currentDayRecId, isEditingCompletedDay, syncDayMetaToServer]);
 
   // Available mix opening balance for the currently active Day (Carry-Forward Tank Mix)
   const availableMixMl = useMemo(() => {
@@ -1665,26 +1768,65 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
-  // Synchronize staffLabourDetails whenever dayAssignedUsers changes
+  // Synchronize staffLabourDetails whenever dayAssignedUsers or productionUsersList changes
   useEffect(() => {
-    if (!Array.isArray(dayAssignedUsers) || dayAssignedUsers.length === 0) return;
+    if (!Array.isArray(dayAssignedUsers)) return;
     setStaffLabourDetails(prev => {
       let changed = false;
-      const next = { ...prev };
+      const next = {};
+      let totalStaffCost = 0;
+
       dayAssignedUsers.forEach(u => {
         const k = String(u.id || u.name);
-        if (!next[k]) {
+        const sal = resolveUserSalaryInfo(u, productionUsersList);
+        const cur = prev[k];
+
+        let rate, hrs, mins, amt;
+        if (cur) {
+          hrs = Number(cur.hours !== undefined ? cur.hours : (sal.hasSalary ? sal.hoursPerDay : 8));
+          mins = Number(cur.minutes !== undefined ? cur.minutes : 0);
+          if (cur.ratePerHour === 150 && sal.hasSalary) {
+            rate = sal.hourlyRate;
+            changed = true;
+          } else {
+            rate = Number(cur.ratePerHour !== undefined ? cur.ratePerHour : (sal.hasSalary ? sal.hourlyRate : 150));
+          }
+          if (sal.hasSalary && hrs === (sal.hoursPerDay || 8) && mins === 0 && rate === sal.hourlyRate) {
+            amt = sal.dailySalary;
+          } else {
+            amt = Math.round(((hrs) + (mins / 60)) * rate);
+          }
+          if (amt !== cur.amount || rate !== cur.ratePerHour) changed = true;
+        } else {
           changed = true;
-          const rate = Number(u.ratePerHour ?? u.hourlyRate ?? 150);
-          const hrs = Number(u.hours ?? 8);
-          const mins = Number(u.minutes ?? 0);
-          const amt = Number(u.amount ?? Math.round(((hrs) + (mins / 60)) * rate * 100) / 100);
-          next[k] = { ratePerHour: rate, hours: hrs, minutes: mins, amount: amt };
+          rate = sal.hasSalary ? sal.hourlyRate : Number(u.ratePerHour ?? 150);
+          hrs = Number(u.hours ?? (sal.hasSalary ? sal.hoursPerDay : 8));
+          mins = Number(u.minutes ?? 0);
+          amt = Number(
+            sal.hasSalary && hrs === (sal.hoursPerDay || 8) && mins === 0
+              ? sal.dailySalary
+              : (u.amount !== undefined ? Math.round(Number(u.amount)) : Math.round(((hrs) + (mins / 60)) * rate))
+          );
         }
+
+        next[k] = { ratePerHour: rate, hours: hrs, minutes: mins, amount: amt };
+        totalStaffCost += amt;
       });
-      return changed ? next : prev;
+
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(next);
+      if (prevKeys.length !== nextKeys.length) changed = true;
+
+      if (changed) {
+        const roundedTotal = Math.round(totalStaffCost);
+        setTimeout(() => {
+          handleTotalLabourChange(roundedTotal);
+        }, 0);
+        return next;
+      }
+      return prev;
     });
-  }, [dayAssignedUsers]);
+  }, [dayAssignedUsers, productionUsersList]);
 
   // Reactive staff labour hours & amount calculation handler:
   // When hours or minutes or rate is entered, calculates amount automatically for each worker
@@ -1699,12 +1841,19 @@ export default function ProductionFloorCockpitModal({
       updated.ratePerHour = rate;
       updated.hours = hrs;
       updated.minutes = mins;
-      updated.amount = Math.round(((hrs) + (mins / 60)) * rate * 100) / 100;
+
+      const userObj = dayAssignedUsers.find(u => String(u.id || u.name) === String(userKey));
+      const sal = resolveUserSalaryInfo(userObj, productionUsersList);
+      if (sal.hasSalary && hrs === (sal.hoursPerDay || 8) && mins === 0 && (rate === sal.hourlyRate || !rate)) {
+        updated.amount = sal.dailySalary;
+      } else {
+        updated.amount = Math.round(((hrs) + (mins / 60)) * rate);
+      }
 
       const nextMap = { ...prev, [userKey]: updated };
 
       // Auto-sum all assigned staff amounts to update labourCost
-      const totalStaffLabour = round2(
+      const totalStaffLabour = Math.round(
         dayAssignedUsers.reduce((sum, u) => {
           const k = String(u.id || u.name);
           const entry = nextMap[k] || { amount: 0 };
@@ -3562,7 +3711,10 @@ export default function ProductionFloorCockpitModal({
             id: u.id,
             name: u.name || u.email || 'User',
             empId: u.empId || '',
-            role: u.role || 'PRODUCTION_STAFF'
+            role: u.role || 'PRODUCTION_STAFF',
+            grossPay: u.grossPay !== null && u.grossPay !== undefined ? Number(u.grossPay) : 0,
+            yearlyCtc: u.yearlyCtc !== null && u.yearlyCtc !== undefined ? Number(u.yearlyCtc) : 0,
+            workingHours: u.workingHours ? String(u.workingHours) : '8 hrs/day'
           }))
           .sort((a, b) => (a.role === 'PRODUCTION_STAFF' ? 0 : 1) - (b.role === 'PRODUCTION_STAFF' ? 0 : 1) || a.name.localeCompare(b.name));
         setProductionUsersList(availableUsers);
@@ -3587,12 +3739,17 @@ export default function ProductionFloorCockpitModal({
           const hiddenStyle = (!isProdStaff && hasProdStaff && !isPreChecked) ? 'display:none;' : 'display:flex;';
           const roleBadgeBg = isProdStaff ? '#dcfce7' : '#e0e7ff';
           const roleBadgeText = isProdStaff ? '#166534' : '#3730a3';
+          const sal = resolveUserSalaryInfo(u, availableUsers);
+          const salaryBadgeHtml = sal.hasSalary
+            ? `<span style="font-family:monospace;font-size:9.5px;color:#16a34a;font-weight:700;margin-left:4px;">₹${formatIndian(sal.dailySalary)}/day</span>`
+            : '';
           return `
             <label data-user-role="${escHtml(u.role)}" data-prechecked="${isPreChecked ? '1' : '0'}" style="${hiddenStyle}align-items:center;justify-content:space-between;gap:6px;padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;background:#ffffff;cursor:pointer;font-size:11.5px;">
               <span style="display:flex;align-items:center;gap:6px;min-width:0;">
                 <input type="checkbox" class="swal-day-user-chk" value="${idx}" ${isPreChecked ? 'checked' : ''} style="accent-color:#4f46e5;width:14px;height:14px;cursor:pointer;" />
                 <span style="font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(u.name)}</span>
                 ${u.empId ? `<span style="font-family:monospace;font-size:10px;color:#64748b;">(${escHtml(u.empId)})</span>` : ''}
+                ${salaryBadgeHtml}
               </span>
               <span style="font-family:monospace;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:4px;background:${roleBadgeBg};color:${roleBadgeText};flex-shrink:0;">${escHtml(u.role)}</span>
             </label>
@@ -3733,14 +3890,28 @@ export default function ProductionFloorCockpitModal({
       setSelectedProductStageTab('ALL');
       setProductYields([]);
       setProductLabourMap({});
-      setLabourCost(0);
+      const chosenAssigned = Array.isArray(started.assignedUsers) ? started.assignedUsers : chosenUsers;
+      const initStaffMap = {};
+      let autoLabourSum = 0;
+      chosenAssigned.forEach(u => {
+        const k = String(u.id || u.name);
+        const sal = resolveUserSalaryInfo(u, availableUsers);
+        const rate = sal.hasSalary ? sal.hourlyRate : 150;
+        const hrs = sal.hoursPerDay || 8;
+        const mins = 0;
+        const amt = sal.hasSalary ? sal.dailySalary : 1200;
+        initStaffMap[k] = { ratePerHour: rate, hours: hrs, minutes: mins, amount: amt };
+        autoLabourSum += amt;
+      });
+      setStaffLabourDetails(initStaffMap);
+      setLabourCost(Math.round(autoLabourSum));
       setElectricityCost(0);
       setEbStartReading('');
       setEbEndReading('');
       setOverheadCost(0);
       setActualYieldPieces(0);
       setCompletionNotes('');
-      setDayAssignedUsers(Array.isArray(started.assignedUsers) ? started.assignedUsers : chosenUsers);
+      setDayAssignedUsers(chosenAssigned);
       const teamSummary = chosenUsers.length > 0 ? chosenUsers.map(u => escHtml(u.name)).join(', ') : 'None assigned yet';
       Swal.fire({
         title: `Day ${started.dayNo || nextDayNum} Started!`,
@@ -3879,7 +4050,24 @@ export default function ProductionFloorCockpitModal({
       await api.put(`/production/standard/${batchId}/days/${currentDayRec.id}/update`, {
         productionDate: dayProductionDate || undefined,
         dayBatchCode: dayBatchCode || undefined,
-        assignedUsers: dayAssignedUsers,
+        assignedUsers: dayAssignedUsers.map(u => {
+          const k = String(u.id || u.name);
+          const det = staffLabourDetails[k] || {};
+          const sal = resolveUserSalaryInfo(u, productionUsersList);
+          return {
+            id: u.id,
+            name: u.name,
+            empId: u.empId || '',
+            role: u.role || 'PRODUCTION_STAFF',
+            ratePerHour: Number(det.ratePerHour ?? (sal.hasSalary ? sal.hourlyRate : 150)),
+            hours: Number(det.hours ?? 8),
+            minutes: Number(det.minutes ?? 0),
+            amount: Number(det.amount !== undefined ? Math.round(Number(det.amount)) : (sal.hasSalary ? sal.dailySalary : 1200)),
+            grossPay: u.grossPay !== undefined ? u.grossPay : sal.grossPay,
+            yearlyCtc: u.yearlyCtc !== undefined ? u.yearlyCtc : sal.yearlyCtc,
+            workingHours: u.workingHours || `${sal.hoursPerDay} hrs/day`
+          };
+        }),
         allocations: allocPayload,
         timelineStages,
         productStagesMap,
@@ -3964,15 +4152,19 @@ export default function ProductionFloorCockpitModal({
         assignedUsers: dayAssignedUsers.map(u => {
           const k = String(u.id || u.name);
           const det = staffLabourDetails[k] || {};
+          const sal = resolveUserSalaryInfo(u, productionUsersList);
           return {
             id: u.id,
             name: u.name,
             empId: u.empId || '',
             role: u.role || 'PRODUCTION_STAFF',
-            ratePerHour: Number(det.ratePerHour ?? 150),
+            ratePerHour: Number(det.ratePerHour ?? (sal.hasSalary ? sal.hourlyRate : 150)),
             hours: Number(det.hours ?? 8),
             minutes: Number(det.minutes ?? 0),
-            amount: Number(det.amount ?? 1200)
+            amount: Number(det.amount !== undefined ? Math.round(Number(det.amount)) : (sal.hasSalary ? sal.dailySalary : 1200)),
+            grossPay: u.grossPay !== undefined ? u.grossPay : sal.grossPay,
+            yearlyCtc: u.yearlyCtc !== undefined ? u.yearlyCtc : sal.yearlyCtc,
+            workingHours: u.workingHours || `${sal.hoursPerDay} hrs/day`
           };
         }),
         timelineStages,
@@ -4497,6 +4689,14 @@ export default function ProductionFloorCockpitModal({
                               />
                               <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{u.name}</span>
                               {u.empId && <span className="font-mono text-[9.5px] text-slate-400 shrink-0">({u.empId})</span>}
+                              {(() => {
+                                const sal = resolveUserSalaryInfo(u, productionUsersList);
+                                return sal.hasSalary ? (
+                                  <span className="font-mono text-[9px] text-emerald-600 dark:text-emerald-400 font-bold shrink-0">
+                                    ₹{formatIndian(sal.dailySalary)}/d
+                                  </span>
+                                ) : null;
+                              })()}
                             </span>
                             <span className={`font-mono text-[8.5px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
                               u.role === 'PRODUCTION_STAFF'
@@ -7204,31 +7404,59 @@ export default function ProductionFloorCockpitModal({
                               <span className="text-indigo-600 dark:text-indigo-400 font-mono">1 hr = ₹ rate • Auto: Rate × (Hrs + Mins/60)</span>
                             </div>
 
-                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
+                            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
                               {dayAssignedUsers.map((u, uIdx) => {
                                 const k = String(u.id || u.name);
-                                const det = staffLabourDetails[k] || { ratePerHour: 150, hours: 8, minutes: 0, amount: 1200 };
+                                const sal = resolveUserSalaryInfo(u, productionUsersList);
+                                const det = staffLabourDetails[k] || {
+                                  ratePerHour: sal.hasSalary ? sal.hourlyRate : 150,
+                                  hours: sal.hoursPerDay || 8,
+                                  minutes: 0,
+                                  amount: sal.hasSalary ? sal.dailySalary : 1200
+                                };
                                 const cleanName = cleanStaffNameOnly(u);
                                 return (
                                   <div
                                     key={`labour-staff-${k}-${uIdx}`}
-                                    className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between gap-2 text-xs"
+                                    className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs transition-all hover:border-indigo-400"
                                   >
                                     <div className="min-w-0 flex-1">
-                                      <div className="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5 text-[11px]">
+                                      <div className="font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5 text-[11.5px]">
                                         <span className="w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[9px] flex items-center justify-center font-bold shrink-0">
                                           {uIdx + 1}
                                         </span>
-                                        <span className="truncate">{cleanName}</span>
+                                        <span className="truncate font-semibold">{cleanName}</span>
                                         {u.empId && <span className="font-mono text-[9.5px] text-slate-400 shrink-0">({u.empId})</span>}
+                                        <span className="font-mono text-[8.5px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold shrink-0">
+                                          {u.role || 'PRODUCTION_STAFF'}
+                                        </span>
                                       </div>
-                                      <div className="text-[9.5px] text-slate-400 font-mono">
-                                        Role: {u.role || 'PRODUCTION_STAFF'}
+
+                                      {/* Salary Calculation Info (Gross / Yearly CTC -> Monthly / 12 -> Per Day / 30) */}
+                                      <div className="mt-1 flex items-center gap-1.5 flex-wrap text-[10px] font-mono">
+                                        {sal.hasSalary ? (
+                                          <>
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
+                                              Day Salary: ₹{formatIndian(Math.round(sal.dailySalary))}/day
+                                            </span>
+                                            <span className="text-slate-500 dark:text-slate-400">
+                                              {sal.yearlyCtc > 0 ? (
+                                                <>CTC: ₹{formatIndian(sal.yearlyCtc)}/yr (Mo: ₹{formatIndian(sal.monthlySalary)}) • ÷12 ÷30 = ₹{formatIndian(Math.round(sal.dailySalary))}/day</>
+                                              ) : (
+                                                <>Gross: ₹{formatIndian(sal.grossPay)}/mo • ÷30 = ₹{formatIndian(Math.round(sal.dailySalary))}/day</>
+                                              )}
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <span className="text-slate-400 italic">
+                                            Standard labour rate (₹150.00/hr • 8 hrs = ₹1,200.00/day)
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
 
                                     {/* Hourly Calculation Inputs */}
-                                    <div className="flex items-center gap-2 shrink-0">
+                                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                                       <div className="flex items-center gap-1">
                                         <span className="text-[10px] text-slate-500 font-bold">Rate/hr:</span>
                                         <Input
@@ -7236,9 +7464,9 @@ export default function ProductionFloorCockpitModal({
                                           min="0"
                                           step="any"
                                           disabled={isCompleted || isViewMode}
-                                          value={det.ratePerHour !== undefined ? det.ratePerHour : 150}
+                                          value={det.ratePerHour !== undefined ? det.ratePerHour : (sal.hasSalary ? sal.hourlyRate : 150)}
                                           onChange={(e) => handleStaffLabourChange(k, 'ratePerHour', parseFloat(e.target.value) || 0)}
-                                          className="h-6 w-16 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800"
+                                          className="h-6 w-16 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800 border-indigo-200 dark:border-indigo-800"
                                         />
                                       </div>
 
@@ -7251,7 +7479,7 @@ export default function ProductionFloorCockpitModal({
                                           disabled={isCompleted || isViewMode}
                                           value={det.hours !== undefined ? det.hours : 8}
                                           onChange={(e) => handleStaffLabourChange(k, 'hours', parseFloat(e.target.value) || 0)}
-                                          className="h-6 w-12 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800"
+                                          className="h-6 w-12 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800 border-indigo-200 dark:border-indigo-800"
                                         />
                                       </div>
 
@@ -7265,12 +7493,12 @@ export default function ProductionFloorCockpitModal({
                                           disabled={isCompleted || isViewMode}
                                           value={det.minutes !== undefined ? det.minutes : 0}
                                           onChange={(e) => handleStaffLabourChange(k, 'minutes', parseFloat(e.target.value) || 0)}
-                                          className="h-6 w-12 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800"
+                                          className="h-6 w-12 text-right font-mono font-bold text-[11px] bg-slate-50 dark:bg-slate-800 border-indigo-200 dark:border-indigo-800"
                                         />
                                       </div>
 
-                                      <div className="w-20 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-xs">
-                                        ₹{formatIndian(det.amount || 0)}
+                                      <div className="min-w-20 text-right font-mono font-black text-indigo-700 dark:text-indigo-300 text-xs">
+                                        ₹{formatIndian(Math.round(det.amount || 0))}
                                       </div>
                                     </div>
                                   </div>
@@ -7281,9 +7509,16 @@ export default function ProductionFloorCockpitModal({
                         )}
 
                         <div>
-                          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                            Total Labour Amount (₹) *
-                          </label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase block">
+                              Total Labour Amount (₹) *
+                            </label>
+                            {dayAssignedUsers.length > 0 && (
+                              <span className="text-[9.5px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                                Auto-synced from {dayAssignedUsers.length} assigned staff
+                              </span>
+                            )}
+                          </div>
                           <Input
                             type="number"
                             min="0"
@@ -7412,7 +7647,14 @@ export default function ProductionFloorCockpitModal({
                                       {dayAssignedUsers.map(u => cleanStaffNameOnly(u)).filter(Boolean).join(', ') || 'No staff assigned'}
                                     </td>
                                     <td className="py-1.5 px-2 text-right text-slate-600 dark:text-slate-400">
-                                      {dayAssignedUsers.length} crew
+                                      {dayAssignedUsers.length} crew ({(() => {
+                                        const totalH = dayAssignedUsers.reduce((s, u) => {
+                                          const k = String(u.id || u.name);
+                                          const det = staffLabourDetails[k];
+                                          return s + (det ? Number(det.hours || 0) + (Number(det.minutes || 0) / 60) : 8);
+                                        }, 0);
+                                        return `${totalH.toFixed(1).replace(/\.0$/, '')}h`;
+                                      })()})
                                     </td>
                                     <td className="py-1.5 px-2 text-right font-black text-amber-600 dark:text-amber-400">
                                       ₹{formatIndian(labourCost || 0)}
