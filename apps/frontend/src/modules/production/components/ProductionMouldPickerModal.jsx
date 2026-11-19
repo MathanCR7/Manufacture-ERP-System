@@ -320,20 +320,20 @@ export default function ProductionMouldPickerModal({
                       const codeUpper = (code || '').toUpperCase();
                       const nameUpper = (name || '').toUpperCase();
                       let stickName = 'STICK 144 MM';
-                      let coverName = 'packing cover=130 mm (provisional)';
+                      let coverName = 'PACKING ROLL 170MM (RM-00156)';
 
                       if (codeUpper.includes('2006') || nameUpper.includes('EGYPT') || nameUpper.includes('65')) {
                         stickName = 'STICK 65 MM (Wooden Stick)';
-                        coverName = 'packing cover=130 mm (provisional)';
+                        coverName = 'PACKING ROLL 130MM (RM-00155)';
                       } else if (codeUpper.includes('8115') || (nameUpper.includes('KULFI') && (nameUpper.includes('LARGE') || nameUpper.includes('70')))) {
                         stickName = 'Round Stick (Wooden Kulfi Stick)';
-                        coverName = 'packing cover=170 mm (provisional)';
+                        coverName = 'PACKING ROLL 170MM (RM-00156)';
                       } else if (codeUpper.includes('3006') || nameUpper.includes('FLAT')) {
                         stickName = 'STICK 144 MM (Flat Stick)';
-                        coverName = 'packing cover=130 mm (provisional)';
+                        coverName = 'PACKING ROLL 170MM (RM-00156)';
                       } else if (codeUpper.includes('8112') || nameUpper.includes('8112') || nameUpper.includes('KULFI')) {
                         stickName = 'STICK 144 MM (Wooden Stick)';
-                        coverName = 'packing cover=130 mm (provisional)';
+                        coverName = 'PACKING ROLL 170MM (RM-00156)';
                       }
 
                       return (
@@ -350,7 +350,7 @@ export default function ProductionMouldPickerModal({
                           <div className="flex items-center justify-between text-[11px]">
                             <span className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
                               <Box className="w-3 h-3 text-indigo-500" />
-                              Suggested Cover:
+                              Suggested Wrapper:
                             </span>
                             <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">
                               {coverName}
@@ -384,7 +384,7 @@ export default function ProductionMouldPickerModal({
               Active Mould Specs:
             </span>
             <span className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
-              SG 2006 (18ml • STICK 65 MM • Cover 130mm) • SG 3006 (40ml • STICK 144 MM • Cover 130mm) • SG 8112 (50ml • STICK 144 MM • Cover 130mm) • SG 8115 (70ml • Round Stick • Cover 170mm)
+              SG 2006 (18ml • STICK 65 MM • Roll 130MM) • SG 3006 (40ml • STICK 144 MM • Roll 170MM) • SG 8112 (50ml • STICK 144 MM • Roll 170MM) • SG 8115 (70ml • Round Stick • Roll 170MM)
             </span>
           </div>
           <Button

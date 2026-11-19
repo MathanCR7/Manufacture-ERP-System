@@ -264,25 +264,26 @@ export function isPackagingMaterial(item) {
     return false;
   }
 
-  // 2. Weight and volume UOMs (kg, g, l, ml) are NEVER packaging
-  const fluidWeightUoms = ['kg', 'kgs', 'kilo', 'kilogram', 'kilograms', 'g', 'gm', 'gms', 'gram', 'grams', 'l', 'ltr', 'liter', 'litre', 'liters', 'litres', 'ml', 'milliliter', 'tonne', 'ton'];
-  if (fluidWeightUoms.includes(uom)) {
-    return false;
-  }
-
-  // 3. Packaging items: explicit packaging keywords
+  // 2. Packaging items: explicit packaging keywords or explicit packaging codes (e.g. rolls measured in kg, sticks, covers)
   const packagingKeywords = [
     'wooden stick', 'stick 144', 'stick 65', 'ice cream stick', 'poly cover', 'packing cover',
     'pouch', 'wrapper', 'carton', 'corrugated', 'outer box', 'packing roll', 'tape', 'seal',
-    'spoon', 'liner', 'film 130', 'film 170', 'wrapper roll'
+    'spoon', 'liner', 'film 130', 'film 170', 'wrapper roll', 'roll 130', 'roll 170',
+    'rm-00155', 'rm-00156', 'rm-00119', 'rm-00120', 'rm-00121', 'rm-stick-01'
   ];
   if (packagingKeywords.some(kw => name.includes(kw) || code.includes(kw))) {
     return true;
   }
 
-  // 4. Packaging Category
+  // 3. Packaging Category (unless food)
   if (cat.includes('pack') || cat.includes('box') || cat.includes('wrapper')) {
     return true;
+  }
+
+  // 4. Weight and volume UOMs (kg, g, l, ml) are NEVER packaging if not matched above
+  const fluidWeightUoms = ['kg', 'kgs', 'kilo', 'kilogram', 'kilograms', 'g', 'gm', 'gms', 'gram', 'grams', 'l', 'ltr', 'liter', 'litre', 'liters', 'litres', 'ml', 'milliliter', 'tonne', 'ton'];
+  if (fluidWeightUoms.includes(uom)) {
+    return false;
   }
 
   // 5. Discrete packaging units where name indicates packing

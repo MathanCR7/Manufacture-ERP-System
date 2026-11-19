@@ -142,12 +142,12 @@ const resolveUserSalaryInfo = (userObj, catalog = []) => {
   };
 };
 
-// Mould Specifications Packaging Mapping (Wooden Sticks & Suggested Poly Packing Covers)
+// Mould Specifications Packaging Mapping (Wooden Sticks & Suggested Packing Rolls / Wrappers)
 // Formulated per factory mould master specifications:
-// 1. SG-2006 Egypt Small (18 ml, 42 cav): STICK 65 MM (RM-00119) + packing cover=130 mm (provisional) (RM-00130)
-// 2. SG-3006 Flat Stick (40 ml, 50 cav): STICK 144 MM (RM-00121) + packing cover=130 mm (provisional) (RM-00131)
-// 3. SG-8112 Kulfi Small (50 ml, 42 cav): STICK 144 MM (RM-00121) + packing cover=130 mm (provisional) (RM-00130)
-// 4. SG-8115 Kulfi Large (70 ml, 42 cav): Round Stick (RM-STICK-01) + packing cover=170 mm (provisional) (RM-00132)
+// 1. SG-2006 Egypt Small (18 ml, 42 cav): STICK 65 MM (RM-00119) + PACKING ROLL 130MM (RM-00155)
+// 2. SG-3006 Flat Stick (40 ml, 50 cav): STICK 144 MM (RM-00120) + PACKING ROLL 170MM (RM-00156)
+// 3. SG-8112 Kulfi Small (50 ml, 42 cav): STICK 144 MM (RM-00120) + PACKING ROLL 170MM (RM-00156)
+// 4. SG-8115 Kulfi Large (70 ml, 42 cav): Round Stick (RM-STICK-01) + PACKING ROLL 170MM (RM-00156)
 
 const MOULD_PACKAGING_DEFINITIONS = {
   SG_2006: {
@@ -156,22 +156,23 @@ const MOULD_PACKAGING_DEFINITIONS = {
     capacityMl: 18,
     cavities: 42,
     stick: {
-      id: "c001991a-ce1b-4437-ad36-d4e76af4d8ff",
+      id: "a315add8-0ccf-4eb5-ba6b-308169463ebb",
       code: "RM-00119",
-      name: "WOODEN STICK (SMALL) - STICK 65 MM",
+      name: "STICK 65 MM",
       printName: "STICK 65 MM (Small)",
       uom: "pcs",
-      rate: 0.25,
-      stock: 25000
+      rate: 0.21,
+      stock: 20000
     },
     cover: {
-      id: "c15be4ee-e68f-43ce-9b46-d7810fb7ccbd",
-      code: "RM-00130",
-      name: "STICK (S) POLY COVER - 130 MM (provisional)",
-      printName: "Packing Cover 130 MM (Provisional)",
-      uom: "pcs",
-      rate: 0.15,
-      stock: 50000
+      id: "f97ee698-82a9-4246-8a04-39592255b0ba",
+      code: "RM-00155",
+      name: "PACKING ROLL 130MM",
+      printName: "PACKING ROLL 130MM",
+      uom: "kg",
+      rate: 354,
+      stock: 5,
+      defaultQty: 1
     }
   },
   SG_3006: {
@@ -180,22 +181,23 @@ const MOULD_PACKAGING_DEFINITIONS = {
     capacityMl: 40,
     cavities: 50,
     stick: {
-      id: "c31d978e-5ef0-496b-8e3b-eb377d7b5967",
-      code: "RM-00121",
-      name: "WOODEN STICK (LARGE) - STICK 144 MM",
+      id: "5a841410-3066-4228-85d0-2c2064089523",
+      code: "RM-00120",
+      name: "STICK 144 MM",
       printName: "STICK 144 MM (Flat Stick)",
       uom: "pcs",
-      rate: 0.35,
-      stock: 20000
+      rate: 0.23,
+      stock: 30000
     },
     cover: {
-      id: "d8759184-001d-4679-a549-f666ca7d4e65",
-      code: "RM-00131",
-      name: "STICK (M) POLY COVER - 130 MM (provisional)",
-      printName: "Packing Cover 130 MM (Provisional)",
-      uom: "pcs",
-      rate: 0.15,
-      stock: 50000
+      id: "4cd1ffe2-f466-4e27-b47e-d78715a11b8c",
+      code: "RM-00156",
+      name: "PACKING ROLL 170MM",
+      printName: "PACKING ROLL 170MM",
+      uom: "kg",
+      rate: 295,
+      stock: 17.05,
+      defaultQty: 1
     }
   },
   SG_8112: {
@@ -204,22 +206,23 @@ const MOULD_PACKAGING_DEFINITIONS = {
     capacityMl: 50,
     cavities: 42,
     stick: {
-      id: "c31d978e-5ef0-496b-8e3b-eb377d7b5967",
-      code: "RM-00121",
-      name: "WOODEN STICK (LARGE) - STICK 144 MM",
+      id: "5a841410-3066-4228-85d0-2c2064089523",
+      code: "RM-00120",
+      name: "STICK 144 MM",
       printName: "STICK 144 MM (Flat Stick)",
       uom: "pcs",
-      rate: 0.35,
-      stock: 20000
+      rate: 0.23,
+      stock: 30000
     },
     cover: {
-      id: "c15be4ee-e68f-43ce-9b46-d7810fb7ccbd",
-      code: "RM-00130",
-      name: "STICK (S) POLY COVER - 130 MM (provisional)",
-      printName: "Packing Cover 130 MM (Provisional)",
-      uom: "pcs",
-      rate: 0.15,
-      stock: 50000
+      id: "4cd1ffe2-f466-4e27-b47e-d78715a11b8c",
+      code: "RM-00156",
+      name: "PACKING ROLL 170MM",
+      printName: "PACKING ROLL 170MM",
+      uom: "kg",
+      rate: 295,
+      stock: 17.05,
+      defaultQty: 1
     }
   },
   SG_8115: {
@@ -237,13 +240,14 @@ const MOULD_PACKAGING_DEFINITIONS = {
       stock: 50000
     },
     cover: {
-      id: "68123b8a-688d-4db3-ab75-65b8f5616a5b",
-      code: "RM-00132",
-      name: "STICK (L) POLY COVER - 170 MM (provisional)",
-      printName: "Packing Cover 170 MM (Provisional)",
-      uom: "pcs",
-      rate: 0.20,
-      stock: 50000
+      id: "4cd1ffe2-f466-4e27-b47e-d78715a11b8c",
+      code: "RM-00156",
+      name: "PACKING ROLL 170MM",
+      printName: "PACKING ROLL 170MM",
+      uom: "kg",
+      rate: 295,
+      stock: 17.05,
+      defaultQty: 1
     }
   }
 };
@@ -286,7 +290,15 @@ function getCoverForMould(mouldCode, mouldName, modelNumber) {
 }
 
 function createPackagingItem(def, pieces, existing = null, master = null) {
-  const qty = pieces > 0 ? pieces : (Number(existing?.takenQty ?? existing?.qty) || 1);
+  const resolvedUom = master?.unitId || master?.uom || def.uom || 'pcs';
+  const isPcs = ['pcs', 'pc', 'piece', 'pieces', 'nos', 'no', 'unit', 'units'].includes(String(resolvedUom).trim().toLowerCase());
+  
+  // For piece-based packaging (sticks), default/sync to pieces yield.
+  // For roll/weight-based packaging (kg rolls), retain user's takenQty or default to 1 kg (never pieces!).
+  const qty = isPcs
+    ? (pieces > 0 ? pieces : (Number(existing?.takenQty ?? existing?.qty) || 1))
+    : (existing?.takenQty !== undefined && existing?.takenQty !== null && Number(existing.takenQty) > 0 ? Number(existing.takenQty) : (Number(def.defaultQty) || 1));
+
   const rate = Number(master?.ratePerUnit || existing?.unitRate || def.rate || 0.25);
   const totalCost = Number((rate * qty).toFixed(2));
   const isUuidStr = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
@@ -320,7 +332,7 @@ function createPackagingItem(def, pieces, existing = null, master = null) {
         expiryDate: lot.expiryDate || null,
         unitRate: rate,
         allocatedAmount: Number((take * rate).toFixed(2)),
-        uom: 'pcs'
+        uom: resolvedUom
       });
       rem = Number((rem - take).toFixed(6));
     }
@@ -333,8 +345,8 @@ function createPackagingItem(def, pieces, existing = null, master = null) {
     rawMaterialName: master?.printName || master?.name || def.name,
     rmCode: master?.code || def.code,
     rawMaterialCode: master?.code || def.code,
-    uom: 'pcs',
-    primaryUom: 'pcs',
+    uom: resolvedUom,
+    primaryUom: resolvedUom,
     hasAlternateUom: false,
     alternateUom: null,
     conversionFactor: 1,
@@ -1225,10 +1237,11 @@ export default function ProductionFloorCockpitModal({
               const coverMaster = findLiveMaster({ rmId: coverDef.id, rmCode: coverDef.code, rmName: coverDef.name });
               const coverIdx = productRms.findIndex(p => 
                 p.rmCode === coverDef.code || 
-                (isPackagingMaterial(p) && p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly')))
+                (isPackagingMaterial(p) && p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly') || p.rmName.toLowerCase().includes('roll') || p.rmName.toLowerCase().includes('wrapper')))
               );
               if (coverIdx >= 0) {
-                if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0 || Number(productRms[coverIdx].takenQty) !== pieces) {
+                const isPcs = ['pcs', 'pc', 'piece', 'pieces', 'nos', 'no', 'unit', 'units'].includes(String(productRms[coverIdx].uom || '').toLowerCase());
+                if (!productRms[coverIdx].takenQty || Number(productRms[coverIdx].takenQty) <= 0 || (isPcs && Number(productRms[coverIdx].takenQty) !== pieces)) {
                   productRms[coverIdx] = createPackagingItem(coverDef, pieces, productRms[coverIdx], coverMaster);
                 }
               } else {
@@ -3163,7 +3176,7 @@ export default function ProductionFloorCockpitModal({
           if (pkg?.stick && !prms.some(p => p.rmCode === pkg.stick.code || (p.rmName && p.rmName.toLowerCase().includes('stick')))) {
             prms.push(createPackagingItem(pkg.stick, pcs));
           }
-          if (pkg?.cover && !prms.some(p => p.rmCode === pkg.cover.code || (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly'))))) {
+          if (pkg?.cover && !prms.some(p => p.rmCode === pkg.cover.code || (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly') || p.rmName.toLowerCase().includes('roll') || p.rmName.toLowerCase().includes('wrapper'))))) {
             prms.push(createPackagingItem(pkg.cover, pcs));
           }
           target.productRms = prms;
