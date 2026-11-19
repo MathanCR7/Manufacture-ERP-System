@@ -1175,7 +1175,26 @@ export function exportCleanSheetPdf({
         const pMix = Number(p.allocatedBaseMl || 0);
         const pBaseCost = round2(pMix * baseRatePerMl);
         const pAddedCost = round2((p.productRms || []).reduce((s, r) => s + (Number(r.totalCost) > 0 ? Number(r.totalCost) : Number(r.takenQty || 0) * Number(r.unitRate || 0)), 0));
-        const pLabour = Number(p.allocatedLabourCost ?? p.labourAllocatedAmt ?? 0);
+
+        // Find the day this product belongs to and dynamically recompute labour share
+        const parentDay = filteredDays.find(d => (d.outputs || []).some(o => (o.productId && o.productId === p.productId) || o.id === p.id || o.seq === p.seq)) || filteredDays[0];
+        const dayOutputs = parentDay ? (parentDay.outputs || []) : allFilteredOutputs;
+        const dayTotalMix = dayOutputs.reduce((s, o) => s + Number(o.allocatedBaseMl || 0), 0);
+        const dayStaff = Array.isArray(parentDay?.assignedUsers) ? parentDay.assignedUsers : [];
+        const dayStaffLabour = dayStaff.reduce((s, u) => s + Number(u.amount !== undefined ? u.amount : (u.daySalary || 0)), 0);
+        const effectiveDayLabour = dayStaffLabour > 0
+          ? dayStaffLabour
+          : Number(parentDay?.labourTotalCost ?? parentDay?.labourCost ?? summary.directLabourCost ?? 0);
+
+        let pLabour = 0;
+        if (p.labourCostOverride !== undefined && Number(p.labourCostOverride) > 0) {
+          pLabour = round2(Number(p.labourCostOverride));
+        } else if (effectiveDayLabour > 0 && dayTotalMix > 0) {
+          pLabour = round2(effectiveDayLabour * (pMix / dayTotalMix));
+        } else {
+          pLabour = Number(p.allocatedLabourCost ?? p.labourAllocatedAmt ?? 0);
+        }
+
         const pEb = Number(p.allocatedEbCost ?? p.ebAllocatedAmt ?? 0);
         const pOverhead = Number(summary.totalAllocatedMixMl || 0) > 0
           ? round2(Number(summary.overheadCost || 0) * (pMix / Number(summary.totalAllocatedMixMl)))
@@ -1243,11 +1262,11 @@ export function exportCleanSheetPdf({
 
           let basisText = 'Standard Shift Wage';
           if (yearlyCtc > 0) {
-            basisText = `CTC ${INR_FMT(yearlyCtc)}/yr (Mo: ${INR_FMT(monthlySalary)}) ÷ 30`;
+            basisText = `CTC ${INR_FMT(yearlyCtc)}/yr (Mo: ${INR_FMT(monthlySalary)}) / 30`;
           } else if (grossPay > 0) {
-            basisText = `Gross ${INR_FMT(grossPay)}/mo ÷ 30`;
+            basisText = `Gross ${INR_FMT(grossPay)}/mo / 30`;
           } else if (monthlySalary > 0) {
-            basisText = `Mo: ${INR_FMT(monthlySalary)} ÷ 30`;
+            basisText = `Mo: ${INR_FMT(monthlySalary)} / 30`;
           } else if (lineAmt > 0) {
             basisText = `Day Rate: ${INR_FMT(lineAmt)}`;
           }
@@ -1286,12 +1305,12 @@ export function exportCleanSheetPdf({
       y += 5.5;
 
       const labourCols = [
-        { key: 'day', label: 'Day & Production Date', width: 34, bold: true },
-        { key: 'batch', label: 'Day Batch No', width: 22, color: COLORS.indigo, bold: true },
-        { key: 'staff', label: 'Assigned Staff Name & ID', width: 46, bold: true },
-        { key: 'role', label: 'Role / Designation', width: 28 },
-        { key: 'basis', label: 'Salary Basis (User Master ÷ 30)', width: 36 },
-        { key: 'amount', label: 'Day Charge (INR)', width: 22, align: 'right', color: COLORS.amber, bold: true }
+        { key: 'day', label: 'Day & Production Date', width: 30, bold: true },
+        { key: 'batch', label: 'Day Batch No', width: 20, color: COLORS.indigo, bold: true },
+        { key: 'staff', label: 'Assigned Staff Name & ID', width: 44, bold: true },
+        { key: 'role', label: 'Role / Designation', width: 26 },
+        { key: 'basis', label: 'Salary Basis (User Master / 30)', width: 44 },
+        { key: 'amount', label: 'Day Charge (INR)', width: 24, align: 'right', color: COLORS.amber, bold: true }
       ];
 
       const labourFooter = {

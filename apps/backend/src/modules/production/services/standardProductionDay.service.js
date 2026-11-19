@@ -1032,12 +1032,14 @@ async function completeDayRun({
         productRms: Array.isArray(alloc.productRms) ? alloc.productRms : [],
         productTotalMixMl: Number(alloc.productTotalMixMl || alloc.allocatedBaseMl || 0),
         productRmCost: round2(productRmCost),
-        labourCostOverride: matchedYield?.labourCostOverride ?? alloc.labourCostOverride
+        labourCostOverride: matchedYield?.labourCostOverride ?? matchedYield?.labourCost ?? alloc.labourCostOverride
       });
     }
 
     const ebVal = Number(ebTotalCost || 0);
-    const labourVal = Number(labourTotalCost || 0);
+    const normalizedUsers = normalizeAssignedUsers(assignedUsers);
+    const usersLabourSum = (normalizedUsers || []).reduce((s, u) => s + Number(u.amount !== undefined ? u.amount : (u.daySalary || 0)), 0);
+    const labourVal = usersLabourSum > 0 ? usersLabourSum : Number(labourTotalCost || 0);
     const overheadVal = Number(overheadAmt || 0);
 
     const costing = calculateDayProductCosting({
@@ -2005,7 +2007,7 @@ async function updateCompletedDayRun({
         productRms: Array.isArray(alloc.productRms) ? alloc.productRms : [],
         productTotalMixMl: Number(alloc.productTotalMixMl || alloc.allocatedBaseMl || 0),
         productRmCost: round2(productRmCost),
-        labourCostOverride: matchedYield?.labourCostOverride ?? alloc.labourCostOverride
+        labourCostOverride: matchedYield?.labourCostOverride ?? matchedYield?.labourCost ?? alloc.labourCostOverride
       });
     }
 
@@ -2018,7 +2020,11 @@ async function updateCompletedDayRun({
     const nextEbCost = ebTotalCost !== undefined
       ? Number(ebTotalCost)
       : (nextEbUnits > 0 ? round2(nextEbUnits * nextEbRate) : Number(day.eb_total_cost || 0));
-    const nextLabourCost = labourTotalCost !== undefined ? Number(labourTotalCost) : Number(day.labour_total_cost || 0);
+    const normalizedUpdateUsers = normalizeAssignedUsers(assignedUsers);
+    const usersLabourSum = (normalizedUpdateUsers || []).reduce((s, u) => s + Number(u.amount !== undefined ? u.amount : (u.daySalary || 0)), 0);
+    const nextLabourCost = usersLabourSum > 0
+      ? usersLabourSum
+      : (labourTotalCost !== undefined ? Number(labourTotalCost) : Number(day.labour_total_cost || 0));
     const nextOverhead = overheadAmt !== undefined ? Number(overheadAmt) : Number(day.overhead_amt || 0);
 
     const costing = calculateDayProductCosting({
@@ -2034,7 +2040,6 @@ async function updateCompletedDayRun({
     const remainingAfterDayMl = Math.max(0, round2(computed.remainingMixMl));
     const nextTimelineJson = Array.isArray(timelineStages) ? JSON.stringify(timelineStages) : null;
     const nextProdStagesJson = (productStagesMap && typeof productStagesMap === 'object') ? JSON.stringify(productStagesMap) : null;
-    const normalizedUpdateUsers = normalizeAssignedUsers(assignedUsers);
     const nextAssignedUsersJson = normalizedUpdateUsers !== null ? JSON.stringify(normalizedUpdateUsers) : null;
 
     await tx.$executeRawUnsafe(`
@@ -2295,16 +2300,30 @@ async function updateDayMetadata({
 
     const normalizedUsers = normalizeAssignedUsers(assignedUsers);
     const assignedUsersJson = normalizedUsers !== null ? JSON.stringify(normalizedUsers) : null;
+    const staffLabourTotal = (normalizedUsers || []).reduce((s, u) => s + Number(u.amount !== undefined ? u.amount : (u.daySalary || 0)), 0);
 
-    await tx.$executeRawUnsafe(`
-      UPDATE production_batch_days
-      SET
-        production_date = COALESCE($2::date, production_date),
-        day_batch_code = COALESCE($3, day_batch_code),
-        assigned_users = COALESCE($4::jsonb, assigned_users, '[]'::jsonb),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1::uuid;
-    `, dayId, effDateStr, resolvedDayCode, assignedUsersJson);
+    if (staffLabourTotal > 0) {
+      await tx.$executeRawUnsafe(`
+        UPDATE production_batch_days
+        SET
+          production_date = COALESCE($2::date, production_date),
+          day_batch_code = COALESCE($3, day_batch_code),
+          assigned_users = COALESCE($4::jsonb, assigned_users, '[]'::jsonb),
+          labour_total_cost = $5,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1::uuid;
+      `, dayId, effDateStr, resolvedDayCode, assignedUsersJson, round2(staffLabourTotal));
+    } else {
+      await tx.$executeRawUnsafe(`
+        UPDATE production_batch_days
+        SET
+          production_date = COALESCE($2::date, production_date),
+          day_batch_code = COALESCE($3, day_batch_code),
+          assigned_users = COALESCE($4::jsonb, assigned_users, '[]'::jsonb),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1::uuid;
+      `, dayId, effDateStr, resolvedDayCode, assignedUsersJson);
+    }
 
     if (Number(day.active_day_no) === Number(day.day_no) && resolvedDayCode) {
       await tx.$executeRawUnsafe(`

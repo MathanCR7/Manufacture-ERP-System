@@ -494,12 +494,12 @@ function calculateDayProductCosting({
   const totalDayMixWithRms = outputs.reduce((s, o) => s + Number(o.productTotalMixMl || o.allocatedBaseMl || 0), 0);
 
   const explicitLabourSum = outputs.reduce((s, o) => {
-    const val = o.labourCostOverride ?? o.allocatedLabourCost;
+    const val = o.labourCostOverride;
     return s + (val !== undefined && val !== null && val !== '' ? Number(val) : 0);
   }, 0);
   const hasExplicitLabour = outputs.some(o => (
-    o.labourCostOverride !== undefined && o.labourCostOverride !== null && o.labourCostOverride !== ''
-  ) || Number(o.allocatedLabourCost || 0) > 0);
+    o.labourCostOverride !== undefined && o.labourCostOverride !== null && o.labourCostOverride !== '' && Number(o.labourCostOverride) > 0
+  ));
 
   const totalDayYield = outputs.reduce((s, o) => s + Number(o.actualYield ?? o.goodPieces ?? 0), 0);
 
@@ -520,10 +520,10 @@ function calculateDayProductCosting({
     const ebShare = round2(Number(ebTotalCost || 0) * shareOfDayMix);
 
     let labourShare = 0;
-    const rawOverride = o.labourCostOverride ?? o.allocatedLabourCost;
+    const rawOverride = o.labourCostOverride;
     if (hasExplicitLabour && rawOverride !== undefined && rawOverride !== null && rawOverride !== '' && Number(rawOverride) > 0) {
       labourShare = round2(Number(rawOverride));
-    } else if (!hasExplicitLabour || explicitLabourSum <= 0) {
+    } else {
       labourShare = round2(Number(labourTotalCost || 0) * shareOfDayMix);
     }
 

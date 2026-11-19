@@ -439,6 +439,13 @@ export default function ProductionCleanReportView({
     0
   );
 
+  // Base raw material costing:
+  // When only Day 1 is completed (or completed days do not use 100% of mix),
+  // base total mix value should NOT be taken in full; only Day 1's allocated base mixing cost should be taken!
+  const baseCostPerMl = (totalBaseConsumedCost > 0 && netPostEvapMixMl > 0)
+    ? (totalBaseConsumedCost / netPostEvapMixMl)
+    : 0;
+
   // ── NORMALIZE DAY-WISE EXECUTION ENTRIES (COMPLETED DAYS ONLY) ──
   const normalizedDays = useMemo(() => {
     if (effectiveRawDays.length > 0) {
@@ -449,12 +456,48 @@ export default function ProductionCleanReportView({
         const dayActual = Number(d.totalOutputQty || outs.reduce((s, o) => s + Number(o.actualYield || 0), 0));
         const dayRejected = Number(d.totalRejectedQty || outs.reduce((s, o) => s + Number(o.rejectOutput || 0), 0));
         const dStages = Array.isArray(d.timelineStages) && d.timelineStages.length > 0 ? d.timelineStages : timelineStages;
-        const enrichedOuts = outs.map(o => {
+
+        const staffList = Array.isArray(d.assignedUsers) ? d.assignedUsers : [];
+        const staffLabourSum = staffList.reduce((s, u) => {
+          const amt = Number(u.amount !== undefined ? u.amount : (u.daySalary || 0));
+          return s + amt;
+        }, 0);
+        const resolvedLabourCost = staffLabourSum > 0
+          ? staffLabourSum
+          : Number(d.labourTotalCost ?? d.labour_total_cost ?? d.labourCost ?? 0);
+
+        const dayTotalMix = outs.reduce((s, o) => s + Number(o.allocatedBaseMl || 0), 0);
+        let remLabour = resolvedLabourCost;
+
+        const enrichedOuts = outs.map((o, oIdx) => {
           const exp = Number(o.theoreticalQty || o.actualYield || 0);
           const act = Number(o.actualYield || 0);
           const rej = Number(o.rejectOutput || 0);
           const yPct = exp > 0 ? round2((act / exp) * 100) : (act > 0 ? 100 : 0);
-          const uCost = Number(o.unitCost || (act > 0 ? round2(Number(o.totalCost || 0) / act) : 0));
+
+          const outMix = Number(o.allocatedBaseMl || 0);
+          let allocLabour = 0;
+          if (o.labourCostOverride !== undefined && Number(o.labourCostOverride) > 0) {
+            allocLabour = Number(o.labourCostOverride);
+          } else if (resolvedLabourCost > 0) {
+            if (oIdx === outs.length - 1) {
+              allocLabour = Math.max(0, round2(remLabour));
+            } else {
+              const share = dayTotalMix > 0 ? (outMix / dayTotalMix) : (1 / outs.length);
+              allocLabour = round2(resolvedLabourCost * share);
+              remLabour -= allocLabour;
+            }
+          } else {
+            allocLabour = Number(o.allocatedLabourCost ?? o.labourAllocatedAmt ?? 0);
+          }
+
+          const outBaseCost = round2(outMix * baseCostPerMl);
+          const prms = Array.isArray(o.productRms) ? o.productRms : [];
+          const outAddedCost = round2(prms.reduce((s, r) => s + (Number(r.totalCost) > 0 ? Number(r.totalCost) : Number(r.takenQty || 0) * Number(r.unitRate || 0)), 0));
+          const outEb = Number(o.allocatedEbCost ?? o.ebAllocatedAmt ?? 0);
+          const outTotalCost = round2(outBaseCost + outAddedCost + allocLabour + outEb);
+          const uCost = act > 0 ? round2(outTotalCost / act) : 0;
+
           return {
             ...o,
             theoreticalQty: exp,
@@ -462,17 +505,13 @@ export default function ProductionCleanReportView({
             rejectOutput: rej,
             yieldPct: yPct,
             unitCost: uCost,
-            ebAllocatedAmt: Number(o.allocatedEbCost ?? o.ebAllocatedAmt ?? 0),
-            labourAllocatedAmt: Number(o.allocatedLabourCost ?? o.labourAllocatedAmt ?? 0),
-            productRms: Array.isArray(o.productRms) ? o.productRms : []
+            totalCost: outTotalCost,
+            ebAllocatedAmt: outEb,
+            allocatedLabourCost: allocLabour,
+            labourAllocatedAmt: allocLabour,
+            productRms: prms
           };
         });
-        const staffList = Array.isArray(d.assignedUsers) ? d.assignedUsers : [];
-        const staffLabourSum = staffList.reduce((s, u) => {
-          const amt = Number(u.amount !== undefined ? u.amount : (u.daySalary || 0));
-          return s + amt;
-        }, 0);
-        const resolvedLabourCost = Number(d.labourTotalCost ?? d.labour_total_cost ?? d.labourCost ?? 0) || staffLabourSum;
         return {
           ...d,
           outputs: enrichedOuts,
@@ -565,7 +604,7 @@ export default function ProductionCleanReportView({
       durationText: formatStageDuration(resolvedLegacyStages),
       outputs: synthesizedOutputs
     }];
-  }, [effectiveRawDays, allocations, liveAllocationsResult, costingData, actualYieldPieces, batch, isCompleted, labTestRequired, netPostEvapMixMl, timelineStages, productStagesMap]);
+  }, [effectiveRawDays, allocations, liveAllocationsResult, costingData, actualYieldPieces, batch, isCompleted, labTestRequired, netPostEvapMixMl, timelineStages, productStagesMap, baseCostPerMl]);
 
   const scopedDays = useMemo(() => (
     selectedReportDayNo === 'ALL'
@@ -653,13 +692,6 @@ export default function ProductionCleanReportView({
   }, [scopedDays]);
 
   const totalAddedRmsCost = round2(productSpecificRmGroups.reduce((s, g) => s + g.totalCost, 0));
-
-  // Base raw material costing:
-  // When only Day 1 is completed (or completed days do not use 100% of mix),
-  // base total mix value should NOT be taken in full; only Day 1's allocated base mixing cost should be taken!
-  const baseCostPerMl = (totalBaseConsumedCost > 0 && netPostEvapMixMl > 0)
-    ? (totalBaseConsumedCost / netPostEvapMixMl)
-    : 0;
 
   // Scoped base RM cost: strictly the allocated mixing cost of completed days (or single day if selected)
   const scopedBaseRmCost = (totalAllocatedMixMl > 0 && netPostEvapMixMl > 0)
@@ -2043,7 +2075,7 @@ export default function ProductionCleanReportView({
                   Direct Production Labour Day-Wise Crew Bifurcation Audit
                 </h4>
                 <span className="text-[10px] text-slate-500 font-mono">
-                  Day-Wise Assigned Staff • Monthly CTC ÷ 30 Day Salary Breakdown
+                  Day-Wise Assigned Staff • Monthly CTC / 30 Day Salary Breakdown
                 </span>
               </div>
 
@@ -2055,7 +2087,7 @@ export default function ProductionCleanReportView({
                       <th className="py-2.5 px-3 font-sans">Day Batch No</th>
                       <th className="py-2.5 px-3 font-sans">Assigned Staff &amp; ID</th>
                       <th className="py-2.5 px-3 font-sans">Role / Designation</th>
-                      <th className="py-2.5 px-3 font-sans">Salary Basis (User Master ÷ 30)</th>
+                      <th className="py-2.5 px-3 font-sans">Salary Basis (User Master / 30)</th>
                       <th className="py-2.5 px-3 text-right">Day Charge (INR)</th>
                     </tr>
                   </thead>
@@ -2097,11 +2129,11 @@ export default function ProductionCleanReportView({
                               </td>
                               <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 text-[11px]">
                                 {yearlyCtc > 0 ? (
-                                  <>CTC ₹{formatIndian(yearlyCtc)}/yr (Mo: ₹{formatIndian(monthlySalary)}) • ÷12 ÷30 = ₹{formatIndian(daySalary)}/day</>
+                                  <>CTC ₹{formatIndian(yearlyCtc)}/yr (Mo: ₹{formatIndian(monthlySalary)}) • /12 /30 = ₹{formatIndian(daySalary)}/day</>
                                 ) : grossPay > 0 ? (
-                                  <>Gross ₹{formatIndian(grossPay)}/mo • ÷30 = ₹{formatIndian(daySalary)}/day</>
+                                  <>Gross ₹{formatIndian(grossPay)}/mo • /30 = ₹{formatIndian(daySalary)}/day</>
                                 ) : monthlySalary > 0 ? (
-                                  <>Mo: ₹{formatIndian(monthlySalary)} • ÷30 = ₹{formatIndian(daySalary)}/day</>
+                                  <>Mo: ₹{formatIndian(monthlySalary)} • /30 = ₹{formatIndian(daySalary)}/day</>
                                 ) : lineAmt > 0 ? (
                                   <>Day Rate: ₹{formatIndian(lineAmt)}</>
                                 ) : (

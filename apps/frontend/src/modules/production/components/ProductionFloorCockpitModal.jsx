@@ -3980,6 +3980,8 @@ export default function ProductionFloorCockpitModal({
         const effGood = (a.actualYield !== undefined && a.actualYield !== null && a.actualYield !== '')
           ? Number(a.actualYield)
           : fallbackGood;
+        const pId = a.productId || `p_${a.seq || idx}`;
+        const pLabourAmt = productLabourMap[pId] !== undefined ? Number(productLabourMap[pId]) : undefined;
         return {
           seq: a.seq || idx + 1,
           productId: a.productId,
@@ -4003,19 +4005,27 @@ export default function ProductionFloorCockpitModal({
           actualYield: effGood,
           rejectOutput: Number(a.rejectOutput || 0),
           productBatchNo: a.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate),
-          productRms: Array.isArray(a.productRms) ? a.productRms : []
+          productRms: Array.isArray(a.productRms) ? a.productRms : [],
+          labourCostOverride: pLabourAmt,
+          allocatedLabourCost: pLabourAmt
         };
       });
 
-      const productYieldsPayload = allocPayload.map((a, idx) => ({
-        seq: a.seq || idx + 1,
-        productId: a.productId,
-        productName: a.productName,
-        actualGoodOutput: Number(a.actualYield || 0),
-        actualOutput: Number(a.actualYield || 0),
-        rejectOutput: Number(a.rejectOutput || 0),
-        productBatchNo: a.productBatchNo
-      }));
+      const productYieldsPayload = allocPayload.map((a, idx) => {
+        const pId = a.productId || `p_${a.seq || idx}`;
+        const pLabourAmt = productLabourMap[pId] !== undefined ? Number(productLabourMap[pId]) : undefined;
+        return {
+          seq: a.seq || idx + 1,
+          productId: a.productId,
+          productName: a.productName,
+          actualGoodOutput: Number(a.actualYield || 0),
+          actualOutput: Number(a.actualYield || 0),
+          rejectOutput: Number(a.rejectOutput || 0),
+          productBatchNo: a.productBatchNo,
+          labourCostOverride: pLabourAmt,
+          labourCost: pLabourAmt
+        };
+      });
 
       const ebKwh = ebEndReading && ebStartReading
         ? Math.max(0, Number((Number(ebEndReading) - Number(ebStartReading)).toFixed(2)))
