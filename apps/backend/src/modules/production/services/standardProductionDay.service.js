@@ -224,6 +224,8 @@ function normalizeAssignedUsers(usersInput) {
       hours: item.hours !== undefined && item.hours !== null ? Number(item.hours) : undefined,
       minutes: item.minutes !== undefined && item.minutes !== null ? Number(item.minutes) : undefined,
       amount: item.amount !== undefined && item.amount !== null ? Number(item.amount) : undefined,
+      daySalary: item.daySalary !== undefined && item.daySalary !== null ? Number(item.daySalary) : undefined,
+      monthlySalary: item.monthlySalary !== undefined && item.monthlySalary !== null ? Number(item.monthlySalary) : undefined,
       grossPay: item.grossPay !== undefined && item.grossPay !== null ? Number(item.grossPay) : undefined,
       yearlyCtc: item.yearlyCtc !== undefined && item.yearlyCtc !== null ? Number(item.yearlyCtc) : undefined,
       workingHours: item.workingHours ? String(item.workingHours).trim() : undefined

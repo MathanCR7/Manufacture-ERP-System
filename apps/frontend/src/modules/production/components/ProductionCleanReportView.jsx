@@ -467,10 +467,17 @@ export default function ProductionCleanReportView({
             productRms: Array.isArray(o.productRms) ? o.productRms : []
           };
         });
+        const staffList = Array.isArray(d.assignedUsers) ? d.assignedUsers : [];
+        const staffLabourSum = staffList.reduce((s, u) => {
+          const amt = Number(u.amount !== undefined ? u.amount : (u.daySalary || 0));
+          return s + amt;
+        }, 0);
+        const resolvedLabourCost = Number(d.labourTotalCost ?? d.labour_total_cost ?? d.labourCost ?? 0) || staffLabourSum;
         return {
           ...d,
           outputs: enrichedOuts,
-          assignedUsers: Array.isArray(d.assignedUsers) ? d.assignedUsers : [],
+          assignedUsers: staffList,
+          labourTotalCost: resolvedLabourCost,
           allocatedMixMl: dayAllocMl,
           totalExpectedQty: dayExpected,
           totalOutputQty: dayActual,
@@ -2025,6 +2032,135 @@ export default function ProductionCleanReportView({
                     </div>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* 4C. Direct Production Labour Day-Wise Crew Bifurcation Audit */}
+            <div className="space-y-3 pt-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5 font-sans">
+                  <Users className="w-3.5 h-3.5 text-amber-600" />
+                  Direct Production Labour Day-Wise Crew Bifurcation Audit
+                </h4>
+                <span className="text-[10px] text-slate-500 font-mono">
+                  Day-Wise Assigned Staff • Monthly CTC ÷ 30 Day Salary Breakdown
+                </span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-slate-700">
+                <table className="w-full text-left text-xs font-mono border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-[10.5px] uppercase font-bold">
+                      <th className="py-2.5 px-3 font-sans">Day &amp; Production Date</th>
+                      <th className="py-2.5 px-3 font-sans">Day Batch No</th>
+                      <th className="py-2.5 px-3 font-sans">Assigned Staff &amp; ID</th>
+                      <th className="py-2.5 px-3 font-sans">Role / Designation</th>
+                      <th className="py-2.5 px-3 font-sans">Salary Basis (User Master ÷ 30)</th>
+                      <th className="py-2.5 px-3 text-right">Day Charge (INR)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {scopedDays.flatMap(d => {
+                      const dayLabel = `Day ${d.dayNo || 1} • ${formatDateDMY(d.productionDate || batch?.startDate)}`;
+                      const batchCode = d.dayBatchCode || d.day_batch_code || batch?.batchCode || batch?.shortCode || '—';
+                      const staffList = Array.isArray(d.assignedUsers) && d.assignedUsers.length > 0 ? d.assignedUsers : [];
+
+                      if (staffList.length > 0) {
+                        return staffList.map((u, uIdx) => {
+                          const staffName = cleanStaffNameOnly(u);
+                          const empId = u?.empId || u?.userCode || u?.employeeId ? ` (${u?.empId || u?.userCode || u?.employeeId})` : '';
+                          const role = u?.role || 'PRODUCTION_STAFF';
+                          const yearlyCtc = Number(u?.yearlyCtc || 0);
+                          const grossPay = Number(u?.grossPay || 0);
+                          const monthlySalary = Number(u?.monthlySalary || (yearlyCtc > 0 ? Math.round((yearlyCtc / 12) * 100) / 100 : (grossPay > 0 ? grossPay : 0)));
+                          const daySalary = Number(u?.daySalary || (monthlySalary > 0 ? Math.round(monthlySalary / 30) : 0));
+                          const lineAmt = Number(u?.amount !== undefined ? u.amount : (daySalary > 0 ? daySalary : 0));
+
+                          return (
+                            <tr
+                              key={`clean-labour-row-${d.dayNo || 1}-${u.id || uIdx}`}
+                              className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                            >
+                              <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                                {dayLabel}
+                              </td>
+                              <td className="py-2.5 px-3 font-bold text-indigo-700 dark:text-indigo-300">
+                                {batchCode}
+                              </td>
+                              <td className="py-2.5 px-3 font-sans font-semibold text-slate-800 dark:text-slate-200">
+                                {staffName}{empId}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
+                                  {role}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400 text-[11px]">
+                                {yearlyCtc > 0 ? (
+                                  <>CTC ₹{formatIndian(yearlyCtc)}/yr (Mo: ₹{formatIndian(monthlySalary)}) • ÷12 ÷30 = ₹{formatIndian(daySalary)}/day</>
+                                ) : grossPay > 0 ? (
+                                  <>Gross ₹{formatIndian(grossPay)}/mo • ÷30 = ₹{formatIndian(daySalary)}/day</>
+                                ) : monthlySalary > 0 ? (
+                                  <>Mo: ₹{formatIndian(monthlySalary)} • ÷30 = ₹{formatIndian(daySalary)}/day</>
+                                ) : lineAmt > 0 ? (
+                                  <>Day Rate: ₹{formatIndian(lineAmt)}</>
+                                ) : (
+                                  <span className="text-slate-400 italic">Standard Shift Wage</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-black text-amber-600 dark:text-amber-400">
+                                ₹{formatIndian(lineAmt)}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      } else {
+                        const fallbackName = formatAssignedStaff(d.assignedUsers, d.completedBy || d.startedBy || batch?.startedBy);
+                        const dayLabourAmt = Number(d.labourTotalCost ?? d.labourCost ?? 0);
+                        return (
+                          <tr
+                            key={`clean-labour-fallback-${d.dayNo || 1}`}
+                            className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                          >
+                            <td className="py-2.5 px-3 font-sans font-bold text-slate-900 dark:text-white">
+                              {dayLabel}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-indigo-700 dark:text-indigo-300">
+                              {batchCode}
+                            </td>
+                            <td className="py-2.5 px-3 font-sans font-semibold text-slate-800 dark:text-slate-200">
+                              {fallbackName}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
+                                Floor Operator
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 italic text-[11px]">
+                              Shift Crew Allocation
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-black text-amber-600 dark:text-amber-400">
+                              ₹{formatIndian(dayLabourAmt)}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    })}
+                  </tbody>
+                  <tfoot className="bg-slate-900 text-white font-bold border-t-2 border-slate-900">
+                    <tr>
+                      <td colSpan={2} className="py-2.5 px-3 font-sans uppercase font-black tracking-wider text-amber-400 text-xs">
+                        TOTAL DIRECT LABOUR
+                      </td>
+                      <td colSpan={3} className="py-2.5 px-3 font-sans text-slate-300 text-xs">
+                        {scopedDays.reduce((acc, d) => acc + (Array.isArray(d.assignedUsers) && d.assignedUsers.length > 0 ? d.assignedUsers.length : 1), 0)} Assigned Crew Shift(s) across {scopedDays.length} Day(s)
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-amber-400 text-sm">
+                        ₹{formatIndian(directLabourCost)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
           </div>

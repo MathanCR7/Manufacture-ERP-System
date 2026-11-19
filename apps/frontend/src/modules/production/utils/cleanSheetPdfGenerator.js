@@ -1217,6 +1217,102 @@ export function exportCleanSheetPdf({
         });
       });
     }
+
+    // 4C. DIRECT PRODUCTION LABOUR DAY-WISE CREW BIFURCATION AUDIT
+    const labourRows = [];
+    let crewShiftCount = 0;
+    let computedLabourTotal = 0;
+
+    filteredDays.forEach(d => {
+      const dayLabel = `Day ${d.dayNo || 1} • ${DATE_DMY(d.productionDate || batch?.startDate)}`;
+      const batchCode = safeText(d.dayBatchCode || d.day_batch_code || batch?.batchCode || batch?.shortCode, '-');
+      const staffList = Array.isArray(d.assignedUsers) && d.assignedUsers.length > 0 ? d.assignedUsers : [];
+
+      if (staffList.length > 0) {
+        staffList.forEach(u => {
+          crewShiftCount++;
+          const staffName = extractStaffNameOnly(u?.name || u?.userName || u);
+          const empId = u?.empId || u?.userCode || u?.employeeId ? ` (${u?.empId || u?.userCode || u?.employeeId})` : '';
+          const role = safeText(u?.role || 'PRODUCTION_STAFF', 'PRODUCTION_STAFF');
+          const yearlyCtc = Number(u?.yearlyCtc || 0);
+          const grossPay = Number(u?.grossPay || 0);
+          const monthlySalary = Number(u?.monthlySalary || (yearlyCtc > 0 ? Math.round((yearlyCtc / 12) * 100) / 100 : (grossPay > 0 ? grossPay : 0)));
+          const daySalary = Number(u?.daySalary || (monthlySalary > 0 ? Math.round(monthlySalary / 30) : 0));
+          const lineAmt = Number(u?.amount !== undefined ? u.amount : (daySalary > 0 ? daySalary : 0));
+          computedLabourTotal += lineAmt;
+
+          let basisText = 'Standard Shift Wage';
+          if (yearlyCtc > 0) {
+            basisText = `CTC ${INR_FMT(yearlyCtc)}/yr (Mo: ${INR_FMT(monthlySalary)}) ÷ 30`;
+          } else if (grossPay > 0) {
+            basisText = `Gross ${INR_FMT(grossPay)}/mo ÷ 30`;
+          } else if (monthlySalary > 0) {
+            basisText = `Mo: ${INR_FMT(monthlySalary)} ÷ 30`;
+          } else if (lineAmt > 0) {
+            basisText = `Day Rate: ${INR_FMT(lineAmt)}`;
+          }
+
+          labourRows.push({
+            day: dayLabel,
+            batch: batchCode,
+            staff: `${staffName}${empId}`,
+            role: role,
+            basis: basisText,
+            amount: INR_FMT(lineAmt)
+          });
+        });
+      } else {
+        crewShiftCount++;
+        const fallbackName = formatDayUsersText(d);
+        const dayLabourAmt = Number(d.labourTotalCost ?? d.labourCost ?? 0);
+        computedLabourTotal += dayLabourAmt;
+        labourRows.push({
+          day: dayLabel,
+          batch: batchCode,
+          staff: fallbackName,
+          role: 'Floor Operator',
+          basis: 'Shift Crew Allocation',
+          amount: INR_FMT(dayLabourAmt)
+        });
+      }
+    });
+
+    if (labourRows.length > 0) {
+      ensureSpace(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.2);
+      doc.setTextColor(...COLORS.indigo);
+      doc.text('Direct Production Labour Day-Wise Crew Bifurcation Audit', MARGIN, y + 3.5);
+      y += 5.5;
+
+      const labourCols = [
+        { key: 'day', label: 'Day & Production Date', width: 34, bold: true },
+        { key: 'batch', label: 'Day Batch No', width: 22, color: COLORS.indigo, bold: true },
+        { key: 'staff', label: 'Assigned Staff Name & ID', width: 46, bold: true },
+        { key: 'role', label: 'Role / Designation', width: 28 },
+        { key: 'basis', label: 'Salary Basis (User Master ÷ 30)', width: 36 },
+        { key: 'amount', label: 'Day Charge (INR)', width: 22, align: 'right', color: COLORS.amber, bold: true }
+      ];
+
+      const labourFooter = {
+        day: 'TOTAL DIRECT LABOUR',
+        batch: `${filteredDays.length} Day(s)`,
+        staff: `${crewShiftCount} Assigned Staff Shift(s)`,
+        role: '-',
+        basis: 'Audited Floor Payroll Cost',
+        amount: INR_FMT(summary.directLabourCost > 0 ? summary.directLabourCost : computedLabourTotal)
+      };
+
+      const estimatedLabourTableH = 6.2 + (labourRows.length * 6.5) + 6.2 + 3;
+      if (estimatedLabourTableH <= (BOTTOM_SAFE - 15)) {
+        ensureSpace(estimatedLabourTableH);
+      }
+
+      drawTable(labourCols, labourRows, labourFooter, {
+        fontSize: 6.8,
+        preventBreak: estimatedLabourTableH <= (BOTTOM_SAFE - 15)
+      });
+    }
   }
 
   // ── SECTION 5: QA REMARKS & AUTHORIZED SIGN-OFF ──
