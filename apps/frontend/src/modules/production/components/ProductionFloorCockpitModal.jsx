@@ -9085,4 +9085,171 @@ export default function ProductionFloorCockpitModal({
                           {p.uom}
                         </span>
                       </div>
-... [truncated for diff preview]
+                      <span className="font-mono text-[10.5px] text-slate-400">
+                        Planned: <strong className="text-slate-700 dark:text-slate-200">{p.planned} {p.uom}</strong> • Calc: <strong className="text-purple-600 dark:text-purple-400">{p.calculatedYield} {p.uom}</strong>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono">
+                      <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        Batch: <strong>{p.productBatchNo || buildProductBatchNo(dayBatchCode, p.productName, dayProductionDate)}</strong>
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                        Serial: <strong>{previewSerial}</strong>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                          Final Actual Good Output ({p.uom}) *
+                        </label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={Number(p.actualGoodOutput) === 0 ? '' : (p.actualGoodOutput ?? '')}
+                          placeholder="0"
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                            handleUpdateProductYield(pIdx, 'actualGoodOutput', clean === '' ? 0 : (parseFloat(clean) || 0));
+                          }}
+                          className="h-9 font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                          Reject / Floor Loss ({p.uom})
+                        </label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={Number(p.rejectOutput) === 0 ? '' : (p.rejectOutput ?? '')}
+                          placeholder="0"
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => {
+                            const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                            handleUpdateProductYield(pIdx, 'rejectOutput', clean === '' ? 0 : (parseFloat(clean) || 0));
+                          }}
+                          className="h-9 font-mono text-sm border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );})}
+              </div>
+
+              {/* Operator Notes */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Operator Completion Notes / Remarks
+                </label>
+                <textarea
+                  rows={3}
+                  value={completionNotes}
+                  onChange={(e) => setCompletionNotes(e.target.value)}
+                  placeholder="Enter batch completion remarks, packaging line notes, or quality observations..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-2.5 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Confirmed Operational Costs: Labour & Electricity (ONLY visible to Admin & Accountant) */}
+              {canViewCost && (
+                <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
+                  <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
+                    Day {activeDayNo} Operational Costs for Costing:
+                  </span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                        Direct Labour Amount (₹)
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={Number(labourCost) === 0 ? '' : (labourCost || '')}
+                        placeholder="0"
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                          handleTotalLabourChange(clean === '' ? 0 : (parseFloat(clean) || 0));
+                        }}
+                        className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
+                        Electricity Amount (₹)
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={Number(electricityCost) === 0 ? '' : (electricityCost || '')}
+                        placeholder="0"
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                          setElectricityCost(clean === '' ? 0 : Math.max(0, parseFloat(clean) || 0));
+                        }}
+                        className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* QA Lab Testing Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                <div>
+                  <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block">
+                    Route to QA Laboratory Test Queue (Quarantine)
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    If enabled, finished goods will be quarantined pending lab micro clearance.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={labTestRequired}
+                  onChange={(e) => setLabTestRequired(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowYieldModal(false)}
+                className="text-xs font-bold"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={completing}
+                onClick={() => handleCompleteDaySubmit(null, { finalize: submitFinalizeFlag })}
+                className={`${submitFinalizeFlag ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold text-xs px-4 cursor-pointer`}
+              >
+                {completing ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
+                <span>
+                  {submitFinalizeFlag
+                    ? 'Confirm & Finish Entire Production'
+                    : `Complete Day ${activeDayNo} & Pause (${labTestRequired ? 'Send to QC' : 'Push to Sales'})`}
+                </span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
