@@ -2233,6 +2233,21 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       const salePrice = totalCost * (1 + profitMargin / 100);
 
       // 3. Create production batch
+      let safeUserId = null;
+      if (req.user?.id) {
+        const userExists = await tx.user.findUnique({
+          where: { id: String(req.user.id) },
+          select: { id: true }
+        });
+        if (userExists) {
+          safeUserId = userExists.id;
+        }
+      }
+      if (!safeUserId) {
+        const defaultUser = await tx.user.findFirst({ select: { id: true } });
+        safeUserId = defaultUser?.id;
+      }
+
       const newBatch = await tx.productionBatchNew.create({
         data: {
           referenceNo,
@@ -2254,7 +2269,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
           salePrice,
           note: data.note || null,
           attachmentPath: data.attachmentPath || null,
-          createdBy: req.user.id,
+          createdBy: safeUserId,
           orderId: data.orderId || null
         }
       });

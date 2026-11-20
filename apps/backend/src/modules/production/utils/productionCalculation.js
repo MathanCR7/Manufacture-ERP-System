@@ -485,10 +485,12 @@ function calculateDayProductCosting({
   outputs = [],
   totalBaseRmCost = 0,
   netPostEvapMixMl = 0,
+  preEvapMixMl = 0,
   ebTotalCost = 0,
   labourTotalCost = 0
 }) {
-  const totalBasePoolMl = Math.max(0, Number(netPostEvapMixMl || 0));
+  // Option 1: Direct Pre-Evaporation Mix Costing (Pure pre-mix pool)
+  const totalBasePoolMl = Math.max(0, Number(preEvapMixMl || netPostEvapMixMl || 0));
   const totalDayBaseMl = outputs.reduce((s, o) => s + Number(o.allocatedBaseMl || o.mixUsedMl || 0), 0);
   const totalProductRmCost = outputs.reduce((s, o) => s + Number(o.productRmCost || 0), 0);
   const totalDayMixWithRms = outputs.reduce((s, o) => s + Number(o.productTotalMixMl || o.allocatedBaseMl || 0), 0);

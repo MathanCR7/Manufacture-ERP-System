@@ -434,16 +434,27 @@ export default function ProductionCleanReportView({
   const mergeStageName = liveEvaporationResult?.mergeStage || batch?.merge_stage || batch?.evaporationData?.mergeStage || 'After heating';
   const totalBeforeEvapMl = Number(
     liveEvaporationResult?.totalBeforeEvapMl ||
+    batch?.merged_pre_evap_ml ||
+    batch?.mergedPreEvapMl ||
     (netPostEvapMixMl + evaporationLossMl) ||
     totalBaseLiquidVolumeMl ||
     0
   );
 
-  // Base raw material costing:
-  // When only Day 1 is completed (or completed days do not use 100% of mix),
-  // base total mix value should NOT be taken in full; only Day 1's allocated base mixing cost should be taken!
-  const baseCostPerMl = (totalBaseConsumedCost > 0 && netPostEvapMixMl > 0)
-    ? (totalBaseConsumedCost / netPostEvapMixMl)
+  // Pre-Evaporation Volume Pool (Option 1: Direct Pre-Mix Costing)
+  const preEvapMixVolumeMl = Number(
+    batch?.merged_pre_evap_ml ||
+    batch?.mergedPreEvapMl ||
+    liveEvaporationResult?.totalBeforeEvapMl ||
+    totalBeforeEvapMl ||
+    (netPostEvapMixMl + evaporationLossMl) ||
+    netPostEvapMixMl ||
+    0
+  );
+
+  // Base raw material costing (Option 1: Pre-Evaporation Pure Pre-Mix Formula Rate):
+  const baseCostPerMl = (totalBaseConsumedCost > 0 && preEvapMixVolumeMl > 0)
+    ? (totalBaseConsumedCost / preEvapMixVolumeMl)
     : 0;
 
   // ── NORMALIZE DAY-WISE EXECUTION ENTRIES (COMPLETED DAYS ONLY) ──
@@ -693,8 +704,8 @@ export default function ProductionCleanReportView({
 
   const totalAddedRmsCost = round2(productSpecificRmGroups.reduce((s, g) => s + g.totalCost, 0));
 
-  // Scoped base RM cost: strictly the allocated mixing cost of completed days (or single day if selected)
-  const scopedBaseRmCost = (totalAllocatedMixMl > 0 && netPostEvapMixMl > 0)
+  // Scoped base RM cost: strictly the allocated mixing cost of completed days (Option 1: Pre-Evaporation Rate)
+  const scopedBaseRmCost = (totalAllocatedMixMl > 0 && preEvapMixVolumeMl > 0)
     ? round2(totalAllocatedMixMl * baseCostPerMl)
     : totalBaseConsumedCost;
 
@@ -1354,7 +1365,7 @@ export default function ProductionCleanReportView({
               <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-indigo-200/70 dark:border-indigo-900/40">
                 <span className="block text-[9.5px] uppercase font-bold text-purple-600 dark:text-purple-400 font-sans">2. Allocated Mix Consumed ({durationDaysLabel})</span>
                 <span className="text-sm font-black text-purple-700 dark:text-purple-300">{formatIndian(totalAllocatedMixMl, 0)} ml</span>
-                <span className="block text-[10px] text-purple-600 dark:text-purple-400 font-bold">₹{formatIndian(scopedBaseRmCost)} ({round2(netPostEvapMixMl > 0 ? (totalAllocatedMixMl / netPostEvapMixMl) * 100 : 0)}% of pool)</span>
+                <span className="block text-[10px] text-purple-600 dark:text-purple-400 font-bold">₹{formatIndian(scopedBaseRmCost)} ({round2(preEvapMixVolumeMl > 0 ? (totalAllocatedMixMl / preEvapMixVolumeMl) * 100 : 0)}% of pool)</span>
               </div>
               <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-indigo-200/70 dark:border-indigo-900/40">
                 <span className="block text-[9.5px] uppercase font-bold text-amber-600 dark:text-amber-400 font-sans">3. Unallocated Tank Balance</span>

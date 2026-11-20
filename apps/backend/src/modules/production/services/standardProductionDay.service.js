@@ -304,6 +304,46 @@ async function resolveNetPostEvapMixMl(db, batchId, fallbackRequestedMl = 0) {
 }
 
 /**
+ * Resolves total pre-evaporation mix (ml) for a batch (Option 1: Pre-mix costing).
+ */
+async function resolvePreEvapMixMl(db, batchId, fallbackMl = 0) {
+  let preMixMl = 0;
+  try {
+    const mergeRows = await db.$queryRawUnsafe(
+      `SELECT merged_total_ml, mix_after_evap_ml FROM production_batch_merge WHERE batch_id = $1 LIMIT 1;`,
+      batchId
+    );
+    if (mergeRows && mergeRows.length > 0) {
+      preMixMl = Number(mergeRows[0].merged_total_ml || 0);
+    }
+  } catch (_) {}
+
+  if (preMixMl <= 0) {
+    const pbRows = await db.$queryRawUnsafe(
+      `SELECT merged_pre_evap_ml, net_post_evap_mix_ml FROM production_batches WHERE id = $1 LIMIT 1;`,
+      batchId
+    );
+    if (pbRows && pbRows.length > 0) {
+      preMixMl = Number(pbRows[0].merged_pre_evap_ml || pbRows[0].net_post_evap_mix_ml || 0);
+    }
+  }
+
+  if (preMixMl <= 0) {
+    try {
+      const rmSum = await db.$queryRawUnsafe(`
+        SELECT COALESCE(SUM(COALESCE(taken_qty, required_qty, 0) * COALESCE(density, 1) * 1000), 0) AS total_ml
+        FROM production_batch_rm_line WHERE batch_id = $1;
+      `, batchId);
+      if (rmSum && rmSum.length > 0 && Number(rmSum[0].total_ml) > 0) {
+        preMixMl = Number(rmSum[0].total_ml);
+      }
+    } catch (_) {}
+  }
+
+  return round2(preMixMl > 0 ? preMixMl : fallbackMl);
+}
+
+/**
  * Sums mix already consumed in previous completed / QC-submitted days (< currentDayNo).
  */
 async function getPreviousDaysAllocatedMl(db, batchId, currentDayNo = null) {
@@ -1042,10 +1082,12 @@ async function completeDayRun({
     const labourVal = usersLabourSum > 0 ? usersLabourSum : Number(labourTotalCost || 0);
     const overheadVal = Number(overheadAmt || 0);
 
+    const preEvapMixMl = await resolvePreEvapMixMl(tx, batchId, netPostEvapMixMl);
     const costing = calculateDayProductCosting({
       outputs: preparedOutputs,
       totalBaseRmCost,
       netPostEvapMixMl,
+      preEvapMixMl,
       ebTotalCost: ebVal,
       labourTotalCost: labourVal
     });
@@ -2027,10 +2069,12 @@ async function updateCompletedDayRun({
       : (labourTotalCost !== undefined ? Number(labourTotalCost) : Number(day.labour_total_cost || 0));
     const nextOverhead = overheadAmt !== undefined ? Number(overheadAmt) : Number(day.overhead_amt || 0);
 
+    const preEvapMixMl = await resolvePreEvapMixMl(tx, batchId, netPostEvapMixMl);
     const costing = calculateDayProductCosting({
       outputs: preparedOutputs,
       totalBaseRmCost,
       netPostEvapMixMl,
+      preEvapMixMl,
       ebTotalCost: nextEbCost,
       labourTotalCost: nextLabourCost
     });
@@ -2344,6 +2388,7 @@ module.exports = {
   ensureMultiDaySchema,
   normalizeAssignedUsers,
   resolveNetPostEvapMixMl,
+  resolvePreEvapMixMl,
   getPreviousDaysAllocatedMl,
   computeBatchBaseRmCost,
   syncParentBatchAggregate,

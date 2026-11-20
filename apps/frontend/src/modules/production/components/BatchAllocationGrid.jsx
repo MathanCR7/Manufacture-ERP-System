@@ -4,13 +4,14 @@ import {
   Tag, Boxes, RefreshCw, Plus, Minus, Trash2, Check, AlertTriangle, 
   HelpCircle, Calendar, ShieldCheck, Database, X, ArrowRight, Layers, ArrowLeftRight,
   Search, Edit3, Filter, Copy, Scale, Sparkles, Calculator, Sliders, CheckCircle2,
-  AlertCircle
+  AlertCircle, Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
+import ProductionLotAllocationModal from './ProductionLotAllocationModal';
 
 // Helper: Format date as dd-mm-yyyy
 const formatDateDMY = (dateVal) => {
@@ -111,12 +112,7 @@ export default function BatchAllocationGrid({
   // ── LOT ALLOCATION MODAL STATE (MODAL 2) ──
   const [activeItemIndex, setActiveItemIndex] = useState(null);
   const [lotModalOpen, setLotModalOpen] = useState(false);
-  const [loadingLots, setLoadingLots] = useState(false);
-  const [availableLots, setAvailableLots] = useState([]);
-  const [lotAllocations, setLotAllocations] = useState({}); // { [lotId]: allocatedQty }
-  const [selectedGrnFilter, setSelectedGrnFilter] = useState('ALL');
-  const [lotSearchTerm, setLotSearchTerm] = useState('');
-  const [manualSupplierBatches, setManualSupplierBatches] = useState({}); // { [lotId]: string }
+  const [autoAllocatingAll, setAutoAllocatingAll] = useState(false);
 
   // ── ADD RAW MATERIAL DIRECTLY MODAL STATE ──
   const [addRmModalOpen, setAddRmModalOpen] = useState(false);
@@ -311,7 +307,8 @@ export default function BatchAllocationGrid({
     const updated = [...rawMaterials];
     const row = { ...updated[index] };
     const master = findMaster(row);
-    const num = Number(value || 0);
+    const cleanStr = typeof value === 'string' ? value.replace(/^0+(?=\d)/, '') : value;
+    const num = Number(cleanStr || 0);
 
     const rawBase = (master?.unitId || master?.consumptionUnit || row.baseUom || row.selectedUom || 'liter');
     const baseUom = (!rawBase || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawBase)) ? 'units' : rawBase;
@@ -362,7 +359,8 @@ export default function BatchAllocationGrid({
     const updated = [...rawMaterials];
     const row = { ...updated[index] };
     const master = findMaster(row);
-    const r = Number(value || 0);
+    const cleanStr = typeof value === 'string' ? value.replace(/^0+(?=\d)/, '') : value;
+    const r = Number(cleanStr || 0);
 
     const factor = Number(
       master?.conversionFactor || 
@@ -400,350 +398,30 @@ export default function BatchAllocationGrid({
     onUpdateRawMaterials(updated);
   };
   // ── LOT ALLOCATION MODAL LOGIC ──
-  const openLotModal = async (index) => {
-    const item = rawMaterials[index];
-    if (!item) return;
-
+  const openLotModal = (index) => {
     setActiveItemIndex(index);
     setLotModalOpen(true);
-    setLoadingLots(true);
-    setSelectedGrnFilter('ALL');
-    setLotSearchTerm('');
-
-    const rawClean = (item.rmName || item.rmCode || 'MILKFAT4')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '')
-      .slice(0, 16);
-    const reqQty = Number(item.baseRequiredQty !== undefined ? item.baseRequiredQty : (item.requiredQty || 0));
-
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, '0');
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const yyyy = today.getFullYear();
-    const mfgStr = `${dd}-${mm}-${yyyy}`;
-    const expStr = `${dd}-${mm}-${yyyy + 1}`;
-
-    // Sensible defaults while live metadata fetches
-    setOverrideForm({
-      internalBatchNo: `BATCH-${rawClean}-001`,
-      grnNumber: 'GRN-MANUAL-OVERRIDE',
-      poNumber: 'PO-MANUAL-OVERRIDE',
-      batchQty: 1,
-      weight: '25 kg / 50',
-      availableQty: Math.max(reqQty || 100, 4840),
-      supplierBatchNo: 'BATCH-01',
-      mfgDate: mfgStr,
-      expiryDate: expStr,
-      supplierName: 'SUP-LOT-DIRECT',
-      latestPoNumber: null,
-      latestBatchNumber: null
-    });
-    setShowManualOverrideForm(false);
-
-    const currentAllocMap = {};
-    const currentSupplierMap = {};
-    if (Array.isArray(item.allocatedBatches)) {
-      item.allocatedBatches.forEach(b => {
-        currentAllocMap[b.batchId] = Number(b.allocatedQty || 0);
-        if (b.supplierBatchNo || b.mfgBatchNo) {
-          currentSupplierMap[b.batchId] = b.supplierBatchNo || b.mfgBatchNo;
-        }
-      });
-    }
-    setLotAllocations(currentAllocMap);
-    setManualSupplierBatches(currentSupplierMap);
-
-    try {
-      const [batchesRes, metaRes] = await Promise.all([
-        api.get(`/production/rm-batches/${item.rmId}`),
-        api.get(`/production/rm-batch-meta/${item.rmId}?rmName=${encodeURIComponent(item.rmName || '')}`).catch(() => null)
-      ]);
-      const rawLots = Array.isArray(batchesRes.data) ? batchesRes.data : [];
-      // Strictly filter out any lots that have 0 remaining balance or are marked DEPLETED
-      const lots = rawLots.filter(l => Number(l.availableQty ?? l.netQty ?? 0) > 0.0001 && l.status !== 'DEPLETED');
-      const meta = metaRes?.data || null;
-
-      setAvailableLots(lots);
-
-      // Prune stale/orphan lot keys so Allocate Remaining never subtracts invisible phantom quantities
-      const reconciledMap = {};
-      Object.entries(currentAllocMap).forEach(([rawKey, rawQty]) => {
-        const qtyVal = Number(rawQty || 0);
-        if (qtyVal <= 0) return;
-        const matched = lots.find(l => String(l.id) === String(rawKey) || String(l.internalBatchNo) === String(rawKey));
-        if (matched) {
-          reconciledMap[matched.id] = Number(Math.min(Number(matched.availableQty ?? matched.netQty ?? qtyVal), (reconciledMap[matched.id] || 0) + qtyVal).toFixed(4));
-        }
-      });
-      setLotAllocations(reconciledMap);
-
-      // 1. Resolve latest PO number for this responsive raw material
-      let resolvedPo = meta?.latestPoNumber;
-      if (!resolvedPo || resolvedPo === 'PO-OPENING' || resolvedPo === 'PO-MANUAL-OVERRIDE') {
-        const poLot = lots.find(l => l.poNumber && !l.poNumber.startsWith('PO-OPEN') && !l.poNumber.includes('Override'));
-        if (poLot) resolvedPo = poLot.poNumber;
-      }
-      if (!resolvedPo) resolvedPo = 'PO-MANUAL-OVERRIDE';
-
-      // 2. Resolve continuing sequential batch number for this responsive raw material
-      let resolvedBatch = meta?.nextBatchNumber;
-      if (!resolvedBatch) {
-        let maxSeq = 0;
-        lots.forEach(l => {
-          const m = (l.internalBatchNo || '').match(new RegExp(`^BATCH-${rawClean}-(\\d+)`, 'i'));
-          if (m && m[1]) {
-            const p = parseInt(m[1], 10);
-            if (p > maxSeq) maxSeq = p;
-          }
-        });
-        resolvedBatch = `BATCH-${rawClean}-${String(maxSeq + 1).padStart(3, '0')}`;
-      }
-
-      setOverrideForm({
-        internalBatchNo: resolvedBatch,
-        grnNumber: 'GRN-MANUAL-OVERRIDE',
-        poNumber: resolvedPo,
-        batchQty: 1,
-        weight: '25 kg / 50',
-        availableQty: Math.max(reqQty || 100, 4840),
-        supplierBatchNo: 'BATCH-01',
-        mfgDate: mfgStr,
-        expiryDate: expStr,
-        supplierName: meta?.latestSupplierName || lots[0]?.supplierName || 'SUP-LOT-DIRECT',
-        latestPoNumber: resolvedPo,
-        latestBatchNumber: meta?.latestBatchNumber || null
-      });
-    } catch (err) {
-      console.error('Failed to fetch RM batches or meta in BatchAllocationGrid:', err);
-      setAvailableLots([]);
-    } finally {
-      setLoadingLots(false);
-    }
   };
 
-  // Add / Apply Manual Override Lot
-  const handleAddManualOverrideLot = () => {
-    const lotId = `manual-${Date.now()}`;
-    const newLot = {
-      id: lotId,
-      internalBatchNo: overrideForm.internalBatchNo?.trim() || `BATCH-OVERRIDE-${Date.now().toString().slice(-4)}`,
-      grnNumber: overrideForm.grnNumber?.trim() || 'GRN-MANUAL-OVERRIDE',
-      grnRef: overrideForm.grnNumber?.trim() || 'GRN-MANUAL-OVERRIDE',
-      poNumber: overrideForm.poNumber?.trim() || 'PO-MANUAL-OVERRIDE',
-      poReferenceNo: overrideForm.poNumber?.trim() || 'PO-MANUAL-OVERRIDE',
-      batchQty: Number(overrideForm.batchQty || 1),
-      weight: overrideForm.weight || '25 kg / 50',
-      availableQty: Number(overrideForm.availableQty || 4840),
-      netQty: Number(overrideForm.availableQty || 4840),
-      supplierBatchNo: overrideForm.supplierBatchNo || 'BATCH-01',
-      mfgBatchNo: overrideForm.supplierBatchNo || 'BATCH-01',
-      mfgDate: overrideForm.mfgDate || '01-10-2026',
-      expiryDate: overrideForm.expiryDate || '01-10-2027',
-      supplierName: overrideForm.supplierName || 'SUP-LOT-DIRECT',
-      isManualOverride: true,
-      source: 'MANUAL_OVERRIDE'
-    };
-
-    setAvailableLots(prev => [newLot, ...prev.filter(l => l.internalBatchNo !== newLot.internalBatchNo)]);
-    setManualSupplierBatches(prev => ({
-      ...prev,
-      [lotId]: newLot.supplierBatchNo
-    }));
-
-    const item = rawMaterials[activeItemIndex];
-    const req = Number(item?.baseRequiredQty !== undefined ? item?.baseRequiredQty : (item?.requiredQty || 0));
-    const currentAllocSum = Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0);
-    const needed = Math.max(0, req - currentAllocSum);
-    const toAlloc = Math.min(newLot.availableQty, needed);
-    if (toAlloc > 0) {
-      setLotAllocations(prev => ({
-        ...prev,
-        [lotId]: toAlloc
-      }));
-    }
-
-    // Auto-advance sequence so next manual lot continues cleanly
-    const currBatch = newLot.internalBatchNo;
-    const match = currBatch.match(/^(.*?)(\d+)$/);
-    if (match) {
-      const pfx = match[1];
-      const seq = parseInt(match[2], 10);
-      const nextBatchStr = `${pfx}${String(seq + 1).padStart(match[2].length, '0')}`;
-      setOverrideForm(prev => ({
-        ...prev,
-        internalBatchNo: nextBatchStr,
-        latestBatchNumber: currBatch
-      }));
-    }
-
-    setShowManualOverrideForm(false);
-    Swal.fire({
-      title: 'Manual Override Lot Added',
-      html: `
-        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
-          <p><strong>✓ Our Batch (Continuing):</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${newLot.internalBatchNo}</span></p>
-          <p><strong>✓ GRN:</strong> <span style="font-family: monospace; font-weight: bold; color: #d97706;">${newLot.grnNumber} (Manual Override)</span></p>
-          <p><strong>✓ PO Number:</strong> <span style="font-family: monospace; font-weight: bold;">${newLot.poNumber}</span></p>
-          <p><strong>✓ Available Stock:</strong> ${newLot.availableQty} ${item?.baseUom || item?.selectedUom || 'units'}</p>
-        </div>
-      `,
-      icon: 'success',
-      timer: 2000
-    });
-  };
-
-  const handleSetLotQty = (lotId, value, maxAvail) => {
-    let num = Number(value);
-    if (isNaN(num) || num < 0) num = 0;
-    if (num > maxAvail) num = maxAvail;
-
-    setLotAllocations(prev => ({
-      ...prev,
-      [lotId]: num
-    }));
-  };
-
-  const handleFillRemaining = (lotId, maxAvail) => {
-    const cleanAllocMap = {};
-    let currentOtherTotal = 0;
-    availableLots.forEach(lot => {
-      if (String(lot.id) === String(lotId)) return;
-      const val = Number(lotAllocations[lot.id] || 0);
-      if (val > 0) {
-        cleanAllocMap[lot.id] = val;
-        currentOtherTotal += val;
-      }
-    });
-    const required = Number(rawMaterials[activeItemIndex]?.baseRequiredQty || rawMaterials[activeItemIndex]?.requiredQty || 0);
-    const remainingNeeded = Math.max(0, required - currentOtherTotal);
-    const toAlloc = Math.min(maxAvail, Number(remainingNeeded.toFixed(4)));
-    cleanAllocMap[lotId] = toAlloc;
-    setLotAllocations(cleanAllocMap);
-  };
-
-  const uniqueGrnList = useMemo(() => {
-    const map = new Map();
-    availableLots.forEach(lot => {
-      const grn = lot.grnNumber || lot.grnRef || 'Direct Stock';
-      if (!map.has(grn)) {
-        map.set(grn, { grnNumber: grn, count: 0, totalQty: 0 });
-      }
-      const item = map.get(grn);
-      item.count += 1;
-      item.totalQty += Number(lot.availableQty || lot.netQty || 0);
-    });
-    return Array.from(map.values());
-  }, [availableLots]);
-
-  const displayedLots = useMemo(() => {
-    return availableLots.filter(lot => {
-      if (selectedGrnFilter !== 'ALL') {
-        const grn = lot.grnNumber || lot.grnRef || '';
-        if (grn !== selectedGrnFilter) return false;
-      }
-      if (lotSearchTerm.trim()) {
-        const q = lotSearchTerm.trim().toLowerCase();
-        const ourBatch = String(lot.internalBatchNo || '').toLowerCase();
-        const suppBatch = String(lot.supplierBatchNo || lot.mfgBatchNo || '').toLowerCase();
-        const grn = String(lot.grnNumber || lot.grnRef || '').toLowerCase();
-        const po = String(lot.poNumber || lot.poReferenceNo || '').toLowerCase();
-        const supplier = String(lot.supplierName || '').toLowerCase();
-        const weight = String(lot.weight || '').toLowerCase();
-        if (
-          !ourBatch.includes(q) &&
-          !suppBatch.includes(q) &&
-          !grn.includes(q) &&
-          !po.includes(q) &&
-          !supplier.includes(q) &&
-          !weight.includes(q)
-        ) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [availableLots, selectedGrnFilter, lotSearchTerm]);
-
-  const totalAllocatedInModal = useMemo(() => {
-    if (!Array.isArray(availableLots) || availableLots.length === 0) {
-      return Object.values(lotAllocations).reduce((sum, v) => sum + Number(v || 0), 0);
-    }
-    return Number(
-      availableLots.reduce((sum, lot) => sum + Number(lotAllocations[lot.id] || 0), 0).toFixed(4)
-    );
-  }, [lotAllocations, availableLots]);
-
-  const handleSaveAllocations = async () => {
+  const handleConfirmLotAllocations = ({
+    allocatedBatches,
+    totalAllocatedBase,
+    totalAllocatedAlt,
+    blendedBaseRate,
+    blendedAltRate,
+    totalCost,
+    activeUomMode
+  }) => {
     if (activeItemIndex === null) return;
-    const item = rawMaterials[activeItemIndex];
-
-    const allocatedBatches = [];
-    let totalAllocated = 0;
-    let weightedAmountSum = 0;
-
-    for (const lot of availableLots) {
-      const qty = Number(lotAllocations[lot.id] || 0);
-      if (qty > 0) {
-        totalAllocated += qty;
-
-        let unitRate = Number(item.baseRate || item.unitRate || 0);
-        let poOrigQty = Number(lot.netQty || lot.availableQty || qty);
-        let poTotAmt = Number(lot.totalAmount || (poOrigQty * unitRate));
-
-        try {
-          const rateRes = await api.get(`/purchase/live-rate?batchId=${lot.id}&allocatedQty=${qty}`);
-          if (rateRes.data && rateRes.data.rate > 0) {
-            unitRate = Number(rateRes.data.rate);
-            poOrigQty = Number(rateRes.data.poOriginalQty || poOrigQty);
-            poTotAmt = Number(rateRes.data.poTotalAmount || poTotAmt);
-          }
-        } catch (e) {
-          // Fallback
-        }
-
-        const propFactor = poOrigQty > 0 ? (qty / poOrigQty) : 1;
-        const allocatedAmount = Number((poTotAmt * propFactor).toFixed(2));
-        weightedAmountSum += allocatedAmount;
-
-        const effectiveSupplierBatch = manualSupplierBatches[lot.id] || lot.supplierBatchNo || lot.mfgBatchNo || 'BATCH-01';
-
-        allocatedBatches.push({
-          batchId: lot.id,
-          lotNumber: lot.internalBatchNo,
-          internalBatchNo: lot.internalBatchNo,
-          supplierBatchNo: effectiveSupplierBatch,
-          mfgBatchNo: effectiveSupplierBatch,
-          batchQty: lot.batchQty ?? 1,
-          weight: lot.weight || '25 kg / 50',
-          mfgDate: lot.mfgDate || null,
-          expiryDate: lot.expiryDate || null,
-          grnNumber: lot.grnNumber || lot.grnRef || (lot.isManualOverride ? 'GRN-MANUAL-OVERRIDE' : null),
-          poNumber: lot.poNumber || lot.poReferenceNo || (lot.isManualOverride ? 'PO-MANUAL-OVERRIDE' : null),
-          allocatedQty: qty,
-          availableQty: Number(lot.availableQty || lot.netQty || 0),
-          remainingQty: Number(Math.max(0, Number(lot.availableQty || lot.netQty || 0) - qty).toFixed(3)),
-          poOriginalQty: poOrigQty,
-          poTotalAmount: poTotAmt,
-          allocatedAmount,
-          unitRate,
-          uom: item.baseUom || item.selectedUom,
-          isManualOverride: Boolean(lot.isManualOverride || lot.source === 'MANUAL_OVERRIDE' || (lot.id && String(lot.id).startsWith('manual-'))),
-          source: lot.source || (lot.isManualOverride ? 'MANUAL_OVERRIDE' : 'PURCHASE_GRN')
-        });
-      }
-    }
-
     const updated = [...rawMaterials];
     const row = { ...updated[activeItemIndex] };
     row.allocatedBatches = allocatedBatches;
 
-    if (totalAllocated > 0 && weightedAmountSum > 0) {
-      const blendedBaseRate = Number((weightedAmountSum / totalAllocated).toFixed(4));
-      const factor = Number(row.conversionFactor || 1);
+    if (allocatedBatches.length > 0 && totalAllocatedBase > 0) {
       row.baseRate = blendedBaseRate;
-      row.altRate = factor > 0 ? Number((blendedBaseRate / factor).toFixed(4)) : blendedBaseRate;
-      row.unitRate = row.activeEntryMode === 'ALT' ? row.altRate : row.baseRate;
-      row.totalCost = Number(weightedAmountSum.toFixed(2));
+      row.altRate = blendedAltRate;
+      row.unitRate = row.activeEntryMode === 'ALT' ? blendedAltRate : blendedBaseRate;
+      row.totalCost = totalCost;
     } else {
       const currentRate = row.activeEntryMode === 'ALT' ? (row.altRate || row.unitRate) : (row.baseRate || row.unitRate);
       const currentQty = row.activeEntryMode === 'ALT' ? (row.altRequiredQty || row.requiredQty) : (row.baseRequiredQty || row.requiredQty);
@@ -755,16 +433,113 @@ export default function BatchAllocationGrid({
     setLotModalOpen(false);
   };
 
-  // Derived state for the active raw material lot modal
-  const activeRow = activeItemIndex !== null ? rawMaterials[activeItemIndex] : null;
-  const activeMaster = activeRow ? findMaster(activeRow) : null;
-  const activeCategory = getCategoryName(activeMaster) || getCategoryName(activeRow);
-  const activeDesc = getDescriptionText(activeMaster) || getDescriptionText(activeRow);
-  const activeBaseUom = activeMaster?.unitId || activeMaster?.consumptionUnit || activeRow?.baseUom || activeRow?.selectedUom || 'units';
-  const activeHasAlt = Boolean(
-    activeMaster ? (activeMaster.hasAlternateUom && activeMaster.alternateUom) : (activeRow?.hasAlternateUom && activeRow?.alternateUom)
-  );
-  const activeAltUom = activeMaster?.alternateUom || activeRow?.alternateUom || null;
+  // ── AUTO-ALLOCATE ALL RAW MATERIALS (FIFO) ──
+  const handleAutoAllocateAllFifo = async () => {
+    if (rawMaterials.length === 0) return;
+    setAutoAllocatingAll(true);
+    try {
+      const updated = [...rawMaterials];
+      let allocatedCount = 0;
+
+      for (let i = 0; i < updated.length; i++) {
+        const row = { ...updated[i] };
+        const rId = row.rmId || row.id || row.rawMaterialId;
+        if (!rId) continue;
+
+        const master = findMaster(row);
+        const factor = Number(master?.conversionFactor || row.conversionFactor || 1000);
+        const isAlt = row.activeEntryMode === 'ALT';
+        const targetReq = isAlt
+          ? Number(row.altRequiredQty || row.requiredQty || 0)
+          : Number(row.baseRequiredQty || row.requiredQty || 0);
+
+        if (targetReq <= 0) continue;
+
+        try {
+          const res = await api.get(`/production/rm-batches/${rId}`);
+          const rawLots = Array.isArray(res.data) ? res.data : [];
+          const lots = rawLots.filter(l => Number(l.availableQty ?? l.netQty ?? 0) > 0.0001 && l.status !== 'DEPLETED');
+          lots.sort((a, b) => {
+            const tA = a.expiryDate ? new Date(a.expiryDate).getTime() : Infinity;
+            const tB = b.expiryDate ? new Date(b.expiryDate).getTime() : Infinity;
+            return tA - tB;
+          });
+
+          if (lots.length > 0) {
+            let rem = targetReq;
+            const assignedBatches = [];
+            let weightedSum = 0;
+            let totalBase = 0;
+
+            for (const lot of lots) {
+              if (rem <= 0.0001) break;
+              const baseAvail = Number(lot.availableQty ?? lot.netQty ?? 0);
+              const lotAvailInMode = isAlt ? (baseAvail * factor) : baseAvail;
+              if (lotAvailInMode > 0) {
+                const takeInMode = Math.min(lotAvailInMode, rem);
+                const baseTake = isAlt ? (takeInMode / factor) : takeInMode;
+                const altTake = isAlt ? takeInMode : (baseTake * factor);
+                const rate = Number(lot.unitCost || lot.rate || lot.unitRate || row.baseRate || row.unitRate || 0);
+
+                assignedBatches.push({
+                  batchId: lot.id,
+                  lotNumber: lot.internalBatchNo,
+                  internalBatchNo: lot.internalBatchNo,
+                  supplierBatchNo: lot.supplierBatchNo || 'BATCH-01',
+                  mfgBatchNo: lot.mfgBatchNo || 'BATCH-01',
+                  batchQty: lot.batchQty ?? 1,
+                  weight: lot.weight || '25 kg / 50',
+                  mfgDate: lot.mfgDate || null,
+                  expiryDate: lot.expiryDate || null,
+                  grnNumber: lot.grnNumber || lot.grnRef || null,
+                  poNumber: lot.poNumber || lot.poReferenceNo || null,
+                  allocatedQty: Number(baseTake.toFixed(4)),
+                  allocatedAltQty: Number(altTake.toFixed(3)),
+                  availableQty: baseAvail,
+                  remainingQty: Number(Math.max(0, baseAvail - baseTake).toFixed(4)),
+                  unitRate: rate,
+                  uom: row.baseUom || 'units',
+                  altUom: row.alternateUom || null,
+                  isManualOverride: false,
+                  source: 'PURCHASE_GRN'
+                });
+
+                weightedSum += (baseTake * rate);
+                totalBase += baseTake;
+                rem = Math.max(0, Number((rem - takeInMode).toFixed(4)));
+              }
+            }
+
+            if (assignedBatches.length > 0) {
+              row.allocatedBatches = assignedBatches;
+              if (totalBase > 0) {
+                const blendedBaseRate = Number((weightedSum / totalBase).toFixed(4));
+                const blendedAltRate = factor > 0 ? Number((blendedBaseRate / factor).toFixed(4)) : blendedBaseRate;
+                row.baseRate = blendedBaseRate;
+                row.altRate = blendedAltRate;
+                row.unitRate = isAlt ? blendedAltRate : blendedBaseRate;
+                row.totalCost = Number(weightedSum.toFixed(2));
+              }
+              updated[i] = row;
+              allocatedCount++;
+            }
+          }
+        } catch (_) {}
+      }
+
+      onUpdateRawMaterials(updated);
+      Swal.fire({
+        title: 'FIFO Auto-Allocation Complete',
+        text: `Allocated live FIFO inventory batches for ${allocatedCount} raw material(s).`,
+        icon: 'success',
+        timer: 1800
+      });
+    } catch (err) {
+      console.error('Error auto-allocating all FIFO:', err);
+    } finally {
+      setAutoAllocatingAll(false);
+    }
+  };
 
   // Derived state for the selected raw material in add modal
   const selectedCatName = getCategoryName(selectedRmToAdd);
@@ -786,7 +561,20 @@ export default function BatchAllocationGrid({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || autoAllocatingAll || rawMaterials.length === 0}
+            onClick={handleAutoAllocateAllFifo}
+            className="h-8 text-xs font-bold rounded-xl border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+            title="Auto-allocate live warehouse batches using FIFO for all raw materials in this formulation"
+          >
+            <Zap className={`w-3.5 h-3.5 text-emerald-600 ${autoAllocatingAll ? 'animate-pulse' : ''}`} />
+            <span>{autoAllocatingAll ? 'Allocating...' : 'Auto-Allocate FIFO'}</span>
+          </Button>
+
           <Button
             type="button"
             onClick={() => {
@@ -972,7 +760,9 @@ export default function BatchAllocationGrid({
                         step="any"
                         min="0"
                         disabled={disabled}
-                        value={displayQty}
+                        value={displayQty === 0 ? '' : displayQty}
+                        placeholder="0"
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) => handleQtyChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
                         className={`h-8 text-center font-mono font-bold text-xs rounded-lg transition-all ${
                           isAltMode
@@ -1060,8 +850,11 @@ export default function BatchAllocationGrid({
                                 </span>
                               )}
                               <span className="text-[9px] text-indigo-900 dark:text-indigo-200 font-black">
-                                ({b.allocatedQty} {baseUomClean}
-                                {hasAlt && altUomClean ? ` / ${Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean}` : ''}
+                                ({isAltMode && (b.allocatedAltQty || (b.allocatedQty && factor)) ? (
+                                  `${b.allocatedAltQty || Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean} / ${b.allocatedQty} ${baseUomClean}`
+                                ) : (
+                                  `${b.allocatedQty} ${baseUomClean}${hasAlt && altUomClean ? ` / ${Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean}` : ''}`
+                                )}
                                 {b.availableQty ? ` • Rem: ${Number(Math.max(0, Number(b.availableQty) - Number(b.allocatedQty)).toFixed(3))} ${baseUomClean}` : ''})
                               </span>
                             </span>
@@ -1097,7 +890,9 @@ export default function BatchAllocationGrid({
                           step="any"
                           min="0"
                           disabled={disabled}
-                          value={displayRate}
+                          value={displayRate === 0 ? '' : displayRate}
+                          placeholder="0"
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) => handleRateChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
                           className="h-8 text-right font-mono font-bold text-xs rounded-lg w-24 text-indigo-700 dark:text-indigo-400"
                         />
@@ -1247,7 +1042,9 @@ export default function BatchAllocationGrid({
                     step="any"
                     min="0"
                     disabled={disabled}
-                    value={displayQty}
+                    value={displayQty === 0 ? '' : displayQty}
+                    placeholder="0"
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) => handleQtyChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
                     className="h-8 font-mono font-bold text-xs rounded-xl"
                   />
@@ -1345,7 +1142,11 @@ export default function BatchAllocationGrid({
                           </span>
                         )}
                         <span className="text-[9px] font-black">
-                          ({b.allocatedQty} {row.baseUom || row.selectedUom})
+                          ({isAltMode && (b.allocatedAltQty || (b.allocatedQty && factor)) ? (
+                            `${b.allocatedAltQty || Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean} / ${b.allocatedQty} ${baseUomClean}`
+                          ) : (
+                            `${b.allocatedQty} ${baseUomClean}${hasAlt && altUomClean ? ` / ${Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean}` : ''}`
+                          )})
                         </span>
                       </span>
                     ))}
@@ -1364,614 +1165,18 @@ export default function BatchAllocationGrid({
 
 
       {/* ══════════════════════════════════════════════════════════════════════════════
-          MODAL 2: BATCH ALLOCATION LOT MODAL (FEFO / GRN)
+          MODAL 2: BATCH ALLOCATION LOT MODAL (FEFO / GRN / DUAL UOM / AUTO FIFO)
       ══════════════════════════════════════════════════════════════════════════════ */}
-      {lotModalOpen && activeItemIndex !== null && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
-            
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between shrink-0 bg-slate-50/50 dark:bg-slate-850/50">
-              <div className="space-y-1.5 flex-1 pr-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <Boxes className="w-4 h-4 text-indigo-500" />
-                    <span>Allocate Stock Lots: {activeRow?.rmName}</span>
-                  </h3>
-                  {activeCategory && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                      Category: {activeCategory}
-                    </span>
-                  )}
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                    UOM: {activeBaseUom}{activeHasAlt && activeAltUom ? ` / ${activeAltUom}` : ''}
-                  </span>
-                  {activeRow?.rmCode && (
-                    <span className="text-[10px] font-mono text-slate-400">
-                      ({activeRow.rmCode})
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Select available GRN batches (FEFO Expiry Order). Filter by specific GRN or search by batch number.
-                </p>
-                {activeDesc && (
-                  <div className="mt-2 bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl px-3 py-1.5 text-xs flex items-start gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
-                      <strong className="text-amber-800 dark:text-amber-300 uppercase tracking-wide text-[10px] mr-1">
-                        Description / Storage Notes:
-                      </strong>
-                      <span>{activeDesc}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <button 
-                onClick={() => setLotModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* GRN Selector, Search Bar & Status Progress */}
-            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 space-y-3.5 shrink-0 bg-slate-50/30 dark:bg-slate-900">
-              
-              {/* Row 1: Source GRN Dropdown, Batch Search Input & Manual Override Toggle */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                {/* GRN Dropdown */}
-                <div className="sm:col-span-5">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
-                    <Layers className="w-3 h-3 text-indigo-500" />
-                    Filter by GRN:
-                  </label>
-                  <select
-                    value={selectedGrnFilter}
-                    onChange={(e) => setSelectedGrnFilter(e.target.value)}
-                    className="w-full text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
-                  >
-                    <option value="ALL">All GRNs ({availableLots.length} total lots available)</option>
-                    {uniqueGrnList.map(g => (
-                      <option key={g.grnNumber} value={g.grnNumber}>
-                        {g.grnNumber} ({g.count} lot{g.count === 1 ? '' : 's'} • {g.totalQty} {rawMaterials[activeItemIndex]?.baseUom || rawMaterials[activeItemIndex]?.selectedUom})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Search Bar */}
-                <div className="sm:col-span-4">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
-                    <Search className="w-3 h-3 text-indigo-500" />
-                    Search Batches:
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type="text"
-                      value={lotSearchTerm}
-                      onChange={(e) => setLotSearchTerm(e.target.value)}
-                      placeholder="Search batch, GRN, MFG batch, supplier..."
-                      className="h-9 text-xs rounded-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 pl-3 pr-8 shadow-2xs font-medium"
-                    />
-                    {lotSearchTerm && (
-                      <button
-                        onClick={() => setLotSearchTerm('')}
-                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Manual Override Form Toggle Button */}
-                <div className="sm:col-span-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowManualOverrideForm(!showManualOverrideForm)}
-                    className={`w-full h-9 rounded-xl font-bold text-xs border cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs ${
-                      showManualOverrideForm
-                        ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
-                        : 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100'
-                    }`}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>{showManualOverrideForm ? 'Close Override Form' : '+ Manual Override'}</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* Collapsible Manual Override Input Form */}
-              {showManualOverrideForm && (
-                <div className="p-4 rounded-2xl border-2 border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 shadow-md space-y-3 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between border-b border-indigo-100 dark:border-slate-800 pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="p-1 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                        <Tag className="w-3.5 h-3.5" />
-                      </span>
-                      <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
-                        Manual Lot Override & Opening Stock Entry
-                      </h4>
-                    </div>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      All fields optional • Pre-filled with smart defaults
-                    </span>
-                  </div>
-
-                  {/* 10 Fields Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-                    <div>
-                      <div className="flex items-center justify-between mb-0.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                          Our Batch:
-                        </label>
-                        {overrideForm.latestBatchNumber && (
-                          <span className="text-[8px] font-mono text-indigo-600 font-bold" title="Continues after latest batch number">
-                            Cont.
-                          </span>
-                        )}
-                      </div>
-                      <Input
-                        type="text"
-                        value={overrideForm.internalBatchNo}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, internalBatchNo: e.target.value }))}
-                        placeholder="e.g. BATCH-MILKFAT4-007"
-                        className="h-8 text-xs font-mono font-bold rounded-lg border-indigo-300 dark:border-indigo-700 bg-indigo-50/20"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider block mb-0.5">
-                        GRN (Manual Override):
-                      </label>
-                      <Input
-                        type="text"
-                        value={overrideForm.grnNumber}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, grnNumber: e.target.value }))}
-                        placeholder="GRN-MANUAL-OVERRIDE"
-                        className="h-8 text-xs font-mono font-bold rounded-lg border-amber-300 dark:border-amber-700 bg-amber-50/20 text-amber-800 dark:text-amber-200"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-0.5">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                          PO:
-                        </label>
-                        {overrideForm.latestPoNumber && overrideForm.latestPoNumber !== 'PO-MANUAL-OVERRIDE' && (
-                          <span className="text-[8px] font-mono text-emerald-600 font-bold">
-                            Latest PO
-                          </span>
-                        )}
-                      </div>
-                      <Input
-                        type="text"
-                        value={overrideForm.poNumber}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, poNumber: e.target.value }))}
-                        placeholder="e.g. PO-000013"
-                        className="h-8 text-xs font-mono font-bold rounded-lg border-slate-300 dark:border-slate-700"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        Batch Qty:
-                      </label>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={overrideForm.batchQty}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, batchQty: e.target.value }))}
-                        placeholder="1"
-                        className="h-8 text-xs font-mono font-bold rounded-lg text-center"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        Weight:
-                      </label>
-                      <Input
-                        type="text"
-                        value={overrideForm.weight}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, weight: e.target.value }))}
-                        placeholder="25 kg / 50"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        Available Qty:
-                      </label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="any"
-                        value={overrideForm.availableQty}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, availableQty: e.target.value }))}
-                        placeholder="4840"
-                        className="h-8 text-xs font-mono font-black text-indigo-600 rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        MFG Batch:
-                      </label>
-                      <Input
-                        type="text"
-                        value={overrideForm.supplierBatchNo}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, supplierBatchNo: e.target.value }))}
-                        placeholder="BATCH-01"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        MFG Date:
-                      </label>
-                      <Input
-                        type="text"
-                        value={overrideForm.mfgDate}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, mfgDate: e.target.value }))}
-                        placeholder="01-10-2026"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        Exp Date:
-                      </label>
-                      <Input
-                        type="text"
-                        value={overrideForm.expiryDate}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, expiryDate: e.target.value }))}
-                        placeholder="01-10-2027"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        Supplier:
-                      </label>
-                      <Input
-                        type="text"
-                        value={overrideForm.supplierName}
-                        onChange={(e) => setOverrideForm(prev => ({ ...prev, supplierName: e.target.value }))}
-                        placeholder="SUP-LOT-DIRECT"
-                        className="h-8 text-xs font-mono font-medium rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      When applied, this lot appears at the top for immediate allocation and will update on the RM Stock page.
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={handleAddManualOverrideLot}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer h-8"
-                    >
-                      <Check className="w-3.5 h-3.5 mr-1" />
-                      Apply Manual Override Lot
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Row 2: Required vs Allocated Status Pill */}
-              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-2xs text-xs font-mono">
-                <div className="flex items-center gap-4 flex-wrap">
-                  <span>
-                    Required: <strong className="text-slate-900 dark:text-white font-black">{rawMaterials[activeItemIndex]?.baseRequiredQty || rawMaterials[activeItemIndex]?.requiredQty} {rawMaterials[activeItemIndex]?.baseUom || rawMaterials[activeItemIndex]?.selectedUom}</strong>
-                  </span>
-                  <span>•</span>
-                  <span>
-                    Allocated: <strong className="text-indigo-600 dark:text-indigo-400 font-black">{totalAllocatedInModal} {rawMaterials[activeItemIndex]?.baseUom || rawMaterials[activeItemIndex]?.selectedUom}</strong>
-                  </span>
-                  <span>•</span>
-                  <span>
-                    Balance: <strong className={totalAllocatedInModal >= Number(rawMaterials[activeItemIndex]?.baseRequiredQty || rawMaterials[activeItemIndex]?.requiredQty || 0) ? 'text-emerald-600' : 'text-amber-600'}>
-                      {Math.max(0, Number(rawMaterials[activeItemIndex]?.baseRequiredQty || rawMaterials[activeItemIndex]?.requiredQty || 0) - totalAllocatedInModal).toFixed(2)} {rawMaterials[activeItemIndex]?.baseUom || rawMaterials[activeItemIndex]?.selectedUom}
-                    </strong>
-                  </span>
-                </div>
-
-                <div>
-                  {totalAllocatedInModal >= Number(rawMaterials[activeItemIndex]?.baseRequiredQty || rawMaterials[activeItemIndex]?.requiredQty || 0) ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 dark:bg-emerald-950/80 dark:text-emerald-300 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                      <Check className="w-3 h-3 text-emerald-600" />
-                      Fulfilled
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-50 dark:bg-amber-950/80 dark:text-amber-300 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
-                      Pending Allocation
-                    </span>
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-            {/* Lots List Body */}
-            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
-              {loadingLots ? (
-                <div className="p-12 text-center text-xs font-bold text-slate-400 space-y-2">
-                  <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-500" />
-                  <p>Loading active inventory batches & FEFO expiry dates...</p>
-                </div>
-              ) : displayedLots.length === 0 ? (
-                <div className="p-8 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-2 bg-slate-50/50 dark:bg-slate-850">
-                  <AlertTriangle className="w-7 h-7 text-amber-500 mx-auto" />
-                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    No matching lots found for the current filter.
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    {selectedGrnFilter !== 'ALL' ? 'Try changing the GRN filter to "All GRNs" or clearing search.' : 'Material will be fulfilled from general warehouse stock.'}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="text-[11px] font-black text-slate-500 uppercase tracking-wider flex items-center justify-between">
-                    <span>Available Lots (Sorted by FEFO Expiry):</span>
-                    <span>Showing {displayedLots.length} of {availableLots.length} lot{availableLots.length === 1 ? '' : 's'}</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {displayedLots.map((lot, lIdx) => {
-                      const avail = Number(lot.availableQty || lot.netQty || 0);
-                      const currentAlloc = lotAllocations[lot.id] || '';
-                      const isExpired = lot.expiryDate && new Date(lot.expiryDate) < new Date();
-                      const currentSupplierBatch = manualSupplierBatches[lot.id] ?? (lot.supplierBatchNo || lot.mfgBatchNo || '');
-                      const uomLabel = rawMaterials[activeItemIndex]?.baseUom || rawMaterials[activeItemIndex]?.selectedUom || 'units';
-
-                      return (
-                        <div 
-                          key={lot.id}
-                          className={`p-4 rounded-2xl border transition-all space-y-3 shadow-2xs ${
-                            Number(currentAlloc) > 0
-                              ? 'border-indigo-400 dark:border-indigo-600 bg-indigo-50/30 dark:bg-indigo-950/20 ring-1 ring-indigo-400/40'
-                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
-                          }`}
-                        >
-                          {/* Top Row: Our Batch Badge & GRN / PO Reference Badges */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                                Our Batch:
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
-                                <Tag className="w-3 h-3 text-indigo-500" />
-                                {lot.internalBatchNo}
-                              </span>
-                              {lIdx === 0 && !isExpired && (
-                                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                  🥇 FEFO Earliest
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 flex-wrap font-mono">
-                              {lot.isManualOverride && (
-                                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-[10px] font-black border border-amber-300 dark:border-amber-800">
-                                  🛠 Manual Override
-                                </span>
-                              )}
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800">
-                                GRN: {lot.grnNumber || lot.grnRef || 'GRN-OPENING'}
-                              </span>
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold border border-slate-200 dark:border-slate-700">
-                                PO: {lot.poNumber || lot.poReferenceNo || 'Manual Override'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Grid of All Batch Details: Batch Qty, Weight, MFG Batch, MFG Date, EXP Date */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs bg-slate-50/70 dark:bg-slate-850 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
-                            
-                            {/* 1. Batch Qty */}
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Batch Qty:</span>
-                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                {lot.batchQty ?? 1}
-                              </span>
-                            </div>
-
-                            {/* 2. Weight */}
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Weight:</span>
-                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                {lot.weight || 'e.g. 25 kg / 50'}
-                              </span>
-                            </div>
-
-                            {/* 3. Available Qty */}
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Available Qty:</span>
-                              <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-xs block">
-                                {avail} {uomLabel}
-                              </span>
-                              {(() => {
-                                const rowItem = rawMaterials[activeItemIndex];
-                                const m = findMaster(rowItem);
-                                const hAlt = Boolean(m ? (m.hasAlternateUom && m.alternateUom) : (rowItem?.hasAlternateUom && rowItem?.alternateUom));
-                                const aUom = m?.alternateUom || rowItem?.alternateUom;
-                                const f = Number(m?.conversionFactor || rowItem?.conversionFactor || 1000);
-                                if (hAlt && aUom) {
-                                  return (
-                                    <span className="text-[9.5px] font-mono text-slate-400 block">
-                                      ≈ {Number((avail * f).toFixed(2)).toLocaleString()} {aUom}
-                                    </span>
-                                  );
-                                }
-                                return null;
-                              })()}
-                            </div>
-
-                            {/* 4. MFG Batch (Supplier) - Strictly Read-Only */}
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">MFG Batch:</span>
-                              <span 
-                                className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 inline-block max-w-[130px] truncate select-all"
-                                title={`Manufacturer Batch: ${lot.mfgBatchNo || lot.supplierBatchNo || 'N/A'}`}
-                              >
-                                {lot.mfgBatchNo || lot.supplierBatchNo || 'N/A'}
-                              </span>
-                            </div>
-
-                            {/* 5. MFG Date */}
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">MFG Date:</span>
-                              <span className="font-mono font-semibold text-slate-700 dark:text-slate-300 text-xs flex items-center gap-1">
-                                <Calendar className="w-3 h-3 text-slate-400" />
-                                {formatDateDMY(lot.mfgDate)}
-                              </span>
-                            </div>
-
-                            {/* 6. Exp Date */}
-                            <div>
-                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Exp Date:</span>
-                              <span className={`font-mono font-bold text-xs flex items-center gap-1 ${
-                                isExpired ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'
-                              }`}>
-                                <Calendar className="w-3 h-3 text-slate-400" />
-                                {formatDateDMY(lot.expiryDate)}
-                              </span>
-                            </div>
-
-                            {/* 7. Supplier Name */}
-                            {lot.supplierName && (
-                              <div className="col-span-2">
-                                <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Supplier:</span>
-                                <span className="text-slate-700 dark:text-slate-300 truncate block text-xs font-medium">
-                                  {lot.supplierName}
-                                </span>
-                              </div>
-                            )}
-
-                          </div>
-
-                          {/* Allocation Controls: Quick Buttons + Allocate Qty Input */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleFillRemaining(lot.id, avail)}
-                                className="h-7 text-[10px] px-2.5 rounded-lg font-bold border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 text-indigo-600 dark:text-indigo-400 cursor-pointer"
-                              >
-                                Allocate Remaining
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleSetLotQty(lot.id, avail, avail)}
-                                className="h-7 text-[10px] px-2 rounded-lg text-slate-500 hover:text-indigo-600 cursor-pointer"
-                              >
-                                Max ({avail})
-                              </Button>
-                              {Number(currentAlloc) > 0 && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleSetLotQty(lot.id, 0, avail)}
-                                  className="h-7 text-[10px] px-2 rounded-lg text-rose-500 hover:bg-rose-50 cursor-pointer"
-                                >
-                                  Clear
-                                </Button>
-                              )}
-                            </div>
-
-                            <div className="flex flex-col items-end gap-1 self-end sm:self-auto">
-                              <div className="flex items-center gap-2">
-                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                                  Allocate Qty:
-                                </label>
-                                <div className="w-28">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max={avail}
-                                    step="any"
-                                    value={currentAlloc}
-                                    onChange={(e) => handleSetLotQty(lot.id, e.target.value, avail)}
-                                    placeholder={`0 / ${avail}`}
-                                    className="h-8 text-center font-mono font-black text-xs rounded-xl border-indigo-300 dark:border-indigo-700 focus:ring-2 focus:ring-indigo-500"
-                                  />
-                                </div>
-                                <span className="text-xs font-mono font-bold text-slate-400">
-                                  {uomLabel}
-                                </span>
-                              </div>
-                              {Number(currentAlloc) > 0 && (() => {
-                                const rowItem = rawMaterials[activeItemIndex];
-                                const m = findMaster(rowItem);
-                                const hAlt = Boolean(m ? (m.hasAlternateUom && m.alternateUom) : (rowItem?.hasAlternateUom && rowItem?.alternateUom));
-                                const aUom = m?.alternateUom || rowItem?.alternateUom;
-                                const f = Number(m?.conversionFactor || rowItem?.conversionFactor || 1000);
-                                const rem = Math.max(0, avail - Number(currentAlloc));
-                                return (
-                                  <div className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                    Remaining: {Number(rem.toFixed(3))} {uomLabel}
-                                    {hAlt && aUom && (
-                                      <span className="text-slate-400 font-normal ml-1">
-                                        (≈ {Number((rem * f).toFixed(2)).toLocaleString()} {aUom})
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          </div>
-
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-850/80 flex items-center justify-between shrink-0">
-              <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
-                Total Allocated: <strong className="text-indigo-600 dark:text-indigo-400 font-black">{totalAllocatedInModal}</strong> {rawMaterials[activeItemIndex]?.baseUom || rawMaterials[activeItemIndex]?.selectedUom}
-              </span>
-
-              <div className="flex items-center gap-2">
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setLotModalOpen(false)}
-                  className="rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="button" 
-                  size="sm" 
-                  onClick={handleSaveAllocations}
-                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer shadow-xs"
-                >
-                  Confirm Lot Allocations
-                </Button>
-              </div>
-            </div>
-
-          </div>
-        </div>
+      {lotModalOpen && activeItemIndex !== null && rawMaterials[activeItemIndex] && (
+        <ProductionLotAllocationModal
+          isOpen={lotModalOpen}
+          onClose={() => setLotModalOpen(false)}
+          row={rawMaterials[activeItemIndex]}
+          master={findMaster(rawMaterials[activeItemIndex])}
+          catalog={itemSetupMasters}
+          onConfirm={handleConfirmLotAllocations}
+          titlePrefix="Allocate Stock Lots"
+        />
       )}
 
       {/* ── MODAL 3: DIRECT ADD RAW MATERIAL MODAL ── */}
@@ -2186,8 +1391,10 @@ export default function BatchAllocationGrid({
                           type="number"
                           step="any"
                           min="0.0001"
-                          value={addRmQty}
-                          onChange={(e) => setAddRmQty(e.target.value)}
+                          value={addRmQty === 0 || addRmQty === '0' ? '' : addRmQty}
+                          placeholder="0"
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => setAddRmQty(e.target.value.replace(/^0+(?=\d)/, ''))}
                           className="h-9 rounded-xl font-mono font-bold text-xs pr-14"
                         />
                         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
@@ -2212,8 +1419,10 @@ export default function BatchAllocationGrid({
                             type="number"
                             step="any"
                             min="0"
-                            value={addRmRate}
-                            onChange={(e) => setAddRmRate(e.target.value)}
+                            value={addRmRate === 0 || addRmRate === '0' ? '' : addRmRate}
+                            placeholder="0"
+                            onFocus={(e) => e.target.select()}
+                            onChange={(e) => setAddRmRate(e.target.value.replace(/^0+(?=\d)/, ''))}
                             className="h-9 pl-7 rounded-xl font-mono font-bold text-xs"
                           />
                         </div>

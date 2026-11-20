@@ -330,8 +330,20 @@ class StandardProductionController {
           productId = fallbackProd?.id;
         }
 
-        const defaultUser = await tx.user.findFirst();
-        const safeUserId = req.user?.id || defaultUser?.id;
+        let safeUserId = null;
+        if (req.user?.id) {
+          const userExists = await tx.user.findUnique({
+            where: { id: String(req.user.id) },
+            select: { id: true }
+          });
+          if (userExists) {
+            safeUserId = userExists.id;
+          }
+        }
+        if (!safeUserId) {
+          const defaultUser = await tx.user.findFirst({ select: { id: true } });
+          safeUserId = defaultUser?.id;
+        }
 
         const batch = await tx.productionBatchNew.create({
           data: {

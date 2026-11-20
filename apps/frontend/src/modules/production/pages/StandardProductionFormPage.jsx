@@ -639,6 +639,10 @@ export default function StandardProductionFormPage() {
     return bases.find(b => b.id === selectedBaseId)?.name || 'Ice Cream Base';
   }, [bases, selectedBaseId]);
 
+  const selectedBase = useMemo(() => {
+    return bases.find(b => b.id === selectedBaseId) || null;
+  }, [bases, selectedBaseId]);
+
   // When user switches base in Card 2
   const handleSelectBase = (baseId) => {
     setSelectedBaseId(baseId);
@@ -1310,8 +1314,13 @@ export default function StandardProductionFormPage() {
                   <Input
                     type="number"
                     min="1"
-                    value={expiryDays}
-                    onChange={(e) => setExpiryDays(Number(e.target.value))}
+                    value={Number(expiryDays) === 0 ? '' : expiryDays}
+                    placeholder="0"
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                      setExpiryDays(clean === '' ? 0 : Number(clean));
+                    }}
                     className="h-[44px] rounded-[10px] text-xs font-mono font-bold border-[#E3E6EC]"
                   />
                 </div>
@@ -1634,6 +1643,99 @@ export default function StandardProductionFormPage() {
             />
           </div>
         )}
+
+        {/* ── BOTTOM STICKY ACTION BAR & START PRODUCTION ── */}
+        <div className="sticky bottom-0 z-30 w-full mt-6 py-4 px-6 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl transition-all">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            
+            {/* Left: Real-time Batch Summary & Readiness status */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${isReadyToStart ? 'bg-emerald-500 animate-pulse ring-4 ring-emerald-500/20' : 'bg-amber-400'}`} />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-sans">
+                  {isReadyToStart ? 'Batch Configuration Ready' : 'Configuration Pending (Steps 1 & 2)'}
+                </span>
+              </div>
+
+              <div className="hidden md:flex items-center gap-2 text-xs font-mono">
+                <span className="text-slate-300 dark:text-slate-700">|</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Date: <strong className="text-slate-800 dark:text-slate-100">{productionDate || '—'}</strong>
+                </span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Shift: <strong className="text-slate-800 dark:text-slate-100">{shift || '—'}</strong>
+                </span>
+                {selectedBase && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Base: <strong className="text-indigo-600 dark:text-indigo-400">{selectedBase.name}</strong>
+                    </span>
+                  </>
+                )}
+                {totalPlannedQty > 0 && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Planned: <strong className="text-emerald-600 dark:text-emerald-400">{totalPlannedQty} {selectedTemplate?.outputUom || selectedBase?.uom || 'Ltr'}</strong>
+                    </span>
+                  </>
+                )}
+                {costingTotals?.grandTotal > 0 && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      Est. Total: <strong className="text-slate-900 dark:text-white">₹{costingTotals.grandTotal.toLocaleString()}</strong>
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Actions */}
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate('/production/standard')}
+                className="h-11 px-5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || loadingBatch}
+                onClick={() => handleSave('Draft')}
+                className="h-11 px-5 text-xs font-bold border-slate-300 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer shadow-xs"
+              >
+                <Save className="w-4 h-4 mr-2 text-slate-500" />
+                <span>{isEditMode ? 'Update Draft' : 'Save Draft'}</span>
+              </Button>
+
+              <Button
+                type="button"
+                disabled={saving || loadingBatch || !isReadyToStart}
+                onClick={() => handleSave('In Progress')}
+                className={`h-11 sm:h-12 px-6 sm:px-8 text-xs sm:text-sm font-black rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all duration-200 ${
+                  isReadyToStart && !loadingBatch
+                    ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white cursor-pointer shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0 ring-2 ring-indigo-400/30'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed opacity-60 shadow-none'
+                }`}
+              >
+                {saving ? (
+                  <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+                )}
+                <span>{isEditMode ? 'Update & Start Production' : 'Start Production'}</span>
+              </Button>
+            </div>
+
+          </div>
+        </div>
 
         {/* ── PRODUCTION ITEM SEARCH MODAL (FUZZY, SPACE-IGNORING, MULTI-SELECT) ── */}
         {searchModalOpen && (

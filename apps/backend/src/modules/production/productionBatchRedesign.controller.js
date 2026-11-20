@@ -1018,9 +1018,21 @@ class ProductionBatchRedesignController {
 
         const batchStatus = (data.status === 'Draft' || data.status === 'PLANNED') ? 'Planned' : data.status;
 
-        // 1. Create main ProductionBatchNew record
-        const defaultUser = await tx.user.findFirst();
-        const safeUserId = req.user?.id || defaultUser?.id;
+        // 1. Create main ProductionBatchNew record (ensure safe valid user ID for created_by foreign key)
+        let safeUserId = null;
+        if (req.user?.id) {
+          const userExists = await tx.user.findUnique({
+            where: { id: String(req.user.id) },
+            select: { id: true }
+          });
+          if (userExists) {
+            safeUserId = userExists.id;
+          }
+        }
+        if (!safeUserId) {
+          const defaultUser = await tx.user.findFirst({ select: { id: true } });
+          safeUserId = defaultUser?.id;
+        }
 
         const batch = await tx.productionBatchNew.create({
           data: {
@@ -1333,8 +1345,20 @@ class ProductionBatchRedesignController {
 
       await ensureProductionBatchesRedesignSchema();
 
-      const defaultUser = await prisma.user.findFirst();
-      const safeUserId = req.user?.id || defaultUser?.id;
+      let safeUserId = null;
+      if (req.user?.id) {
+        const userExists = await prisma.user.findUnique({
+          where: { id: String(req.user.id) },
+          select: { id: true }
+        });
+        if (userExists) {
+          safeUserId = userExists.id;
+        }
+      }
+      if (!safeUserId) {
+        const defaultUser = await prisma.user.findFirst({ select: { id: true } });
+        safeUserId = defaultUser?.id;
+      }
 
       const updatedBatch = await prisma.$transaction(async (tx) => {
         const effectiveProductId = data.productId || data.selectedProducts?.[0]?.productId || data.selectedProducts?.[0]?.id || existingBatch.productId;
