@@ -1029,19 +1029,23 @@ export default function RMINOUTStockPage() {
         });
       });
 
-      // Resale / Dispatches (OUT)
+      // Resale / Dispatches (OUT) - ONLY actual Invoices / POS (converted orders), never unconverted quotations or sales orders
       (hData.resales || []).forEach(r => {
+        const docType = String(r.docType || '').trim().toLowerCase();
+        const status = String(r.status || '').trim().toLowerCase();
+        const isInvoice = ['invoice', 'tax invoice', 'pos', 'tax_invoice'].includes(docType) || ['invoiced', 'delivered', 'completed', 'paid'].includes(status);
+        if (!isInvoice || status === 'cancelled' || status === 'draft') return;
         const qty = Number(r.quantity || 0);
         txList.push({
           id: `resale-${r.id}`,
           date: r.orderDate,
           flow: 'OUT',
           type: 'RESALE',
-          typeLabel: 'Direct Resale / Dispatch',
+          typeLabel: 'Direct Resale / Invoice Dispatch',
           quantity: qty,
           rate: 0,
           amount: 0,
-          referenceNo: r.docNo || r.referenceNo || 'SO',
+          referenceNo: r.docNo || r.referenceNo || 'INV',
           orderId: r.orderId,
           batchNumber: r.batchNo || 'Direct Stock',
           partyName: `Customer: ${r.customerName}`,
@@ -1049,7 +1053,7 @@ export default function RMINOUTStockPage() {
           labStatus: 'DISPATCHED',
           isLabRejected: false,
           notes: `${r.docType}: ${r.status}`,
-          compositeComment: `Order: ${r.docNo || 'SO'} | Customer: ${r.customerName} | Qty: ${qty}`
+          compositeComment: `Invoice: ${r.docNo || 'INV'} | Customer: ${r.customerName} | Qty: ${qty}`
         });
       });
 

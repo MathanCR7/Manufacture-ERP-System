@@ -2717,16 +2717,21 @@ exports.getMaterialHistory = async (req, res, next) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const formattedAdjustments = adjustments.map(a => ({
-      id: a.id,
-      type: a.type,
-      quantity: Number(a.quantity || 0),
-      notes: a.notes || 'No reason provided',
-      createdAt: a.createdAt,
-      updatedAt: a.updatedAt || a.createdAt,
-      userName: a.user?.name || 'Supervisor',
-      userRole: a.user?.role || 'SUPERVISOR'
-    }));
+    const formattedAdjustments = adjustments
+      .filter(a => {
+        const notesLower = String(a.notes || '').toLowerCase();
+        return !notesLower.includes('sold / dispatched in') && !notesLower.includes('sold/dispatched in');
+      })
+      .map(a => ({
+        id: a.id,
+        type: a.type,
+        quantity: Number(a.quantity || 0),
+        notes: a.notes || 'No reason provided',
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt || a.createdAt,
+        userName: a.user?.name || 'Supervisor',
+        userRole: a.user?.role || 'SUPERVISOR'
+      }));
 
     // 6. Fetch RM Wastage
     const wasteItems = await prisma.rMWasteItem.findMany({
@@ -2924,11 +2929,15 @@ exports.getMaterialHistory = async (req, res, next) => {
       createdByName: r.creator?.name || 'Staff'
     }));
 
-    // 8.b Fetch Resale & Sales Dispatches
+    // 8.b Fetch Resale & Sales Dispatches (Only Invoices/POS, never quotations or unconverted sales orders)
     const resaleItems = await prisma.customerOrderItem.findMany({
       where: {
         rawMaterialId: rm.id,
-        order: { deletedAt: null }
+        order: {
+          deletedAt: null,
+          type: { in: ['Invoice', 'Tax Invoice', 'POS', 'INVOICE', 'TAX_INVOICE', 'Tax_Invoice', 'pos'] },
+          status: { notIn: ['Cancelled', 'Draft'] }
+        }
       },
       include: {
         order: {
@@ -2943,7 +2952,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     const formattedResales = resaleItems.map(item => {
       const order = item.order;
       const customerName = order?.customer?.name || order?.customerName || 'Direct Customer';
-      const docType = order?.type || 'Sales Order';
+      const docType = order?.type || 'Invoice';
       const docNo = order?.docNo || order?.referenceNo || 'N/A';
       const referenceNo = order?.referenceNo || 'N/A';
       const primaryBatchNo = item.batchNo || (item.batchAllocationsData && Array.isArray(item.batchAllocationsData) && item.batchAllocationsData[0]?.batchNo) || 'Direct Warehouse Stock';
@@ -2974,8 +2983,7 @@ exports.getMaterialHistory = async (req, res, next) => {
 
     const deliveredResales = formattedResales.filter(r => 
       ['Delivered', 'Invoiced', 'Completed', 'Paid'].includes(r.status) || 
-      r.docType === 'Invoice' || 
-      r.docType === 'POS'
+      ['invoice', 'tax invoice', 'pos', 'tax_invoice'].includes(String(r.docType || '').trim().toLowerCase())
     );
     const totalResaleQty = Number(deliveredResales.reduce((acc, r) => acc + r.quantity, 0).toFixed(4));
     const totalResaleAmount = Number(deliveredResales.reduce((acc, r) => acc + r.subtotal, 0).toFixed(2));
@@ -3034,7 +3042,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     // 10. Generate Unified Chronological Timeline
     const timelineEvents = [];
 
-    formattedResales.forEach(r => {
+    deliveredResales.forEach(r => {
       timelineEvents.push({
         id: `resale-${r.id}`,
         type: 'RESALE_OUTFLOW',
@@ -3856,7 +3864,12 @@ async function computeRmStockCore(queryParams = {}) {
       }),
       prisma.customerOrderItem.findMany({
         where: {
-          rawMaterialId: { not: null }
+          rawMaterialId: { not: null },
+          order: {
+            deletedAt: null,
+            type: { in: ['Invoice', 'Tax Invoice', 'POS', 'INVOICE', 'TAX_INVOICE', 'Tax_Invoice', 'pos'] },
+            status: { notIn: ['Cancelled', 'Draft'] }
+          }
         },
         include: {
           order: {
@@ -3864,6 +3877,7 @@ async function computeRmStockCore(queryParams = {}) {
               id: true,
               docNo: true,
               referenceNo: true,
+              type: true,
               status: true,
               customer: { select: { id: true, name: true } },
               createdAt: true
@@ -4526,6 +4540,13 @@ async function computeRmStockCore(queryParams = {}) {
 
     // 4. Process RM Stock Adjustments (ADDITION = IN, SUBTRACTION = OUT)
     for (const adj of adjustments) {
+      // Prevent double counting of invoice sales: if the adjustment was auto-generated during invoice dispatch,
+      // it is processed with full customer & invoice context under resaleItems below.
+      const adjNotes = String(adj.notes || '').toLowerCase();
+      if (adjNotes.includes('sold / dispatched in') || adjNotes.includes('sold/dispatched in')) {
+        continue;
+      }
+
       const rm = findRm(adj.rawMaterialId);
       if (!rm) continue;
 
@@ -4663,7 +4684,23 @@ async function computeRmStockCore(queryParams = {}) {
     }
 
     // 6. Process Resale / Sales Dispatches (OUT)
+    // CRITICAL BUSINESS RULE:
+    // Raw material resale must ONLY be counted as stock OUT when the Sale Order or Quotation
+    // has been converted into an INVOICE (Tax Invoice / POS / Invoice).
+    // Standalone quotations and unconverted sales orders must NEVER form RM stock out!
     for (const item of resaleItems) {
+      const order = item.order;
+      if (!order) continue;
+
+      const orderType = String(order.type || '').trim().toLowerCase();
+      const orderStatus = String(order.status || '').trim().toLowerCase();
+
+      // Only count as RM stock OUT if it is an actual Invoice / Tax Invoice / POS (and not cancelled/draft)
+      const isActualInvoice = ['invoice', 'tax invoice', 'pos', 'tax_invoice'].includes(orderType);
+      if (!isActualInvoice || orderStatus === 'cancelled' || orderStatus === 'draft') {
+        continue;
+      }
+
       const rm = findRm(item.rawMaterialId);
       if (!rm) continue;
 
@@ -4672,7 +4709,7 @@ async function computeRmStockCore(queryParams = {}) {
       const qty = Number(item.quantity || 0);
       const isPeriod = inRange(date);
       const isAfter = isAfterRange(date);
-      const docNo = item.order?.docNo || item.order?.referenceNo || 'SO';
+      const docNo = item.order?.docNo || item.order?.referenceNo || 'INV';
       const customerName = item.order?.customer?.name || 'Customer Dispatch';
 
       target.lifetimeOut += qty;
@@ -4687,7 +4724,7 @@ async function computeRmStockCore(queryParams = {}) {
         date,
         flow: 'OUT',
         type: 'RESALE',
-        typeLabel: 'Direct Resale / Dispatch',
+        typeLabel: 'Direct Resale / Invoice Dispatch',
         quantity: qty,
         referenceNo: docNo,
         orderId: item.orderId || null,
@@ -4697,7 +4734,7 @@ async function computeRmStockCore(queryParams = {}) {
         batchNumber: item.batchNo || 'Direct Stock',
         partyName: `Customer: ${customerName}`,
         user: 'Sales Team',
-        notes: `Document: ${docNo} (${item.order?.status || 'Confirmed'})`
+        notes: `Document: ${docNo} (${item.order?.status || 'Invoiced'})`
       };
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
