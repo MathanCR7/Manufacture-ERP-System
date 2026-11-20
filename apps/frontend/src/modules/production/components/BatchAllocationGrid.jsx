@@ -58,7 +58,19 @@ export default function BatchAllocationGrid({
     if (!currentUser) return false;
     const role = (currentUser.role || '').toUpperCase();
     const email = (currentUser.email || '').toLowerCase();
-    if (role === 'MAIN_MASTER' || role === 'ADMIN' || role === 'SUPERVISOR') return false;
+    if (
+      role === 'MAIN_MASTER' ||
+      role === 'ADMIN' ||
+      role === 'SUPERVISOR' ||
+      role === 'PURCHASE_ACCOUNTANT' ||
+      role === 'ACCOUNTANT' ||
+      role.includes('ACCOUNTANT') ||
+      role.includes('FINANCE') ||
+      email.includes('accountant') ||
+      email.includes('finance')
+    ) {
+      return false;
+    }
     return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
   }, [currentUser]);
   const canViewCosting = !isProductionRole;

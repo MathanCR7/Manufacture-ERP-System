@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import useAuthStore from '@/app/store/authStore';
 import {
   X,
   Boxes,
@@ -71,6 +72,28 @@ export default function ProductionLotAllocationModal({
   titlePrefix = 'Allocate Stock Lots'
 }) {
   if (!isOpen || !row) return null;
+
+  const currentUser = useAuthStore(s => s.user);
+  const isProductionRole = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    const email = (currentUser.email || '').toLowerCase();
+    if (
+      role === 'MAIN_MASTER' ||
+      role === 'ADMIN' ||
+      role === 'SUPERVISOR' ||
+      role === 'PURCHASE_ACCOUNTANT' ||
+      role === 'ACCOUNTANT' ||
+      role.includes('ACCOUNTANT') ||
+      role.includes('FINANCE') ||
+      email.includes('accountant') ||
+      email.includes('finance')
+    ) {
+      return false;
+    }
+    return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
+  }, [currentUser]);
+  const canViewCosting = !isProductionRole;
 
   // Resolve master definition if not explicitly provided
   const resolvedMaster = useMemo(() => {
@@ -1225,13 +1248,15 @@ export default function ProductionLotAllocationModal({
                           </span>
                         </div>
 
-                        {/* 7. Live PO Rate */}
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">PO Rate:</span>
-                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs block">
-                            ₹{Number(rateInMode.toFixed(4))} / {activeUom}
-                          </span>
-                        </div>
+                        {/* 7. Live PO Rate (Role-Protected: Hidden for Production Staff) */}
+                        {canViewCosting && (
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">PO Rate:</span>
+                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs block">
+                              ₹{Number(rateInMode.toFixed(4))} / {activeUom}
+                            </span>
+                          </div>
+                        )}
 
                         {/* 8. Supplier Name */}
                         {lot.supplierName && (

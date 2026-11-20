@@ -253,6 +253,17 @@ const MOULD_PACKAGING_DEFINITIONS = {
   }
 };
 
+const GALLON_BOX_DEFINITION = {
+  id: "4f823044-38ac-4d48-8761-de9bcb3caf5e",
+  code: "RM-00121",
+  name: "GALLON BOX 4LTR",
+  printName: "GALLON BOX 4LTR",
+  uom: "pcs",
+  rate: 14.00,
+  stock: 377,
+  defaultQty: 1
+};
+
 const STICK_DEFINITIONS = {
   EGYPT_65MM: MOULD_PACKAGING_DEFINITIONS.SG_2006.stick,
   FLAT_144MM: MOULD_PACKAGING_DEFINITIONS.SG_3006.stick,
@@ -427,8 +438,28 @@ export default function ProductionFloorCockpitModal({
   isViewOnly = false
 }) {
   const currentUser = useAuthStore(s => s.user);
+  const isProductionRole = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    const email = (currentUser.email || '').toLowerCase();
+    // Admin, Supervisor, and Accountants (Production/Purchase Accountant) can view full financial & cost details
+    if (
+      role === 'MAIN_MASTER' ||
+      role === 'ADMIN' ||
+      role === 'SUPERVISOR' ||
+      role === 'PURCHASE_ACCOUNTANT' ||
+      role === 'ACCOUNTANT' ||
+      role.includes('ACCOUNTANT') ||
+      role.includes('FINANCE') ||
+      email.includes('accountant') ||
+      email.includes('finance')
+    ) {
+      return false;
+    }
+    return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
+  }, [currentUser]);
   const userRole = currentUser?.role?.toUpperCase();
-  const canViewCost = ['MAIN_MASTER', 'ADMIN', 'SUPERVISOR'].includes(userRole);
+  const canViewCost = !isProductionRole;
 
   // ── THEME SUPPORT (LIGHT & DARK THEMES) ──
   const [isDark, setIsDark] = useState(() => {
@@ -1251,6 +1282,31 @@ export default function ProductionFloorCockpitModal({
               }
             }
           }
+
+          // Automatically sync GALLON BOX 4LTR packaging when bulk storage unit is Gallon
+          const isBulkGallon = a.use_mould === false && String(a.bulkUom || a.bulk_uom || matched.bulkUom || '').toLowerCase().includes('gallon');
+          if (isBulkGallon) {
+            const gallonBoxDef = GALLON_BOX_DEFINITION;
+            const baseMl = Number(a.allocatedBaseMl ?? matched.allocatedBaseMl ?? a.mix_used_ml ?? 0);
+            const wm = a.wasteMode || a.waste_mode || 'PERCENT';
+            const wv = Number(a.wasteValue ?? a.waste_value ?? 0);
+            const wasteMl = (wm === 'PERCENT' || wm === '%') ? (baseMl * wv) / 100 : wv;
+            const netMl = Math.max(0, baseMl - wasteMl);
+            const calcGallons = Math.max(1, Math.floor(netMl / 2000));
+            const srvYields = Array.isArray(detailRes.data.productYields) ? detailRes.data.productYields : [];
+            const yieldMatch = srvYields.find(y => y.productId === (a.product_id || a.productId) || Number(y.seq) === Number(a.seq));
+            const gallonPieces = Number(a.actualYield ?? a.actual_yield ?? yieldMatch?.actualGoodOutput ?? matched.actualYield ?? calcGallons);
+
+            const gallonMaster = findLiveMaster({ rmId: gallonBoxDef.id, rmCode: gallonBoxDef.code, rmName: gallonBoxDef.name });
+            const gallonIdx = productRms.findIndex(p => p.rmCode === gallonBoxDef.code || (p.rmName && p.rmName.toUpperCase().includes('GALLON BOX')));
+            if (gallonIdx >= 0) {
+              if (!productRms[gallonIdx].takenQty || Number(productRms[gallonIdx].takenQty) <= 0 || Number(productRms[gallonIdx].takenQty) !== gallonPieces) {
+                productRms[gallonIdx] = createPackagingItem(gallonBoxDef, gallonPieces, productRms[gallonIdx], gallonMaster);
+              }
+            } else {
+              productRms.push(createPackagingItem(gallonBoxDef, gallonPieces, null, gallonMaster));
+            }
+          }
           const srvYields = Array.isArray(detailRes.data.productYields) ? detailRes.data.productYields : [];
           const yieldMatch = srvYields.find(y => y.productId === (a.product_id || a.productId) || Number(y.seq) === Number(a.seq));
           const resolvedActualYield = a.actualYield ?? a.actual_yield ?? yieldMatch?.actualGoodOutput ?? yieldMatch?.actualOutput ?? matched.actualYield;
@@ -1700,12 +1756,13 @@ export default function ProductionFloorCockpitModal({
     let needsUpdate = false;
     const nextAllocs = allocations.map((alloc, idx) => {
       const isM = alloc.useMould !== false;
+      const isGallonBulk = !isM && String(alloc.bulkUom || '').toLowerCase().includes('gallon');
       const liveAlloc = liveAllocationsResult?.allocations?.[idx];
       const calculatedPieces = Number(liveAlloc?.goodPieces || alloc.goodPieces || 0);
       const targetPieces = (alloc.actualYield !== undefined && alloc.actualYield !== null && alloc.actualYield !== '' && Number(alloc.actualYield) > 0)
         ? Number(alloc.actualYield)
-        : calculatedPieces;
-      if (!isM || targetPieces <= 0 || !Array.isArray(alloc.productRms)) return alloc;
+        : (isGallonBulk ? Math.max(1, Math.floor(calculatedPieces)) : calculatedPieces);
+      if ((!isM && !isGallonBulk) || targetPieces <= 0 || !Array.isArray(alloc.productRms)) return alloc;
 
       let prmChanged = false;
       const updatedPrms = alloc.productRms.map(prm => {
@@ -2197,7 +2254,7 @@ export default function ProductionFloorCockpitModal({
 
       Swal.fire({
         title: 'Batches Allocated & Database Persisted!',
-        text: `Allocated ${totalAllocatedBase} ${row?.uom || 'units'} across ${allocatedBatches.length} lot(s). Live PO rate: ₹${blendedBaseRate.toFixed(2)}/unit.`,
+        text: `Allocated ${totalAllocatedBase} ${row?.uom || 'units'} across ${allocatedBatches.length} lot(s).${canViewCost ? ` Live PO rate: ₹${blendedBaseRate.toFixed(2)}/unit.` : ''}`,
         icon: 'success',
         timer: 1600
       });
@@ -2259,7 +2316,7 @@ export default function ProductionFloorCockpitModal({
 
     Swal.fire({
       title: 'Batches Allocated & Database Persisted!',
-      text: `Allocated ${totalAllocatedBase} ${formatCleanUom(targetRow?.uom, 'kg', targetRow)} across ${allocatedBatches.length} lot(s). Live PO rate blended: ₹${targetRow.unitRate}/unit.`,
+      text: `Allocated ${totalAllocatedBase} ${formatCleanUom(targetRow?.uom, 'kg', targetRow)} across ${allocatedBatches.length} lot(s).${canViewCost ? ` Live PO rate blended: ₹${targetRow.unitRate}/unit.` : ''}`,
       icon: 'success',
       timer: 1600
     });
@@ -2551,7 +2608,7 @@ export default function ProductionFloorCockpitModal({
 
       Swal.fire({
         title: 'Batches Allocated & Database Persisted!',
-        text: `Allocated ${totalAllocQty} ${row?.uom || 'units'} across ${allocatedBatches.length} lot(s). Live PO rate: ₹${(weightedAmountSum / (totalAllocQty || 1)).toFixed(2)}/unit.`,
+        text: `Allocated ${totalAllocQty} ${row?.uom || 'units'} across ${allocatedBatches.length} lot(s).${canViewCost ? ` Live PO rate: ₹${(weightedAmountSum / (totalAllocQty || 1)).toFixed(2)}/unit.` : ''}`,
         icon: 'success',
         timer: 1600
       });
@@ -2589,7 +2646,7 @@ export default function ProductionFloorCockpitModal({
 
     Swal.fire({
       title: 'Batches Allocated & Database Persisted!',
-      text: `Allocated ${totalAllocQty} ${formatCleanUom(targetRow?.uom, 'kg', targetRow)} across ${allocatedBatches.length} lot(s). Live PO rate blended: ₹${targetRow.unitRate}/unit.`,
+      text: `Allocated ${totalAllocQty} ${formatCleanUom(targetRow?.uom, 'kg', targetRow)} across ${allocatedBatches.length} lot(s).${canViewCost ? ` Live PO rate blended: ₹${targetRow.unitRate}/unit.` : ''}`,
       icon: 'success',
       timer: 1800
     });
@@ -2932,6 +2989,16 @@ export default function ProductionFloorCockpitModal({
     }
     const usableMixMl = Math.max(0, totalMix - wasteMl);
 
+    const isM = alloc.useMould !== false;
+    if (!isM) {
+      const bUom = String(overrideField === 'bulkUom' ? overrideValue : (alloc.bulkUom || 'Liter')).toLowerCase();
+      let unitMl = 1000;
+      if (bUom.includes('gallon')) unitMl = 2000;
+      else if (bUom.includes('tub')) unitMl = 5000;
+      else if (bUom.includes('can')) unitMl = 20000;
+      return Math.max(0, Number((usableMixMl / unitMl).toFixed(2)));
+    }
+
     const mixLimit = (cap > 0 && usableMixMl > 0) ? Math.floor(usableMixMl / cap) : 0;
     const trayLimit = (trays > 0 && cav > 0) ? (trays * cav) : 0;
 
@@ -2975,9 +3042,11 @@ export default function ProductionFloorCockpitModal({
       const effectivePieces = (target.actualYield !== undefined && target.actualYield !== null && target.actualYield !== '' && Number(target.actualYield) > 0)
         ? Number(target.actualYield)
         : pieces;
-      if (effectivePieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
-        target.goodPieces = effectivePieces;
-        target.productRms = syncPackagingQuantities(target.productRms, effectivePieces);
+      const isGallonBulk = target.useMould === false && String(target.bulkUom || '').toLowerCase().includes('gallon');
+      const syncTargetQty = isGallonBulk ? Math.max(1, Math.floor(effectivePieces)) : effectivePieces;
+      if (syncTargetQty > 0 && (target.mouldCode || isGallonBulk) && Array.isArray(target.productRms)) {
+        target.goodPieces = syncTargetQty;
+        target.productRms = syncPackagingQuantities(target.productRms, syncTargetQty);
       }
       copy[index] = target;
       return copy;
@@ -2995,9 +3064,11 @@ export default function ProductionFloorCockpitModal({
       const effectivePieces = (target.actualYield !== undefined && target.actualYield !== null && target.actualYield !== '' && Number(target.actualYield) > 0)
         ? Number(target.actualYield)
         : pieces;
-      if (effectivePieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
-        target.goodPieces = effectivePieces;
-        target.productRms = syncPackagingQuantities(target.productRms, effectivePieces);
+      const isGallonBulk = target.useMould === false && String(target.bulkUom || '').toLowerCase().includes('gallon');
+      const syncTargetQty = isGallonBulk ? Math.max(1, Math.floor(effectivePieces)) : effectivePieces;
+      if (syncTargetQty > 0 && (target.mouldCode || isGallonBulk) && Array.isArray(target.productRms)) {
+        target.goodPieces = syncTargetQty;
+        target.productRms = syncPackagingQuantities(target.productRms, syncTargetQty);
       }
       copy[index] = target;
       return copy;
@@ -3447,20 +3518,47 @@ export default function ProductionFloorCockpitModal({
       if (field === 'useMould') {
         const useM = Boolean(value);
         if (!useM) {
-          // In Bulk mode, remove packaging materials (sticks & covers)
+          // In Bulk mode: if bulkUom is Gallon, auto-add GALLON BOX 4LTR. Otherwise remove packaging materials
+          const isGallon = String(target.bulkUom || '').toLowerCase().includes('gallon');
           target.productRms = (target.productRms || []).filter(p => !isPackagingMaterial(p));
+          if (isGallon) {
+            const gallonMaster = findMaster({ rmId: GALLON_BOX_DEFINITION.id, rmCode: GALLON_BOX_DEFINITION.code, rmName: GALLON_BOX_DEFINITION.name });
+            const gYield = Math.max(1, Math.floor(Number(target.actualYield || 1)));
+            target.productRms.push(createPackagingItem(GALLON_BOX_DEFINITION, gYield, null, gallonMaster));
+          }
         } else if (target.mouldCode) {
-          // If switched back to Mould and a mould was previously selected, ensure stick & cover are present
+          // If switched back to Mould: remove Gallon Box and ensure mould stick & cover are present
+          target.productRms = (target.productRms || []).filter(p => !(p.rmCode === 'RM-00121' || (p.rmName && p.rmName.toUpperCase().includes('GALLON BOX'))));
           const pkg = getPackagingForMould(target.mouldCode, target.mouldName);
           const pcs = computeAllocPiecesYield(target);
           const prms = [...(target.productRms || [])];
           if (pkg?.stick && !prms.some(p => p.rmCode === pkg.stick.code || (p.rmName && p.rmName.toLowerCase().includes('stick')))) {
-            prms.push(createPackagingItem(pkg.stick, pcs));
+            const stickMaster = findMaster({ rmId: pkg.stick.id, rmCode: pkg.stick.code, rmName: pkg.stick.name });
+            prms.push(createPackagingItem(pkg.stick, pcs, null, stickMaster));
           }
           if (pkg?.cover && !prms.some(p => p.rmCode === pkg.cover.code || (p.rmName && (p.rmName.toLowerCase().includes('cover') || p.rmName.toLowerCase().includes('packing') || p.rmName.toLowerCase().includes('poly') || p.rmName.toLowerCase().includes('roll') || p.rmName.toLowerCase().includes('wrapper'))))) {
-            prms.push(createPackagingItem(pkg.cover, pcs));
+            const coverMaster = findMaster({ rmId: pkg.cover.id, rmCode: pkg.cover.code, rmName: pkg.cover.name });
+            prms.push(createPackagingItem(pkg.cover, pcs, null, coverMaster));
           }
           target.productRms = prms;
+        }
+      }
+
+      if (field === 'bulkUom') {
+        const isGallon = String(value || '').toLowerCase().includes('gallon');
+        if (target.useMould === false) {
+          if (isGallon) {
+            // Automatically add GALLON BOX 4LTR if not present
+            const hasGallonBox = (target.productRms || []).some(p => p.rmCode === 'RM-00121' || (p.rmName && p.rmName.toUpperCase().includes('GALLON BOX')));
+            if (!hasGallonBox) {
+              const gallonMaster = findMaster({ rmId: GALLON_BOX_DEFINITION.id, rmCode: GALLON_BOX_DEFINITION.code, rmName: GALLON_BOX_DEFINITION.name });
+              const gYield = Math.max(1, Math.floor(Number(target.actualYield || 1)));
+              target.productRms = [...(target.productRms || []), createPackagingItem(GALLON_BOX_DEFINITION, gYield, null, gallonMaster)];
+            }
+          } else {
+            // Switched to Liter/Tub/Can: clean up Gallon Box
+            target.productRms = (target.productRms || []).filter(p => !(p.rmCode === 'RM-00121' || (p.rmName && p.rmName.toUpperCase().includes('GALLON BOX'))));
+          }
         }
       }
       
@@ -3480,10 +3578,12 @@ export default function ProductionFloorCockpitModal({
         effectivePieces = calculatedPieces;
       }
 
-      // Sync existing packaging items quantities with the effective pieces yield (ONLY if mouldCode is selected)
-      if (effectivePieces > 0 && target.mouldCode && Array.isArray(target.productRms)) {
-        target.goodPieces = effectivePieces;
-        target.productRms = syncPackagingQuantities(target.productRms, effectivePieces);
+      // Sync existing packaging items quantities with the effective pieces yield (if mouldCode is selected OR if it's Gallon bulk)
+      const isGallonBulk = target.useMould === false && String(target.bulkUom || '').toLowerCase().includes('gallon');
+      const syncTargetQty = isGallonBulk ? Math.max(1, Math.floor(effectivePieces)) : effectivePieces;
+      if (syncTargetQty > 0 && (target.mouldCode || isGallonBulk) && Array.isArray(target.productRms)) {
+        target.goodPieces = syncTargetQty;
+        target.productRms = syncPackagingQuantities(target.productRms, syncTargetQty);
       }
       copy[index] = target;
       return copy;
@@ -6924,19 +7024,19 @@ export default function ProductionFloorCockpitModal({
                             </div>
                           </div>
 
-                          {/* 4. Output Specification & Yield (Compact 6-Col Grid with Editable Actual Yield) */}
+                          {/* 4. Output Specification & Yield (Compact 7-Col Grid with Calculated & Editable Actual Yield) */}
                           {isMould ? (
-                            <div className="p-1.5 rounded-md bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60">
-                              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5 text-xs items-center">
+                            <div className="p-1.5 rounded-md bg-purple-50/40 dark:bg-purple-950/20 border-2 border-purple-200 dark:border-purple-800/60">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5 text-xs items-center">
                                 <div>
-                                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Mould Spec</label>
+                                  <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5 truncate">Mould Spec</label>
                                   <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
                                     disabled={isViewMode}
                                     onClick={() => handleOpenMouldPicker(idx)}
-                                    className={`h-6 w-full px-1.5 text-[10px] font-bold rounded border-slate-300 dark:border-slate-700 truncate text-left justify-start ${isViewMode ? 'cursor-default opacity-85' : ''}`}
+                                    className={`h-6 w-full px-1.5 text-[9.5px] font-bold rounded border-slate-300 dark:border-slate-700 truncate text-left justify-start ${isViewMode ? 'cursor-default opacity-85' : ''}`}
                                     title="Click to pick mould specification"
                                   >
                                     <Box className="w-2.5 h-2.5 text-[#8b47d7] mr-1 shrink-0" />
@@ -6945,7 +7045,7 @@ export default function ProductionFloorCockpitModal({
                                 </div>
 
                                 <div>
-                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Capacity (ml)</label>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 truncate">Capacity (ml)</label>
                                   <Input
                                     type="number"
                                     min="1"
@@ -6957,12 +7057,12 @@ export default function ProductionFloorCockpitModal({
                                       const clean = e.target.value.replace(/^0+(?=\d)/, '');
                                       handleUpdateAllocation(idx, 'capacityMl', clean === '' ? 0 : (parseFloat(clean) || 0));
                                     }}
-                                    className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                                    className={`h-6 font-mono font-bold text-xs text-center px-1 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
                                 </div>
 
                                 <div>
-                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5" title="Number of item cavities in 1 metal mould tray">
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 truncate" title="Number of item cavities in 1 metal mould tray">
                                     Cavities / Tray
                                   </label>
                                   <Input
@@ -6976,20 +7076,20 @@ export default function ProductionFloorCockpitModal({
                                       const clean = e.target.value.replace(/^0+(?=\d)/, '');
                                       handleUpdateAllocation(idx, 'cavities', clean === '' ? 1 : (parseInt(clean, 10) || 1));
                                     }}
-                                    className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                                    className={`h-6 font-mono font-bold text-xs text-center px-1 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
                                 </div>
 
                                 <div>
                                   <div className="flex items-center justify-between mb-0.5">
-                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider" title="Quantity of mould trays loaded into the freezer">
+                                    <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider truncate" title="Quantity of mould trays loaded into the freezer">
                                       Quantity (Trays)
                                     </label>
                                     {!isViewMode && (
                                       <button
                                         type="button"
                                         onClick={() => handleFillMaxTrays(idx)}
-                                        className="text-[8.5px] font-bold text-[#8b47d7] hover:underline cursor-pointer"
+                                        className="text-[8.5px] font-bold text-[#8b47d7] hover:underline cursor-pointer shrink-0"
                                         title="Fill maximum trays from available mix"
                                       >
                                         Fill Max
@@ -7008,13 +7108,13 @@ export default function ProductionFloorCockpitModal({
                                       const parsed = rawVal === '' ? 0 : parseInt(rawVal, 10);
                                       handleUpdateAllocation(idx, 'trays', isNaN(parsed) ? 0 : Math.max(0, parsed));
                                     }}
-                                    className={`h-6 font-mono font-black text-xs ${
+                                    className={`h-6 font-mono font-black text-xs text-center px-1 ${
                                       (Number(alloc.trays || 0) * cav * cap) > (availableMixMl > 0 ? availableMixMl : productTotalMixMl)
                                         ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300'
                                         : 'border-purple-300 dark:border-purple-800'
                                     } ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                   />
-                                  <div className="text-[8px] font-mono text-purple-600 dark:text-purple-400 font-bold truncate mt-0.5 text-right">
+                                  <div className="text-[7.5px] font-mono text-purple-600 dark:text-purple-400 font-bold truncate mt-0.5 text-right">
                                     {Number(alloc.trays || 0) > 0
                                       ? `= ${formatIndian(Number(alloc.trays) * cav, 0)} pcs`
                                       : (goodUnits > 0 ? `(Mix: ${formatIndian(goodUnits, 0)} pcs)` : '= 0 pcs')}
@@ -7022,7 +7122,7 @@ export default function ProductionFloorCockpitModal({
                                 </div>
 
                                 <div>
-                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 truncate">
                                     Waste ({alloc.wasteMode === 'PERCENT' ? '%' : 'ml'})
                                   </label>
                                   <div className="flex items-center gap-1">
@@ -7030,7 +7130,7 @@ export default function ProductionFloorCockpitModal({
                                       value={alloc.wasteMode}
                                       disabled={isViewMode}
                                       onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
-                                      className={`h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-[9.5px] font-semibold outline-none ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
+                                      className={`h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-0.5 text-[9px] font-semibold outline-none w-10 shrink-0 ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                                     >
                                       <option value="PERCENT">%</option>
                                       <option value="FIXED_ML_PER_TRAY">ml</option>
@@ -7047,23 +7147,32 @@ export default function ProductionFloorCockpitModal({
                                         const clean = e.target.value.replace(/^0+(?=\d)/, '');
                                         handleUpdateAllocation(idx, 'wasteValue', clean === '' ? 0 : (parseFloat(clean) || 0));
                                       }}
-                                      className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                                      className={`h-6 font-mono font-bold text-xs text-center px-1 min-w-0 ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
                                     />
                                   </div>
-                                  <div className="text-[8px] font-mono text-slate-400 mt-0.5 text-right">
+                                  <div className="text-[7.5px] font-mono text-slate-400 mt-0.5 text-right truncate">
                                     {calculatedWasteMl > 0 ? `${formatIndian(calculatedWasteMl, 0)} ml waste` : '0% waste'}
                                   </div>
                                 </div>
 
-                                {/* 6. EDITABLE ACTUAL YIELD (MAIN VALUE FOR STOCK & PACKAGING) */}
-                                <div className="bg-purple-50/90 dark:bg-purple-950/70 p-1.5 px-2 rounded-md border-2 border-purple-400 dark:border-purple-700 flex flex-col justify-between shadow-xs">
+                                {/* 6. CALCULATED YIELD (JUST LIKE BULK) */}
+                                <div className="bg-white/80 dark:bg-slate-900/60 p-1 px-1.5 rounded border border-purple-200 dark:border-purple-800 flex flex-col justify-center min-h-[46px]">
+                                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 truncate">Calculated Yield</span>
+                                  <div className="text-xs font-mono font-black text-purple-800 dark:text-purple-300 truncate">
+                                    {formatIndian(goodUnits, 0)} pcs
+                                  </div>
+                                  <span className="text-[7.5px] text-slate-400 font-mono truncate">Suggested from mix</span>
+                                </div>
+
+                                {/* 7. EDITABLE ACTUAL YIELD (MAIN VALUE FOR STOCK & PACKAGING) */}
+                                <div className="bg-purple-100/70 dark:bg-purple-950/80 p-1 px-1.5 rounded-md border-2 border-purple-400 dark:border-purple-700 flex flex-col justify-between shadow-xs min-h-[46px]">
                                   <div className="flex items-center justify-between gap-1 mb-0.5">
-                                    <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-purple-900 dark:text-purple-200 flex items-center gap-0.5">
-                                      <Sparkles className="w-2.5 h-2.5 text-purple-600 animate-pulse" />
+                                    <span className="text-[8.5px] font-extrabold uppercase tracking-wider text-purple-900 dark:text-purple-200 flex items-center gap-0.5 truncate">
+                                      <Sparkles className="w-2.5 h-2.5 text-purple-600 animate-pulse shrink-0" />
                                       <span>Actual Yield *</span>
                                     </span>
-                                    <span className="text-[7.5px] font-mono font-bold text-purple-600 dark:text-purple-400" title="Calculated theoretical pieces from trays & mix">
-                                      Calc: {formatIndian(goodUnits, 0)} pcs
+                                    <span className="text-[7.5px] font-mono font-bold text-purple-700 dark:text-purple-400 truncate">
+                                      Sellable Stock
                                     </span>
                                   </div>
 
@@ -7085,20 +7194,20 @@ export default function ProductionFloorCockpitModal({
                                         const val = raw === '' ? '' : parseInt(raw, 10);
                                         handleUpdateAllocation(idx, 'actualYield', val === '' ? 0 : (isNaN(val) ? 0 : val));
                                       }}
-                                      className={`h-6 font-mono font-black text-xs border-purple-400 bg-white dark:bg-slate-900 text-purple-950 dark:text-purple-100 ${
+                                      className={`h-6 font-mono font-black text-xs border-purple-400 bg-white dark:bg-slate-900 text-purple-950 dark:text-purple-100 px-1 text-center min-w-0 ${
                                         isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''
                                       }`}
                                     />
-                                    <span className="text-[10px] font-bold text-purple-800 dark:text-purple-300 font-mono">pcs</span>
+                                    <span className="text-[10px] font-bold text-purple-800 dark:text-purple-300 font-mono shrink-0">pcs</span>
                                   </div>
 
                                   <div className="text-[7.5px] font-bold text-purple-700 dark:text-purple-300 mt-0.5 flex items-center justify-between leading-tight">
-                                    <span>Updates Stock &amp; Sticks</span>
+                                    <span className="truncate">Updates Stock &amp; Sticks</span>
                                     {Number(alloc.actualYield ?? goodUnits) !== goodUnits && (
                                       <button
                                         type="button"
                                         onClick={() => handleUpdateAllocation(idx, 'actualYield', goodUnits)}
-                                        className="text-amber-700 dark:text-amber-300 font-extrabold underline cursor-pointer"
+                                        className="text-amber-700 dark:text-amber-300 font-extrabold underline cursor-pointer shrink-0 ml-1"
                                         title="Reset to calculated pieces"
                                       >
                                         Reset
@@ -7110,7 +7219,7 @@ export default function ProductionFloorCockpitModal({
                             </div>
                           ) : (
                             <div className="p-1.5 rounded-md bg-emerald-50/50 dark:bg-emerald-950/25 border-2 border-emerald-300 dark:border-emerald-800/70">
-                              <div className="grid grid-cols-1 sm:grid-cols-4 gap-1.5 text-xs items-center">
+                              <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 text-xs items-center">
                                 <div>
                                   <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Bulk Storage Unit</label>
                                   <select
@@ -7130,6 +7239,40 @@ export default function ProductionFloorCockpitModal({
                                   <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Available Mix</label>
                                   <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 h-6 flex items-center">
                                     {formatIndian(productTotalMixMl)} ml ({isFinite(productTotalMixMl) ? ((productTotalMixMl || 0) / 1000).toFixed(2) : '0.00'} L)
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">
+                                    Waste ({alloc.wasteMode === 'FIXED_ML_PER_TRAY' || alloc.wasteMode === 'FIXED_ML' || alloc.wasteMode === 'ml' ? 'ml' : '%'})
+                                  </label>
+                                  <div className="flex items-center gap-1">
+                                    <select
+                                      value={alloc.wasteMode === 'FIXED_ML_PER_TRAY' || alloc.wasteMode === 'FIXED_ML' || alloc.wasteMode === 'ml' ? 'FIXED_ML' : 'PERCENT'}
+                                      disabled={isViewMode}
+                                      onChange={(e) => handleUpdateAllocation(idx, 'wasteMode', e.target.value)}
+                                      className={`h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-[9.5px] font-semibold outline-none ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
+                                    >
+                                      <option value="PERCENT">%</option>
+                                      <option value="FIXED_ML">ml</option>
+                                    </select>
+                                    <Input
+                                      type="number"
+                                      step="0.1"
+                                      min="0"
+                                      value={Number(alloc.wasteValue) === 0 ? '' : alloc.wasteValue}
+                                      placeholder="0"
+                                      disabled={isViewMode}
+                                      onFocus={(e) => e.target.select()}
+                                      onChange={(e) => {
+                                        const clean = e.target.value.replace(/^0+(?=\d)/, '');
+                                        handleUpdateAllocation(idx, 'wasteValue', clean === '' ? 0 : (parseFloat(clean) || 0));
+                                      }}
+                                      className={`h-6 font-mono font-bold text-xs ${isViewMode ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed' : ''}`}
+                                    />
+                                  </div>
+                                  <div className="text-[8px] font-mono text-slate-400 mt-0.5 text-right">
+                                    {calculatedWasteMl > 0 ? `${formatIndian(calculatedWasteMl, 0)} ml waste` : '0% waste'}
                                   </div>
                                 </div>
 
@@ -8942,169 +9085,4 @@ export default function ProductionFloorCockpitModal({
                           {p.uom}
                         </span>
                       </div>
-                      <span className="font-mono text-[10.5px] text-slate-400">
-                        Planned: <strong className="text-slate-700 dark:text-slate-200">{p.planned} {p.uom}</strong> • Calc: <strong className="text-purple-600 dark:text-purple-400">{p.calculatedYield} {p.uom}</strong>
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap text-[10px] font-mono">
-                      <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                        Batch: <strong>{p.productBatchNo || buildProductBatchNo(dayBatchCode, p.productName, dayProductionDate)}</strong>
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                        Serial: <strong>{previewSerial}</strong>
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 pt-1">
-                      <div>
-                        <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                          Final Actual Good Output ({p.uom}) *
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={Number(p.actualGoodOutput) === 0 ? '' : (p.actualGoodOutput ?? '')}
-                          placeholder="0"
-                          onFocus={(e) => e.target.select()}
-                          onChange={(e) => {
-                            const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                            handleUpdateProductYield(pIdx, 'actualGoodOutput', clean === '' ? 0 : (parseFloat(clean) || 0));
-                          }}
-                          className="h-9 font-mono font-black text-sm text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10.5px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                          Reject / Floor Loss ({p.uom})
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={Number(p.rejectOutput) === 0 ? '' : (p.rejectOutput ?? '')}
-                          placeholder="0"
-                          onFocus={(e) => e.target.select()}
-                          onChange={(e) => {
-                            const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                            handleUpdateProductYield(pIdx, 'rejectOutput', clean === '' ? 0 : (parseFloat(clean) || 0));
-                          }}
-                          className="h-9 font-mono text-sm border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );})}
-              </div>
-
-              {/* Operator Notes */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
-                  Operator Completion Notes / Remarks
-                </label>
-                <textarea
-                  rows={3}
-                  value={completionNotes}
-                  onChange={(e) => setCompletionNotes(e.target.value)}
-                  placeholder="Enter batch completion remarks, packaging line notes, or quality observations..."
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-2.5 text-xs font-medium text-slate-800 dark:text-slate-100 outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {/* Confirmed Operational Costs: Labour & Electricity */}
-              <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
-                <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
-                  Day {activeDayNo} Operational Costs for Costing:
-                </span>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                      Direct Labour Amount (₹)
-                    </label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={Number(labourCost) === 0 ? '' : (labourCost || '')}
-                      placeholder="0"
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                        handleTotalLabourChange(clean === '' ? 0 : (parseFloat(clean) || 0));
-                      }}
-                      className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                      Electricity Amount (₹)
-                    </label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={Number(electricityCost) === 0 ? '' : (electricityCost || '')}
-                      placeholder="0"
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const clean = e.target.value.replace(/^0+(?=\d)/, '');
-                        setElectricityCost(clean === '' ? 0 : Math.max(0, parseFloat(clean) || 0));
-                      }}
-                      className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* QA Lab Testing Toggle */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
-                <div>
-                  <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block">
-                    Route to QA Laboratory Test Queue (Quarantine)
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    If enabled, finished goods will be quarantined pending lab micro clearance.
-                  </span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={labTestRequired}
-                  onChange={(e) => setLabTestRequired(e.target.checked)}
-                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowYieldModal(false)}
-                className="text-xs font-bold"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={completing}
-                onClick={() => handleCompleteDaySubmit(null, { finalize: submitFinalizeFlag })}
-                className={`${submitFinalizeFlag ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold text-xs px-4 cursor-pointer`}
-              >
-                {completing ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
-                <span>
-                  {submitFinalizeFlag
-                    ? 'Confirm & Finish Entire Production'
-                    : `Complete Day ${activeDayNo} & Pause (${labTestRequired ? 'Send to QC' : 'Push to Sales'})`}
-                </span>
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
-  );
-}
+... [truncated for diff preview]
