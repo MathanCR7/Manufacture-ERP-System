@@ -433,26 +433,32 @@ export default function ProductionCleanReportView({
   );
   const mergeStageName = liveEvaporationResult?.mergeStage || batch?.merge_stage || batch?.evaporationData?.mergeStage || 'After heating';
   const totalBeforeEvapMl = Number(
-    liveEvaporationResult?.totalBeforeEvapMl ||
     batch?.merged_pre_evap_ml ||
     batch?.mergedPreEvapMl ||
-    (netPostEvapMixMl + evaporationLossMl) ||
-    totalBaseLiquidVolumeMl ||
+    liveEvaporationResult?.totalBeforeEvapMl ||
+    (totalBaseLiquidVolumeMl > 0 ? totalBaseLiquidVolumeMl : 0) ||
+    (netPostEvapMixMl > 0 && evaporationLossMl > 0 ? (netPostEvapMixMl + evaporationLossMl) : 0) ||
+    (netPostEvapMixMl > 0 && evaporationPct > 0 && evaporationPct < 100 ? round2(netPostEvapMixMl / (1 - evaporationPct / 100)) : 0) ||
+    netPostEvapMixMl ||
     0
   );
 
-  // Pre-Evaporation Volume Pool (Option 1: Direct Pre-Mix Costing)
+  // Pre-Evaporation Volume Pool (Option 1: Pure Pre-Mix Formula Costing)
+  // Denominator MUST strictly be the Pre-Evaporation gross mix volume (e.g. 221,200 ml, not post-evap 199,080 ml)
   const preEvapMixVolumeMl = Number(
     batch?.merged_pre_evap_ml ||
     batch?.mergedPreEvapMl ||
     liveEvaporationResult?.totalBeforeEvapMl ||
+    (totalBaseLiquidVolumeMl > 0 ? totalBaseLiquidVolumeMl : 0) ||
+    (netPostEvapMixMl > 0 && evaporationLossMl > 0 ? (netPostEvapMixMl + evaporationLossMl) : 0) ||
+    (netPostEvapMixMl > 0 && evaporationPct > 0 && evaporationPct < 100 ? round2(netPostEvapMixMl / (1 - evaporationPct / 100)) : 0) ||
     totalBeforeEvapMl ||
-    (netPostEvapMixMl + evaporationLossMl) ||
     netPostEvapMixMl ||
     0
   );
 
   // Base raw material costing (Option 1: Pre-Evaporation Pure Pre-Mix Formula Rate):
+  // Formula Rate = Total Base RM Cost / Pre-Evaporation Mix Volume = ₹20,742.92 / 221,200 ml = ₹0.0938/ml
   const baseCostPerMl = (totalBaseConsumedCost > 0 && preEvapMixVolumeMl > 0)
     ? (totalBaseConsumedCost / preEvapMixVolumeMl)
     : 0;
@@ -791,7 +797,8 @@ export default function ProductionCleanReportView({
         totalRejected,
         yieldEfficiency,
         productUom,
-        totalBeforeEvapMl,
+        preEvapMixVolumeMl,
+        totalBeforeEvapMl: preEvapMixVolumeMl,
         evaporationLossMl,
         evaporationPct,
         netPostEvapMixMl,

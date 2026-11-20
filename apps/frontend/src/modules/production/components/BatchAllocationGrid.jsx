@@ -760,10 +760,13 @@ export default function BatchAllocationGrid({
                         step="any"
                         min="0"
                         disabled={disabled}
-                        value={displayQty === 0 ? '' : displayQty}
+                        value={displayQty === 0 || displayQty === '0' ? '' : displayQty}
                         placeholder="0"
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => handleQtyChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
+                        onBlur={(e) => {
+                          if (!e.target.value) handleQtyChange(index, 0, isAltMode ? 'ALT' : 'BASE');
+                        }}
                         className={`h-8 text-center font-mono font-bold text-xs rounded-lg transition-all ${
                           isAltMode
                             ? 'border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-400 bg-indigo-50/20'

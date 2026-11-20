@@ -1292,6 +1292,9 @@ export default function ProductionLotAllocationModal({
                                 value={Number(currentAlloc) === 0 ? '' : currentAlloc}
                                 onFocus={(e) => e.target.select()}
                                 onChange={(e) => handleSetLotQty(lot.id, e.target.value, availInMode)}
+                                onBlur={(e) => {
+                                  if (!e.target.value) handleSetLotQty(lot.id, 0, availInMode);
+                                }}
                                 placeholder={`0 / ${availInMode}`}
                                 className="h-8 text-center font-mono font-black text-xs rounded-xl border-indigo-300 dark:border-indigo-700 focus:ring-2 focus:ring-indigo-500"
                               />

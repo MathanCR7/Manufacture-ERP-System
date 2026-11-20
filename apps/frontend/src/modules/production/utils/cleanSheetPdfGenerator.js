@@ -586,10 +586,20 @@ export function exportCleanSheetPdf({
   drawTable(baseCols, basePdfRows, baseFooter, { fontSize: 6.9 });
 
   // Base mix allocation audit note strip below Section 1 table
+  // Pure Pre-Evaporation Formula Valuation Denominator:
   const netMixMl = Number(summary.netPostEvapMixMl || 0);
+  const preMixMl = Number(
+    summary.preEvapMixVolumeMl ||
+    summary.totalBeforeEvapMl ||
+    (netMixMl > 0 && Number(summary.evaporationLossMl || 0) > 0 ? (netMixMl + Number(summary.evaporationLossMl)) : 0) ||
+    (netMixMl > 0 && Number(summary.evaporationPct || 0) > 0 && Number(summary.evaporationPct || 0) < 100 ? round2(netMixMl / (1 - Number(summary.evaporationPct) / 100)) : 0) ||
+    summary.totalBaseLiquidVolumeMl ||
+    netMixMl ||
+    0
+  );
   const baseRatePerMl = Number(summary.baseCostPerMl || 0) > 0
     ? Number(summary.baseCostPerMl)
-    : (netMixMl > 0 ? totalBasePrepared / netMixMl : 0);
+    : (preMixMl > 0 ? totalBasePrepared / preMixMl : 0);
   const allocMixMl = Number(summary.totalAllocatedMixMl || 0);
   const allocBaseCost = Number(summary.totalBaseConsumedCost || 0) > 0
     ? Number(summary.totalBaseConsumedCost)

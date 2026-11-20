@@ -1871,14 +1871,25 @@ export default function ProductionFloorCockpitModal({
 
   // Option 1: Direct Pre-Evaporation Mix Costing (Pure pre-mix formula rate)
   const baseCostPerMl = useMemo(() => {
-    const preMl = Number(
-      liveEvaporationResult?.totalBeforeEvapMl ||
-      batch?.merged_pre_evap_ml ||
-      batch?.mergedPreEvapMl ||
-      (netBatchPostEvapMl > 0 ? netBatchPostEvapMl : 1)
+    const fromBatch = Number(batch?.merged_pre_evap_ml || batch?.mergedPreEvapMl || 0);
+    const fromLive = Number(liveEvaporationResult?.totalBeforeEvapMl || 0);
+    const fromLoss = (Number(liveEvaporationResult?.mixAfterEvapMl || 0) > 0 && Number(liveEvaporationResult?.evaporatedMl || 0) > 0)
+      ? Number(liveEvaporationResult.mixAfterEvapMl) + Number(liveEvaporationResult.evaporatedMl)
+      : 0;
+    const fromLiquid = Number(
+      rmRows.reduce((s, r) => {
+        const taken = Number(r.takenQty ?? r.requiredQty ?? 0);
+        const uom = String(r.uom || 'kg').toLowerCase();
+        const density = Number(r.density || 1);
+        if (uom.includes('liter') || uom.includes('ltr') || uom === 'l') return s + (taken * 1000);
+        if (uom === 'ml') return s + taken;
+        if (density > 0) return s + ((taken / density) * 1000);
+        return s + (taken * 1000);
+      }, 0)
     );
+    const preMl = fromBatch || fromLive || fromLoss || fromLiquid || (netBatchPostEvapMl > 0 ? netBatchPostEvapMl : 1);
     return preMl > 0 ? (totalBaseMixCost / preMl) : 0;
-  }, [totalBaseMixCost, netBatchPostEvapMl, liveEvaporationResult.totalBeforeEvapMl, batch?.merged_pre_evap_ml, batch?.mergedPreEvapMl]);
+  }, [totalBaseMixCost, netBatchPostEvapMl, liveEvaporationResult.totalBeforeEvapMl, liveEvaporationResult.mixAfterEvapMl, liveEvaporationResult.evaporatedMl, batch?.merged_pre_evap_ml, batch?.mergedPreEvapMl, rmRows]);
 
   const totalAllocatedBaseMl = useMemo(() => {
     return allocations.reduce((sum, a) => sum + Number(a.allocatedBaseMl || a.mixUsedMl || 0), 0);
@@ -5746,6 +5757,9 @@ export default function ProductionFloorCockpitModal({
                                       const clean = e.target.value.replace(/^0+(?=\d)/, '');
                                       handleUpdateRmRow(idx, 'requiredQty', clean === '' ? 0 : (parseFloat(clean) || 0));
                                     }}
+                                    onBlur={(e) => {
+                                      if (!e.target.value) handleUpdateRmRow(idx, 'requiredQty', 0);
+                                    }}
                                     className="h-6 w-18 text-right font-mono text-[11px] px-1 ml-auto border-slate-200 dark:border-slate-700"
                                   />
                                 )}
@@ -5777,6 +5791,9 @@ export default function ProductionFloorCockpitModal({
                                     onChange={(e) => {
                                       const clean = e.target.value.replace(/^0+(?=\d)/, '');
                                       handleUpdateRmRow(idx, 'takenQty', clean === '' ? 0 : (parseFloat(clean) || 0));
+                                    }}
+                                    onBlur={(e) => {
+                                      if (!e.target.value) handleUpdateRmRow(idx, 'takenQty', 0);
                                     }}
                                     className="h-6 w-20 text-right font-mono font-bold text-[11px] px-1 ml-auto border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900"
                                   />
@@ -6552,18 +6569,18 @@ export default function ProductionFloorCockpitModal({
                         <div className="p-2.5 space-y-2">
                           {/* 2. Base Mix Allocation Row (Compact SAP Horizon Bar) */}
                           <div className="p-1.5 px-2.5 rounded-lg bg-slate-50/90 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 flex items-center justify-between flex-wrap gap-1.5 text-xs">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
                                 <Droplets className="w-3.5 h-3.5 text-[#0070f2]" />
-                                <span>Base Mix Allocated:</span>
+                                <span>BASE MIX ALLOCATED:</span>
                               </span>
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center">
                                 {isViewMode ? (
-                                  <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800">
+                                  <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 shadow-3xs">
                                     {formatIndian(baseMl)} ml ({Number((baseMl / 1000).toFixed(4))} L)
                                   </span>
                                 ) : (
-                                  <>
+                                  <div className="flex items-center">
                                     <Input
                                       type="number"
                                       min="0"
@@ -6580,10 +6597,13 @@ export default function ProductionFloorCockpitModal({
                                         const isLiter = (allocUnitMap[idx] || 'ml') === 'L';
                                         handleUpdateProductBaseMl(idx, isLiter ? Math.round(num * 1000) : num);
                                       }}
+                                      onBlur={(e) => {
+                                        if (!e.target.value) handleUpdateProductBaseMl(idx, 0);
+                                      }}
                                       placeholder="0"
-                                      className="h-6 w-24 font-mono font-black text-xs text-right border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 focus:ring-1 focus:ring-indigo-500"
+                                      className="h-7 w-24 font-mono font-black text-xs text-right rounded-l-lg rounded-r-none border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 focus:ring-1 focus:ring-indigo-500 z-10"
                                     />
-                                    <div className="inline-flex rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/40 p-0.5 text-[9.5px] font-bold">
+                                    <div className="inline-flex rounded-r-lg border border-l-0 border-indigo-300 dark:border-indigo-700 bg-indigo-50/80 dark:bg-indigo-950/70 p-0.5 text-[9.5px] font-bold h-7 items-center">
                                       <button
                                         type="button"
                                         onClick={() => setAllocUnitMap(prev => ({ ...prev, [idx]: 'ml' }))}
@@ -6606,16 +6626,16 @@ export default function ProductionFloorCockpitModal({
                                         }`}
                                         title="Enter directly in Liters (L) e.g. 15"
                                       >
-                                        L (Liter)
+                                        L
                                       </button>
                                     </div>
-                                  </>
+                                  </div>
                                 )}
                               </div>
-                              <span className="font-mono text-[10px] font-bold text-slate-700 dark:text-slate-300 px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                {(allocUnitMap[idx] || 'ml') === 'L' ? `≈ ${formatIndian(baseMl)} ml` : `≈ ${(baseMl / 1000).toFixed(2)} L`}
+                              <span className="font-mono text-[10.5px] font-bold text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-3xs">
+                                {(allocUnitMap[idx] || 'ml') === 'L' ? `= ${formatIndian(baseMl)} ml` : `= ${(baseMl / 1000).toFixed(2)} L`}
                               </span>
-                              <span className="font-mono text-[10px] font-bold text-[#8b47d7] px-1.5 py-0.2 rounded bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800">
+                              <span className="font-mono text-[10.5px] font-bold text-[#8b47d7] px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 shadow-3xs">
                                 {productSharePct}% of batch
                               </span>
                               <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
