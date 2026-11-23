@@ -2288,7 +2288,7 @@ export default function ProductionFloorCockpitModal({
       setLotModalOpen(false);
 
       if (isEditingCompletedDay && currentDayRec?.id) {
-        handleSaveCompletedDayChanges(true);
+        handleSaveCompletedDayChanges({ silent: true, customAllocations: nextAllocs, includeBaseProcess: false });
       } else if (nextAllocs.length > 0) {
         api.put(`/production/standard/${batchId}/allocations`, {
           allocations: nextAllocs.filter(a => a.productId).map(a => ({
@@ -2944,10 +2944,8 @@ export default function ProductionFloorCockpitModal({
         return copy;
       });
 
-      // Auto-save step 3 allocations immediately
-      if (isEditingCompletedDay && currentDayRec?.id) {
-        handleSaveCompletedDayChanges(true);
-      } else if (updatedAllocs.length > 0) {
+      // In completed-day edit mode, newly added RM rows are kept in state until lots are allocated or user clicks Save Day Changes
+      if (!isEditingCompletedDay && updatedAllocs.length > 0) {
         api.put(`/production/standard/${batchId}/allocations`, {
           allocations: updatedAllocs.filter(a => a.productId).map(a => ({
             seq: a.seq,
@@ -4448,8 +4446,13 @@ export default function ProductionFloorCockpitModal({
   };
 
   // Save full edits for an already-completed Day (Day 1: optional Step 1 & 2 + Steps 3-5; Day 2+: Steps 3-5 only)
-  const handleSaveCompletedDayChanges = async ({ silent = false, includeBaseProcess = true } = {}) => {
+  const handleSaveCompletedDayChanges = async (options = {}) => {
+    const silent = typeof options === 'boolean' ? options : Boolean(options?.silent);
+    const includeBaseProcess = typeof options === 'object' && options?.includeBaseProcess !== undefined ? options.includeBaseProcess : true;
+    const customAllocations = typeof options === 'object' && Array.isArray(options?.customAllocations) ? options.customAllocations : null;
+
     if (!currentDayRec?.id || isViewMode) return;
+    const sourceAllocations = (Array.isArray(customAllocations) && customAllocations.length > 0) ? customAllocations : allocations;
     if (!liveAllocationsResult.isValid) {
       if (!silent) {
         Swal.fire({
@@ -4476,7 +4479,7 @@ export default function ProductionFloorCockpitModal({
         });
       }
 
-      const validAllocations = allocations.filter(a => a.productId);
+      const validAllocations = sourceAllocations.filter(a => a.productId);
       const allocPayload = validAllocations.map((a, idx) => {
         const computedRow = liveAllocationsResult.allocations[idx] || liveAllocationsResult.allocations.find(la => la.productId === a.productId) || {};
         const fallbackGood = Number(computedRow.goodPieces ?? a.goodPieces ?? 0);

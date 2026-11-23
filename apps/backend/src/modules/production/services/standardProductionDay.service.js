@@ -512,10 +512,68 @@ async function deductBaseRawMaterialsOnce(tx, batchId) {
 }
 
 /**
+ * Normalizes a product raw material quantity to its base warehouse UOM (e.g., gm/ml -> kg/L).
+ */
+function normalizePrmToBaseQty(prm, rmMeta) {
+  const rawQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+  if (!rawQty || isNaN(rawQty)) return 0;
+
+  const uom = String(prm.uom || prm.primaryUom || '').trim().toLowerCase();
+  const baseUom = String(rmMeta?.unitId || prm.primaryUom || '').trim().toLowerCase();
+  const altUom = String(rmMeta?.alternateUom || prm.alternateUom || '').trim().toLowerCase();
+  const factor = Number(rmMeta?.conversionFactor || prm.conversionFactor || 1);
+  const isAltMode = prm.activeEntryMode === 'ALT' || (altUom && uom === altUom);
+
+  if ((isAltMode || (factor > 1 && (uom === 'gm' || uom === 'g' || uom === 'ml'))) && factor > 1) {
+    return rawQty / factor;
+  }
+  if ((baseUom === 'kg' || baseUom === 'l' || baseUom === 'ltr' || baseUom === 'liter' || baseUom === 'litre') &&
+      (uom === 'gm' || uom === 'g' || uom === 'gram' || uom === 'grams' || uom === 'ml' || uom === 'milliliter' || uom === 'millilitre')) {
+    return rawQty / (factor > 1 ? factor : 1000);
+  }
+  return rawQty;
+}
+
+/**
+ * Normalizes an allocated lot batch quantity to base warehouse UOM.
+ */
+function normalizeAbToBaseQty(ab, rmMeta) {
+  let aQty = Number(ab.allocatedQty ?? ab.qty ?? 0);
+  if (!aQty || isNaN(aQty)) return 0;
+
+  const factor = Number(rmMeta?.conversionFactor || 1);
+  const uom = String(ab.uom || '').trim().toLowerCase();
+  const altUom = String(rmMeta?.alternateUom || '').trim().toLowerCase();
+
+  if (factor > 1 && (uom === altUom || uom === 'gm' || uom === 'ml')) {
+    if (ab.allocatedAltQty && Math.abs(aQty - Number(ab.allocatedAltQty)) < 0.001) {
+      aQty = aQty / factor;
+    } else if (aQty > 10 && (rmMeta?.unitId === 'kg' || rmMeta?.unitId === 'liter')) {
+      aQty = aQty / factor;
+    }
+  }
+  return aQty;
+}
+
+/**
  * Deducts Step 3 per-product raw materials (essences, flavours, sticks, packaging)
  * for a single Day's allocations only.
  */
 async function deductDayProductRawMaterials(tx, batchId, allocations = []) {
+  const allRmIds = new Set();
+  for (const alloc of allocations) {
+    if (!Array.isArray(alloc.productRms)) continue;
+    for (const prm of alloc.productRms) {
+      const prmId = prm.rmId || prm.rawMaterialId;
+      if (prmId) allRmIds.add(prmId);
+    }
+  }
+
+  const rawMaterials = allRmIds.size > 0
+    ? await tx.rawMaterial.findMany({ where: { id: { in: [...allRmIds] } } })
+    : [];
+  const rmInfoMap = new Map(rawMaterials.map(r => [r.id, r]));
+
   for (const alloc of allocations) {
     if (!Array.isArray(alloc.productRms)) continue;
     for (const prm of alloc.productRms) {
@@ -523,16 +581,20 @@ async function deductDayProductRawMaterials(tx, batchId, allocations = []) {
       const prmId = prm.rmId || prm.rawMaterialId;
       if (prmQty <= 0 || !prmId) continue;
 
+      const rmMeta = rmInfoMap.get(prmId);
+      const baseQty = Number(normalizePrmToBaseQty(prm, rmMeta).toFixed(4));
+      if (baseQty <= 0) continue;
+
       await tx.$executeRawUnsafe(`
         UPDATE "RawMaterial"
         SET "currentStock" = GREATEST(0, "currentStock" - $1),
             "updatedAt" = CURRENT_TIMESTAMP
         WHERE id = $2;
-      `, prmQty, prmId);
+      `, baseQty, prmId);
 
       if (Array.isArray(prm.allocatedBatches)) {
         for (const ab of prm.allocatedBatches) {
-          const aQty = Number(ab.allocatedQty || ab.qty || 0);
+          const aQty = Number(normalizeAbToBaseQty(ab, rmMeta).toFixed(4));
           const aLotId = ab.batchId ? String(ab.batchId).trim() : null;
           const aLotNum = (ab.batchNumber || ab.lotNumber || ab.batchNo || ab.batchId)
             ? String(ab.batchNumber || ab.lotNumber || ab.batchNo || ab.batchId).trim()
@@ -553,7 +615,7 @@ async function deductDayProductRawMaterials(tx, batchId, allocations = []) {
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, 'CONSUMED', $9, $10, $11
         );
-      `, randomUUID(), batchId, prmId, prmQty, prmQty, prmQty, prmRate, round2(prmQty * prmRate), prmLot, prm.uom || 'kg', prmQty).catch(() => {});
+      `, randomUUID(), batchId, prmId, baseQty, baseQty, baseQty, prmRate, round2(baseQty * prmRate), prmLot, prm.uom || 'kg', prmQty).catch(() => {});
     }
   }
 }
@@ -1756,6 +1818,24 @@ async function updateCompletedDayCosts({
  * by applying ONLY the delta between old completed-day outputs and edited allocations.
  */
 async function reconcileDayProductRmStockDelta(tx, batchId, oldOutputs = [], newAllocations = []) {
+  const allRmIds = new Set();
+  const collectRmIds = (list) => {
+    for (const item of list || []) {
+      const prms = Array.isArray(item.productRms || item.product_rms) ? (item.productRms || item.product_rms) : [];
+      for (const prm of prms) {
+        const rmId = prm.rmId || prm.rawMaterialId;
+        if (rmId) allRmIds.add(rmId);
+      }
+    }
+  };
+  collectRmIds(oldOutputs);
+  collectRmIds(newAllocations);
+
+  const rawMaterials = allRmIds.size > 0
+    ? await tx.rawMaterial.findMany({ where: { id: { in: [...allRmIds] } } })
+    : [];
+  const rmInfoMap = new Map(rawMaterials.map(r => [r.id, r]));
+
   const sumRms = (list, keySelector) => {
     const rmQty = new Map();
     const lotQty = new Map();
@@ -1763,13 +1843,14 @@ async function reconcileDayProductRmStockDelta(tx, batchId, oldOutputs = [], new
       const prms = Array.isArray(item.productRms || item.product_rms) ? (item.productRms || item.product_rms) : [];
       for (const prm of prms) {
         const rmId = prm.rmId || prm.rawMaterialId;
-        const qty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
-        if (rmId && qty > 0) {
-          rmQty.set(rmId, (rmQty.get(rmId) || 0) + qty);
+        const rmMeta = rmInfoMap.get(rmId);
+        const baseQty = normalizePrmToBaseQty(prm, rmMeta);
+        if (rmId && baseQty > 0) {
+          rmQty.set(rmId, (rmQty.get(rmId) || 0) + baseQty);
         }
         if (Array.isArray(prm.allocatedBatches)) {
           for (const ab of prm.allocatedBatches) {
-            const aQty = Number(ab.allocatedQty || ab.qty || 0);
+            const aQty = normalizeAbToBaseQty(ab, rmMeta);
             const lotKey = keySelector(ab);
             if (lotKey && aQty > 0) {
               lotQty.set(lotKey, (lotQty.get(lotKey) || 0) + aQty);
@@ -1790,9 +1871,8 @@ async function reconcileDayProductRmStockDelta(tx, batchId, oldOutputs = [], new
   const oldAgg = sumRms(oldOutputs, lotKeyFn);
   const newAgg = sumRms(newAllocations, lotKeyFn);
 
-  const allRmIds = new Set([...oldAgg.rmQty.keys(), ...newAgg.rmQty.keys()]);
   for (const rmId of allRmIds) {
-    const delta = round2((newAgg.rmQty.get(rmId) || 0) - (oldAgg.rmQty.get(rmId) || 0));
+    const delta = Number(((newAgg.rmQty.get(rmId) || 0) - (oldAgg.rmQty.get(rmId) || 0)).toFixed(4));
     if (Math.abs(delta) > 0.0001) {
       await tx.$executeRawUnsafe(`
         UPDATE "RawMaterial"
@@ -1805,7 +1885,7 @@ async function reconcileDayProductRmStockDelta(tx, batchId, oldOutputs = [], new
 
   const allLotKeys = new Set([...oldAgg.lotQty.keys(), ...newAgg.lotQty.keys()]);
   for (const lKey of allLotKeys) {
-    const delta = round2((newAgg.lotQty.get(lKey) || 0) - (oldAgg.lotQty.get(lKey) || 0));
+    const delta = Number(((newAgg.lotQty.get(lKey) || 0) - (oldAgg.lotQty.get(lKey) || 0)).toFixed(4));
     if (Math.abs(delta) > 0.0001) {
       if (UUID_REGEX.test(lKey)) {
         await tx.$executeRawUnsafe(`
