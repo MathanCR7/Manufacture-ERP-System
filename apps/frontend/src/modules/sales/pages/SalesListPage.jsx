@@ -63,6 +63,7 @@ export default function SalesListPage() {
   // Dynamic settings & Tab view
   const [companySettings, setCompanySettings] = useState(null);
   const [layoutMode, setLayoutMode] = useState('A4'); // A4 or POS
+  const [priceMode, setPriceMode] = useState('WITH_RATE'); // 'WITH_RATE' | 'WITHOUT_RATE'
   const [activePdfUrl, setActivePdfUrl] = useState(null);
   const [activeStudioTab, setActiveStudioTab] = useState('contents'); // 'contents' | 'batch-cost' | 'logistics' | 'accounting' | 'tax' | 'attachments' | 'pdf'
   const [batchCostAudit, setBatchCostAudit] = useState(null);
@@ -290,16 +291,20 @@ export default function SalesListPage() {
   useEffect(() => {
     if (selectedOrder) {
       const activeSettings = companySettings || storeCompany;
+      const pdfOptions = {
+        showRates: priceMode === 'WITH_RATE',
+        withoutRate: priceMode === 'WITHOUT_RATE'
+      };
       let blob;
       try {
         blob = layoutMode === 'A4'
-          ? generateA4TaxInvoice(selectedOrder, activeSettings)
-          : generateThermalReceipt(selectedOrder, activeSettings);
+          ? generateA4TaxInvoice(selectedOrder, activeSettings, pdfOptions)
+          : generateThermalReceipt(selectedOrder, activeSettings, pdfOptions);
       } catch (err) {
         console.warn('Advanced PDF generator error, falling back to legacy compiler:', err);
         blob = layoutMode === 'A4' 
-          ? compileInvoiceA4PDF(selectedOrder, activeSettings) 
-          : compileThermalBillPDF(selectedOrder, activeSettings);
+          ? compileInvoiceA4PDF(selectedOrder, activeSettings, pdfOptions) 
+          : compileThermalBillPDF(selectedOrder, activeSettings, pdfOptions);
       }
       
       if (activePdfUrl) {
@@ -308,7 +313,7 @@ export default function SalesListPage() {
       const url = URL.createObjectURL(blob);
       setActivePdfUrl(url);
     }
-  }, [selectedOrder, layoutMode, companySettings]);
+  }, [selectedOrder, layoutMode, priceMode, companySettings]);
 
   // Reset page when search term changes
   useEffect(() => {
@@ -428,101 +433,13 @@ export default function SalesListPage() {
     return <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 inline ml-1" />;
   };
 
-  // Legacy PDF compilers (fallback)
-  const compileInvoiceA4PDF = (order, settings) => {
-    const doc = new jsPDF();
-    const activeCompany = settings || storeCompany;
-    const companyName = activeCompany?.companyName || 'Company';
-    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
-    const companyGstin = activeCompany?.companyGstin || '';
-    const companyMobile = activeCompany?.companyMobile || '';
-
-    const customerGstin = order.customer?.gstin || order.taxRegNo || '';
-
-    doc.setFillColor(30, 27, 75);
-    doc.rect(0, 0, 210, 8, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.setTextColor(30, 27, 75);
-    doc.text('TAX INVOICE', 14, 22);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(companyName.toUpperCase(), 14, 28);
-    doc.text(`GSTIN: ${companyGstin} | Mobile: ${companyMobile}`, 14, 33);
-    doc.text(`Doc Ref: ${order.docNo || order.referenceNo} | Date: ${new Date(order.createdAt).toLocaleDateString('en-GB')}`, 14, 38);
-    doc.text(`Billed To: ${order.customer?.name || order.customerName || 'Walk-in'} (GSTIN: ${customerGstin || 'URP'})`, 14, 43);
-
-    let curY = 52;
-    doc.setFillColor(241, 245, 249);
-    doc.rect(14, curY, 182, 7, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text('Item Description', 16, curY + 5);
-    doc.text('Qty', 110, curY + 5, { align: 'right' });
-    doc.text('Price', 140, curY + 5, { align: 'right' });
-    doc.text('Total', 190, curY + 5, { align: 'right' });
-
-    curY += 7;
-    doc.setFont('helvetica', 'normal');
-    (order.items || []).forEach((item, idx) => {
-      curY += 6;
-      const iCode = (item.productCode || item.systemCode || item.itemCode || item.product?.code || item.product?.sku || '').trim();
-      const subName = (item.subcategoryName || item.subcategory || item.product?.subcategory?.name || item.product?.specifications?.category || '').trim();
-      const baseCat = (item.categoryName || item.category || item.product?.category?.name || item.product?.specifications?.group || '').trim();
-      let pName = (item.productName || item.product?.name || 'Finished Item').trim();
-
-      if (iCode && pName.toLowerCase().startsWith(iCode.toLowerCase())) {
-        pName = pName.substring(iCode.length).replace(/^[\s\-–—:|]+/, '').trim();
-      }
-      if (subName && pName.toLowerCase().startsWith(subName.toLowerCase())) {
-        pName = pName.substring(subName.length).replace(/^[\s\-–—:|]+/, '').trim();
-      }
-      if (baseCat && pName.toLowerCase().startsWith(baseCat.toLowerCase())) {
-        pName = pName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
-      }
-
-      const mainCat = subName || baseCat;
-      const parts = [iCode, mainCat, pName].filter(Boolean);
-      const mainLabel = parts.join(' - ');
-      const baseTag = (baseCat && (!subName || baseCat.toLowerCase() !== subName.toLowerCase())) ? ` (${baseCat})` : '';
-      const fullLabel = `${mainLabel}${baseTag}`;
-      doc.text(fullLabel.substring(0, 52), 16, curY);
-      doc.text(String(item.quantity || 0), 110, curY, { align: 'right' });
-      doc.text(`Rs.${Number(item.unitPrice || 0).toFixed(2)}`, 140, curY, { align: 'right' });
-      doc.text(`Rs.${Number(item.subtotal || (item.quantity * item.unitPrice) || 0).toFixed(2)}`, 190, curY, { align: 'right' });
-    });
-
-    curY += 10;
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Grand Total: Rs.${Number(order.grandTotal || 0).toFixed(2)}`, 190, curY, { align: 'right' });
-
-    return doc.output('blob');
+  // Legacy PDF compilers (fallback - wraps advanced salesPdfGenerator)
+  const compileInvoiceA4PDF = (order, settings, options = {}) => {
+    return generateA4TaxInvoice(order, settings, options);
   };
 
-  const compileThermalBillPDF = (order, settings) => {
-    const doc = new jsPDF({ unit: 'mm', format: [80, 160] });
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('RETAIL TAX INVOICE', 40, 8, { align: 'center' });
-    doc.setFontSize(8);
-    doc.text(compName.toUpperCase().substring(0, 30), 40, 13, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.text(`Bill No: ${order.docNo || order.referenceNo} | ${new Date(order.createdAt).toLocaleDateString('en-GB')}`, 40, 18, { align: 'center' });
-    doc.text(`Customer: ${(order.customerName || order.customer?.name || 'Walk-in').substring(0, 25)}`, 40, 22, { align: 'center' });
-
-    let y = 30;
-    (order.items || []).forEach(item => {
-      doc.text(`${(item.productName || item.product?.name || 'Product').substring(0, 18)} x ${item.quantity}`, 5, y);
-      doc.text(`Rs.${Number(item.subtotal || 0).toFixed(2)}`, 75, y, { align: 'right' });
-      y += 5;
-    });
-
-    y += 5;
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Total: Rs.${Number(order.grandTotal || 0).toFixed(2)}`, 75, y, { align: 'right' });
-
-    return doc.output('blob');
+  const compileThermalBillPDF = (order, settings, options = {}) => {
+    return generateThermalReceipt(order, settings, options);
   };
 
   const handleDownloadActivePdf = async () => {
@@ -537,20 +454,24 @@ export default function SalesListPage() {
       }
     } catch (e) {}
 
+    const pdfOptions = {
+      showRates: priceMode === 'WITH_RATE',
+      withoutRate: priceMode === 'WITHOUT_RATE'
+    };
     let blob;
     try {
       blob = layoutMode === 'A4'
-        ? generateA4TaxInvoice(selectedOrder, activeSettings)
-        : generateThermalReceipt(selectedOrder, activeSettings);
+        ? generateA4TaxInvoice(selectedOrder, activeSettings, pdfOptions)
+        : generateThermalReceipt(selectedOrder, activeSettings, pdfOptions);
     } catch (err) {
       blob = layoutMode === 'A4' 
-        ? compileInvoiceA4PDF(selectedOrder, activeSettings) 
-        : compileThermalBillPDF(selectedOrder, activeSettings);
+        ? compileInvoiceA4PDF(selectedOrder, activeSettings, pdfOptions) 
+        : compileThermalBillPDF(selectedOrder, activeSettings, pdfOptions);
     }
     const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = downloadUrl;
-    a.download = getSalesDocumentPdfFilename(selectedOrder, layoutMode);
+    a.download = getSalesDocumentPdfFilename(selectedOrder, layoutMode, pdfOptions);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3060,32 +2981,64 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
         {/* ── TAB 6: PRINTABLE PDF PREVIEW ── */}
         {activeStudioTab === 'pdf' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Format:</span>
-                <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setLayoutMode('A4')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      layoutMode === 'A4'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    A4 Standard Tax Invoice
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLayoutMode('POS')}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      layoutMode === 'POS'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    80mm Thermal Receipt Slip
-                  </button>
+            <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 flex-wrap gap-3">
+              <div className="flex items-center gap-4 flex-wrap">
+                {/* Format selection */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Format:</span>
+                  <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setLayoutMode('A4')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        layoutMode === 'A4'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      A4 Standard Tax Invoice
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLayoutMode('POS')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        layoutMode === 'POS'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      80mm Thermal Receipt Slip
+                    </button>
+                  </div>
+                </div>
+
+                {/* Pricing Mode: With Rate vs Without Rate */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Pricing Mode:</span>
+                  <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setPriceMode('WITH_RATE')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        priceMode === 'WITH_RATE'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      With Rate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPriceMode('WITHOUT_RATE')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        priceMode === 'WITHOUT_RATE'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Without Rate
+                    </button>
+                  </div>
                 </div>
               </div>
 

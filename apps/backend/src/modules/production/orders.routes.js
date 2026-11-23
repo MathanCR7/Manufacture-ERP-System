@@ -517,7 +517,8 @@ router.get('/:id/details', authenticateToken, async (req, res, next) => {
             product: {
               include: {
                 unit: true,
-                category: true
+                category: true,
+                subcategory: true
               }
             },
             rawMaterial: {
@@ -805,7 +806,8 @@ const getOrderPdfHandler = async (req, res, next) => {
             product: {
               include: {
                 unit: true,
-                category: true
+                category: true,
+                subcategory: true
               }
             },
             rawMaterial: {

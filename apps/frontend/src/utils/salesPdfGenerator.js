@@ -57,10 +57,155 @@ function drawRupeeGlyph(doc, x, y, size = 2.4, isLight = false) {
 }
 
 /**
+ * Resolves standard full product description hierarchy:
+ * [Product Code] - [Category / Subcategory] - [Product Name] ([Base Category])
+ * Example: "BG101 - Classic Cream Gallon - Vanilla (Gallon)"
+ */
+export function formatProductFullName(it) {
+  if (!it) return { fullName: 'Item', mainDesc: 'Item', prodName: 'Item', categoryGroup: 'General', baseTagText: '', showBaseTag: false };
+
+  const itemCode = (
+    it.productCode ||
+    it.systemCode ||
+    it.itemCode ||
+    it.product?.code ||
+    it.product?.sku ||
+    it.product?.specifications?.itemCode ||
+    it.rawProduct?.code ||
+    it.rawProduct?.sku ||
+    ''
+  ).trim();
+
+  const subcatName = (
+    it.subcategoryName ||
+    it.subcategory ||
+    it.product?.subcategory?.name ||
+    (typeof it.product?.subcategory === 'string' ? it.product.subcategory : '') ||
+    it.product?.specifications?.category ||
+    it.rawProduct?.subcategory?.name ||
+    (typeof it.rawProduct?.subcategory === 'string' ? it.rawProduct.subcategory : '') ||
+    it.rawProduct?.specifications?.category ||
+    ''
+  ).trim();
+
+  const baseCat = (
+    it.categoryName ||
+    it.category ||
+    it.product?.category?.name ||
+    (typeof it.product?.category === 'string' ? it.product.category : '') ||
+    it.product?.specifications?.group ||
+    it.product?.base?.name ||
+    it.rawProduct?.category?.name ||
+    (typeof it.rawProduct?.category === 'string' ? it.rawProduct.category : '') ||
+    ''
+  ).trim();
+
+  let prodName = (
+    it.productName ||
+    it.product?.name ||
+    it.product?.specifications?.productName ||
+    it.itemDescription ||
+    ''
+  ).trim();
+
+  // Avoid duplicated code/subcategory/base if already prefixed in product name
+  if (itemCode && prodName.toLowerCase().startsWith(itemCode.toLowerCase())) {
+    prodName = prodName.substring(itemCode.length).replace(/^[\s\-–—:|]+/, '').trim();
+  }
+  if (subcatName && prodName.toLowerCase().startsWith(subcatName.toLowerCase())) {
+    prodName = prodName.substring(subcatName.length).replace(/^[\s\-–—:|]+/, '').trim();
+  }
+  if (baseCat && prodName.toLowerCase().startsWith(baseCat.toLowerCase())) {
+    prodName = prodName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
+  }
+
+  // Build main label: [Code] - [Category / Subcategory] - [Product Name]
+  const descParts = [];
+  if (itemCode) descParts.push(itemCode);
+  const mainCategory = subcatName || baseCat;
+  if (mainCategory) descParts.push(mainCategory);
+  if (prodName) descParts.push(prodName);
+  const mainDesc = descParts.length > 0
+    ? descParts.join(' - ')
+    : (it.productName || it.product?.name || it.itemDescription || 'Finished Goods');
+
+  // Base Category Tag: formatted with smaller font size and muted color if distinct from subcategory
+  const showBaseTag = Boolean(
+    baseCat &&
+    (!subcatName || baseCat.toLowerCase() !== subcatName.toLowerCase())
+  );
+  const baseTagText = showBaseTag ? ` (${baseCat})` : '';
+  const fullName = `${mainDesc}${baseTagText}`;
+  const categoryGroup = subcatName || baseCat || 'Other Products';
+
+  return {
+    itemCode,
+    subcatName,
+    baseCat,
+    prodName,
+    mainDesc,
+    showBaseTag,
+    baseTagText,
+    fullName,
+    categoryGroup
+  };
+}
+
+/**
+ * Computes category-wise quantity & variety count bifurcation
+ */
+export function computeCategoryBifurcation(items = []) {
+  const groups = new Map();
+
+  items.forEach(it => {
+    const { categoryGroup, prodName, fullName } = formatProductFullName(it);
+    const qty = Number(it.quantity || 1);
+    const uom = it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs';
+
+    if (!groups.has(categoryGroup)) {
+      groups.set(categoryGroup, {
+        category: categoryGroup,
+        productNames: new Set(),
+        totalQty: 0,
+        uoms: new Set()
+      });
+    }
+
+    const g = groups.get(categoryGroup);
+    g.productNames.add(prodName || fullName);
+    g.totalQty += qty;
+    g.uoms.add(uom);
+  });
+
+  const bifurcationList = Array.from(groups.values()).map(g => ({
+    category: g.category,
+    varietyCount: g.productNames.size,
+    totalQty: g.totalQty,
+    uom: Array.from(g.uoms).join(', ')
+  }));
+
+  const totalVarieties = bifurcationList.reduce((sum, g) => sum + g.varietyCount, 0);
+  const totalQty = bifurcationList.reduce((sum, g) => sum + g.totalQty, 0);
+
+  return {
+    bifurcationList,
+    totalCategories: bifurcationList.length,
+    totalVarieties,
+    totalQty
+  };
+}
+
+/**
  * Compiles an Advanced Indian GST Tax Invoice (A4 Portrait)
  * Conforms to Rule 46 of the CGST Rules, 2017 & SAP Commercial Standards
+ * Supports:
+ * - With Rate (options.showRates = true): Full commercial invoice with GST slabs & totals
+ * - Without Rate (options.showRates = false / options.withoutRate = true): Delivery Challan / Dispatch slip with Category Bifurcation & no prices
  */
-export function generateA4TaxInvoice(order, companyDetails = {}) {
+export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
+  const showRates = options.showRates !== false && !options.withoutRate;
+  const isWithoutRate = !showRates;
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -95,9 +240,9 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   const isQuotation = rawTypeUpper === 'QUOTATION' || rawModeUpper === 'QUOTATION' || rawNoUpper.startsWith('QT');
   const isInvoice = rawTypeUpper === 'INVOICE' || rawTypeUpper === 'TAX INVOICE' || rawModeUpper === 'INVOICE' || rawNoUpper.startsWith('INV');
 
-  const docTitle = isQuotation 
-    ? 'QUOTATION' 
-    : (isInvoice ? 'TAX INVOICE' : 'SALES ORDER');
+  const docTitle = isWithoutRate
+    ? (isQuotation ? 'QUOTATION - DISPATCH ESTIMATE' : 'DELIVERY CHALLAN / DISPATCH SLIP')
+    : (isQuotation ? 'QUOTATION' : (isInvoice ? 'TAX INVOICE' : 'SALES ORDER'));
 
   // Top Accent Banner
   doc.setFillColor(30, 27, 75);
@@ -107,9 +252,11 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
   let curY = 16;
 
-  const quotationLabel = isQuotation 
-    ? `Quotation No: ${docNo}` 
-    : (isInvoice ? `Invoice No: ${docNo}` : `Sales Order No: ${docNo}`);
+  const quotationLabel = isWithoutRate
+    ? `Challan / Order Ref: ${docNo}`
+    : (isQuotation 
+        ? `Quotation No: ${docNo}` 
+        : (isInvoice ? `Invoice No: ${docNo}` : `Sales Order No: ${docNo}`));
 
   // Header Title & Document Identifier
   doc.setFont('helvetica', 'bold');
@@ -171,16 +318,28 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   doc.setTextColor(15, 23, 42);
   doc.text(invoiceDate, margin + 56, curY + 5);
 
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Payment Status: `, margin + 85, curY + 5);
-  const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= Number(order.grandTotal || 0) && Number(order.grandTotal || 0) > 0);
-  doc.setTextColor(isPaid ? 16 : 180, isPaid ? 120 : 60, isPaid ? 40 : 40);
-  doc.text(isPaid ? 'PAID' : (order.paymentStatus || 'PENDING'), margin + 108, curY + 5);
+  if (isWithoutRate) {
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Pricing Mode: `, margin + 85, curY + 5);
+    doc.setTextColor(16, 120, 40);
+    doc.text('DISPATCH COPY (WITHOUT RATES)', margin + 104, curY + 5);
 
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Payment Terms: `, margin + 132, curY + 5);
-  doc.setTextColor(15, 23, 42);
-  doc.text(String(paymentTermsVal).substring(0, 28), margin + 154, curY + 5);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Status: `, margin + 150, curY + 5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(order.status || 'READY FOR DISPATCH').substring(0, 16), margin + 160, curY + 5);
+  } else {
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Payment Status: `, margin + 85, curY + 5);
+    const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= Number(order.grandTotal || 0) && Number(order.grandTotal || 0) > 0);
+    doc.setTextColor(isPaid ? 16 : 180, isPaid ? 120 : 60, isPaid ? 40 : 40);
+    doc.text(isPaid ? 'PAID' : (order.paymentStatus || 'PENDING'), margin + 108, curY + 5);
+
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Payment Terms: `, margin + 132, curY + 5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(paymentTermsVal).substring(0, 28), margin + 154, curY + 5);
+  }
 
   curY += 10.5;
 
@@ -249,8 +408,9 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   curY += cardH + 5;
 
   // Items Table Header
-  // Columns: [# (6), Description of Goods & Batch (76), Qty (11), Unit (10), Rate (₹) (15), Disc (10), Taxable (₹) (18), GST Rate (10), GST (₹) (14), Total (₹) (16)] = 186mm
-  const cols = [
+  // With Rate: 10 columns (186mm)
+  // Without Rate: 4 columns (186mm)
+  const cols = showRates ? [
     { id: 'idx', label: '#', w: 6, align: 'center' },
     { id: 'desc', label: 'Description of Goods & Batch', w: 76, align: 'left' },
     { id: 'qty', label: 'Qty', w: 11, align: 'right' },
@@ -261,6 +421,11 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
     { id: 'gstRate', label: isInterState ? 'IGST %' : 'GST %', w: 10, align: 'center' },
     { id: 'gstAmt', label: 'GST', hasRupee: true, w: 14, align: 'right' },
     { id: 'total', label: 'Total', hasRupee: true, w: 16, align: 'right' }
+  ] : [
+    { id: 'idx', label: '#', w: 8, align: 'center' },
+    { id: 'desc', label: 'Description of Goods & Batch', w: 134, align: 'left' },
+    { id: 'qty', label: 'Quantity', w: 24, align: 'right' },
+    { id: 'unit', label: 'Unit', w: 20, align: 'center' }
   ];
 
   doc.setFillColor(30, 27, 75);
@@ -312,7 +477,8 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   } else {
     items.forEach((it, idx) => {
     const rowH = 9.5;
-    if (curY + rowH > pageHeight - 75) {
+    const pageBottomThreshold = isWithoutRate ? 45 : 75;
+    if (curY + rowH > pageHeight - pageBottomThreshold) {
       doc.addPage();
       curY = 15;
     }
@@ -350,79 +516,8 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
     doc.text(String(idx + 1), cellX + (cols[0].w / 2), curY + 4.5, { align: 'center' });
     cellX += cols[0].w;
 
-    // 2. Description of Goods & Batch (cols[1]: Product Code - Subcategory Name - Product Name (Base Category))
-    const itemCode = (
-      it.productCode ||
-      it.systemCode ||
-      it.itemCode ||
-      it.product?.code ||
-      it.product?.sku ||
-      it.product?.specifications?.itemCode ||
-      it.rawProduct?.code ||
-      it.rawProduct?.sku ||
-      ''
-    ).trim();
-
-    const subcatName = (
-      it.subcategoryName ||
-      it.subcategory ||
-      it.product?.subcategory?.name ||
-      (typeof it.product?.subcategory === 'string' ? it.product.subcategory : '') ||
-      it.product?.specifications?.category ||
-      it.rawProduct?.subcategory?.name ||
-      (typeof it.rawProduct?.subcategory === 'string' ? it.rawProduct.subcategory : '') ||
-      it.rawProduct?.specifications?.category ||
-      ''
-    ).trim();
-
-    const baseCat = (
-      it.categoryName ||
-      it.category ||
-      it.product?.category?.name ||
-      (typeof it.product?.category === 'string' ? it.product.category : '') ||
-      it.product?.specifications?.group ||
-      it.product?.base?.name ||
-      it.rawProduct?.category?.name ||
-      (typeof it.rawProduct?.category === 'string' ? it.rawProduct.category : '') ||
-      ''
-    ).trim();
-
-    let prodName = (
-      it.productName ||
-      it.product?.name ||
-      it.product?.specifications?.productName ||
-      it.itemDescription ||
-      ''
-    ).trim();
-
-    // Avoid duplicated code/subcategory/base if already prefixed in product name
-    if (itemCode && prodName.toLowerCase().startsWith(itemCode.toLowerCase())) {
-      prodName = prodName.substring(itemCode.length).replace(/^[\s\-–—:|]+/, '').trim();
-    }
-    if (subcatName && prodName.toLowerCase().startsWith(subcatName.toLowerCase())) {
-      prodName = prodName.substring(subcatName.length).replace(/^[\s\-–—:|]+/, '').trim();
-    }
-    if (baseCat && prodName.toLowerCase().startsWith(baseCat.toLowerCase())) {
-      prodName = prodName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
-    }
-
-    // Build main label: [Code] - [Subcategory] - [Product Name]
-    const descParts = [];
-    if (itemCode) descParts.push(itemCode);
-    const mainCategory = subcatName || baseCat;
-    if (mainCategory) descParts.push(mainCategory);
-    if (prodName) descParts.push(prodName);
-    const mainDesc = descParts.length > 0
-      ? descParts.join(' - ')
-      : (it.productName || it.product?.name || it.itemDescription || 'Finished Goods');
-
-    // Base Category Tag: formatted with smaller font size and muted color compared to subcategory and product
-    const showBaseTag = Boolean(
-      baseCat &&
-      (!subcatName || baseCat.toLowerCase() !== subcatName.toLowerCase())
-    );
-    const baseTagText = showBaseTag ? ` (${baseCat})` : '';
-
+    // 2. Description of Goods & Batch formatted as: [Code] - [Category / Subcategory] - [Product Name] ([Base Category])
+    const { fullName, mainDesc, baseTagText } = formatProductFullName(it);
     const maxDescW = cols[1].w - 3;
 
     doc.setFont('helvetica', 'bold');
@@ -524,30 +619,32 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
     doc.text(uom, cellX + (cols[3].w / 2), curY + 4.5, { align: 'center' });
     cellX += cols[3].w;
 
-    // 5. Rate (cols[4])
-    doc.text(unitPrice.toFixed(2), cellX + cols[4].w - 1.5, curY + 4.5, { align: 'right' });
-    cellX += cols[4].w;
+    if (showRates) {
+      // 5. Rate (cols[4])
+      doc.text(unitPrice.toFixed(2), cellX + cols[4].w - 1.5, curY + 4.5, { align: 'right' });
+      cellX += cols[4].w;
 
-    // 6. Discount (cols[5])
-    const discDisplay = discPct > 0 ? `${discPct}%` : (discAmt > 0 ? discAmt.toFixed(1) : '-');
-    doc.text(discDisplay, cellX + cols[5].w - 1.5, curY + 4.5, { align: 'right' });
-    cellX += cols[5].w;
+      // 6. Discount (cols[5])
+      const discDisplay = discPct > 0 ? `${discPct}%` : (discAmt > 0 ? discAmt.toFixed(1) : '-');
+      doc.text(discDisplay, cellX + cols[5].w - 1.5, curY + 4.5, { align: 'right' });
+      cellX += cols[5].w;
 
-    // 7. Taxable Value (cols[6])
-    doc.text(taxable.toFixed(2), cellX + cols[6].w - 1.5, curY + 4.5, { align: 'right' });
-    cellX += cols[6].w;
+      // 7. Taxable Value (cols[6])
+      doc.text(taxable.toFixed(2), cellX + cols[6].w - 1.5, curY + 4.5, { align: 'right' });
+      cellX += cols[6].w;
 
-    // 8. GST Rate (cols[7])
-    doc.text(`${gstRate}%`, cellX + (cols[7].w / 2), curY + 4.5, { align: 'center' });
-    cellX += cols[7].w;
+      // 8. GST Rate (cols[7])
+      doc.text(`${gstRate}%`, cellX + (cols[7].w / 2), curY + 4.5, { align: 'center' });
+      cellX += cols[7].w;
 
-    // 9. GST Amount (cols[8])
-    doc.text(taxAmt.toFixed(2), cellX + cols[8].w - 1.5, curY + 4.5, { align: 'right' });
-    cellX += cols[8].w;
+      // 9. GST Amount (cols[8])
+      doc.text(taxAmt.toFixed(2), cellX + cols[8].w - 1.5, curY + 4.5, { align: 'right' });
+      cellX += cols[8].w;
 
-    // 10. Total Amount (cols[9])
-    doc.setFont('helvetica', 'bold');
-    doc.text(lineTotal.toFixed(2), cellX + cols[9].w - 1.5, curY + 4.5, { align: 'right' });
+      // 10. Total Amount (cols[9])
+      doc.setFont('helvetica', 'bold');
+      doc.text(lineTotal.toFixed(2), cellX + cols[9].w - 1.5, curY + 4.5, { align: 'right' });
+    }
 
     curY += rowH;
   });
@@ -557,6 +654,158 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   doc.setDrawColor(226, 232, 240);
   doc.line(margin, curY, pageWidth - margin, curY);
   curY += 4;
+
+  if (isWithoutRate) {
+    // ── WITHOUT RATE: CATEGORY-WISE SUMMARY & QUANTITY BIFURCATION ──
+    const { bifurcationList, totalCategories, totalVarieties, totalQty } = computeCategoryBifurcation(items);
+
+    // Total Tally Strip
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, curY, contentWidth, 8, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(margin, curY, contentWidth, 8, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`TOTAL MERCHANDISE ITEMS: ${totalVarieties} Varieties`, margin + 4, curY + 5.2);
+    doc.text(`TOTAL QUANTITY DISPATCHED: ${totalQty} Units`, pageWidth - margin - 4, curY + 5.2, { align: 'right' });
+
+    curY += 12;
+
+    // Check page break before category bifurcation table
+    const bifTableHeight = 7 + (bifurcationList.length * 7) + 7 + 35;
+    if (curY + bifTableHeight > pageHeight - 15) {
+      doc.addPage();
+      curY = 15;
+    }
+
+    // Bifurcation Table Header
+    doc.setFillColor(30, 27, 75);
+    doc.rect(margin, curY, contentWidth, 7, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+
+    const bifCols = [
+      { label: '#', w: 10, align: 'center' },
+      { label: 'Product Category / Flavour Group', w: 106, align: 'left' },
+      { label: 'Product Varieties', w: 35, align: 'center' },
+      { label: 'Total Dispatched Qty', w: 35, align: 'right' }
+    ];
+
+    let bifX = margin;
+    bifCols.forEach(c => {
+      const textX = c.align === 'right' ? bifX + c.w - 2 : (c.align === 'center' ? bifX + (c.w / 2) : bifX + 2);
+      doc.text(c.label, textX, curY + 4.8, { align: c.align });
+      bifX += c.w;
+    });
+
+    curY += 7;
+
+    // Bifurcation Rows
+    bifurcationList.forEach((b, bIdx) => {
+      const bRowH = 7;
+      if (bIdx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, curY, contentWidth, bRowH, 'F');
+      }
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+
+      let cellBx = margin;
+      // 1. Index
+      doc.text(String(bIdx + 1), cellBx + (bifCols[0].w / 2), curY + 4.8, { align: 'center' });
+      cellBx += bifCols[0].w;
+
+      // 2. Category Name
+      doc.setFont('helvetica', 'bold');
+      doc.text(b.category, cellBx + 2, curY + 4.8);
+      doc.setFont('helvetica', 'normal');
+      cellBx += bifCols[1].w;
+
+      // 3. Varieties count
+      doc.text(`${b.varietyCount} ${b.varietyCount === 1 ? 'Variety' : 'Varieties'}`, cellBx + (bifCols[2].w / 2), curY + 4.8, { align: 'center' });
+      cellBx += bifCols[2].w;
+
+      // 4. Total Qty
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${b.totalQty} ${b.uom}`, cellBx + bifCols[3].w - 2, curY + 4.8, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+
+      curY += bRowH;
+    });
+
+    // Bifurcation Total Row
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, curY, contentWidth, 7, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.line(margin, curY, pageWidth - margin, curY);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 27, 75);
+
+    let totalBx = margin;
+    doc.text('TOTAL', totalBx + (bifCols[0].w / 2), curY + 4.8, { align: 'center' });
+    totalBx += bifCols[0].w;
+    doc.text(`${totalCategories} Categories`, totalBx + 2, curY + 4.8);
+    totalBx += bifCols[1].w;
+    doc.text(`${totalVarieties} Varieties`, totalBx + (bifCols[2].w / 2), curY + 4.8, { align: 'center' });
+    totalBx += bifCols[2].w;
+    doc.text(`${totalQty} Units`, totalBx + bifCols[3].w - 2, curY + 4.8, { align: 'right' });
+
+    curY += 12;
+
+    // Delivery Instructions & Signatures Block
+    const sigH = 28;
+    if (curY + sigH > pageHeight - 12) {
+      doc.addPage();
+      curY = 15;
+    }
+
+    const sigColW = (contentWidth - 6) / 2;
+
+    // Left Box: Receiver's Acknowledgment
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(margin, curY, sigColW, sigH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text("RECEIVER'S ACKNOWLEDGMENT & SEAL:", margin + 3, curY + 5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Received the above listed goods in sound condition, correct quantity and verified packaging.', margin + 3, curY + 9, { maxWidth: sigColW - 6 });
+
+    doc.text('Receiver Name: ___________________________', margin + 3, curY + 19);
+    doc.text('Sign & Stamp:   ___________________________', margin + 3, curY + 24);
+
+    // Right Box: Dispatcher / Authorized Signatory
+    const rSigX = margin + sigColW + 6;
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(rSigX, curY, sigColW, sigH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`FOR ${company.name.toUpperCase()}:`, rSigX + 3, curY + 5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Dispatched by Warehouse / Cold Storage Logistics Team', rSigX + 3, curY + 9);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(30, 27, 75);
+    doc.text('Authorized Signatory / Warehouse Dispatcher', rSigX + (sigColW / 2), curY + 24, { align: 'center' });
+
+    return doc.output('blob');
+  }
 
   // Summary & Totals Block (Two Columns: Left = Payment Info & Words, Right = Tax Breakdown & Grand Total)
   const sumColW = (contentWidth - 6) / 2;
@@ -894,8 +1143,12 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
 /**
  * Compiles a fast 80mm Thermal Receipt for POS Cashier Counter
+ * Supports:
+ * - With Rate (options.showRates = true): Commercial bill with Qty, Rate, Total and GST
+ * - Without Rate (options.showRates = false / options.withoutRate = true): Dispatch slip with formatted product hierarchy, Qty, Unit, and Category-wise Bifurcation (no prices)
  */
-export function generateThermalReceipt(order, companyDetails = {}) {
+export function generateThermalReceipt(order, companyDetails = {}, options = {}) {
+  const showRates = options.showRates !== false && !options.withoutRate;
   const companyName = companyDetails.companyName || 'RETAIL FACTORY OUTLET';
   const companyAddress = companyDetails.companyAddress || 'Main Outlet, Salem, TN';
   const companyGstin = companyDetails.companyGstin || '33AAAAA0000A1Z5';
@@ -903,7 +1156,12 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   const printableItems = (order.items || []).filter(it => !it.isPackingCharge && !it.is_packing_charge);
   const items = printableItems;
   const itemsCount = items.length;
-  const dynamicHeight = Math.max(160, 115 + (itemsCount * 7.5));
+
+  const { bifurcationList, totalCategories, totalVarieties, totalQty } = computeCategoryBifurcation(items);
+
+  // In Without Rate mode, account for category bifurcation rows in height
+  const extraBifHeight = !showRates ? (bifurcationList.length * 4.5) + 30 : 0;
+  const dynamicHeight = Math.max(160, 115 + (itemsCount * 9) + extraBifHeight);
 
   const doc = new jsPDF({
     unit: 'mm',
@@ -920,7 +1178,8 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
   doc.setTextColor(30, 27, 75);
-  doc.text('RETAIL TAX RECEIPT', 40, curY, { align: 'center' });
+  const receiptTitle = showRates ? 'RETAIL TAX RECEIPT' : 'DELIVERY DISPATCH SLIP';
+  doc.text(receiptTitle, 40, curY, { align: 'center' });
 
   curY += 4.5;
   doc.setFontSize(8);
@@ -971,10 +1230,16 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   // Table Header
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text('ITEM', 5, curY);
-  doc.text('QTY', 42, curY, { align: 'right' });
-  doc.text('RATE', 58, curY, { align: 'right' });
-  doc.text('TOTAL', 75, curY, { align: 'right' });
+  if (showRates) {
+    doc.text('ITEM', 5, curY);
+    doc.text('QTY', 42, curY, { align: 'right' });
+    doc.text('RATE', 58, curY, { align: 'right' });
+    doc.text('TOTAL', 75, curY, { align: 'right' });
+  } else {
+    doc.text('ITEM', 5, curY);
+    doc.text('QTY', 56, curY, { align: 'right' });
+    doc.text('UNIT', 75, curY, { align: 'right' });
+  }
 
   curY += 2.5;
   doc.line(4, curY, 76, curY);
@@ -990,12 +1255,35 @@ export function generateThermalReceipt(order, companyDetails = {}) {
     const rate = Number(it.unitPrice || 0);
     const lineTotal = qty * rate;
     subtotal += lineTotal;
+    const uom = it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs';
 
-    const prodName = it.productName || it.product?.name || 'Item';
-    doc.text(prodName.substring(0, 22), 5, curY);
-    doc.text(String(qty), 42, curY, { align: 'right' });
-    doc.text(rate.toFixed(1), 58, curY, { align: 'right' });
-    doc.text(lineTotal.toFixed(2), 75, curY, { align: 'right' });
+    // Format item like: code - category - product name (sub category)
+    const { fullName } = formatProductFullName(it);
+
+    if (showRates) {
+      // Split description to max 35mm to avoid overlap with QTY/RATE/TOTAL
+      const descLines = doc.splitTextToSize(fullName, 35);
+      doc.text(descLines[0], 5, curY);
+      doc.text(String(qty), 42, curY, { align: 'right' });
+      doc.text(rate.toFixed(1), 58, curY, { align: 'right' });
+      doc.text(lineTotal.toFixed(2), 75, curY, { align: 'right' });
+
+      if (descLines.length > 1) {
+        curY += 3;
+        doc.text(descLines.slice(1).join(' ').substring(0, 32), 5, curY);
+      }
+    } else {
+      // Without Rate: Split description to max 49mm to avoid overlap with QTY/UNIT
+      const descLines = doc.splitTextToSize(fullName, 49);
+      doc.text(descLines[0], 5, curY);
+      doc.text(String(qty), 56, curY, { align: 'right' });
+      doc.text(uom, 75, curY, { align: 'right' });
+
+      if (descLines.length > 1) {
+        curY += 3;
+        doc.text(descLines.slice(1).join(' ').substring(0, 46), 5, curY);
+      }
+    }
 
     if (it.batchNo) {
       curY += 2.5;
@@ -1012,46 +1300,94 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   doc.line(4, curY, 76, curY);
   curY += 4;
 
-  // Totals Breakdown
-  const grandTotal = Number(order.grandTotal || subtotal);
-  const paid = Number(order.amountPaid || grandTotal);
-  const balance = Math.max(0, paid - grandTotal);
+  if (showRates) {
+    // Totals Breakdown (With Rate mode - NO bifurcation)
+    const grandTotal = Number(order.grandTotal || subtotal);
+    const paid = Number(order.amountPaid || grandTotal);
+    const balance = Math.max(0, paid - grandTotal);
 
-  const printBillLine = (lbl, val, bold = false) => {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.text(lbl, 5, curY);
-    doc.text(val, 75, curY, { align: 'right' });
+    const printBillLine = (lbl, val, bold = false) => {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      doc.text(lbl, 5, curY);
+      doc.text(val, 75, curY, { align: 'right' });
+      curY += 3.5;
+    };
+
+    printBillLine('Subtotal:', `INR ${subtotal.toFixed(2)}`);
+    if (Number(order.cgst || 0) > 0) printBillLine('CGST:', `INR ${Number(order.cgst).toFixed(2)}`);
+    if (Number(order.sgst || 0) > 0) printBillLine('SGST:', `INR ${Number(order.sgst).toFixed(2)}`);
+    if (Number(order.roundOff || 0) !== 0) printBillLine('Round Off:', `${Number(order.roundOff) > 0 ? '+' : ''}${Number(order.roundOff).toFixed(2)}`);
+
+    curY += 0.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('TOTAL:', 5, curY);
+    doc.text(`INR ${grandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
+    curY += 4.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    printBillLine(`Paid (${order.paymentTerms || 'Cash'}):`, `INR ${paid.toFixed(2)}`);
+    if (balance > 0) printBillLine('Change Due:', `INR ${balance.toFixed(2)}`, true);
+
+    curY += 2;
+    doc.line(4, curY, 76, curY);
+    curY += 4;
+
+    // Footer Message
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Thank you for shopping with us!', 40, curY, { align: 'center' });
     curY += 3.5;
-  };
+    doc.text('Quality & Purity You Can Trust.', 40, curY, { align: 'center' });
+  } else {
+    // Dispatch Breakdown & Category-wise Bifurcation (Without Rate mode ONLY)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('TOTAL DISPATCH SUMMARY', 40, curY, { align: 'center' });
+    curY += 4;
 
-  printBillLine('Subtotal:', `INR ${subtotal.toFixed(2)}`);
-  if (Number(order.cgst || 0) > 0) printBillLine('CGST:', `INR ${Number(order.cgst).toFixed(2)}`);
-  if (Number(order.sgst || 0) > 0) printBillLine('SGST:', `INR ${Number(order.sgst).toFixed(2)}`);
-  if (Number(order.roundOff || 0) !== 0) printBillLine('Round Off:', `${Number(order.roundOff) > 0 ? '+' : ''}${Number(order.roundOff).toFixed(2)}`);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(`Total Merchandise Items:`, 5, curY);
+    doc.text(`${totalVarieties} Varieties`, 75, curY, { align: 'right' });
+    curY += 3.5;
 
-  curY += 0.5;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('TOTAL:', 5, curY);
-  doc.text(`INR ${grandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
-  curY += 4.5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total Dispatched Qty:`, 5, curY);
+    doc.text(`${totalQty} Units`, 75, curY, { align: 'right' });
+    curY += 4;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  printBillLine(`Paid (${order.paymentTerms || 'Cash'}):`, `INR ${paid.toFixed(2)}`);
-  if (balance > 0) printBillLine('Change Due:', `INR ${balance.toFixed(2)}`, true);
+    doc.line(4, curY, 76, curY);
+    curY += 4;
 
-  curY += 2;
-  doc.line(4, curY, 76, curY);
-  curY += 4;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('CATEGORY-WISE BIFURCATION', 40, curY, { align: 'center' });
+    curY += 4;
 
-  // Footer Message
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(6.5);
-  doc.setTextColor(100, 116, 139);
-  doc.text('Thank you for shopping with us!', 40, curY, { align: 'center' });
-  curY += 3.5;
-  doc.text('Quality & Purity You Can Trust.', 40, curY, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    bifurcationList.forEach(b => {
+      doc.text(b.category.substring(0, 22), 5, curY);
+      doc.text(`${b.varietyCount} Items | ${b.totalQty} ${b.uom}`, 75, curY, { align: 'right' });
+      curY += 3.5;
+    });
+
+    curY += 2;
+    doc.line(4, curY, 76, curY);
+    curY += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.text('Receiver Sign: _______________________', 5, curY);
+    curY += 4;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Goods received in full and verified condition.', 40, curY, { align: 'center' });
+  }
 
   return doc.output('blob');
 }
@@ -1061,14 +1397,17 @@ export function generateThermalReceipt(order, companyDetails = {}) {
  * - Quotation: Quotation_<id/no>.pdf
  * - Standard Order: Standard_Order_<id/no>.pdf
  * - Invoice: Invoice_<id/no>.pdf
+ * - Without Rate: appends _WithoutRate
  */
-export function getSalesDocumentPdfFilename(order, layoutMode = 'A4') {
-  if (!order) return 'Document.pdf';
+export function getSalesDocumentPdfFilename(order, layoutMode = 'A4', options = {}) {
+  const isWithoutRate = options.showRates === false || options.withoutRate === true;
+
+  if (!order) return isWithoutRate ? 'Delivery_Slip_WithoutRate.pdf' : 'Document.pdf';
 
   if (layoutMode === 'POS' || order.type === 'POS') {
     const rawNo = order.docNo || order.referenceNo || order.id || 'POS';
     const cleanNo = String(rawNo).replace(/[\/\\]/g, '-').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
-    return `POS_Receipt_${cleanNo}.pdf`;
+    return isWithoutRate ? `Delivery_Slip_${cleanNo}_WithoutRate.pdf` : `POS_Receipt_${cleanNo}.pdf`;
   }
 
   const rawNo = order.docNo || order.referenceNo || order.id || 'DOC';
@@ -1088,7 +1427,9 @@ export function getSalesDocumentPdfFilename(order, layoutMode = 'A4') {
                     rawMode === 'INVOICE' || 
                     rawNoUpper.startsWith('INV');
 
-  if (isQuotation) {
+  if (isWithoutRate) {
+    return isQuotation ? `Quotation_${cleanNo}_WithoutRate.pdf` : (isInvoice ? `Delivery_Challan_${cleanNo}_WithoutRate.pdf` : `Standard_Order_${cleanNo}_WithoutRate.pdf`);
+  } else if (isQuotation) {
     return `Quotation_${cleanNo}.pdf`;
   } else if (isInvoice) {
     return `Invoice_${cleanNo}.pdf`;
