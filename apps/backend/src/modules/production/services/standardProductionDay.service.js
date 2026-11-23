@@ -17,11 +17,14 @@ const {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+let _schemaEnsured = false;
+
 /**
  * Ensures all additive Multi-Day, Stock Lot, and Per-Product Serial tables & columns exist.
  * Idempotent and safe against partially migrated environments.
  */
 async function ensureMultiDaySchema(p = prisma) {
+  if (_schemaEnsured) return;
   try {
     await ensureSerialTable(p);
   } catch (_) {}
@@ -187,7 +190,10 @@ async function ensureMultiDaySchema(p = prisma) {
         ADD CONSTRAINT uq_pb_alloc_batch_day_seq UNIQUE (batch_id, day_no, seq);
       `);
     }
-  } catch (_) {}
+    _schemaEnsured = true;
+  } catch (_) {
+    _schemaEnsured = true;
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
@@ -21,6 +21,7 @@ import { ImagePreviewModal } from '../components/PaymentFieldsSection';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
 import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
 import POExportModal from '../components/POExportModal';
+import POTimePeriodDropdown from '../components/POTimePeriodDropdown';
 import { 
   generatePOTablePDF, 
   generatePOTableExcel, 
@@ -204,10 +205,25 @@ export default function POListPage() {
     ? 'PENDING'
     : (initialUrlStatus && initialUrlStatus !== 'ALL' ? initialUrlStatus : 'ALL');
 
+  // URL query params initialization for Date Filter
+  const initialPeriod = searchParams.get('period') || 'all';
+  const initialStartDate = searchParams.get('startDate') || '';
+  const initialEndDate = searchParams.get('endDate') || '';
+  const initialDateBasis = searchParams.get('dateBasis') || 'invoice_date';
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState(defaultStatus);
   const [paymentFilter, setPaymentFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('recent');
+
+  // Time Period & Date Range Filter State
+  const [period, setPeriod] = useState(initialPeriod);
+  const [customStartDate, setCustomStartDate] = useState(initialStartDate);
+  const [customEndDate, setCustomEndDate] = useState(initialEndDate);
+  const [appliedCustomStart, setAppliedCustomStart] = useState(initialStartDate);
+  const [appliedCustomEnd, setAppliedCustomEnd] = useState(initialEndDate);
+  const [dateBasis, setDateBasis] = useState(initialDateBasis); // 'invoice_date' | 'po_date'
+
   const [paymentModalPO, setPaymentModalPO] = useState(null);
   const [summaryModalPO, setSummaryModalPO] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
@@ -323,6 +339,200 @@ export default function POListPage() {
     });
   }, [pos]);
 
+  // Handle Custom Date Range Apply
+  const handleApplyCustomRange = (e) => {
+    e?.preventDefault();
+    if (!customStartDate && !customEndDate) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Select Dates',
+        text: 'Please select a start date and/or end date for the custom period.',
+        timer: 3000,
+        toast: true,
+        position: 'top-end'
+      });
+      return;
+    }
+    setPeriod('custom');
+    setAppliedCustomStart(customStartDate);
+    setAppliedCustomEnd(customEndDate);
+    setCurrentPage(1);
+  };
+
+  // Handle Custom Date Range Clear
+  const handleClearCustomRange = () => {
+    setCustomStartDate('');
+    setCustomEndDate('');
+    setAppliedCustomStart('');
+    setAppliedCustomEnd('');
+    setCurrentPage(1);
+  };
+
+  // Calculate Date Boundaries for current period
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    let start = null;
+    let end = null;
+
+    if (period === 'today') {
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (period === 'this_year') {
+      start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    } else if (period === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      start = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 0, 0, 0, 0);
+      end = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23, 59, 59, 999);
+    } else if (period === 'this_week') {
+      const dayOfWeek = (now.getDay() + 6) % 7; // Monday as start of week
+      const monday = new Date(now);
+      monday.setDate(monday.getDate() - dayOfWeek);
+      monday.setHours(0, 0, 0, 0);
+      start = monday;
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (period === 'last_week') {
+      const dayOfWeek = (now.getDay() + 6) % 7;
+      const lastMonday = new Date(now);
+      lastMonday.setDate(lastMonday.getDate() - dayOfWeek - 7);
+      lastMonday.setHours(0, 0, 0, 0);
+      const lastSunday = new Date(lastMonday);
+      lastSunday.setDate(lastSunday.getDate() + 6);
+      lastSunday.setHours(23, 59, 59, 999);
+      start = lastMonday;
+      end = lastSunday;
+    } else if (period === 'this_month') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (period === 'last_month') {
+      start = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+      end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (period === 'custom' || appliedCustomStart || appliedCustomEnd) {
+      if (appliedCustomStart) {
+        const p = String(appliedCustomStart).split('-');
+        start = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 0, 0, 0, 0);
+      }
+      if (appliedCustomEnd) {
+        const p = String(appliedCustomEnd).split('-');
+        end = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 23, 59, 59, 999);
+      }
+    }
+
+    return { start, end };
+  }, [period, appliedCustomStart, appliedCustomEnd]);
+
+  // Check if a date string/timestamp falls within active date range
+  const isDateInPeriod = useCallback((rawDate) => {
+    if (period === 'all') return true;
+    if (!dateRange.start && !dateRange.end) return true;
+    if (!rawDate) return false;
+
+    let targetTime;
+    if (typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())) {
+      const parts = rawDate.trim().split('-');
+      targetTime = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0).getTime();
+    } else {
+      const parsed = new Date(rawDate);
+      if (isNaN(parsed.getTime())) return false;
+      targetTime = parsed.getTime();
+    }
+
+    if (dateRange.start && targetTime < dateRange.start.getTime()) return false;
+    if (dateRange.end && targetTime > dateRange.end.getTime()) return false;
+    return true;
+  }, [period, dateRange]);
+
+  // Comprehensive human-readable period description and timestamp range
+  const periodDisplayText = useMemo(() => {
+    const formatDate = (d) => {
+      if (!d) return '';
+      return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
+    const targetDateLabel = dateBasis === 'invoice_date' ? 'Supplier Invoice Date' : 'PO Creation Date';
+
+    if (period === 'all') {
+      return {
+        label: 'All Time',
+        shortBadge: 'All Time',
+        rangeText: `Lifetime POs up to ${formatDate(new Date())}`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: false
+      };
+    }
+    if (period === 'today') {
+      return {
+        label: 'Today',
+        shortBadge: 'Today',
+        rangeText: `${formatDate(new Date())} (00:00 - 23:59)`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: false
+      };
+    }
+    if (period === 'this_year') {
+      return {
+        label: 'This Year',
+        shortBadge: 'This Year',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (${new Date().getFullYear()})`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: false
+      };
+    }
+    if (period === 'this_week') {
+      return {
+        label: 'This Week',
+        shortBadge: 'This Week',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Mon to Today)`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: false
+      };
+    }
+    if (period === 'last_week') {
+      return {
+        label: 'Last Week',
+        shortBadge: 'Last Week',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Last Week Mon–Sun)`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: true
+      };
+    }
+    if (period === 'this_month') {
+      return {
+        label: 'This Month',
+        shortBadge: 'This Month',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)}`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: false
+      };
+    }
+    if (period === 'last_month') {
+      return {
+        label: 'Last Month',
+        shortBadge: 'Last Month',
+        rangeText: `${formatDate(dateRange.start)} to ${formatDate(dateRange.end)} (Previous Month)`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: true
+      };
+    }
+    if (period === 'custom') {
+      return {
+        label: 'Custom Range',
+        shortBadge: 'Custom Range',
+        rangeText: `${formatDate(dateRange.start) || 'Start'} to ${formatDate(dateRange.end) || 'End'}`,
+        dateBasisLabel: targetDateLabel,
+        isHistorical: Boolean(dateRange.end && dateRange.end.getTime() < new Date().getTime())
+      };
+    }
+    return {
+      label: 'All Time',
+      shortBadge: 'All Time',
+      rangeText: `All Purchase Orders`,
+      dateBasisLabel: targetDateLabel,
+      isHistorical: false
+    };
+  }, [period, dateRange, dateBasis]);
+
   // Filter Logic
   const filteredPOs = useMemo(() => {
     return augmentedPos.filter(po => {
@@ -347,9 +557,16 @@ export default function POListPage() {
         ((statusFilter === 'PENDING' || statusFilter === 'DRAFT') && (po.status === 'PENDING' || po.status === 'DRAFT'));
       const matchesPayment = paymentFilter === 'ALL' || po.paymentStatus === paymentFilter;
 
-      return matchesSearch && matchesStatus && matchesPayment;
+      // Date Range Filter (Using Invoice Date by default or PO Creation Date)
+      let matchesDate = true;
+      if (period !== 'all') {
+        const targetDate = dateBasis === 'po_date' ? po.createdAt : po.supplierInvoiceDate;
+        matchesDate = isDateInPeriod(targetDate);
+      }
+
+      return matchesSearch && matchesStatus && matchesPayment && matchesDate;
     });
-  }, [augmentedPos, searchTerm, statusFilter, paymentFilter]);
+  }, [augmentedPos, searchTerm, statusFilter, paymentFilter, period, dateBasis, isDateInPeriod]);
 
   // Sort Logic (Just like /setup/raw-material)
   const sortedPOs = useMemo(() => {
@@ -448,43 +665,71 @@ export default function POListPage() {
   const totalPaid = augmentedPos.reduce((s, p) => s + Number(p.paidAmount || 0), 0);
   const pendingCount = augmentedPos.filter(p => p.status === 'PENDING' || p.status === 'DRAFT').length;
 
-  const isFilterActive = searchTerm !== '' || statusFilter !== 'ALL' || paymentFilter !== 'ALL' || sortBy !== 'recent';
+  const isFilterActive = searchTerm !== '' || statusFilter !== 'ALL' || paymentFilter !== 'ALL' || sortBy !== 'recent' || period !== 'all' || dateBasis !== 'invoice_date';
 
   const handleResetFilters = () => {
     setSearchTerm('');
     setStatusFilter('ALL');
     setPaymentFilter('ALL');
     setSortBy('recent');
+    setPeriod('all');
+    setDateBasis('invoice_date');
+    setCustomStartDate('');
+    setCustomEndDate('');
+    setAppliedCustomStart('');
+    setAppliedCustomEnd('');
     setCurrentPage(1);
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.delete('status');
+      next.delete('period');
+      next.delete('startDate');
+      next.delete('endDate');
+      next.delete('dateBasis');
       return next;
     }, { replace: true });
   };
 
-  // Sync statusFilter changes with URL query string
+  // Sync statusFilter and date filter changes with URL query string
   useEffect(() => {
-    if (statusFilter && statusFilter !== 'ALL') {
-      setSearchParams(prev => {
-        const next = new URLSearchParams(prev);
-        if (next.get('status') !== statusFilter) {
-          next.set('status', statusFilter);
-          return next;
-        }
-        return prev;
-      }, { replace: true });
-    } else {
-      setSearchParams(prev => {
-        if (prev.has('status')) {
-          const next = new URLSearchParams(prev);
-          next.delete('status');
-          return next;
-        }
-        return prev;
-      }, { replace: true });
-    }
-  }, [statusFilter, setSearchParams]);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (statusFilter && statusFilter !== 'ALL') {
+        next.set('status', statusFilter);
+      } else {
+        next.delete('status');
+      }
+
+      if (period && period !== 'all') {
+        next.set('period', period);
+      } else {
+        next.delete('period');
+      }
+
+      if (appliedCustomStart) {
+        next.set('startDate', appliedCustomStart);
+      } else {
+        next.delete('startDate');
+      }
+
+      if (appliedCustomEnd) {
+        next.set('endDate', appliedCustomEnd);
+      } else {
+        next.delete('endDate');
+      }
+
+      if (dateBasis && dateBasis !== 'invoice_date') {
+        next.set('dateBasis', dateBasis);
+      } else {
+        next.delete('dateBasis');
+      }
+
+      if (next.toString() !== prev.toString()) {
+        return next;
+      }
+      return prev;
+    }, { replace: true });
+  }, [statusFilter, period, appliedCustomStart, appliedCustomEnd, dateBasis, setSearchParams]);
 
   // Header quick sort toggles
   const handleToggleSortDate = () => {
@@ -543,7 +788,9 @@ export default function POListPage() {
                 Purchase Orders
               </h1>
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800">
-                {pos.length} {pos.length === 1 ? 'PO' : 'POs'}
+                {filteredPOs.length === augmentedPos.length
+                  ? `${pos.length} ${pos.length === 1 ? 'PO' : 'POs'}`
+                  : `${filteredPOs.length} of ${pos.length} POs`}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
@@ -739,6 +986,31 @@ export default function POListPage() {
                   <span>Found {sortedPOs.length} matches</span>
                 </div>
               )}
+
+              {/* Date Range & Invoice Date Filter */}
+              <POTimePeriodDropdown
+                period={period}
+                setPeriod={(p) => {
+                  setPeriod(p);
+                  setCurrentPage(1);
+                }}
+                customStartDate={customStartDate}
+                setCustomStartDate={setCustomStartDate}
+                customEndDate={customEndDate}
+                setCustomEndDate={setCustomEndDate}
+                appliedCustomStart={appliedCustomStart}
+                appliedCustomEnd={appliedCustomEnd}
+                handleApplyCustomRange={handleApplyCustomRange}
+                handleClearCustomRange={handleClearCustomRange}
+                dateBasis={dateBasis}
+                setDateBasis={(basis) => {
+                  setDateBasis(basis);
+                  setCurrentPage(1);
+                }}
+                periodDisplayText={periodDisplayText}
+                matchCount={filteredPOs.length}
+                isFetching={isLoading}
+              />
 
               {/* Status Filter */}
               <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
