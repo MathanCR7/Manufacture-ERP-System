@@ -50,6 +50,14 @@ export default function StandardProductionListPage() {
   }, [currentUser]);
   const canViewCosting = !isProductionRole;
 
+  // Only Admin has permission to view & perform batch deletion (hidden for production role)
+  const isAdmin = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    return role === 'MAIN_MASTER' || role === 'ADMIN' || role === 'SUPERVISOR';
+  }, [currentUser]);
+  const canDeleteBatch = isAdmin && !isProductionRole;
+
   // Batch Completion Modal State
   const [completionModalOpen, setCompletionModalOpen] = useState(false);
   const [batchToComplete, setBatchToComplete] = useState(null);
@@ -253,8 +261,18 @@ export default function StandardProductionListPage() {
     }
   };
 
-  // Handle Delete Batch with automated stock restoration
+  // Handle Delete Batch with automated stock restoration (Admin only)
   const handleDeleteBatch = async (batch) => {
+    if (!canDeleteBatch) {
+      Swal.fire({
+        title: 'Access Restricted',
+        text: 'Only administrators have permission to delete production batches.',
+        icon: 'warning',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
+
     const batchIdentifier = batch.referenceNo || batch.batchNo || batch.id;
     const confirm = await Swal.fire({
       title: 'Delete Production Batch?',
@@ -1301,15 +1319,17 @@ export default function StandardProductionListPage() {
                               </>
                             )}
 
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDeleteBatch(b)}
-                              className="rounded-xl border-rose-200 dark:border-rose-900/60 bg-rose-50/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
-                              title="Delete production batch and automatically restore all raw material stock to inventory"
-                            >
-                              <Trash2 className="w-3 h-3 text-rose-500 shrink-0" />
-                            </Button>
+                            {canDeleteBatch && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteBatch(b)}
+                                className="rounded-xl border-rose-200 dark:border-rose-900/60 bg-rose-50/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                title="Delete production batch and automatically restore all raw material stock to inventory"
+                              >
+                                <Trash2 className="w-3 h-3 text-rose-500 shrink-0" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
