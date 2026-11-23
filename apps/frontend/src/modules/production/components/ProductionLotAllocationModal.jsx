@@ -112,7 +112,12 @@ export default function ProductionLotAllocationModal({
   const descriptionText = resolvedMaster?.storageNotes || resolvedMaster?.description || row.storageNotes || row.description || '';
 
   // Resolve Base UOM & Alternate UOM parameters
-  const rawBase = resolvedMaster?.unitId || resolvedMaster?.consumptionUnit || row.baseUom || row.uom || row.selectedUom || 'liter';
+  const rawBase =
+    resolvedMaster?.unitId ||
+    row?.baseUom ||
+    (row?.uom && row?.uom !== row?.alternateUom ? row?.uom : null) ||
+    resolvedMaster?.consumptionUnit ||
+    'liter';
   const baseUom = cleanUomString(rawBase, 'units');
 
   const hasAlt = Boolean(
@@ -120,28 +125,38 @@ export default function ProductionLotAllocationModal({
       ? (resolvedMaster.hasAlternateUom && resolvedMaster.alternateUom)
       : (row.hasAlternateUom && row.alternateUom)
   );
-  const rawAlt = resolvedMaster?.alternateUom || row.alternateUom;
+  const rawAlt = resolvedMaster?.alternateUom || row.alternateUom || resolvedMaster?.consumptionUnit;
   const altUom = hasAlt ? cleanUomString(rawAlt, 'ml') : null;
 
   const conversionFactor = useMemo(() => {
-    const f = Number(
+    let f = Number(
       resolvedMaster?.conversionFactor ||
       (resolvedMaster?.alternateUomQty && resolvedMaster?.baseUomQty ? (resolvedMaster.alternateUomQty / resolvedMaster.baseUomQty) : null) ||
       row.conversionFactor ||
       (row.alternateUomQty && row.baseUomQty ? (row.alternateUomQty / row.baseUomQty) : null) ||
       1000
     );
+    const bStr = String(baseUom || '').toLowerCase();
+    const aStr = String(altUom || '').toLowerCase();
+    if ((bStr === 'kg' || bStr === 'kgs' || bStr === 'kilogram' || bStr === 'liter' || bStr === 'litre' || bStr === 'l') &&
+        (aStr === 'gm' || aStr === 'g' || aStr === 'gram' || aStr === 'ml' || aStr === 'milliliter')) {
+      if (f > 0 && f < 1) f = Math.round(1 / f);
+      if (!f || f <= 1) f = 1000;
+    }
     return f > 0 ? f : 1000;
-  }, [resolvedMaster, row]);
+  }, [resolvedMaster, row, baseUom, altUom]);
 
   // Initial UOM mode determination: inherit from row entry mode if alternate was active
   const initialMode = useMemo(() => {
     if (!hasAlt || !altUom) return 'BASE';
     if (row.activeEntryMode === 'ALT') return 'ALT';
-    if (row.selectedUom && String(row.selectedUom).trim().toLowerCase() === String(altUom).trim().toLowerCase()) return 'ALT';
-    if (row.uom && String(row.uom).trim().toLowerCase() === String(altUom).trim().toLowerCase()) return 'ALT';
+    if (row.activeEntryMode === 'BASE') return 'BASE';
+    const rowUom = String(row.selectedUom || row.uom || '').trim().toLowerCase();
+    const altUomLower = String(altUom).trim().toLowerCase();
+    if (rowUom === altUomLower) return 'ALT';
+    if (['gm', 'g', 'ml'].includes(rowUom) && ['kg', 'liter', 'ltr', 'l'].includes(String(baseUom).trim().toLowerCase())) return 'ALT';
     return 'BASE';
-  }, [hasAlt, altUom, row]);
+  }, [hasAlt, altUom, baseUom, row]);
 
   // Active UOM Mode state: 'BASE' (e.g. liter) or 'ALT' (e.g. ml)
   const [uomMode, setUomMode] = useState(initialMode);
@@ -157,15 +172,26 @@ export default function ProductionLotAllocationModal({
 
   // Resolve target required quantity in active UOM
   const targetRequiredQty = useMemo(() => {
+    const rawVal = Number(row?.requiredQty ?? row?.takenQty ?? row?.qty ?? 0);
+    const rowUom = String(row?.selectedUom || row?.uom || '').trim().toLowerCase();
+    const altUomLower = String(altUom || '').trim().toLowerCase();
+    const baseUomLower = String(baseUom || '').trim().toLowerCase();
+
+    // Determine if the current row value is ALREADY expressed in the alternate UOM (e.g. 300 gm)
+    const isRowInAlt =
+      row?.activeEntryMode === 'ALT' ||
+      (hasAlt && Boolean(altUomLower) && rowUom === altUomLower) ||
+      (['gm', 'g', 'ml'].includes(rowUom) && ['kg', 'liter', 'ltr', 'l'].includes(baseUomLower));
+
     // If row explicitly tracks baseRequiredQty and altRequiredQty
     if (uomMode === 'ALT' && hasAlt) {
       if (row.altRequiredQty !== undefined && Number(row.altRequiredQty) > 0) {
         return Number(row.altRequiredQty);
       }
-      if (row.activeEntryMode === 'ALT' && Number(row.requiredQty || row.takenQty || row.qty || 0) > 0) {
-        return Number(row.requiredQty || row.takenQty || row.qty || 0);
+      if (isRowInAlt && rawVal > 0) {
+        return rawVal;
       }
-      const bQty = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : (row.requiredQty || row.takenQty || row.qty || 0));
+      const bQty = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : rawVal);
       return Number((bQty * conversionFactor).toFixed(4));
     }
 
@@ -173,15 +199,14 @@ export default function ProductionLotAllocationModal({
     if (row.baseRequiredQty !== undefined && Number(row.baseRequiredQty) > 0) {
       return Number(row.baseRequiredQty);
     }
-    if (row.activeEntryMode === 'BASE' && Number(row.requiredQty || row.takenQty || row.qty || 0) > 0) {
-      return Number(row.requiredQty || row.takenQty || row.qty || 0);
+    if (!isRowInAlt && rawVal > 0) {
+      return rawVal;
     }
-    const rawVal = Number(row.requiredQty || row.takenQty || row.qty || 0);
-    if (row.activeEntryMode === 'ALT' && conversionFactor > 0) {
-      return Number((rawVal / conversionFactor).toFixed(4));
+    if (isRowInAlt && conversionFactor > 0) {
+      return Number((rawVal / conversionFactor).toFixed(6));
     }
     return rawVal;
-  }, [row, uomMode, hasAlt, conversionFactor]);
+  }, [row, uomMode, hasAlt, conversionFactor, altUom, baseUom]);
 
   // Lots state
   const [loadingLots, setLoadingLots] = useState(true);

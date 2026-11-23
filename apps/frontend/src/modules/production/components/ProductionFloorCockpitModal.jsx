@@ -1217,7 +1217,29 @@ export default function ProductionFloorCockpitModal({
             const factor = Number(m?.conversionFactor || prm.conversionFactor || 1);
             const baseQty = Number(m?.baseUomQty || 1000);
             const altQty = Number(m?.alternateUomQty || 1);
-            const unitRate = Number(prm.unitRate || m?.ratePerUnit || (prm.rmCode === 'RM-00047' ? 4.01 : 0));
+            const rawUnitRate = Number(prm.unitRate || m?.ratePerUnit || (prm.rmCode === 'RM-00047' ? 4.01 : 0));
+            const activeUom = prm.uom || (hasAlt ? altUom : primUom);
+            const isAltUom = Boolean(hasAlt && altUom && String(activeUom).toLowerCase() === String(altUom).toLowerCase());
+
+            // Self-repair: If uom is alt ('gm', 'ml') and takenQty matches base allocated qty (< 1 while allocatedAltQty is >= 1)
+            let takenQty = Number(prm.takenQty ?? prm.qty ?? 0);
+            let unitRate = rawUnitRate;
+
+            if (isAltUom && factor > 1) {
+              const firstBatch = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches[0];
+              if (firstBatch && firstBatch.allocatedAltQty && Number(firstBatch.allocatedAltQty) > 0) {
+                if (Math.abs(takenQty - Number(firstBatch.allocatedQty || 0)) < 0.001) {
+                  takenQty = Number(firstBatch.allocatedAltQty);
+                }
+              } else if (takenQty > 0 && takenQty <= 1.5 && factor >= 1000) {
+                if (Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.some(b => Number(b.allocatedQty || 0) === takenQty)) {
+                  takenQty = Number((takenQty * factor).toFixed(3));
+                }
+              }
+              if (unitRate > 5 && factor >= 100) {
+                unitRate = Number((unitRate / factor).toFixed(4));
+              }
+            }
 
             return {
               ...prm,
@@ -1226,13 +1248,17 @@ export default function ProductionFloorCockpitModal({
               hasAlternateUom: hasAlt,
               alternateUom: altUom,
               primaryUom: primUom,
-              uom: prm.uom || (hasAlt ? altUom : primUom),
+              uom: activeUom,
               conversionFactor: factor,
               baseUomQty: baseQty,
               alternateUomQty: altQty,
               taxPercent: Number(prm.taxPercent || prm.tax_percent || 18),
               addToMix: prm.addToMix !== undefined ? Boolean(prm.addToMix) : !isPackagingMaterial(prm),
-              unitRate
+              takenQty,
+              qty: takenQty,
+              activeEntryMode: isAltUom ? 'ALT' : 'BASE',
+              unitRate,
+              totalCost: Number((prm.totalCost !== undefined ? prm.totalCost : (takenQty * unitRate)).toFixed(2))
             };
           });
 
@@ -2201,20 +2227,56 @@ export default function ProductionFloorCockpitModal({
     if (isProductRm) {
       const { allocIndex, prmIndex } = activeLotTarget;
       let nextAllocs = [];
+      let finalAllocatedDisplayQty = totalAllocatedBase;
+      let finalAllocatedDisplayUom = row?.uom || 'units';
+      let finalUnitRate = blendedBaseRate;
+
       setAllocations(prev => {
         const copy = [...prev];
         const targetAlloc = { ...copy[allocIndex] };
         const prms = [...(targetAlloc.productRms || [])];
         const targetPrm = { ...prms[prmIndex] };
         targetPrm.allocatedBatches = allocatedBatches;
+
         if (allocatedBatches.length > 0) {
-          targetPrm.lotBatchNo = allocatedBatches.map(b => b.lotNumber).join(', ');
+          targetPrm.lotBatchNo = allocatedBatches.map(b => b.lotNumber || b.internalBatchNo).filter(Boolean).join(', ');
           targetPrm.expiryDate = allocatedBatches.find(b => b.expiryDate)?.expiryDate || targetPrm.expiryDate || null;
-          targetPrm.takenQty = totalAllocatedBase;
-          targetPrm.qty = totalAllocatedBase;
-          if (blendedBaseRate > 0) {
-            targetPrm.unitRate = blendedBaseRate;
+
+          const isAlt = activeUomMode === 'ALT' || targetPrm.activeEntryMode === 'ALT' ||
+            (targetPrm.alternateUom && String(targetPrm.uom || '').toLowerCase() === String(targetPrm.alternateUom).toLowerCase()) ||
+            (['gm', 'g', 'ml'].includes(String(targetPrm.uom || '').toLowerCase()));
+
+          targetPrm.baseRequiredQty = totalAllocatedBase;
+          targetPrm.baseTakenQty = totalAllocatedBase;
+          targetPrm.altRequiredQty = totalAllocatedAlt;
+          targetPrm.altTakenQty = totalAllocatedAlt;
+
+          if (isAlt) {
+            targetPrm.activeEntryMode = 'ALT';
+            targetPrm.takenQty = totalAllocatedAlt;
+            targetPrm.qty = totalAllocatedAlt;
+            targetPrm.uom = targetPrm.alternateUom || targetPrm.uom || 'gm';
+            const factor = Number(targetPrm.conversionFactor || 1000);
+            const rate = blendedAltRate > 0 ? blendedAltRate : (blendedBaseRate > 0 && factor > 1 ? Number((blendedBaseRate / factor).toFixed(4)) : targetPrm.unitRate);
+            targetPrm.unitRate = rate;
+            targetPrm.altRate = rate;
+            targetPrm.baseRate = blendedBaseRate;
             targetPrm.totalCost = totalCost;
+            finalAllocatedDisplayQty = totalAllocatedAlt;
+            finalAllocatedDisplayUom = targetPrm.uom;
+            finalUnitRate = rate;
+          } else {
+            targetPrm.activeEntryMode = 'BASE';
+            targetPrm.takenQty = totalAllocatedBase;
+            targetPrm.qty = totalAllocatedBase;
+            targetPrm.uom = targetPrm.primaryUom || targetPrm.uom || 'kg';
+            targetPrm.unitRate = blendedBaseRate > 0 ? blendedBaseRate : targetPrm.unitRate;
+            targetPrm.baseRate = blendedBaseRate;
+            targetPrm.altRate = blendedAltRate;
+            targetPrm.totalCost = totalCost;
+            finalAllocatedDisplayQty = totalAllocatedBase;
+            finalAllocatedDisplayUom = targetPrm.uom;
+            finalUnitRate = targetPrm.unitRate;
           }
         }
         prms[prmIndex] = targetPrm;
@@ -2225,7 +2287,9 @@ export default function ProductionFloorCockpitModal({
       });
       setLotModalOpen(false);
 
-      if (nextAllocs.length > 0) {
+      if (isEditingCompletedDay && currentDayRec?.id) {
+        handleSaveCompletedDayChanges(true);
+      } else if (nextAllocs.length > 0) {
         api.put(`/production/standard/${batchId}/allocations`, {
           allocations: nextAllocs.filter(a => a.productId).map(a => ({
             seq: a.seq,
@@ -2254,7 +2318,7 @@ export default function ProductionFloorCockpitModal({
 
       Swal.fire({
         title: 'Batches Allocated & Database Persisted!',
-        text: `Allocated ${totalAllocatedBase} ${row?.uom || 'units'} across ${allocatedBatches.length} lot(s).${canViewCost ? ` Live PO rate: ₹${blendedBaseRate.toFixed(2)}/unit.` : ''}`,
+        text: `Allocated ${finalAllocatedDisplayQty} ${finalAllocatedDisplayUom} across ${allocatedBatches.length} lot(s).${canViewCost ? ` Live PO rate: ₹${Number(finalUnitRate || 0).toFixed(4)}/${finalAllocatedDisplayUom}.` : ''}`,
         icon: 'success',
         timer: 1600
       });
@@ -2811,10 +2875,21 @@ export default function ProductionFloorCockpitModal({
         const cleanUom = formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, isPackaging ? 'pcs' : 'ml', rm);
         const hasAlt = Boolean(rm.hasAlternateUom && rm.alternateUom);
         const altUom = rm.alternateUom || null;
-        const convFactor = Number(rm.conversionFactor || 1);
+        let convFactor = Number(rm.conversionFactor || 1);
+        const bStr = String(cleanUom || '').toLowerCase();
+        const aStr = String(altUom || '').toLowerCase();
+        if ((bStr === 'kg' || bStr === 'kgs' || bStr === 'kilogram' || bStr === 'liter' || bStr === 'litre' || bStr === 'l') &&
+            (aStr === 'gm' || aStr === 'g' || aStr === 'gram' || aStr === 'ml' || aStr === 'milliliter')) {
+          if (convFactor > 0 && convFactor < 1) convFactor = Math.round(1 / convFactor);
+          if (!convFactor || convFactor <= 1) convFactor = 1000;
+        }
+
         const initialUom = hasAlt && altUom ? altUom : cleanUom;
+        const isInitialAlt = Boolean(hasAlt && altUom && String(initialUom).toLowerCase() === String(altUom).toLowerCase());
+        const baseRate = Number(rm.ratePerUnit || (rm.code === 'RM-00047' ? 4.01 : 0));
+        const altRate = (convFactor > 1) ? Number((baseRate / convFactor).toFixed(4)) : baseRate;
+        const unitRate = isInitialAlt ? altRate : baseRate;
         const initialQty = 1;
-        const unitRate = Number(rm.ratePerUnit || (rm.code === 'RM-00047' ? 4.01 : 0));
         const taxPercent = Number(rm.taxPercent || rm.tax_percent || 18);
         const topBatch = rm.availableBatches?.[0];
 
@@ -2834,7 +2909,10 @@ export default function ProductionFloorCockpitModal({
           density: Number(rm.density_g_per_ml || rm.density || 1.0),
           takenQty: initialQty,
           qty: initialQty,
+          activeEntryMode: isInitialAlt ? 'ALT' : 'BASE',
           addToMix: !isPackaging,
+          baseRate: baseRate,
+          altRate: altRate,
           unitRate: unitRate,
           totalCost: Number((unitRate * initialQty).toFixed(2)),
           currentStock: Number(rm.currentStock || 0),
@@ -2843,13 +2921,14 @@ export default function ProductionFloorCockpitModal({
               batchId: topBatch.id,
               lotNumber: topBatch.batchNo,
               internalBatchNo: topBatch.batchNo,
-              allocatedQty: initialQty,
+              allocatedQty: isInitialAlt && convFactor > 1 ? Number((initialQty / convFactor).toFixed(6)) : initialQty,
+              allocatedAltQty: isInitialAlt ? initialQty : Number((initialQty * convFactor).toFixed(4)),
               availableQty: Number(topBatch.remainingQty || topBatch.availableQty || initialQty),
               remainingQty: topBatch.remainingQty,
               expiryDate: topBatch.expiryDate,
               unitRate: unitRate,
               allocatedAmount: Number((initialQty * unitRate).toFixed(2)),
-              uom: initialUom
+              uom: isInitialAlt ? (altUom || initialUom) : cleanUom
             }
           ] : []
         };
@@ -2866,7 +2945,9 @@ export default function ProductionFloorCockpitModal({
       });
 
       // Auto-save step 3 allocations immediately
-      if (updatedAllocs.length > 0) {
+      if (isEditingCompletedDay && currentDayRec?.id) {
+        handleSaveCompletedDayChanges(true);
+      } else if (updatedAllocs.length > 0) {
         api.put(`/production/standard/${batchId}/allocations`, {
           allocations: updatedAllocs.filter(a => a.productId).map(a => ({
             seq: a.seq,
@@ -3096,19 +3177,47 @@ export default function ProductionFloorCockpitModal({
         const prevUom = String(current.uom || '').toLowerCase();
         const nextUom = String(value || '').toLowerCase();
         current.uom = value;
+        const factor = Number(current.conversionFactor || 1000);
         const currentQty = Number(current.takenQty ?? current.qty ?? 0);
+
         if (currentQty > 0) {
-          if ((prevUom === 'liter' || prevUom === 'ltr') && nextUom === 'ml') {
-            current.takenQty = Number((currentQty * 1000).toFixed(4));
+          if ((prevUom === 'liter' || prevUom === 'ltr' || prevUom === 'kg' || prevUom === 'kgs') &&
+              (nextUom === 'ml' || nextUom === 'gm' || nextUom === 'g')) {
+            current.takenQty = Number((currentQty * factor).toFixed(4));
             current.qty = current.takenQty;
-          } else if (prevUom === 'ml' && (nextUom === 'liter' || nextUom === 'ltr')) {
-            current.takenQty = Number((currentQty / 1000).toFixed(6));
+            current.activeEntryMode = 'ALT';
+            if (current.unitRate > 0 && factor > 1) {
+              current.baseRate = current.baseRate || current.unitRate;
+              current.unitRate = Number((current.baseRate / factor).toFixed(4));
+              current.altRate = current.unitRate;
+            }
+          } else if ((prevUom === 'ml' || prevUom === 'gm' || prevUom === 'g') &&
+                     (nextUom === 'liter' || nextUom === 'ltr' || nextUom === 'kg' || nextUom === 'kgs')) {
+            current.takenQty = Number((currentQty / factor).toFixed(6));
             current.qty = current.takenQty;
+            current.activeEntryMode = 'BASE';
+            if (current.baseRate > 0) {
+              current.unitRate = current.baseRate;
+            } else if (current.unitRate > 0 && factor > 1) {
+              current.unitRate = Number((current.unitRate * factor).toFixed(2));
+            }
           }
         }
+        current.totalCost = Number(((current.takenQty ?? 0) * (current.unitRate ?? 0)).toFixed(2));
       } else if (field === 'takenQty' || field === 'unitRate' || field === 'qty') {
         const qty = Number(field === 'unitRate' ? (current.takenQty ?? current.qty ?? 0) : value);
-        const rate = Number(field === 'unitRate' ? value : current.unitRate || 0);
+        let rate = Number(field === 'unitRate' ? value : current.unitRate || 0);
+        const factor = Number(current.conversionFactor || 1000);
+        const uomLower = String(current.uom || '').toLowerCase();
+        const isAlt = current.activeEntryMode === 'ALT' || uomLower === 'gm' || uomLower === 'g' || uomLower === 'ml';
+
+        // Guard against base rate per kg applied to gm qty (e.g. rate 231.25 with gm)
+        if (isAlt && rate > 10 && factor >= 100) {
+          current.baseRate = rate;
+          rate = Number((rate / factor).toFixed(4));
+          current.unitRate = rate;
+        }
+
         current.takenQty = qty;
         current.qty = qty;
         current.totalCost = Number((qty * rate).toFixed(2));
@@ -6927,9 +7036,20 @@ export default function ProductionFloorCockpitModal({
                                             </td>
                                               <td className="py-0.5 px-2">
                                                 {(() => {
+                                                  const isAlt = prm.activeEntryMode === 'ALT' ||
+                                                    (prm.alternateUom && String(prm.uom || '').toLowerCase() === String(prm.alternateUom).toLowerCase()) ||
+                                                    (['gm', 'g', 'ml'].includes(String(prm.uom || '').toLowerCase()));
+                                                  const factor = Number(prm.conversionFactor || 1000);
                                                   const prmReqQty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
-                                                  const allocatedSum = (prm.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
-                                                  const needsLot = !hasBatches || (prmReqQty > 0 && allocatedSum < (prmReqQty - 0.0001));
+                                                  const allocatedSum = (prm.allocatedBatches || []).reduce((s, b) => {
+                                                    if (isAlt) {
+                                                      const altQ = Number(b.allocatedAltQty !== undefined && Number(b.allocatedAltQty) > 0 ? b.allocatedAltQty : (Number(b.allocatedQty || 0) * (factor > 1 ? factor : 1)));
+                                                      return s + altQ;
+                                                    }
+                                                    return s + Number(b.allocatedQty || 0);
+                                                  }, 0);
+                                                  const roundedAllocSum = Number(allocatedSum.toFixed(2));
+                                                  const needsLot = !hasBatches || (prmReqQty > 0 && roundedAllocSum < (prmReqQty - 0.0001));
                                                   if (hasBatches) {
                                                     return (
                                                       <button
@@ -6940,7 +7060,7 @@ export default function ProductionFloorCockpitModal({
                                                             ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-900 dark:text-amber-200'
                                                             : 'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300'
                                                         }`}
-                                                        title={needsLot ? `Allocated ${allocatedSum} / ${prmReqQty} — Click to allocate warehouse stock lots` : 'Click to view or adjust lot allocations'}
+                                                        title={needsLot ? `Allocated ${roundedAllocSum} / ${prmReqQty} ${prm.uom || ''} — Click to allocate warehouse stock lots` : 'Click to view or adjust lot allocations'}
                                                       >
                                                         <Boxes className={`w-2 h-2 ${needsLot ? 'text-amber-600' : 'text-blue-600'}`} />
                                                         <span>
@@ -6948,7 +7068,7 @@ export default function ProductionFloorCockpitModal({
                                                             ? `#${String(prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo).replace(/^#+/, '')}`
                                                             : `${prm.allocatedBatches.length} Lots`}
                                                         </span>
-                                                        <span className="opacity-75">({allocatedSum}/{prmReqQty})</span>
+                                                        <span className="opacity-75">({roundedAllocSum}/{prmReqQty})</span>
                                                       </button>
                                                     );
                                                   }
@@ -6969,8 +7089,9 @@ export default function ProductionFloorCockpitModal({
                                               </td>
                                             {canViewCost && (
                                               <td className="py-0.5 px-2 text-right font-mono text-[10px]">
-                                                <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                                <div className="font-semibold text-slate-800 dark:text-slate-200" title={prm.baseRate ? `Base: ₹${Number(prm.baseRate).toFixed(2)}/${prm.primaryUom || 'kg'}` : undefined}>
                                                   ₹{Number(prm.unitRate || 0).toFixed(2)}
+                                                  <span className="text-[8px] font-normal text-slate-400 ml-0.5">/{prm.uom || 'unit'}</span>
                                                 </div>
                                                 {prm.allocatedBatches?.length > 0 && prm.allocatedBatches[0].poNumber && (
                                                   <div className="text-[7.5px] text-slate-400 font-normal truncate">
