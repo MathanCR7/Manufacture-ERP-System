@@ -1013,14 +1013,14 @@ export default function POListPage() {
               />
 
               {/* Status Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
+              <div className="relative flex items-center flex-1 sm:flex-none w-full sm:w-auto">
                 <select
                   value={statusFilter}
                   onChange={(e) => {
                     setStatusFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full h-8 pl-2.5 pr-7 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Status: All</option>
                   <option value="PENDING">Draft</option>
@@ -1029,29 +1029,29 @@ export default function POListPage() {
                   <option value="APPROVED">Approved</option>
                   <option value="REJECTED">Rejected</option>
                 </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
               </div>
 
               {/* Payment Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
+              <div className="relative flex items-center flex-1 sm:flex-none w-full sm:w-auto">
                 <select
                   value={paymentFilter}
                   onChange={(e) => {
                     setPaymentFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full h-8 pl-2.5 pr-7 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Payment: All</option>
                   <option value="PAID">Paid Only</option>
                   <option value="PARTIALLY_PAID">Partial</option>
                   <option value="UNPAID">Unpaid Only</option>
                 </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
               </div>
 
               {/* Sort Dropdown (Styled identically to /setup/raw-material) */}
-              <div className="relative flex items-center flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto">
+              <div className="relative flex items-center flex-1 sm:flex-none w-full sm:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </span>
@@ -1061,7 +1061,7 @@ export default function POListPage() {
                     setSortBy(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Sort options"
                 >
                   <option value="recent">Sort: Date (Newest First)</option>
