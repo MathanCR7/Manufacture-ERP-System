@@ -233,7 +233,7 @@ function SupplierSelect({
           ref={buttonRef}
           type="button"
           onClick={handleToggle}
-          className={`w-full ${compact ? 'px-2 h-7.5 rounded-lg text-[11px]' : 'px-2.5 h-8.5 rounded-xl text-xs'} border text-left flex items-center justify-between transition-all duration-150 shadow-2xs select-none ${
+          className={`w-full ${compact ? 'px-1.5 h-7 rounded-md text-[10px]' : 'px-2.5 h-8.5 rounded-xl text-xs'} border text-left flex items-center justify-between transition-all duration-150 shadow-2xs select-none ${
             open 
               ? 'bg-indigo-50/90 border-indigo-500 ring-2 ring-indigo-500/25 dark:bg-indigo-950/70 dark:border-indigo-500' 
               : value
@@ -539,7 +539,7 @@ function SupplierSelect({
           size="sm"
           onClick={onAddNew} 
           title="Quick Add New Supplier"
-          className={`bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 shadow-xs ${compact ? 'px-1.5 h-7.5 rounded-lg' : 'px-2 h-8.5 rounded-xl'}`}
+          className={`bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 shadow-xs ${compact ? 'px-1.5 h-7 rounded-md' : 'px-2 h-8.5 rounded-xl'}`}
         >
           <Plus className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
         </Button>
@@ -1051,19 +1051,19 @@ function ExpenseChargesAndSummarySection({
     <div className={compactLayout ? 'space-y-2.5' : 'grid grid-cols-1 xl:grid-cols-12 gap-3.5 items-start'}>
       {/* Charges Inputs & Remarks */}
       <div className={compactLayout ? 'space-y-2.5' : 'xl:col-span-7 space-y-2.5'}>
-        <div className={`grid ${compactLayout ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 gap-2' : 'grid-cols-2 sm:grid-cols-3 gap-2'}`}>
+        <div className={`grid ${compactLayout ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 gap-1.5' : 'grid-cols-2 sm:grid-cols-3 gap-1.5'}`}>
           {/* 1. Discount */}
-          <div className="space-y-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-            <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">Discount (₹)</Label>
+          <div className="space-y-0.5 p-1.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+            <Label className="text-[10px] font-bold text-slate-700 dark:text-slate-300 block leading-none">Discount (₹)</Label>
             <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 select-none">₹</span>
+              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 select-none">₹</span>
               <Input
                 type="number"
                 min="0"
                 step="0.01"
                 value={values.discountAmount ?? '0'}
                 onChange={(e) => onChangeField('discountAmount', e.target.value)}
-                className="h-7.5 text-xs pl-5 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-emerald-400 focus:border-emerald-600 font-semibold shadow-2xs"
+                className="h-6.5 text-xs pl-4.5 rounded-md bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-emerald-400 focus:border-emerald-600 font-semibold shadow-2xs"
               />
             </div>
           </div>
@@ -1074,28 +1074,28 @@ function ExpenseChargesAndSummarySection({
             const gstEnabled = Boolean(values[card.gstField]);
             const rateVal = values[card.rateField] ?? 18;
             return (
-              <div key={card.key} className="space-y-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+              <div key={card.key} className="space-y-0.5 p-1.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
                 <div className="flex items-center justify-between gap-1">
-                  <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap truncate">{card.label}</Label>
-                  <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0">
+                  <Label className="text-[10px] font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap truncate leading-none">{card.label}</Label>
+                  <label className="inline-flex items-center gap-0.5 cursor-pointer select-none shrink-0">
                     <input
                       type="checkbox"
                       checked={gstEnabled}
                       onChange={(e) => onChangeField(card.gstField, e.target.checked)}
-                      className="w-3 h-3 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                      className="w-2.5 h-2.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
                     />
-                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                    <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
                   </label>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
                     value={amountVal}
                     onChange={(e) => onChangeField(card.amountField, e.target.value)}
-                    className="h-7.5 text-xs pl-5 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs"
+                    className="h-6.5 text-xs pl-4.5 rounded-md bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs"
                   />
                 </div>
                 {gstEnabled && (
@@ -1103,7 +1103,7 @@ function ExpenseChargesAndSummarySection({
                     <select
                       value={rateVal}
                       onChange={(e) => onChangeField(card.rateField, Number(e.target.value))}
-                      className="h-5.5 text-[10px] px-1 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                      className="h-5 text-[9px] px-1 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
                     >
                       <option value={0}>0%</option>
                       <option value={5}>5%</option>
@@ -1112,7 +1112,7 @@ function ExpenseChargesAndSummarySection({
                       <option value={28}>28%</option>
                     </select>
                     {Number(amountVal) > 0 && (
-                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                      <span className="text-[9px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
                         +₹{card.gstAmount.toFixed(2)}
                       </span>
                     )}
@@ -1123,35 +1123,35 @@ function ExpenseChargesAndSummarySection({
           })}
 
           {/* 5. Other Charges (with custom label) */}
-          <div className={`space-y-1 p-2 rounded-xl bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 ${compactLayout ? 'col-span-2 sm:col-span-1' : 'col-span-2 sm:col-span-1'}`}>
+          <div className={`space-y-0.5 p-1.5 rounded-lg bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 ${compactLayout ? 'col-span-2 sm:col-span-1' : 'col-span-2 sm:col-span-1'}`}>
             <div className="flex items-center justify-between gap-1">
               <Input
                 type="text"
                 value={values.otherChargesLabel ?? 'Other Charges'}
                 onChange={(e) => onChangeField('otherChargesLabel', e.target.value)}
                 placeholder="Other Charges"
-                className="h-4.5 px-0.5 py-0 text-[11px] font-bold text-slate-700 dark:text-slate-300 border-0 bg-transparent focus-visible:ring-0 min-w-0 flex-1"
+                className="h-4 px-0.5 py-0 text-[10px] font-bold text-slate-700 dark:text-slate-300 border-0 bg-transparent focus-visible:ring-0 min-w-0 flex-1 leading-none"
                 title="Edit charge title"
               />
-              <label className="inline-flex items-center gap-1 cursor-pointer select-none shrink-0">
+              <label className="inline-flex items-center gap-0.5 cursor-pointer select-none shrink-0">
                 <input
                   type="checkbox"
                   checked={Boolean(values.otherChargesGstApplicable)}
                   onChange={(e) => onChangeField('otherChargesGstApplicable', e.target.checked)}
-                  className="w-3 h-3 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                  className="w-2.5 h-2.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
                 />
-                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
               </label>
             </div>
             <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
               <Input
                 type="number"
                 min="0"
                 step="0.01"
                 value={values.otherCharges ?? '0'}
                 onChange={(e) => onChangeField('otherCharges', e.target.value)}
-                className="h-7.5 text-xs pl-5 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs"
+                className="h-6.5 text-xs pl-4.5 rounded-md bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold shadow-2xs"
               />
             </div>
             {Boolean(values.otherChargesGstApplicable) && (
@@ -1159,7 +1159,7 @@ function ExpenseChargesAndSummarySection({
                 <select
                   value={values.otherChargesGstRate ?? 18}
                   onChange={(e) => onChangeField('otherChargesGstRate', Number(e.target.value))}
-                  className="h-5.5 text-[10px] px-1 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                  className="h-5 text-[9px] px-1 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
                 >
                   <option value={0}>0%</option>
                   <option value={5}>5%</option>
@@ -1168,7 +1168,7 @@ function ExpenseChargesAndSummarySection({
                   <option value={28}>28%</option>
                 </select>
                 {Number(values.otherCharges) > 0 && (
-                  <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                  <span className="text-[9px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
                     +₹{summary.otherGst.toFixed(2)}
                   </span>
                 )}
@@ -1179,16 +1179,15 @@ function ExpenseChargesAndSummarySection({
 
         {/* Row Remarks */}
         {showRemarks && (
-          <div className="space-y-1">
-            <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <FileText className="w-3 h-3 text-slate-400" />
+          <div className="space-y-0.5">
+            <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider leading-none">
               Supplier Instructions & Remarks
             </Label>
-            <textarea
+            <input
+              type="text"
               value={values.remarks ?? ''}
               onChange={(e) => onChangeField('remarks', e.target.value)}
-              rows={compactLayout ? 1 : 2}
-              className="w-full border rounded-xl px-2.5 py-1.5 text-xs bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs text-slate-800 dark:text-slate-200 font-medium"
+              className="w-full h-7 px-2 text-[11px] rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-2xs"
               placeholder="Supplier instructions, delivery notes, payment terms, or reference numbers..."
             />
           </div>
@@ -2468,65 +2467,65 @@ export default function ExpensesPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2">
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Expenses</p>
-              <h3 className="text-lg sm:text-xl font-black font-mono text-slate-900 dark:text-white mt-0.5">
+          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
+            <div className="min-w-0 pr-1">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Total Expenses</p>
+              <h3 className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5 leading-none">
                 ₹{summary?.total ? summary.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
               </h3>
-              <p className="text-[10px] text-slate-400">{expenses.length} total entries</p>
+              <p className="text-[9px] text-slate-400 mt-0.5 leading-none">{expenses.length} total entries</p>
             </div>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shrink-0">
-              <Layers className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shrink-0">
+              <Layers className="w-3.5 h-3.5" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">This Month's Spend</p>
-              <h3 className="text-lg sm:text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
+            <div className="min-w-0 pr-1">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">This Month's Spend</p>
+              <h3 className="text-base sm:text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 leading-none">
                 ₹{summary?.monthly ? summary.monthly.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
               </h3>
-              <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80">Current cycle</p>
+              <p className="text-[9px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5 leading-none">Current cycle</p>
             </div>
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900 shrink-0">
-              <TrendingUp className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900 shrink-0">
+              <TrendingUp className="w-3.5 h-3.5" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Supplier Tagged</p>
-              <h3 className="text-lg sm:text-xl font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5">
+          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
+            <div className="min-w-0 pr-1">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Supplier Tagged</p>
+              <h3 className="text-base sm:text-lg font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5 leading-none">
                 {expenses.filter(e => e.isSupplierExpense || e.supplierId || e.supplierName).length}
               </h3>
-              <p className="text-[10px] text-purple-500/80 dark:text-purple-400/80">With vendor invoices</p>
+              <p className="text-[9px] text-purple-500/80 dark:text-purple-400/80 mt-0.5 leading-none">With vendor invoices</p>
             </div>
-            <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900 shrink-0">
-              <Building2 className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900 shrink-0">
+              <Building2 className="w-3.5 h-3.5" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2.5 sm:p-3 flex items-center justify-between">
+          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
             <div className="min-w-0 pr-1">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Top Cost Center</p>
-              <h3 className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 mt-0.5 truncate">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Top Cost Center</p>
+              <h3 className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5 truncate leading-none">
                 {summary?.categoryBreakdown && summary.categoryBreakdown.length > 0
                   ? [...summary.categoryBreakdown].sort((a, b) => b.amount - a.amount)[0]?.category
                   : 'None'}
               </h3>
-              <p className="text-[10px] text-amber-500/80 dark:text-amber-400/80">Highest volume</p>
+              <p className="text-[9px] text-amber-500/80 dark:text-amber-400/80 mt-0.5 leading-none">Highest volume</p>
             </div>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900 shrink-0">
-              <CreditCard className="w-4 h-4" />
+            <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900 shrink-0">
+              <CreditCard className="w-3.5 h-3.5" />
             </div>
           </CardContent>
         </Card>
@@ -2772,7 +2771,7 @@ export default function ExpensesPage() {
                             : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
                         }`}
                       >
-                        <TableCell className="text-center px-1.5 py-2">
+                        <TableCell className="text-center px-1 py-1">
                           <button
                             type="button"
                             onClick={() => handleToggleSelectRow(exp.id)}
@@ -2787,12 +2786,12 @@ export default function ExpensesPage() {
                         </TableCell>
 
                         {/* Expense # & Date */}
-                        <TableCell className="px-2 py-2 whitespace-nowrap">
-                          <div className="space-y-0.5">
-                            <span className="inline-block font-mono font-bold text-[10px] text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80">
+                        <TableCell className="px-1.5 py-1 whitespace-nowrap">
+                          <div className="space-y-0.5 leading-none">
+                            <span className="inline-block font-mono font-bold text-[9px] text-indigo-600 dark:text-indigo-400 px-1 py-0.2 rounded bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80">
                               {exp.expenseNumber || 'EXP-—'}
                             </span>
-                            <div className="font-semibold text-slate-600 dark:text-slate-400 text-[10px]">
+                            <div className="font-semibold text-slate-600 dark:text-slate-400 text-[9px] leading-tight mt-0.5">
                               {new Date(exp.date).toLocaleDateString('en-IN', {
                                 day: '2-digit',
                                 month: 'short',
@@ -2803,20 +2802,20 @@ export default function ExpensesPage() {
                         </TableCell>
 
                         {/* Category */}
-                        <TableCell className="px-2 py-2">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border max-w-[110px] truncate ${catMeta.bg}`} title={catMeta.label}>
+                        <TableCell className="px-1.5 py-1">
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold border max-w-[110px] truncate leading-none ${catMeta.bg}`} title={catMeta.label}>
                             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: catMeta.color }} />
                             <span className="truncate">{catMeta.label}</span>
                           </span>
                         </TableCell>
 
                         {/* Title, SAC & Notes */}
-                        <TableCell className="px-2 py-2 max-w-[180px]">
-                          <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs uppercase" title={exp.title}>
+                        <TableCell className="px-1.5 py-1 max-w-[180px]">
+                          <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-[11px] uppercase leading-tight" title={exp.title}>
                             {exp.title}
                           </div>
                           {(exp.hsnSacCode || exp.notes) && (
-                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 truncate" title={exp.notes || ''}>
+                            <div className="flex items-center gap-1 text-[9px] text-slate-400 truncate leading-none mt-0.5" title={exp.notes || ''}>
                               {exp.hsnSacCode && <span className="font-mono shrink-0">SAC:{exp.hsnSacCode}</span>}
                               {exp.notes && <span className="truncate italic">{exp.notes}</span>}
                             </div>
@@ -2824,41 +2823,41 @@ export default function ExpensesPage() {
                         </TableCell>
 
                         {/* Supplier / Vendor */}
-                        <TableCell className="px-2 py-2 max-w-[180px]">
+                        <TableCell className="px-1.5 py-1 max-w-[180px]">
                           {hasSupplier ? (
-                            <div className="space-y-0.5">
-                              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1 truncate text-[11px]" title={exp.supplierName || ''}>
+                            <div className="space-y-0.5 leading-none">
+                              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1 truncate text-[10px]" title={exp.supplierName || ''}>
                                 <Building2 className="w-3 h-3 text-indigo-500 shrink-0" />
                                 <span className="truncate">{exp.supplierName || 'Vendor Assigned'}</span>
                               </div>
-                              <div className="flex items-center gap-1 flex-wrap">
+                              <div className="flex items-center gap-1 flex-wrap mt-0.5">
                                 {exp.supplierGstin && (
-                                  <span className="font-mono text-[9px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                  <span className="font-mono text-[8px] px-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                                     {exp.supplierGstin}
                                   </span>
                                 )}
                                 {exp.invoiceNo && (
-                                  <span className="font-mono text-[9px] px-1 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                  <span className="font-mono text-[8px] px-1 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                                     #{exp.invoiceNo}
                                   </span>
                                 )}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-slate-400 text-[10px] italic">Internal</span>
+                            <span className="text-slate-400 text-[9px] italic leading-none">Internal</span>
                           )}
                         </TableCell>
 
                         {/* Taxable */}
-                        <TableCell className="px-2 py-2 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap text-[11px]">
+                        <TableCell className="px-1.5 py-1 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap text-[10px] leading-tight">
                           ₹{Number(exp.taxableAmount || exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
 
                         {/* GST Breakdown */}
-                        <TableCell className="px-1.5 py-2 text-center whitespace-nowrap">
+                        <TableCell className="px-1 py-1 text-center whitespace-nowrap">
                           {gstRate > 0 || totalTax > 0 ? (
-                            <div className="space-y-0.5">
-                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            <div className="space-y-0.5 leading-none">
+                              <span className={`inline-flex items-center px-1.5 py-0.2 rounded text-[8px] font-bold ${
                                 exp.isInterState
                                   ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
                                   : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
@@ -2867,25 +2866,25 @@ export default function ExpensesPage() {
                                   ? (exp.isInterState ? `IGST ${gstRate}%` : `CGST+SGST ${gstRate}%`)
                                   : (exp.isInterState ? 'IGST (Chg)' : 'GST (Chg)')}
                               </span>
-                              <div className="text-[10px] font-mono text-slate-500">
+                              <div className="text-[9px] font-mono text-slate-500 mt-0.5">
                                 +₹{totalTax.toFixed(2)}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-[10px] text-slate-400 font-mono">0% GST</span>
+                            <span className="text-[9px] text-slate-400 font-mono leading-none">0% GST</span>
                           )}
                         </TableCell>
 
                         {/* Charges & Discount */}
-                        <TableCell className="px-2 py-2 max-w-[140px]">
+                        <TableCell className="px-1.5 py-1 max-w-[140px]">
                           {chargeBadges.length === 0 ? (
-                            <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
+                            <span className="text-[10px] text-slate-300 dark:text-slate-600 leading-none">—</span>
                           ) : (
-                            <div className="flex flex-wrap gap-1">
+                            <div className="flex flex-wrap gap-0.5">
                               {chargeBadges.map((b) => (
                                 <span
                                   key={b.key}
-                                  className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold border font-mono ${b.tone}`}
+                                  className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8px] font-bold border font-mono ${b.tone}`}
                                 >
                                   <span>{b.label}</span>
                                   {b.gst && <span className="text-indigo-600 dark:text-indigo-400">{b.gst}</span>}
@@ -2896,15 +2895,15 @@ export default function ExpensesPage() {
                         </TableCell>
 
                         {/* Grand Total */}
-                        <TableCell className="px-2 py-2 text-right font-bold font-mono text-slate-900 dark:text-white whitespace-nowrap text-xs">
+                        <TableCell className="px-1.5 py-1 text-right font-bold font-mono text-slate-900 dark:text-white whitespace-nowrap text-[11px] leading-tight">
                           ₹{totalExp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
 
                         {/* Payment Status, Mode & Ref */}
-                        <TableCell className="px-1.5 py-2 text-center whitespace-nowrap">
-                          <div className="space-y-0.5 flex flex-col items-center">
+                        <TableCell className="px-1 py-1 text-center whitespace-nowrap">
+                          <div className="space-y-0.5 flex flex-col items-center leading-none">
                             <div className="flex items-center gap-1">
-                              <span className={`inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold border uppercase tracking-wider ${
+                              <span className={`inline-flex items-center px-1 py-0.2 rounded-full text-[8px] font-bold border uppercase tracking-wider ${
                                 status === 'PAID'
                                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
                                   : status === 'PARTIALLY_PAID'
@@ -2913,7 +2912,7 @@ export default function ExpensesPage() {
                               }`}>
                                 {status === 'PAID' ? 'PAID' : status === 'PARTIALLY_PAID' ? 'PARTIAL' : 'UNPAID'}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                              <span className="text-[9px] font-bold text-slate-700 dark:text-slate-300">
                                 {getPaymentModeShortLabel(exp.paymentMode)}
                               </span>
                               {exp.paymentImage && (
@@ -2928,16 +2927,16 @@ export default function ExpensesPage() {
                               )}
                             </div>
                             {status !== 'PAID' ? (
-                              <div className="text-[9px] font-mono text-amber-600 dark:text-amber-400 font-semibold">
+                              <div className="text-[8px] font-mono text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
                                 Paid ₹{paidVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })} • Due ₹{dueVal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </div>
                             ) : (
-                              <div className="text-[9px] font-mono text-emerald-600/80 dark:text-emerald-400/80">
+                              <div className="text-[8px] font-mono text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">
                                 ₹{paidVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} settled
                               </div>
                             )}
                             {exp.paymentRef && (
-                              <div className="text-[9px] font-mono text-slate-400 max-w-[125px] truncate" title={exp.paymentRef}>
+                              <div className="text-[8px] font-mono text-slate-400 max-w-[125px] truncate mt-0.5" title={exp.paymentRef}>
                                 Ref: {exp.paymentRef}
                               </div>
                             )}
@@ -2945,11 +2944,11 @@ export default function ExpensesPage() {
                         </TableCell>
 
                         {/* Attachments */}
-                        <TableCell className="px-1.5 py-2 text-center whitespace-nowrap">
+                        <TableCell className="px-1 py-1 text-center whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => setViewingAttachmentsExpense(exp)}
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                            className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold border transition-colors leading-none ${
                               attachmentsCount > 0
                                 ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100'
                                 : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:text-indigo-600'
@@ -2961,7 +2960,7 @@ export default function ExpensesPage() {
                         </TableCell>
 
                         {/* Actions */}
-                        <TableCell className="px-2 py-2 text-right space-x-0.5 whitespace-nowrap">
+                        <TableCell className="px-1.5 py-1 text-right space-x-0.5 whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => setViewingExpense(exp)}
@@ -3229,16 +3228,17 @@ export default function ExpensesPage() {
                 <table className="w-full text-left text-xs min-w-[960px] lg:min-w-0 lg:table-fixed">
                   <thead className="bg-slate-100/95 dark:bg-slate-950/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-800 text-[10px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider sticky top-0 z-20">
                     <tr>
-                      <th className="w-[3%] px-1 py-2 text-center">#</th>
-                      <th className="w-[15%] px-1.5 py-2">Date &amp; Category *</th>
-                      <th className="w-[21%] px-1.5 py-2">Vendor &amp; Inv #</th>
-                      <th className="w-[16%] px-1.5 py-2">Title / Purpose *</th>
-                      <th className="w-[8%] px-1.5 py-2 text-right">Taxable *</th>
-                      <th className="w-[5%] px-1 py-2 text-center">GST</th>
-                      <th className="w-[8%] px-1.5 py-2 text-right">Total (₹)</th>
-                      <th className="w-[8%] px-1 py-2 text-center">Charges</th>
-                      <th className="w-[10%] px-1 py-2 text-center">Payment</th>
-                      <th className="w-[6%] px-1 py-2 text-center">Files / Act</th>
+                      <th className="w-[3%] px-1 py-1.5 text-center">#</th>
+                      <th className="w-[11%] px-1 py-1.5">Date *</th>
+                      <th className="w-[13%] px-1 py-1.5">Category *</th>
+                      <th className="w-[21%] px-1 py-1.5">Vendor &amp; Inv #</th>
+                      <th className="w-[20%] px-1 py-1.5">Title / Purpose *</th>
+                      <th className="w-[8%] px-1 py-1.5 text-right">Taxable *</th>
+                      <th className="w-[5%] px-0.5 py-1.5 text-center">GST</th>
+                      <th className="w-[7%] px-1 py-1.5 text-right">Total (₹)</th>
+                      <th className="w-[4%] px-0.5 py-1.5 text-center">Charges</th>
+                      <th className="w-[4%] px-0.5 py-1.5 text-center">Payment</th>
+                      <th className="w-[4%] px-0.5 py-1.5 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 bg-white dark:bg-slate-900">
@@ -3254,18 +3254,18 @@ export default function ExpensesPage() {
                           key={row.id}
                           onMouseDown={() => setActiveBatchRowIdx(idx)}
                           onFocusCapture={() => setActiveBatchRowIdx(idx)}
-                          className={`transition-colors align-top ${
+                          className={`transition-colors align-middle ${
                             isActive
                               ? 'bg-indigo-50/55 dark:bg-indigo-950/35 ring-1 ring-inset ring-indigo-500/40'
                               : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/20'
                           }`}
                         >
                           {/* 1. Row Index */}
-                          <td className="px-1 py-1.5 text-center font-mono font-bold">
+                          <td className="px-1 py-1 text-center font-mono font-bold">
                             <button
                               type="button"
                               onClick={() => setActiveBatchRowIdx(idx)}
-                              className={`inline-flex flex-col items-center px-1.5 py-1 rounded-lg transition-all text-[11px] ${
+                              className={`h-7 w-7 rounded-md transition-all text-[11px] inline-flex items-center justify-center ${
                                 isActive
                                   ? 'bg-indigo-600 text-white shadow-xs'
                                   : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -3273,22 +3273,25 @@ export default function ExpensesPage() {
                               title="Click to edit Charges & Payment for this row"
                             >
                               <span>{idx + 1}</span>
-                              {isActive && <span className="text-[7px] font-black uppercase leading-none mt-0.5">ON</span>}
                             </button>
                           </td>
 
-                          {/* 2. Date & Category Stacked */}
-                          <td className="px-1.5 py-1.5 space-y-1">
+                          {/* 2. Date */}
+                          <td className="px-1 py-1">
                             <input
                               type="date"
                               value={row.date}
                               onChange={(e) => handleUpdateBatchRow(idx, 'date', e.target.value)}
-                              className="w-full h-7 px-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                              className="w-full h-7 px-1.5 text-[11px] rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
                             />
+                          </td>
+
+                          {/* 3. Category */}
+                          <td className="px-1 py-1">
                             <select
                               value={row.categoryId || row.category}
                               onChange={(e) => handleUpdateBatchRow(idx, 'categorySelect', e.target.value)}
-                              className="w-full h-7 px-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold truncate"
+                              className="w-full h-7 px-1.5 text-[11px] rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold truncate"
                             >
                               {activeMasterCategories.map(cat => (
                                 <option key={cat.id || cat.name} value={cat.id || cat.name}>
@@ -3298,14 +3301,14 @@ export default function ExpensesPage() {
                             </select>
                           </td>
 
-                          {/* 3. Supplier Toggle + Inv # + Searchable Supplier Select */}
-                          <td className="px-1.5 py-1.5 space-y-1">
-                            <div className="flex items-center gap-1">
-                              <label className={`inline-flex items-center gap-1 cursor-pointer select-none px-1.5 h-6 rounded-md border shrink-0 transition-colors ${
+                          {/* 4. Vendor & Inv # (Single Horizontal Line) */}
+                          <td className="px-1 py-1">
+                            <div className="flex items-center gap-1 h-7">
+                              <label className={`inline-flex items-center gap-0.5 cursor-pointer select-none px-1 h-7 rounded border shrink-0 transition-colors ${
                                 isSupp
                                   ? 'border-indigo-300 bg-indigo-50 dark:border-indigo-700 dark:bg-indigo-950/60'
                                   : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/80'
-                              }`}>
+                              }`} title={isSupp ? "Vendor Expense" : "Internal Expense"}>
                                 <input
                                   type="checkbox"
                                   checked={isSupp}
@@ -3313,67 +3316,80 @@ export default function ExpensesPage() {
                                   className="w-3 h-3 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                 />
                                 <span className={`text-[9px] font-extrabold uppercase ${isSupp ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-500'}`}>
-                                  {isSupp ? 'Vendor' : 'Int.'}
+                                  {isSupp ? 'V' : 'I'}
                                 </span>
                               </label>
-                              <input
-                                type="text"
-                                placeholder={isSupp ? 'Inv # (Opt)' : 'Ref / Inv #'}
-                                value={row.invoiceNo}
-                                onChange={(e) => handleUpdateBatchRow(idx, 'invoiceNo', e.target.value)}
-                                className="flex-1 min-w-0 h-6 px-1.5 text-[10px] rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono"
-                              />
+                              {isSupp ? (
+                                <>
+                                  <div className="flex-1 min-w-0">
+                                    <SupplierSelect
+                                      suppliers={suppliers}
+                                      value={row.selectedSupplier}
+                                      onChange={(s) => handleUpdateBatchRow(idx, 'supplierSelect', s)}
+                                      onAddNew={() => {
+                                        setTargetRowIdxForNewSupplier(idx);
+                                        setShowAddSupplierModal(true);
+                                      }}
+                                      placeholder="Select vendor..."
+                                      isInterStateForSupplier={isInterStateForSupplier}
+                                      compact={true}
+                                    />
+                                  </div>
+                                  <input
+                                    type="text"
+                                    placeholder="Inv #"
+                                    value={row.invoiceNo}
+                                    onChange={(e) => handleUpdateBatchRow(idx, 'invoiceNo', e.target.value)}
+                                    className="w-16 h-7 px-1 text-[10px] rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono shrink-0"
+                                  />
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex-1 min-w-0 h-7 px-1.5 rounded border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 flex items-center text-[10px] text-slate-400 italic truncate">
+                                    Internal
+                                  </div>
+                                  <input
+                                    type="text"
+                                    placeholder="Ref #"
+                                    value={row.invoiceNo}
+                                    onChange={(e) => handleUpdateBatchRow(idx, 'invoiceNo', e.target.value)}
+                                    className="w-16 h-7 px-1 text-[10px] rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono shrink-0"
+                                  />
+                                </>
+                              )}
                             </div>
-                            {isSupp ? (
-                              <SupplierSelect
-                                suppliers={suppliers}
-                                value={row.selectedSupplier}
-                                onChange={(s) => handleUpdateBatchRow(idx, 'supplierSelect', s)}
-                                onAddNew={() => {
-                                  setTargetRowIdxForNewSupplier(idx);
-                                  setShowAddSupplierModal(true);
-                                }}
-                                placeholder="Select vendor..."
-                                isInterStateForSupplier={isInterStateForSupplier}
-                                compact={true}
-                              />
-                            ) : (
-                              <div className="h-7.5 px-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 flex items-center text-[10px] text-slate-400 italic truncate">
-                                Internal Expense (No Vendor)
-                              </div>
-                            )}
                           </td>
 
-                          {/* 4. Title / Purpose */}
-                          <td className="px-1.5 py-1.5">
-                            <textarea
-                              rows={2}
-                              placeholder="e.g. TRAVEL EXPENSE, PURCHASE EXPENSE, FREIGHT..."
+                          {/* 5. Title / Purpose (Single Horizontal Line, Auto-UPPERCASE) */}
+                          <td className="px-1 py-1">
+                            <input
+                              type="text"
+                              placeholder="PURPOSE (A-Z)..."
                               value={row.title}
                               onChange={(e) => handleUpdateBatchRow(idx, 'title', e.target.value.toUpperCase())}
-                              className="w-full h-[58px] px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium resize-none leading-tight uppercase"
+                              className="w-full h-7 px-2 text-[11px] rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium uppercase font-mono truncate leading-none"
                             />
                           </td>
 
-                          {/* 5. Taxable Amount */}
-                          <td className="px-1.5 py-1.5">
+                          {/* 6. Taxable Amount */}
+                          <td className="px-1 py-1">
                             <input
                               type="number"
                               step="0.01"
                               placeholder="0.00"
                               value={row.taxableAmount}
                               onChange={(e) => handleUpdateBatchRow(idx, 'taxableAmount', e.target.value)}
-                              className="w-full h-8 px-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-bold text-right"
+                              className="w-full h-7 px-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-bold text-right"
                             />
                           </td>
 
-                          {/* 6. GST % */}
-                          <td className="px-1 py-1.5 text-center">
+                          {/* 7. GST % */}
+                          <td className="px-0.5 py-1 text-center">
                             {isSupp ? (
                               <select
                                 value={row.gstPercentage}
                                 onChange={(e) => handleUpdateBatchRow(idx, 'gstPercentage', Number(e.target.value))}
-                                className="w-full h-8 px-0.5 text-[11px] rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none text-center"
+                                className="w-full h-7 px-0.5 text-[11px] rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none text-center"
                               >
                                 <option value={0}>0%</option>
                                 <option value={5}>5%</option>
@@ -3382,32 +3398,26 @@ export default function ExpensesPage() {
                                 <option value={28}>28%</option>
                               </select>
                             ) : (
-                              <span className="inline-flex h-8 items-center text-[11px] text-slate-400 font-mono">0%</span>
+                              <span className="inline-flex h-7 items-center text-[10px] text-slate-400 font-mono">0%</span>
                             )}
                           </td>
 
-                          {/* 7. Row Grand Total */}
-                          <td className="px-1.5 py-1.5 text-right font-mono whitespace-nowrap">
-                            <div className="font-black text-xs text-slate-900 dark:text-white pt-1">
+                          {/* 8. Total Amount */}
+                          <td className="px-1 py-1 text-right font-mono whitespace-nowrap">
+                            <div className="font-black text-xs text-slate-900 dark:text-white h-7 flex items-center justify-end leading-none">
                               ₹{rowFin.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
-                            {(rowFin.totalExtraCharges > 0 || rowFin.discount > 0 || rowFin.totalChargesTaxes > 0) && (
-                              <div className="text-[9px] text-indigo-600 dark:text-indigo-400 font-semibold truncate">
-                                {rowFin.totalExtraCharges > 0 ? `+₹${rowFin.totalExtraCharges.toFixed(0)} ` : ''}
-                                {rowFin.discount > 0 ? `-₹${rowFin.discount.toFixed(0)}` : ''}
-                              </div>
-                            )}
                           </td>
 
-                          {/* 8. Per-Row Charges Trigger */}
-                          <td className="px-1 py-1.5 text-center">
+                          {/* 9. Charges Trigger */}
+                          <td className="px-0.5 py-1 text-center">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleFocusRowSection(idx, 'charges');
                               }}
-                              className={`w-full min-h-[32px] px-1.5 py-1 rounded-lg border text-[10px] font-bold transition-all flex flex-wrap items-center justify-center gap-0.5 ${
+                              className={`w-full h-7 px-1 rounded-md border text-[9px] font-bold transition-all flex items-center justify-center gap-0.5 truncate ${
                                 isActive
                                   ? 'border-indigo-400 bg-white dark:bg-slate-900 shadow-xs'
                                   : 'border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/70 hover:border-indigo-400'
@@ -3415,92 +3425,80 @@ export default function ExpensesPage() {
                               title="Click to enter Shipping, Packing, Loading, Other Charges & Discount"
                             >
                               {rowChargeBadges.length > 0 ? (
-                                rowChargeBadges.map((b) => (
-                                  <span key={b.key} className="px-1 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[9px] truncate max-w-full">
-                                    {b.label}
-                                  </span>
-                                ))
+                                <span className="px-1 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[9px] truncate">
+                                  {rowChargeBadges.map(b => b.label).join('+')}
+                                </span>
                               ) : (
                                 <span className="text-slate-500 dark:text-slate-400 inline-flex items-center gap-0.5">
-                                  <Calculator className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <Calculator className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
                                   <span>+Chg</span>
                                 </span>
                               )}
                             </button>
                           </td>
 
-                          {/* 9. Per-Row Payment Mode Trigger */}
-                          <td className="px-1 py-1.5 text-center">
+                          {/* 10. Payment Trigger */}
+                          <td className="px-0.5 py-1 text-center">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleFocusRowSection(idx, 'payment');
                               }}
-                              className={`w-full px-1.5 py-1 rounded-lg border text-[10px] font-bold transition-all flex flex-col items-center gap-0.5 ${
+                              className={`w-full h-7 px-1 rounded-md border text-[9px] font-bold transition-all flex items-center justify-center gap-1 truncate ${
                                 isActive
                                   ? 'border-indigo-400 bg-white dark:bg-slate-900 shadow-xs'
                                   : 'border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/70 hover:border-indigo-400'
                               }`}
-                              title="Click to configure Payment Mode, Paid Amount, Ref & Proof Image"
+                              title="Click to configure Payment Mode & Status"
                             >
-                              <div className="flex items-center gap-1 max-w-full">
-                                <span className={`px-1 rounded text-[8px] font-extrabold uppercase shrink-0 ${
-                                  payStatus === 'PAID'
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
-                                    : payStatus === 'PARTIALLY_PAID'
-                                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-400'
-                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
-                                }`}>
-                                  {payStatus === 'PAID' ? 'PAID' : payStatus === 'PARTIALLY_PAID' ? 'PART' : 'DUE'}
-                                </span>
-                                <span className="text-slate-700 dark:text-slate-200 truncate">
-                                  {getPaymentModeShortLabel(rowFin.paymentMode)}
-                                </span>
-                                {row.paymentImage && <ImageIcon className="w-2.5 h-2.5 text-emerald-500 shrink-0" />}
-                              </div>
-                              <div className="text-[9px] font-mono text-slate-500 truncate max-w-full">
-                                {payStatus === 'PAID'
-                                  ? `₹${rowFin.paidAmountNum.toLocaleString('en-IN')}`
-                                  : `₹${rowFin.paidAmountNum.toLocaleString('en-IN')} / Due ₹${rowFin.balanceDue.toLocaleString('en-IN')}`}
-                              </div>
+                              <span className={`px-1 py-0.2 rounded text-[8px] font-extrabold uppercase shrink-0 ${
+                                payStatus === 'PAID'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                                  : payStatus === 'PARTIALLY_PAID'
+                                  ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-400'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                              }`}>
+                                {payStatus === 'PAID' ? 'PAID' : payStatus === 'PARTIALLY_PAID' ? 'PART' : 'DUE'}
+                              </span>
+                              <span className="text-[9px] font-bold text-slate-700 dark:text-slate-300 truncate">
+                                {getPaymentModeShortLabel(rowFin.paymentMode)}
+                              </span>
                             </button>
                           </td>
 
-                          {/* 10. Files & Actions Combined */}
-                          <td className="px-1 py-1.5 text-center">
-                            <div className="flex flex-col items-center gap-1">
+                          {/* 11. Files, Duplicate, Delete in a Single Horizontal Line */}
+                          <td className="px-0.5 py-1 text-center">
+                            <div className="flex items-center justify-center gap-0.5 h-7">
                               <button
                                 type="button"
                                 onClick={() => setRowAttachmentModalIdx(idx)}
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold inline-flex items-center gap-0.5 border transition-all ${
+                                className={`h-6 px-1 rounded text-[9px] font-bold inline-flex items-center gap-0.5 border transition-all ${
                                   row.attachments && row.attachments.length > 0
                                     ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
                                     : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
                                 }`}
-                                title="Upload / Manage Row Attachments"
+                                title="Upload Attachments"
                               >
                                 <Paperclip className="w-2.5 h-2.5" />
                                 <span>{row.attachments?.length || 0}</span>
                               </button>
-                              <div className="flex items-center gap-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDuplicateBatchRow(idx)}
-                                  className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                  title="Duplicate Row"
-                                >
-                                  <Copy className="w-3 h-3" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveBatchRow(idx)}
-                                  className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                  title="Delete Row"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDuplicateBatchRow(idx)}
+                                className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Duplicate Row"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveBatchRow(idx)}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                title="Delete Row"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -3576,26 +3574,26 @@ export default function ExpensesPage() {
               </div>
 
               {/* Balanced 2-Column Enterprise Panel: Section 4 Charges & Section 5 Payment */}
-              <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-start">
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-start">
                 {/* 4. Per-Row Charges & Financial Summary */}
                 <div
                   ref={chargesSectionRef}
-                  className="xl:col-span-6 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl p-3 shadow-2xs space-y-2.5 w-full min-w-0"
+                  className="xl:col-span-6 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl p-2.5 shadow-2xs space-y-2 w-full min-w-0"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
                     <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                      <Calculator className="w-4 h-4 text-indigo-500 shrink-0" />
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                      <Calculator className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
                         4. Charges &amp; Financial Summary
                       </span>
-                      <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black">
+                      <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[9px] font-black">
                         ROW #{safeActiveRowIdx + 1}
                       </span>
-                      <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
+                      <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
                         {activeBatchRow.title?.trim() || 'Untitled'} • {activeBatchRow.isSupplierExpense ? (activeBatchRow.supplierName || 'Vendor') : 'Internal'}
                       </span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
                       INR (₹)
                     </span>
                   </div>
@@ -3612,15 +3610,15 @@ export default function ExpensesPage() {
                 {/* 5. Per-Row Payment & Settlement Details */}
                 <div
                   ref={paymentSectionRef}
-                  className="xl:col-span-6 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl p-3 shadow-2xs space-y-2.5 w-full min-w-0"
+                  className="xl:col-span-6 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/60 rounded-xl p-2.5 shadow-2xs space-y-2 w-full min-w-0"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <CreditCard className="w-4 h-4 text-indigo-500 shrink-0" />
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <CreditCard className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-800 dark:text-slate-100">
                         5. Payment &amp; Settlement Details
                       </span>
-                      <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black">
+                      <span className="px-1.5 py-0.2 rounded-full bg-indigo-600 text-white text-[9px] font-black">
                         ROW #{safeActiveRowIdx + 1}
                       </span>
                     </div>
