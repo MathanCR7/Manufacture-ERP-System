@@ -1155,238 +1155,537 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
 
   const printableItems = (order.items || []).filter(it => !it.isPackingCharge && !it.is_packing_charge);
   const items = printableItems;
-  const itemsCount = items.length;
 
   const { bifurcationList, totalCategories, totalVarieties, totalQty } = computeCategoryBifurcation(items);
 
-  // In Without Rate mode, account for category bifurcation rows in height
-  const extraBifHeight = !showRates ? (bifurcationList.length * 4.5) + 30 : 0;
-  const dynamicHeight = Math.max(160, 115 + (itemsCount * 9) + extraBifHeight);
+  // Table margins & width (80mm standard POS slip)
+  const margin = 3.5;
+  const tableW = 73; // 80 - 7mm
+
+  // Pre-calculate dynamic row heights to avoid collision and determine exact slip height
+  const colDescW = showRates ? 32.5 : 44.5;
+  const maxDescTextW = colDescW - 3.0; // 1.5mm inner padding on each side
+
+  const tempDoc = new jsPDF({ unit: 'mm', format: [80, 600] });
+  tempDoc.setFont('helvetica', 'normal');
+  tempDoc.setFontSize(6.5);
+
+  const preparedItems = items.map(it => {
+    const { fullName } = formatProductFullName(it);
+    const descLines = tempDoc.splitTextToSize(fullName, maxDescTextW);
+    const hasBatch = Boolean(it.batchNo || (it.batchAllocations && it.batchAllocations.length > 0));
+    const rowH = Math.max(6.8, (descLines.length * 3.1) + (hasBatch ? 2.8 : 0) + 2.0);
+    return { it, fullName, descLines, hasBatch, rowH };
+  });
+
+  const itemsTotalH = preparedItems.reduce((acc, p) => acc + p.rowH, 0);
+
+  // Calculate overall page height precisely so there is no cut-off or excessive trailing blank space
+  let estHeight = 72 + itemsTotalH; // Top header + meta box + items header
+  if (showRates) {
+    estHeight += 65; // Financial breakdown + payment info + footer
+  } else {
+    // Total dispatch summary card (18mm) + Category bifurcation table (18mm + bifLines * 5.5mm) + Signature box (28mm) + footer (10mm)
+    estHeight += 18 + 18 + (bifurcationList.length * 5.5) + 28 + 12;
+  }
+  const dynamicHeight = Math.max(150, Math.ceil(estHeight) + 10);
 
   const doc = new jsPDF({
     unit: 'mm',
     format: [80, dynamicHeight]
   });
 
-  // Border Frame
-  doc.setDrawColor(200, 200, 200);
+  // Top Dark Accent Stripe
+  doc.setFillColor(30, 27, 75);
+  doc.rect(0, 0, 80, 2.5, 'F');
+
+  // Outer Border Frame
+  doc.setDrawColor(203, 213, 225);
   doc.rect(2, 2, 76, dynamicHeight - 4, 'D');
 
-  let curY = 8;
+  let curY = 6.5;
 
   // Store Header
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.5);
+  doc.setFontSize(9.5);
   doc.setTextColor(30, 27, 75);
-  const receiptTitle = showRates ? 'RETAIL TAX RECEIPT' : 'DELIVERY DISPATCH SLIP';
-  doc.text(receiptTitle, 40, curY, { align: 'center' });
+  doc.text(companyName.toUpperCase().substring(0, 36), 40, curY, { align: 'center' });
 
-  curY += 4.5;
-  doc.setFontSize(8);
-  doc.text(companyName.toUpperCase().substring(0, 32), 40, curY, { align: 'center' });
-
-  curY += 3.5;
+  curY += 3.8;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
+  doc.setFontSize(6.2);
   doc.setTextColor(71, 85, 105);
   const addrLines = doc.splitTextToSize(companyAddress, 70);
   doc.text(addrLines, 40, curY, { align: 'center' });
 
-  curY += (addrLines.length * 3.2);
+  curY += (addrLines.length * 3.0);
   doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
   doc.setTextColor(30, 27, 75);
   doc.text(`GSTIN: ${companyGstin}`, 40, curY, { align: 'center' });
 
-  curY += 3;
-  doc.setDrawColor(220, 220, 220);
-  doc.line(4, curY, 76, curY);
+  curY += 2.5;
 
-  curY += 4;
+  // Title Badge Pill
+  doc.setFillColor(30, 27, 75);
+  doc.roundedRect(12, curY, 56, 6, 1.2, 1.2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(255, 255, 255);
+  const receiptTitle = showRates ? 'RETAIL TAX INVOICE' : 'DELIVERY DISPATCH SLIP';
+  doc.text(receiptTitle, 40, curY + 4.2, { align: 'center' });
 
-  // Order Meta
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(15, 23, 42);
+  curY += 7.5;
+  if (!showRates) {
+    doc.setFont('helvetica', 'bolditalic');
+    doc.setFontSize(5.8);
+    doc.setTextColor(79, 70, 229);
+    doc.text('ESTIMATE / DISPATCH COPY  •  WITHOUT RATES', 40, curY, { align: 'center' });
+    curY += 3.0;
+  }
+
+  // Meta Information Card (Bordered Grid Box)
+  const metaBoxY = curY;
+  const metaBoxH = order.customer?.name && order.customer.name !== 'Walk-in Retail Customer' ? 19.5 : 15.5;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, metaBoxY, tableW, metaBoxH, 1.5, 1.5, 'FD');
+
+  doc.setFontSize(6.0);
+  const metaLeftX = margin + 2.5;
+  const metaRightX = margin + 39;
+  let metaLineY = metaBoxY + 4.2;
+
   const dateStr = new Date(order.createdAt || Date.now()).toLocaleString('en-IN', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
-  doc.text(`Doc: ${order.docNo || order.referenceNo || 'POS-BILL'}`, 5, curY);
-  doc.text(`Date: ${dateStr}`, 75, curY, { align: 'right' });
 
-  curY += 3.5;
-  doc.text(`Counter: ${order.counterId || 'COUNTER-1'}`, 5, curY);
-  doc.text(`Cashier: ${order.cashierName || 'Staff'}`, 75, curY, { align: 'right' });
-
-  if (order.customer?.name && order.customer.name !== 'Walk-in Retail Customer') {
-    curY += 3.5;
-    doc.text(`Customer: ${order.customer.name.substring(0, 28)}`, 5, curY);
-    if (order.customer.phone) doc.text(`Ph: ${order.customer.phone}`, 75, curY, { align: 'right' });
-  }
-
-  curY += 3;
-  doc.line(4, curY, 76, curY);
-  curY += 3.5;
-
-  // Table Header
+  // Line 1
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  if (showRates) {
-    doc.text('ITEM', 5, curY);
-    doc.text('QTY', 42, curY, { align: 'right' });
-    doc.text('RATE', 58, curY, { align: 'right' });
-    doc.text('TOTAL', 75, curY, { align: 'right' });
-  } else {
-    doc.text('ITEM', 5, curY);
-    doc.text('QTY', 56, curY, { align: 'right' });
-    doc.text('UNIT', 75, curY, { align: 'right' });
+  doc.setTextColor(100, 116, 139);
+  doc.text('Doc No:', metaLeftX, metaLineY);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(order.docNo || order.referenceNo || 'DOC-0001').substring(0, 20), metaLeftX + 9, metaLineY);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Date:', metaRightX, metaLineY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text(dateStr, metaRightX + 6.5, metaLineY);
+
+  // Line 2
+  metaLineY += 3.6;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Counter:', metaLeftX, metaLineY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(order.counterId || 'COUNTER-1'), metaLeftX + 9.5, metaLineY);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Cashier:', metaRightX, metaLineY);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(order.cashierName || 'Staff').substring(0, 16), metaRightX + 9.5, metaLineY);
+
+  // Line 3 (Customer info if present)
+  if (order.customer?.name && order.customer.name !== 'Walk-in Retail Customer') {
+    metaLineY += 3.6;
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Client:', metaLeftX, metaLineY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(order.customer.name.substring(0, 22), metaLeftX + 7.5, metaLineY);
+
+    if (order.customer.phone) {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Ph:', metaRightX, metaLineY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(order.customer.phone), metaRightX + 5, metaLineY);
+    }
   }
 
-  curY += 2.5;
-  doc.line(4, curY, 76, curY);
-  curY += 3.5;
+  curY = metaBoxY + metaBoxH + 3.5;
 
-  // Item List
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── ITEMS TABLE: CRISP TABLE-WISE DISPLAY (NO OVERLAP / INTERCEPTIONS) ───
+  // ─────────────────────────────────────────────────────────────────────────
+  const cols = showRates ? [
+    { id: 'idx', label: '#', w: 5.0, align: 'center' },
+    { id: 'desc', label: 'ITEM & SPECIFICATION', w: 32.5, align: 'left' },
+    { id: 'qty', label: 'QTY', w: 9.5, align: 'right' },
+    { id: 'rate', label: 'RATE', w: 11.5, align: 'right' },
+    { id: 'total', label: 'TOTAL', w: 14.5, align: 'right' }
+  ] : [
+    { id: 'idx', label: '#', w: 6.0, align: 'center' },
+    { id: 'desc', label: 'ITEM & PRODUCT SPECIFICATION', w: 44.5, align: 'left' },
+    { id: 'qty', label: 'QTY', w: 11.5, align: 'right' },
+    { id: 'unit', label: 'UNIT', w: 11.0, align: 'center' }
+  ];
+
+  // Table Header Row
+  const thH = 5.8;
+  doc.setFillColor(30, 27, 75);
+  doc.rect(margin, curY, tableW, thH, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.2);
+  doc.setTextColor(255, 255, 255);
+
+  let hX = margin;
+  cols.forEach(c => {
+    let tX;
+    if (c.align === 'right') {
+      tX = hX + c.w - 1.5;
+    } else if (c.align === 'center') {
+      tX = hX + (c.w / 2);
+    } else {
+      tX = hX + 1.5;
+    }
+    doc.text(c.label, tX, curY + 4.0, { align: c.align });
+    hX += c.w;
+  });
+
+  curY += thH;
+
+  // Table Data Rows
   let subtotal = 0;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
 
-  items.forEach(it => {
+  preparedItems.forEach((p, idx) => {
+    const { it, descLines, hasBatch, rowH } = p;
     const qty = Number(it.quantity || 1);
     const rate = Number(it.unitPrice || 0);
     const lineTotal = qty * rate;
     subtotal += lineTotal;
     const uom = it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs';
 
-    // Format item like: code - category - product name (sub category)
-    const { fullName } = formatProductFullName(it);
-
-    if (showRates) {
-      // Split description to max 35mm to avoid overlap with QTY/RATE/TOTAL
-      const descLines = doc.splitTextToSize(fullName, 35);
-      doc.text(descLines[0], 5, curY);
-      doc.text(String(qty), 42, curY, { align: 'right' });
-      doc.text(rate.toFixed(1), 58, curY, { align: 'right' });
-      doc.text(lineTotal.toFixed(2), 75, curY, { align: 'right' });
-
-      if (descLines.length > 1) {
-        curY += 3;
-        doc.text(descLines.slice(1).join(' ').substring(0, 32), 5, curY);
-      }
-    } else {
-      // Without Rate: Split description to max 49mm to avoid overlap with QTY/UNIT
-      const descLines = doc.splitTextToSize(fullName, 49);
-      doc.text(descLines[0], 5, curY);
-      doc.text(String(qty), 56, curY, { align: 'right' });
-      doc.text(uom, 75, curY, { align: 'right' });
-
-      if (descLines.length > 1) {
-        curY += 3;
-        doc.text(descLines.slice(1).join(' ').substring(0, 46), 5, curY);
-      }
+    // Zebra row background
+    if (idx % 2 === 1) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, curY, tableW, rowH, 'F');
     }
 
-    if (it.batchNo) {
-      curY += 2.5;
-      doc.setFontSize(5.5);
-      doc.setTextColor(120, 120, 120);
-      doc.text(`Batch: ${it.batchNo}${it.expiryDate ? ` (Exp: ${new Date(it.expiryDate).toLocaleDateString('en-GB')})` : ''}`, 5, curY);
-      doc.setFontSize(6.5);
-      doc.setTextColor(15, 23, 42);
-    }
+    // Outer row border line (bottom)
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, curY + rowH, margin + tableW, curY + rowH);
 
-    curY += 4;
-  });
+    // Left border & right border
+    doc.line(margin, curY, margin, curY + rowH);
+    doc.line(margin + tableW, curY, margin + tableW, curY + rowH);
 
-  doc.line(4, curY, 76, curY);
-  curY += 4;
-
-  if (showRates) {
-    // Totals Breakdown (With Rate mode - NO bifurcation)
-    const grandTotal = Number(order.grandTotal || subtotal);
-    const paid = Number(order.amountPaid || grandTotal);
-    const balance = Math.max(0, paid - grandTotal);
-
-    const printBillLine = (lbl, val, bold = false) => {
-      doc.setFont('helvetica', bold ? 'bold' : 'normal');
-      doc.text(lbl, 5, curY);
-      doc.text(val, 75, curY, { align: 'right' });
-      curY += 3.5;
-    };
-
-    printBillLine('Subtotal:', `INR ${subtotal.toFixed(2)}`);
-    if (Number(order.cgst || 0) > 0) printBillLine('CGST:', `INR ${Number(order.cgst).toFixed(2)}`);
-    if (Number(order.sgst || 0) > 0) printBillLine('SGST:', `INR ${Number(order.sgst).toFixed(2)}`);
-    if (Number(order.roundOff || 0) !== 0) printBillLine('Round Off:', `${Number(order.roundOff) > 0 ? '+' : ''}${Number(order.roundOff).toFixed(2)}`);
-
-    curY += 0.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text('TOTAL:', 5, curY);
-    doc.text(`INR ${grandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
-    curY += 4.5;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    printBillLine(`Paid (${order.paymentTerms || 'Cash'}):`, `INR ${paid.toFixed(2)}`);
-    if (balance > 0) printBillLine('Change Due:', `INR ${balance.toFixed(2)}`, true);
-
-    curY += 2;
-    doc.line(4, curY, 76, curY);
-    curY += 4;
-
-    // Footer Message
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(6.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Thank you for shopping with us!', 40, curY, { align: 'center' });
-    curY += 3.5;
-    doc.text('Quality & Purity You Can Trust.', 40, curY, { align: 'center' });
-  } else {
-    // Dispatch Breakdown & Category-wise Bifurcation (Without Rate mode ONLY)
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.text('TOTAL DISPATCH SUMMARY', 40, curY, { align: 'center' });
-    curY += 4;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.text(`Total Merchandise Items:`, 5, curY);
-    doc.text(`${totalVarieties} Varieties`, 75, curY, { align: 'right' });
-    curY += 3.5;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Total Dispatched Qty:`, 5, curY);
-    doc.text(`${totalQty} Units`, 75, curY, { align: 'right' });
-    curY += 4;
-
-    doc.line(4, curY, 76, curY);
-    curY += 4;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.text('CATEGORY-WISE BIFURCATION', 40, curY, { align: 'center' });
-    curY += 4;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    bifurcationList.forEach(b => {
-      doc.text(b.category.substring(0, 22), 5, curY);
-      doc.text(`${b.varietyCount} Items | ${b.totalQty} ${b.uom}`, 75, curY, { align: 'right' });
-      curY += 3.5;
+    // Subtle column dividers
+    let colDivX = margin;
+    cols.forEach((c, cIdx) => {
+      colDivX += c.w;
+      if (cIdx < cols.length - 1) {
+        doc.setDrawColor(238, 242, 246);
+        doc.line(colDivX, curY, colDivX, curY + rowH);
+      }
     });
 
-    curY += 2;
-    doc.line(4, curY, 76, curY);
-    curY += 5;
+    const textY = curY + 3.8;
+
+    // Col 1: Index
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(71, 85, 105);
+    doc.text(String(idx + 1), margin + (cols[0].w / 2), textY, { align: 'center' });
+
+    // Col 2: Item Description (Strictly wrapped, zero collision with Col 3)
+    const itemStartX = margin + cols[0].w + 1.5;
+    descLines.forEach((dLine, dIdx) => {
+      if (dIdx === 0) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(15, 23, 42);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.0);
+        doc.setTextColor(51, 65, 85);
+      }
+      doc.text(dLine, itemStartX, textY + (dIdx * 3.1));
+    });
+
+    // Batch sub-line if available
+    if (hasBatch) {
+      const batchY = textY + (descLines.length * 3.1);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.2);
+      doc.setTextColor(100, 116, 139);
+      const batchText = `Batch: ${it.batchNo || it.batchAllocations?.[0]?.batchNo || ''}${it.expiryDate ? ` | Exp: ${new Date(it.expiryDate).toLocaleDateString('en-GB')}` : ''}`;
+      doc.text(batchText.substring(0, 36), itemStartX, batchY);
+    }
+
+    // Col 3: Qty (Bold, right-aligned with safety padding)
+    const col3Right = margin + cols[0].w + cols[1].w + cols[2].w - 1.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(qty), col3Right, textY, { align: 'right' });
+
+    if (showRates) {
+      // Col 4: Rate
+      const col4Right = margin + cols[0].w + cols[1].w + cols[2].w + cols[3].w - 1.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.2);
+      doc.setTextColor(71, 85, 105);
+      doc.text(rate.toFixed(1), col4Right, textY, { align: 'right' });
+
+      // Col 5: Total
+      const col5Right = margin + tableW - 1.5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(lineTotal.toFixed(2), col5Right, textY, { align: 'right' });
+    } else {
+      // Col 4: Unit (Centered)
+      const col4Center = margin + cols[0].w + cols[1].w + cols[2].w + (cols[3].w / 2);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.2);
+      doc.setTextColor(71, 85, 105);
+      doc.text(uom, col4Center, textY, { align: 'center' });
+    }
+
+    curY += rowH;
+  });
+
+  curY += 3.5;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ── TOTAL SUMMARY / FINANCIAL CARD ───────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  if (showRates) {
+    const grandTotal = Number(order.grandTotal || subtotal);
+    const paymentTermsVal = order.paymentTerms || (order.paymentStatus === 'PAID' ? 'PAID' : 'Net 30');
+    const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= grandTotal && grandTotal > 0);
+    const paid = Number(order.amountPaid || (isPaid ? grandTotal : 0));
+    const balance = Math.max(0, grandTotal - paid);
+
+    // Summary Box
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, curY, tableW, 36, 1.5, 1.5, 'FD');
+
+    let sumY = curY + 4.0;
+    const lX = margin + 3.0;
+    const rX = margin + tableW - 3.0;
+
+    const printRow = (lbl, val, bold = false, sz = 6.2) => {
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      doc.setFontSize(sz);
+      doc.setTextColor(bold ? 15 : 71, bold ? 23 : 85, bold ? 42 : 105);
+      doc.text(lbl, lX, sumY);
+      doc.text(val, rX, sumY, { align: 'right' });
+      sumY += 3.4;
+    };
+
+    printRow('Subtotal Taxable Amount:', `INR ${subtotal.toFixed(2)}`);
+    if (Number(order.cgst || 0) > 0) printRow('CGST Tax Total:', `INR ${Number(order.cgst).toFixed(2)}`);
+    if (Number(order.sgst || 0) > 0) printRow('SGST Tax Total:', `INR ${Number(order.sgst).toFixed(2)}`);
+    if (Number(order.roundOff || 0) !== 0) {
+      printRow('Round-Off Adjustment:', `${Number(order.roundOff) > 0 ? '+' : ''}${Number(order.roundOff).toFixed(2)}`);
+    }
+
+    // Grand Total Bar
+    doc.setFillColor(30, 27, 75);
+    doc.roundedRect(margin + 1.5, sumY - 1.5, tableW - 3, 7.0, 1.0, 1.0, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.0);
+    doc.setTextColor(255, 255, 255);
+    doc.text('NET GRAND TOTAL:', lX + 1.5, sumY + 3.2);
+    doc.text(`INR ${grandTotal.toFixed(2)}`, rX - 1.5, sumY + 3.2, { align: 'right' });
+    sumY += 8.5;
+
+    // Payment Settlement Info
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.8);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Payment: ${isPaid ? 'Fully Paid (PAID)' : (order.paymentTerms || 'Pending Settlement')}`, lX, sumY);
+    if (balance > 0) {
+      doc.text(`Bal Due: INR ${balance.toFixed(2)}`, rX, sumY, { align: 'right' });
+    } else if (paid > 0) {
+      doc.text(`Received: INR ${paid.toFixed(2)}`, rX, sumY, { align: 'right' });
+    }
+
+    curY += 40;
+
+    // Footer
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6.2);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Thank you for choosing us!', 40, curY, { align: 'center' });
+    curY += 3.2;
+    doc.text('Computer-generated retail invoice • Authentic Tax Proof', 40, curY, { align: 'center' });
+  } else {
+    // ───────────────────────────────────────────────────────────────────────
+    // ── WITHOUT RATE: ATTRACTIVE DISPATCH SUMMARY & BIFURCATION TABLE ─────
+    // ───────────────────────────────────────────────────────────────────────
+
+    // 1. Total Dispatch Summary Card
+    const sumCardH = 17.5;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, curY, tableW, sumCardH, 1.5, 1.5, 'FD');
+
+    // Header strip for summary
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, curY, tableW, 4.8, 'F');
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, curY + 4.8, margin + tableW, curY + 4.8);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text('TOTAL DISPATCH SUMMARY', 40, curY + 3.3, { align: 'center' });
+
+    let sLineY = curY + 8.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.2);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Total Product Varieties:', margin + 3.0, sLineY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${totalVarieties} Varieties (${items.length} Line Items)`, margin + tableW - 3.0, sLineY, { align: 'right' });
+
+    sLineY += 4.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(30, 27, 75);
+    doc.text('TOTAL DISPATCHED QUANTITY:', margin + 3.0, sLineY);
+    doc.setFontSize(7.5);
+    doc.setTextColor(79, 70, 229);
+    doc.text(`${totalQty} Units`, margin + tableW - 3.0, sLineY, { align: 'right' });
+
+    curY += sumCardH + 3.5;
+
+    // 2. Category-Wise Bifurcation Table (True Table-Wise Display)
+    const bifCols = [
+      { label: '#', w: 6.0, align: 'center' },
+      { label: 'CATEGORY / FLAVOUR GROUP', w: 38.0, align: 'left' },
+      { label: 'VARIETIES', w: 14.0, align: 'center' },
+      { label: 'TOTAL QTY', w: 15.0, align: 'right' }
+    ];
+
+    // Bifurcation Table Header
+    const bthH = 5.5;
+    doc.setFillColor(30, 27, 75);
+    doc.rect(margin, curY, tableW, bthH, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(255, 255, 255);
+
+    let bhX = margin;
+    bifCols.forEach(c => {
+      let tX;
+      if (c.align === 'right') tX = bhX + c.w - 1.5;
+      else if (c.align === 'center') tX = bhX + (c.w / 2);
+      else tX = bhX + 1.5;
+      doc.text(c.label, tX, curY + 3.8, { align: c.align });
+      bhX += c.w;
+    });
+
+    curY += bthH;
+
+    // Bifurcation Rows
+    bifurcationList.forEach((b, bIdx) => {
+      const bRowH = 5.2;
+      if (bIdx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, curY, tableW, bRowH, 'F');
+      }
+
+      // Border lines
+      doc.setDrawColor(226, 232, 240);
+      doc.line(margin, curY + bRowH, margin + tableW, curY + bRowH);
+      doc.line(margin, curY, margin, curY + bRowH);
+      doc.line(margin + tableW, curY, margin + tableW, curY + bRowH);
+
+      const bY = curY + 3.6;
+
+      // Col 1: Index
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.0);
+      doc.setTextColor(71, 85, 105);
+      doc.text(String(bIdx + 1), margin + (bifCols[0].w / 2), bY, { align: 'center' });
+
+      // Col 2: Category
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.2);
+      doc.setTextColor(15, 23, 42);
+      doc.text(b.category.substring(0, 28), margin + bifCols[0].w + 1.5, bY);
+
+      // Col 3: Varieties
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.0);
+      doc.setTextColor(51, 65, 85);
+      const varText = `${b.varietyCount} ${b.varietyCount === 1 ? 'Variety' : 'Varieties'}`;
+      doc.text(varText, margin + bifCols[0].w + bifCols[1].w + (bifCols[2].w / 2), bY, { align: 'center' });
+
+      // Col 4: Qty
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.2);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${b.totalQty} ${b.uom}`, margin + tableW - 1.5, bY, { align: 'right' });
+
+      curY += bRowH;
+    });
+
+    // Total Row for Category Bifurcation Table
+    const totRowH = 5.5;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, curY, tableW, totRowH, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.line(margin, curY + totRowH, margin + tableW, curY + totRowH);
+    doc.line(margin, curY, margin, curY + totRowH);
+    doc.line(margin + tableW, curY, margin + tableW, curY + totRowH);
+
+    const totY = curY + 3.8;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`TOTAL (${totalCategories} Grps)`, margin + bifCols[0].w + 1.5, totY);
+    doc.text(`${totalVarieties} Varieties`, margin + bifCols[0].w + bifCols[1].w + (bifCols[2].w / 2), totY, { align: 'center' });
+    doc.text(`${totalQty} Units`, margin + tableW - 1.5, totY, { align: 'right' });
+
+    curY += totRowH + 4.0;
+
+    // 3. Receiver Acknowledgment & Verification Box
+    const ackH = 26.0;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, curY, tableW, ackH, 1.5, 1.5, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(30, 27, 75);
+    doc.text("RECEIVER'S ACKNOWLEDGMENT & SEAL:", margin + 2.5, curY + 4.2);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.text('Receiver Sign: _______________________', 5, curY);
-    curY += 4;
+    doc.setFontSize(6.0);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Receiver Sign: ___________________________', margin + 2.5, curY + 11.0);
+    doc.text('Date: ___________', margin + tableW - 2.5, curY + 11.0, { align: 'right' });
+
     doc.setFont('helvetica', 'italic');
-    doc.setFontSize(6);
+    doc.setFontSize(5.5);
     doc.setTextColor(100, 116, 139);
-    doc.text('Goods received in full and verified condition.', 40, curY, { align: 'center' });
+    doc.text('Declaration: Goods received in full quantity and verified condition.', margin + 2.5, curY + 17.5);
+    doc.text('Salem Warehouse & Cold Storage Dispatch Logistics Team', margin + 2.5, curY + 22.0);
+
+    curY += ackH + 3.0;
+
+    // Bottom brand mark
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(5.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Generated via Manufacturing ERP • Official Dispatch Slip', 40, curY, { align: 'center' });
   }
 
   return doc.output('blob');
