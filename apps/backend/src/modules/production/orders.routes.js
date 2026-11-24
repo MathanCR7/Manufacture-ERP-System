@@ -660,6 +660,14 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       } catch (e) {}
     }
 
+    let chargePercentages = null;
+    if (order.internalNote && order.internalNote.includes('[[CHARGE_PERCENTAGES:')) {
+      try {
+        const m = order.internalNote.match(/\[\[CHARGE_PERCENTAGES:(.*?)\]\]/s);
+        if (m && m[1]) chargePercentages = JSON.parse(m[1]);
+      } catch (e) {}
+    }
+
     const isInterState = String(order.sellerStateCode || '33') !== String(order.placeOfSupply || order.buyerStateCode || '33') || order.taxType === 'Inter-State' || order.taxType === 'INTER_STATE';
     const defaultTaxCode = isInterState ? 'IGST18' : 'SCG18';
 
@@ -676,6 +684,11 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       loadingTaxCode,
       packingTaxCode,
       otherTaxCode,
+      chargePercentages,
+      freightPercent: chargePercentages?.freightPercent !== undefined ? chargePercentages.freightPercent : undefined,
+      loadingPercent: chargePercentages?.loadingPercent !== undefined ? chargePercentages.loadingPercent : undefined,
+      packingPercent: chargePercentages?.packingPercent !== undefined ? chargePercentages.packingPercent : undefined,
+      otherPercent: chargePercentages?.otherPercent !== undefined ? chargePercentages.otherPercent : undefined,
       rootOrderId: matched?.rootOrderId || order.id,
       documentChain: matched?.documentChain || [],
       chainSummary: matched?.chainSummary || (order.docNo || order.referenceNo),
@@ -882,16 +895,21 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       taxRegNo: z.string().optional().nullable(),
       taxType: z.string().optional().nullable(),
       discountValue: z.coerce.number().optional().default(0),
+      discountPercent: z.coerce.number().optional(),
       tdsDeduction: z.coerce.number().optional().default(0),
       freight: z.coerce.number().optional().default(0),
+      freightPercent: z.coerce.number().optional(),
       freightGst: z.boolean().optional().default(false),
       loadingCharges: z.coerce.number().optional().default(0),
+      loadingPercent: z.coerce.number().optional(),
       loadingGst: z.boolean().optional().default(false),
       packingCharges: z.coerce.number().optional().default(0),
+      packingPercent: z.coerce.number().optional(),
       packingGst: z.boolean().optional().default(false),
       insurance: z.coerce.number().optional().default(0),
       insuranceGst: z.boolean().optional().default(false),
       otherCharges: z.coerce.number().optional().default(0),
+      otherPercent: z.coerce.number().optional(),
       otherGst: z.boolean().optional().default(false),
       cgst: z.coerce.number().optional().default(0),
       sgst: z.coerce.number().optional().default(0),
@@ -2516,19 +2534,24 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       taxRegNo: z.string().optional().nullable(),
       taxType: z.string().optional().nullable(),
       discountValue: z.coerce.number().optional().default(0),
+      discountPercent: z.coerce.number().optional(),
       tdsDeduction: z.coerce.number().optional().default(0),
       freight: z.coerce.number().optional().default(0),
+      freightPercent: z.coerce.number().optional(),
       freightTaxCode: z.string().optional(),
       freightGst: z.boolean().optional().default(false),
       loadingCharges: z.coerce.number().optional().default(0),
+      loadingPercent: z.coerce.number().optional(),
       loadingTaxCode: z.string().optional(),
       loadingGst: z.boolean().optional().default(false),
       packingCharges: z.coerce.number().optional().default(0),
+      packingPercent: z.coerce.number().optional(),
       packingTaxCode: z.string().optional(),
       packingGst: z.boolean().optional().default(false),
       insurance: z.coerce.number().optional().default(0),
       insuranceGst: z.boolean().optional().default(false),
       otherCharges: z.coerce.number().optional().default(0),
+      otherPercent: z.coerce.number().optional(),
       otherTaxCode: z.string().optional(),
       otherGst: z.boolean().optional().default(false),
       cgst: z.coerce.number().optional().default(0),
@@ -2726,6 +2749,19 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
             };
             note = note.replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/gs, '').trim();
             note += `\n[[ANCILLARY_TAX_CODES:${JSON.stringify(ancCodes)}]]`;
+
+            const chargePcts = {
+              freightPercent: data.freightPercent !== undefined ? Number(data.freightPercent) : undefined,
+              loadingPercent: data.loadingPercent !== undefined ? Number(data.loadingPercent) : undefined,
+              packingPercent: data.packingPercent !== undefined ? Number(data.packingPercent) : undefined,
+              otherPercent: data.otherPercent !== undefined ? Number(data.otherPercent) : undefined,
+              discountPercent: data.discountPercent !== undefined ? Number(data.discountPercent) : undefined
+            };
+            Object.keys(chargePcts).forEach(k => chargePcts[k] === undefined && delete chargePcts[k]);
+            if (Object.keys(chargePcts).length > 0) {
+              note = note.replace(/\[\[CHARGE_PERCENTAGES:.*?\]\]/gs, '').trim();
+              note += `\n[[CHARGE_PERCENTAGES:${JSON.stringify(chargePcts)}]]`;
+            }
             return note.trim() || null;
           })(),
           status: data.status,

@@ -2170,6 +2170,13 @@ export default function SalesOrderPage() {
           return sum + ((price - discAmt) * qty);
         }, 0);
       setPackingCharges(round2(packingSum));
+
+      const remainingGoodsLines = filtered.filter(l => !l.isPackingCharge && (l.productId || l.rawMaterialId || l.itemDescription));
+      const remainingGoodsTotal = remainingGoodsLines.reduce((sum, l) => sum + (l.lineTotal || (Number(l.quantity || 1) * Number(l.unitPrice || 0)) || 0), 0);
+      if (freightPercent > 0) setFreight(round2(remainingGoodsTotal * (freightPercent / 100)));
+      if (loadingPercent > 0) setLoadingCharges(round2(remainingGoodsTotal * (loadingPercent / 100)));
+      if (otherPercent > 0) setOtherCharges(round2(remainingGoodsTotal * (otherPercent / 100)));
+
       return filtered.map((l, i) => ({ ...l, rowNo: i + 1 }));
     });
   };
@@ -2394,20 +2401,92 @@ export default function SalesOrderPage() {
       const isInter = String(orderPlaceOfSupply) !== String(sellerStateCode) || ord.taxType === 'Inter-State' || ord.taxType === 'INTER_STATE';
       const defaultTaxCode = isInter ? 'IGST18' : 'SCG18';
 
+      // Compute non-packing goods base total for accurate charge percentage restoration
+      const rawOrderItems = Array.isArray(ord.items) ? ord.items : [];
+      const computedGoodsBase = rawOrderItems.reduce((sum, it) => {
+        if (it.isPackingCharge) return sum;
+        const q = Number(it.quantity || 0);
+        const p = Number(it.unitPrice || 0);
+        const d = Number(it.discount || 0);
+        const lineNet = Math.max(0, (q * p) - d);
+        const lineVal = (it.subtotal !== undefined && it.subtotal !== null && Number(it.subtotal) > 0)
+          ? Number(it.subtotal)
+          : (it.lineTotal !== undefined && it.lineTotal !== null && Number(it.lineTotal) > 0 ? Number(it.lineTotal) : lineNet);
+        return sum + lineVal;
+      }, 0);
+      const effectiveGoodsTotal = computedGoodsBase > 0 
+        ? computedGoodsBase 
+        : (Number(ord.totalSubtotal || ord.totalBeforeDiscount || 0) || 0);
+
+      // Parse stored charge percentages from internalNote or top-level field
+      let savedChargePercentages = ord.chargePercentages || {};
+      if (!savedChargePercentages || Object.keys(savedChargePercentages).length === 0) {
+        if (ord.internalNote && ord.internalNote.includes('[[CHARGE_PERCENTAGES:')) {
+          const m = ord.internalNote.match(/\[\[CHARGE_PERCENTAGES:(.*?)\]\]/);
+          if (m && m[1]) {
+            try {
+              savedChargePercentages = JSON.parse(m[1]);
+            } catch (e) {
+              console.error('Error parsing charge percentages:', e);
+            }
+          }
+        }
+      }
+
       // Populate Freight & Additional Logistics Charges and their GST tax codes
-      setFreight(Number(ord.freight || 0));
+      const loadedFreightAmt = Number(ord.freight || 0);
+      let loadedFreightPct = 0;
+      if (savedChargePercentages.freightPercent !== undefined && savedChargePercentages.freightPercent !== null) {
+        loadedFreightPct = Number(savedChargePercentages.freightPercent);
+      } else if (ord.freightPercent !== undefined && ord.freightPercent !== null && Number(ord.freightPercent) > 0) {
+        loadedFreightPct = Number(ord.freightPercent);
+      } else if (loadedFreightAmt > 0 && effectiveGoodsTotal > 0) {
+        loadedFreightPct = round2((loadedFreightAmt / effectiveGoodsTotal) * 100);
+      }
+      setFreight(loadedFreightAmt);
+      setFreightPercent(loadedFreightPct);
       if (ord.freightTaxCode) setFreightTaxCode(mapTaxCodeForSupplyType(ord.freightTaxCode, isInter));
       else if (ord.freightGst !== undefined) setFreightTaxCode(ord.freightGst ? defaultTaxCode : 'EXEMPT');
 
-      setLoadingCharges(Number(ord.loadingCharges || 0));
+      const loadedLoadingAmt = Number(ord.loadingCharges || 0);
+      let loadedLoadingPct = 0;
+      if (savedChargePercentages.loadingPercent !== undefined && savedChargePercentages.loadingPercent !== null) {
+        loadedLoadingPct = Number(savedChargePercentages.loadingPercent);
+      } else if (ord.loadingPercent !== undefined && ord.loadingPercent !== null && Number(ord.loadingPercent) > 0) {
+        loadedLoadingPct = Number(ord.loadingPercent);
+      } else if (loadedLoadingAmt > 0 && effectiveGoodsTotal > 0) {
+        loadedLoadingPct = round2((loadedLoadingAmt / effectiveGoodsTotal) * 100);
+      }
+      setLoadingCharges(loadedLoadingAmt);
+      setLoadingPercent(loadedLoadingPct);
       if (ord.loadingTaxCode) setLoadingTaxCode(mapTaxCodeForSupplyType(ord.loadingTaxCode, isInter));
       else if (ord.loadingGst !== undefined) setLoadingTaxCode(ord.loadingGst ? defaultTaxCode : 'EXEMPT');
 
-      setPackingCharges(Number(ord.packingCharges || 0));
+      const loadedPackingAmt = Number(ord.packingCharges || 0);
+      let loadedPackingPct = 0;
+      if (savedChargePercentages.packingPercent !== undefined && savedChargePercentages.packingPercent !== null) {
+        loadedPackingPct = Number(savedChargePercentages.packingPercent);
+      } else if (ord.packingPercent !== undefined && ord.packingPercent !== null && Number(ord.packingPercent) > 0) {
+        loadedPackingPct = Number(ord.packingPercent);
+      } else if (loadedPackingAmt > 0 && effectiveGoodsTotal > 0) {
+        loadedPackingPct = round2((loadedPackingAmt / effectiveGoodsTotal) * 100);
+      }
+      setPackingCharges(loadedPackingAmt);
+      setPackingPercent(loadedPackingPct);
       if (ord.packingTaxCode) setPackingTaxCode(mapTaxCodeForSupplyType(ord.packingTaxCode, isInter));
       else if (ord.packingGst !== undefined) setPackingTaxCode(ord.packingGst ? defaultTaxCode : 'EXEMPT');
 
-      setOtherCharges(Number(ord.otherCharges || 0));
+      const loadedOtherAmt = Number(ord.otherCharges || 0);
+      let loadedOtherPct = 0;
+      if (savedChargePercentages.otherPercent !== undefined && savedChargePercentages.otherPercent !== null) {
+        loadedOtherPct = Number(savedChargePercentages.otherPercent);
+      } else if (ord.otherPercent !== undefined && ord.otherPercent !== null && Number(ord.otherPercent) > 0) {
+        loadedOtherPct = Number(ord.otherPercent);
+      } else if (loadedOtherAmt > 0 && effectiveGoodsTotal > 0) {
+        loadedOtherPct = round2((loadedOtherAmt / effectiveGoodsTotal) * 100);
+      }
+      setOtherCharges(loadedOtherAmt);
+      setOtherPercent(loadedOtherPct);
       if (ord.otherTaxCode) setOtherTaxCode(mapTaxCodeForSupplyType(ord.otherTaxCode, isInter));
       else if (ord.otherGst !== undefined) setOtherTaxCode(ord.otherGst ? defaultTaxCode : 'EXEMPT');
 
@@ -2505,6 +2584,7 @@ export default function SalesOrderPage() {
         .replace(/\[\[PAYMENT_DETAILS:.*?\]\]/gs, '')
         .replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '')
         .replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/gs, '')
+        .replace(/\[\[CHARGE_PERCENTAGES:.*?\]\]/gs, '')
         .replace(/\[Fulfillment Mode:.*?\]/g, '')
         .trim();
       setRemarks(cleanNote);
@@ -2525,7 +2605,9 @@ export default function SalesOrderPage() {
         return sum + Math.max(0, (q * p) - d);
       }, 0);
       const discVal = Number(ord.discountValue || ord.invoiceDiscount || 0);
-      if (ord.discountPercent !== undefined && ord.discountPercent !== null && Number(ord.discountPercent) > 0) {
+      if (savedChargePercentages.discountPercent !== undefined && savedChargePercentages.discountPercent !== null) {
+        setDiscountPercent(Number(savedChargePercentages.discountPercent));
+      } else if (ord.discountPercent !== undefined && ord.discountPercent !== null && Number(ord.discountPercent) > 0) {
         setDiscountPercent(Number(ord.discountPercent));
       } else if (discVal > 0 && grossItemsSubtotal > 0) {
         setDiscountPercent(Number(((discVal / grossItemsSubtotal) * 100).toFixed(2)));
@@ -2654,10 +2736,14 @@ export default function SalesOrderPage() {
         orderTerms: (loadedOrderTerms || '').trim(),
         attachments: (loadedAttachments || []).map(a => a.url || a.filename || '').sort().join(','),
         discountPercent: calcDiscPct,
-        freight: Number(ord.freight || 0),
-        loadingCharges: Number(ord.loadingCharges || 0),
-        packingCharges: Number(ord.packingCharges || 0),
-        otherCharges: Number(ord.otherCharges || 0),
+        freight: loadedFreightAmt,
+        freightPercent: loadedFreightPct,
+        loadingCharges: loadedLoadingAmt,
+        loadingPercent: loadedLoadingPct,
+        packingCharges: loadedPackingAmt,
+        packingPercent: loadedPackingPct,
+        otherCharges: loadedOtherAmt,
+        otherPercent: loadedOtherPct,
         shippingMethod: ord.shippingMethod || 'Road Transport',
         transporterName: ord.transporterName || '',
         vehicleNo: ord.vehicleNo || '',
@@ -2712,25 +2798,105 @@ export default function SalesOrderPage() {
       const isInter = (ord.placeOfSupply && ord.placeOfSupply !== '33') || (ord.buyerStateCode && ord.buyerStateCode !== '33') || Boolean(isInterState);
       const defaultTaxCode = isInter ? 'IGST18' : 'SCG18';
 
-      setFreight(Number(ord.freight || 0));
+      // Compute non-packing goods base total for accurate charge percentage restoration
+      const rawConvertItems = Array.isArray(ord.items) ? ord.items : [];
+      const computedConvertGoodsBase = rawConvertItems.reduce((sum, it) => {
+        if (it.isPackingCharge) return sum;
+        const q = Number(it.quantity || 0);
+        const p = Number(it.unitPrice || 0);
+        const d = Number(it.discount || 0);
+        const lineNet = Math.max(0, (q * p) - d);
+        const lineVal = (it.subtotal !== undefined && it.subtotal !== null && Number(it.subtotal) > 0)
+          ? Number(it.subtotal)
+          : (it.lineTotal !== undefined && it.lineTotal !== null && Number(it.lineTotal) > 0 ? Number(it.lineTotal) : lineNet);
+        return sum + lineVal;
+      }, 0);
+      const effectiveConvertGoodsTotal = computedConvertGoodsBase > 0 
+        ? computedConvertGoodsBase 
+        : (Number(ord.totalSubtotal || ord.totalBeforeDiscount || 0) || 0);
+
+      let savedConvertPcts = ord.chargePercentages || {};
+      if (!savedConvertPcts || Object.keys(savedConvertPcts).length === 0) {
+        if (ord.internalNote && ord.internalNote.includes('[[CHARGE_PERCENTAGES:')) {
+          const m = ord.internalNote.match(/\[\[CHARGE_PERCENTAGES:(.*?)\]\]/);
+          if (m && m[1]) {
+            try {
+              savedConvertPcts = JSON.parse(m[1]);
+            } catch (e) {}
+          }
+        }
+      }
+
+      const convFreight = Number(ord.freight || 0);
+      let convFreightPct = 0;
+      if (savedConvertPcts.freightPercent !== undefined && savedConvertPcts.freightPercent !== null) {
+        convFreightPct = Number(savedConvertPcts.freightPercent);
+      } else if (ord.freightPercent !== undefined && ord.freightPercent !== null && Number(ord.freightPercent) > 0) {
+        convFreightPct = Number(ord.freightPercent);
+      } else if (convFreight > 0 && effectiveConvertGoodsTotal > 0) {
+        convFreightPct = round2((convFreight / effectiveConvertGoodsTotal) * 100);
+      }
+      setFreight(convFreight);
+      setFreightPercent(convFreightPct);
       if (ord.freightTaxCode) setFreightTaxCode(mapTaxCodeForSupplyType(ord.freightTaxCode, isInter));
       else if (ord.freightGst !== undefined) setFreightTaxCode(ord.freightGst ? defaultTaxCode : 'EXEMPT');
       else setFreightTaxCode(defaultTaxCode);
 
-      setLoadingCharges(Number(ord.loadingCharges || 0));
+      const convLoading = Number(ord.loadingCharges || 0);
+      let convLoadingPct = 0;
+      if (savedConvertPcts.loadingPercent !== undefined && savedConvertPcts.loadingPercent !== null) {
+        convLoadingPct = Number(savedConvertPcts.loadingPercent);
+      } else if (ord.loadingPercent !== undefined && ord.loadingPercent !== null && Number(ord.loadingPercent) > 0) {
+        convLoadingPct = Number(ord.loadingPercent);
+      } else if (convLoading > 0 && effectiveConvertGoodsTotal > 0) {
+        convLoadingPct = round2((convLoading / effectiveConvertGoodsTotal) * 100);
+      }
+      setLoadingCharges(convLoading);
+      setLoadingPercent(convLoadingPct);
       if (ord.loadingTaxCode) setLoadingTaxCode(mapTaxCodeForSupplyType(ord.loadingTaxCode, isInter));
       else if (ord.loadingGst !== undefined) setLoadingTaxCode(ord.loadingGst ? defaultTaxCode : 'EXEMPT');
       else setLoadingTaxCode(defaultTaxCode);
 
-      setPackingCharges(Number(ord.packingCharges || 0));
+      const convPacking = Number(ord.packingCharges || 0);
+      let convPackingPct = 0;
+      if (savedConvertPcts.packingPercent !== undefined && savedConvertPcts.packingPercent !== null) {
+        convPackingPct = Number(savedConvertPcts.packingPercent);
+      } else if (ord.packingPercent !== undefined && ord.packingPercent !== null && Number(ord.packingPercent) > 0) {
+        convPackingPct = Number(ord.packingPercent);
+      } else if (convPacking > 0 && effectiveConvertGoodsTotal > 0) {
+        convPackingPct = round2((convPacking / effectiveConvertGoodsTotal) * 100);
+      }
+      setPackingCharges(convPacking);
+      setPackingPercent(convPackingPct);
       if (ord.packingTaxCode) setPackingTaxCode(mapTaxCodeForSupplyType(ord.packingTaxCode, isInter));
       else if (ord.packingGst !== undefined) setPackingTaxCode(ord.packingGst ? defaultTaxCode : 'EXEMPT');
       else setPackingTaxCode(defaultTaxCode);
 
-      setOtherCharges(Number(ord.otherCharges || 0));
+      const convOther = Number(ord.otherCharges || 0);
+      let convOtherPct = 0;
+      if (savedConvertPcts.otherPercent !== undefined && savedConvertPcts.otherPercent !== null) {
+        convOtherPct = Number(savedConvertPcts.otherPercent);
+      } else if (ord.otherPercent !== undefined && ord.otherPercent !== null && Number(ord.otherPercent) > 0) {
+        convOtherPct = Number(ord.otherPercent);
+      } else if (convOther > 0 && effectiveConvertGoodsTotal > 0) {
+        convOtherPct = round2((convOther / effectiveConvertGoodsTotal) * 100);
+      }
+      setOtherCharges(convOther);
+      setOtherPercent(convOtherPct);
       if (ord.otherTaxCode) setOtherTaxCode(mapTaxCodeForSupplyType(ord.otherTaxCode, isInter));
       else if (ord.otherGst !== undefined) setOtherTaxCode(ord.otherGst ? defaultTaxCode : 'EXEMPT');
       else setOtherTaxCode(defaultTaxCode);
+
+      const convDiscVal = Number(ord.discountValue || ord.invoiceDiscount || 0);
+      if (savedConvertPcts.discountPercent !== undefined && savedConvertPcts.discountPercent !== null) {
+        setDiscountPercent(Number(savedConvertPcts.discountPercent));
+      } else if (ord.discountPercent !== undefined && ord.discountPercent !== null && Number(ord.discountPercent) > 0) {
+        setDiscountPercent(Number(ord.discountPercent));
+      } else if (convDiscVal > 0 && effectiveConvertGoodsTotal > 0) {
+        setDiscountPercent(Number(((convDiscVal / effectiveConvertGoodsTotal) * 100).toFixed(2)));
+      } else {
+        setDiscountPercent(0);
+      }
 
       setIsRoundingEnabled(true);
 
@@ -3042,9 +3208,13 @@ export default function SalesOrderPage() {
         attachments: (attachments || []).map(a => a.url || a.filename || '').sort().join(','),
         discountPercent: Number(discountPercent || 0),
         freight: Number(freight || 0),
+        freightPercent: Number(freightPercent || 0),
         loadingCharges: Number(loadingCharges || 0),
+        loadingPercent: Number(loadingPercent || 0),
         packingCharges: Number(packingCharges || 0),
+        packingPercent: Number(packingPercent || 0),
         otherCharges: Number(otherCharges || 0),
+        otherPercent: Number(otherPercent || 0),
         shippingMethod: shippingMethod || 'Road Transport',
         transporterName: transporterName || '',
         vehicleNo: vehicleNo || '',
@@ -3141,6 +3311,8 @@ export default function SalesOrderPage() {
           .replace(/\[\[ATTACHMENT:.*?\]\]/g, '')
           .replace(/\[\[PAYMENT_DETAILS:.*?\]\]/g, '')
           .replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/g, '')
+          .replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/g, '')
+          .replace(/\[\[CHARGE_PERCENTAGES:.*?\]\]/g, '')
           .trim();
         const activePaymentDetails = paymentMethod.includes('Bank')
           ? bankTransferDetails
@@ -3148,7 +3320,20 @@ export default function SalesOrderPage() {
         const attJson = attachments.length > 0 ? `[[ATTACHMENT:${JSON.stringify(attachments)}]]` : '';
         const payJson = activePaymentDetails ? `[[PAYMENT_DETAILS:${JSON.stringify(activePaymentDetails)}]]` : '';
         const termsJson = orderTerms ? `[[TERMS_AND_CONDITIONS:${encodeURIComponent(orderTerms)}]]` : '';
-        return [cleanRemarks, payJson, termsJson, attJson].filter(Boolean).join(' ');
+        const ancillaryTaxCodesJson = `[[ANCILLARY_TAX_CODES:${JSON.stringify({
+          freightTaxCode,
+          loadingTaxCode,
+          packingTaxCode,
+          otherTaxCode
+        })}]]`;
+        const chargePercentagesJson = `[[CHARGE_PERCENTAGES:${JSON.stringify({
+          freightPercent: Number(freightPercent) || 0,
+          loadingPercent: Number(loadingPercent) || 0,
+          packingPercent: Number(packingPercent) || 0,
+          otherPercent: Number(otherPercent) || 0,
+          discountPercent: Number(discountPercent) || 0
+        })}]]`;
+        return [cleanRemarks, payJson, termsJson, attJson, ancillaryTaxCodesJson, chargePercentagesJson].filter(Boolean).join(' ');
       })(),
       attachmentUrl: attachments.length > 0 ? attachments.map(a => a.url).join(', ') : null,
       deliveryAddress: shipToAddress,
@@ -3178,15 +3363,19 @@ export default function SalesOrderPage() {
       discountValue: financials.docDiscAmt,
       invoiceDiscount: financials.docDiscAmt,
       freight: Number(freight) || 0,
+      freightPercent: Number(freightPercent) || 0,
       freightTaxCode: freightTaxCode,
       freightGst: getTaxRateFromCode(freightTaxCode) > 0,
       loadingCharges: Number(loadingCharges) || 0,
+      loadingPercent: Number(loadingPercent) || 0,
       loadingTaxCode: loadingTaxCode,
       loadingGst: getTaxRateFromCode(loadingTaxCode) > 0,
       packingCharges: Number(packingCharges) || 0,
+      packingPercent: Number(packingPercent) || 0,
       packingTaxCode: packingTaxCode,
       packingGst: getTaxRateFromCode(packingTaxCode) > 0,
       otherCharges: Number(otherCharges) || 0,
+      otherPercent: Number(otherPercent) || 0,
       otherTaxCode: otherTaxCode,
       otherGst: getTaxRateFromCode(otherTaxCode) > 0,
       collectTax: true,
@@ -6839,7 +7028,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                       min="0"
                       step="0.01"
                       value={freight}
-                      onChange={(e) => setFreight(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => handleFreightAmountChange(parseFloat(e.target.value) || 0)}
                       className="w-32 h-8 px-2.5 text-right font-mono font-bold text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-indigo-500"
                     />
                     <select
@@ -7418,12 +7607,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <div className="flex items-center gap-0.5">
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   min="0"
                   value={freightPercent}
                   onChange={(e) => handleFreightPercentChange(parseFloat(e.target.value) || 0)}
                   placeholder="0"
-                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-14 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Freight Percentage (%) of total amount"
                 />
                 <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
@@ -7438,7 +7627,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   value={freight}
                   onChange={(e) => handleFreightAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Enter Freight Amount in INR (₹)"
                 />
               </div>
@@ -7487,12 +7676,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <div className="flex items-center gap-0.5">
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   min="0"
                   value={packingPercent}
                   onChange={(e) => handlePackingPercentChange(parseFloat(e.target.value) || 0)}
                   placeholder="0"
-                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-14 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Packing Percentage (%) of total amount"
                 />
                 <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
@@ -7507,7 +7696,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   value={packingCharges}
                   onChange={(e) => handlePackingAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Packing Charges Amount in INR (₹)"
                 />
               </div>
@@ -7550,12 +7739,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <div className="flex items-center gap-0.5">
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   min="0"
                   value={loadingPercent}
                   onChange={(e) => handleLoadingPercentChange(parseFloat(e.target.value) || 0)}
                   placeholder="0"
-                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-14 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Loading Percentage (%) of total amount"
                 />
                 <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
@@ -7570,7 +7759,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   value={loadingCharges}
                   onChange={(e) => handleLoadingAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Loading Charges Amount in INR (₹)"
                 />
               </div>
@@ -7613,12 +7802,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <div className="flex items-center gap-0.5">
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   min="0"
                   value={otherPercent}
                   onChange={(e) => handleOtherPercentChange(parseFloat(e.target.value) || 0)}
                   placeholder="0"
-                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-14 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Other Charges Percentage (%) of total amount"
                 />
                 <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
@@ -7633,7 +7822,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   value={otherCharges}
                   onChange={(e) => handleOtherAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Other Charges Amount in INR (₹)"
                 />
               </div>
