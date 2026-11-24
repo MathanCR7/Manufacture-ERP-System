@@ -308,6 +308,7 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   const invoiceDate = new Date(order.createdAt || Date.now()).toLocaleDateString('en-GB');
   const ownerName = order.owner || order.creator?.name || order.cashierName || 'Administrator';
   const paymentTermsVal = order.paymentTerms || (order.paymentStatus === 'PAID' ? 'PAID' : 'Net 30');
+  const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= Number(order.grandTotal || 0) && Number(order.grandTotal || 0) > 0);
 
   doc.text(`Doc No: `, margin + 3, curY + 5);
   doc.setTextColor(15, 23, 42);
@@ -331,7 +332,6 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   } else {
     doc.setTextColor(71, 85, 105);
     doc.text(`Payment Status: `, margin + 85, curY + 5);
-    const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= Number(order.grandTotal || 0) && Number(order.grandTotal || 0) > 0);
     doc.setTextColor(isPaid ? 16 : 180, isPaid ? 120 : 60, isPaid ? 40 : 40);
     doc.text(isPaid ? 'PAID' : (order.paymentStatus || 'PENDING'), margin + 108, curY + 5);
 
