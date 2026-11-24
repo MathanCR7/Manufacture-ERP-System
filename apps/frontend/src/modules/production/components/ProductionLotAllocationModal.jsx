@@ -146,19 +146,37 @@ export default function ProductionLotAllocationModal({
     return f > 0 ? f : 1000;
   }, [resolvedMaster, row, baseUom, altUom]);
 
-  // Initial UOM mode determination: inherit from row entry mode if alternate was active
+  // Initial UOM mode determination: accurately match current row UOM
   const initialMode = useMemo(() => {
     if (!hasAlt || !altUom) return 'BASE';
-    if (row.activeEntryMode === 'ALT') return 'ALT';
-    if (row.activeEntryMode === 'BASE') return 'BASE';
-    const rowUom = String(row.selectedUom || row.uom || '').trim().toLowerCase();
-    const altUomLower = String(altUom).trim().toLowerCase();
-    if (rowUom === altUomLower) return 'ALT';
-    if (['gm', 'g', 'ml'].includes(rowUom) && ['kg', 'liter', 'ltr', 'l'].includes(String(baseUom).trim().toLowerCase())) return 'ALT';
+    const rowUom = String(row?.selectedUom || row?.uom || '').trim().toLowerCase();
+    const baseUomLower = String(baseUom || '').trim().toLowerCase();
+    const altUomLower = String(altUom || '').trim().toLowerCase();
+
+    // 1. Direct match with current row UOM:
+    if (rowUom && rowUom === baseUomLower) return 'BASE';
+    if (rowUom && rowUom === altUomLower) return 'ALT';
+
+    // 2. Unit family match:
+    const isSmall = (u) => ['ml', 'milliliter', 'millilitre', 'gm', 'g', 'gram'].includes(String(u || '').toLowerCase().trim());
+    const isLarge = (u) => ['liter', 'ltr', 'l', 'litre', 'kg', 'kgs', 'kilogram'].includes(String(u || '').toLowerCase().trim());
+
+    if (isSmall(rowUom)) {
+      if (isSmall(baseUomLower)) return 'BASE';
+      if (isSmall(altUomLower)) return 'ALT';
+    }
+    if (isLarge(rowUom)) {
+      if (isLarge(baseUomLower)) return 'BASE';
+      if (isLarge(altUomLower)) return 'ALT';
+    }
+
+    // 3. Fallback to row.activeEntryMode
+    if (row?.activeEntryMode === 'ALT') return 'ALT';
+    if (row?.activeEntryMode === 'BASE') return 'BASE';
     return 'BASE';
   }, [hasAlt, altUom, baseUom, row]);
 
-  // Active UOM Mode state: 'BASE' (e.g. liter) or 'ALT' (e.g. ml)
+  // Active UOM Mode state: 'BASE' (e.g. liter or ml) or 'ALT' (e.g. ml or liter)
   const [uomMode, setUomMode] = useState(initialMode);
 
   // Sync mode if row changes
@@ -177,30 +195,25 @@ export default function ProductionLotAllocationModal({
     const altUomLower = String(altUom || '').trim().toLowerCase();
     const baseUomLower = String(baseUom || '').trim().toLowerCase();
 
-    // Determine if the current row value is ALREADY expressed in the alternate UOM (e.g. 300 gm)
-    const isRowInAlt =
-      row?.activeEntryMode === 'ALT' ||
-      (hasAlt && Boolean(altUomLower) && rowUom === altUomLower) ||
-      (['gm', 'g', 'ml'].includes(rowUom) && ['kg', 'liter', 'ltr', 'l'].includes(baseUomLower));
+    const isRowInAlt = (hasAlt && Boolean(altUomLower) && rowUom === altUomLower) ||
+      (row?.activeEntryMode === 'ALT' && rowUom !== baseUomLower);
+    const isRowInBase = (Boolean(baseUomLower) && rowUom === baseUomLower) ||
+      (row?.activeEntryMode === 'BASE' && rowUom !== altUomLower);
 
     // If row explicitly tracks baseRequiredQty and altRequiredQty
     if (uomMode === 'ALT' && hasAlt) {
+      if (isRowInAlt && rawVal > 0) return rawVal;
       if (row.altRequiredQty !== undefined && Number(row.altRequiredQty) > 0) {
         return Number(row.altRequiredQty);
-      }
-      if (isRowInAlt && rawVal > 0) {
-        return rawVal;
       }
       const bQty = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : rawVal);
       return Number((bQty * conversionFactor).toFixed(4));
     }
 
     // Base mode
+    if (isRowInBase && rawVal > 0) return rawVal;
     if (row.baseRequiredQty !== undefined && Number(row.baseRequiredQty) > 0) {
       return Number(row.baseRequiredQty);
-    }
-    if (!isRowInAlt && rawVal > 0) {
-      return rawVal;
     }
     if (isRowInAlt && conversionFactor > 0) {
       return Number((rawVal / conversionFactor).toFixed(6));
@@ -319,7 +332,9 @@ export default function ProductionLotAllocationModal({
               }
             } else {
               // Base mode
-              if (b.uom === altUom && conversionFactor > 0) {
+              if (b.allocatedQty && Number(b.allocatedQty) > 0) {
+                qtyInActiveMode = Number(b.allocatedQty);
+              } else if (b.uom === altUom && conversionFactor > 0) {
                 qtyInActiveMode = Number((rawAlloc / conversionFactor).toFixed(4));
               }
             }

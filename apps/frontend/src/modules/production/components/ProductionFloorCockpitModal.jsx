@@ -67,6 +67,20 @@ const cleanStaffNameOnly = (val) => {
     .trim();
 };
 
+const isSmallUnit = (u) => ['ml', 'milliliter', 'millilitre', 'gm', 'g', 'gram'].includes(String(u || '').toLowerCase().trim());
+const isLargeUnit = (u) => ['liter', 'ltr', 'l', 'litre', 'kg', 'kgs', 'kilogram'].includes(String(u || '').toLowerCase().trim());
+
+const getEffectiveUnitFactor = (item) => {
+  let f = Number(item?.conversionFactor || 0);
+  if (!f && item?.baseUomQty && item?.alternateUomQty) {
+    const b = Number(item.baseUomQty);
+    const a = Number(item.alternateUomQty);
+    if (b > 0 && a > 0) f = Math.max(b, a) / Math.min(b, a);
+  }
+  if (f > 0 && f < 1) f = Math.round(1 / f);
+  return (f && f > 1) ? f : 1000;
+};
+
 /**
  * Calculates user compensation metrics:
  * 1. Monthly salary = yearlyCtc / 12 (or grossPay if yearlyCtc is missing / 0).
@@ -2242,34 +2256,32 @@ export default function ProductionFloorCockpitModal({
           targetPrm.lotBatchNo = allocatedBatches.map(b => b.lotNumber || b.internalBatchNo).filter(Boolean).join(', ');
           targetPrm.expiryDate = allocatedBatches.find(b => b.expiryDate)?.expiryDate || targetPrm.expiryDate || null;
 
-          const isAlt = activeUomMode === 'ALT' || targetPrm.activeEntryMode === 'ALT' ||
-            (targetPrm.alternateUom && String(targetPrm.uom || '').toLowerCase() === String(targetPrm.alternateUom).toLowerCase()) ||
-            (['gm', 'g', 'ml'].includes(String(targetPrm.uom || '').toLowerCase()));
-
           targetPrm.baseRequiredQty = totalAllocatedBase;
           targetPrm.baseTakenQty = totalAllocatedBase;
           targetPrm.altRequiredQty = totalAllocatedAlt;
           targetPrm.altTakenQty = totalAllocatedAlt;
 
-          if (isAlt) {
+          const master = findMaster(targetPrm);
+          const masterBaseUom = master?.unitId || targetPrm.primaryUom || 'kg';
+          const masterAltUom = master?.alternateUom || targetPrm.alternateUom || null;
+
+          if (activeUomMode === 'ALT') {
             targetPrm.activeEntryMode = 'ALT';
             targetPrm.takenQty = totalAllocatedAlt;
             targetPrm.qty = totalAllocatedAlt;
-            targetPrm.uom = targetPrm.alternateUom || targetPrm.uom || 'gm';
-            const factor = Number(targetPrm.conversionFactor || 1000);
-            const rate = blendedAltRate > 0 ? blendedAltRate : (blendedBaseRate > 0 && factor > 1 ? Number((blendedBaseRate / factor).toFixed(4)) : targetPrm.unitRate);
-            targetPrm.unitRate = rate;
-            targetPrm.altRate = rate;
+            targetPrm.uom = masterAltUom || targetPrm.alternateUom || targetPrm.uom;
+            targetPrm.unitRate = blendedAltRate > 0 ? blendedAltRate : targetPrm.unitRate;
+            targetPrm.altRate = blendedAltRate;
             targetPrm.baseRate = blendedBaseRate;
             targetPrm.totalCost = totalCost;
             finalAllocatedDisplayQty = totalAllocatedAlt;
             finalAllocatedDisplayUom = targetPrm.uom;
-            finalUnitRate = rate;
+            finalUnitRate = targetPrm.unitRate;
           } else {
             targetPrm.activeEntryMode = 'BASE';
             targetPrm.takenQty = totalAllocatedBase;
             targetPrm.qty = totalAllocatedBase;
-            targetPrm.uom = targetPrm.primaryUom || targetPrm.uom || 'kg';
+            targetPrm.uom = masterBaseUom || targetPrm.primaryUom || targetPrm.uom;
             targetPrm.unitRate = blendedBaseRate > 0 ? blendedBaseRate : targetPrm.unitRate;
             targetPrm.baseRate = blendedBaseRate;
             targetPrm.altRate = blendedAltRate;
@@ -3172,32 +3184,71 @@ export default function ProductionFloorCockpitModal({
       const current = { ...prms[prmIndex] };
 
       if (field === 'uom') {
-        const prevUom = String(current.uom || '').toLowerCase();
-        const nextUom = String(value || '').toLowerCase();
+        const prevUom = String(current.uom || '').toLowerCase().trim();
+        const nextUom = String(value || '').toLowerCase().trim();
         current.uom = value;
-        const factor = Number(current.conversionFactor || 1000);
         const currentQty = Number(current.takenQty ?? current.qty ?? 0);
+        const factor = getEffectiveUnitFactor(current);
+
+        const wasLarge = isLargeUnit(prevUom);
+        const wasSmall = isSmallUnit(prevUom);
+        const isNowLarge = isLargeUnit(nextUom);
+        const isNowSmall = isSmallUnit(nextUom);
 
         if (currentQty > 0) {
-          if ((prevUom === 'liter' || prevUom === 'ltr' || prevUom === 'kg' || prevUom === 'kgs') &&
-              (nextUom === 'ml' || nextUom === 'gm' || nextUom === 'g')) {
+          if (wasLarge && isNowSmall) {
             current.takenQty = Number((currentQty * factor).toFixed(4));
             current.qty = current.takenQty;
-            current.activeEntryMode = 'ALT';
-            if (current.unitRate > 0 && factor > 1) {
-              current.baseRate = current.baseRate || current.unitRate;
-              current.unitRate = Number((current.baseRate / factor).toFixed(4));
+            const master = findMaster(current);
+            const masterBaseIsSmall = isSmallUnit(master?.unitId);
+            current.activeEntryMode = masterBaseIsSmall ? 'BASE' : 'ALT';
+
+            if (current.unitRate > 0) {
+              const largeRate = current.baseRate && current.baseRate > current.unitRate ? current.baseRate : (current.unitRate > 10 ? current.unitRate : current.unitRate * factor);
+              current.baseRate = largeRate;
+              current.unitRate = Number((largeRate / factor).toFixed(4));
               current.altRate = current.unitRate;
             }
-          } else if ((prevUom === 'ml' || prevUom === 'gm' || prevUom === 'g') &&
-                     (nextUom === 'liter' || nextUom === 'ltr' || nextUom === 'kg' || nextUom === 'kgs')) {
+
+            if (Array.isArray(current.allocatedBatches)) {
+              current.allocatedBatches = current.allocatedBatches.map(b => {
+                const bQty = Number(b.allocatedQty || 0);
+                const bAlt = Number(b.allocatedAltQty || 0);
+                const newQty = (bQty > 0 && bQty < (current.takenQty * 0.1)) ? Number((bQty * factor).toFixed(4)) : bQty;
+                const newAlt = (bAlt > 0 && bAlt < (current.takenQty * 0.1)) ? Number((bAlt * factor).toFixed(4)) : bAlt;
+                return {
+                  ...b,
+                  allocatedQty: newQty || current.takenQty,
+                  allocatedAltQty: newAlt || current.takenQty
+                };
+              });
+            }
+          } else if (wasSmall && isNowLarge) {
             current.takenQty = Number((currentQty / factor).toFixed(6));
             current.qty = current.takenQty;
-            current.activeEntryMode = 'BASE';
-            if (current.baseRate > 0) {
+            const master = findMaster(current);
+            const masterBaseIsLarge = isLargeUnit(master?.unitId);
+            current.activeEntryMode = masterBaseIsLarge ? 'BASE' : 'ALT';
+
+            if (current.baseRate > 10) {
               current.unitRate = current.baseRate;
-            } else if (current.unitRate > 0 && factor > 1) {
+            } else if (current.unitRate > 0) {
               current.unitRate = Number((current.unitRate * factor).toFixed(2));
+              current.baseRate = current.unitRate;
+            }
+
+            if (Array.isArray(current.allocatedBatches)) {
+              current.allocatedBatches = current.allocatedBatches.map(b => {
+                const bQty = Number(b.allocatedQty || 0);
+                const bAlt = Number(b.allocatedAltQty || 0);
+                const newQty = (bQty > 0 && bQty > (current.takenQty * 10)) ? Number((bQty / factor).toFixed(6)) : bQty;
+                const newAlt = (bAlt > 0 && bAlt > (current.takenQty * 10)) ? Number((bAlt / factor).toFixed(6)) : bAlt;
+                return {
+                  ...b,
+                  allocatedQty: newQty || current.takenQty,
+                  allocatedAltQty: newAlt || current.takenQty
+                };
+              });
             }
           }
         }
@@ -3205,15 +3256,16 @@ export default function ProductionFloorCockpitModal({
       } else if (field === 'takenQty' || field === 'unitRate' || field === 'qty') {
         const qty = Number(field === 'unitRate' ? (current.takenQty ?? current.qty ?? 0) : value);
         let rate = Number(field === 'unitRate' ? value : current.unitRate || 0);
-        const factor = Number(current.conversionFactor || 1000);
-        const uomLower = String(current.uom || '').toLowerCase();
-        const isAlt = current.activeEntryMode === 'ALT' || uomLower === 'gm' || uomLower === 'g' || uomLower === 'ml';
+        const factor = getEffectiveUnitFactor(current);
+        const uomLower = String(current.uom || '').toLowerCase().trim();
+        const isSmall = isSmallUnit(uomLower);
 
-        // Guard against base rate per kg applied to gm qty (e.g. rate 231.25 with gm)
-        if (isAlt && rate > 10 && factor >= 100) {
+        // Guard against base rate per kg/liter applied to gm/ml qty (e.g. rate 2004.20 with ml, or rate 231.25 with gm)
+        if (isSmall && rate > 10 && factor >= 100) {
           current.baseRate = rate;
           rate = Number((rate / factor).toFixed(4));
           current.unitRate = rate;
+          current.altRate = rate;
         }
 
         current.takenQty = qty;
@@ -7039,39 +7091,75 @@ export default function ProductionFloorCockpitModal({
                                             </td>
                                               <td className="py-0.5 px-2">
                                                 {(() => {
-                                                  const isAlt = prm.activeEntryMode === 'ALT' ||
-                                                    (prm.alternateUom && String(prm.uom || '').toLowerCase() === String(prm.alternateUom).toLowerCase()) ||
-                                                    (['gm', 'g', 'ml'].includes(String(prm.uom || '').toLowerCase()));
-                                                  const factor = Number(prm.conversionFactor || 1000);
+                                                  const master = findMaster(prm);
+                                                  const prmUomLower = String(prm.uom || '').toLowerCase().trim();
+                                                  const isSmall = isSmallUnit(prmUomLower);
+                                                  const isLarge = isLargeUnit(prmUomLower);
+                                                  const factor = getEffectiveUnitFactor(prm || master);
                                                   const prmReqQty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+
                                                   const allocatedSum = (prm.allocatedBatches || []).reduce((s, b) => {
-                                                    if (isAlt) {
-                                                      const altQ = Number(b.allocatedAltQty !== undefined && Number(b.allocatedAltQty) > 0 ? b.allocatedAltQty : (Number(b.allocatedQty || 0) * (factor > 1 ? factor : 1)));
-                                                      return s + altQ;
+                                                    const bQty = Number(b.allocatedQty || 0);
+                                                    const bAlt = Number(b.allocatedAltQty || 0);
+                                                    if (isSmall) {
+                                                      if (bAlt > 0 && bAlt >= prmReqQty * 0.5) return s + bAlt;
+                                                      if (bQty > 0 && bQty >= prmReqQty * 0.5) return s + bQty;
+                                                      if (bQty > 0 && bQty < (prmReqQty * 0.1)) return s + (bQty * factor);
+                                                      if (bAlt > 0 && bAlt < (prmReqQty * 0.1)) return s + (bAlt * factor);
+                                                      return s + (bQty > 0 ? bQty : bAlt);
+                                                    } else if (isLarge) {
+                                                      if (bQty > 0 && bQty <= (prmReqQty * 2 || 100)) return s + bQty;
+                                                      if (bAlt > 0 && bAlt <= (prmReqQty * 2 || 100)) return s + bAlt;
+                                                      if (bQty > 0 && bQty > (prmReqQty * 10)) return s + (bQty / factor);
+                                                      if (bAlt > 0 && bAlt > (prmReqQty * 10)) return s + (bAlt / factor);
+                                                      return s + (bQty > 0 ? bQty : bAlt);
                                                     }
-                                                    return s + Number(b.allocatedQty || 0);
+                                                    return s + (bQty > 0 ? bQty : bAlt);
                                                   }, 0);
-                                                  const roundedAllocSum = Number(allocatedSum.toFixed(2));
-                                                  const needsLot = !hasBatches || (prmReqQty > 0 && roundedAllocSum < (prmReqQty - 0.0001));
+
+                                                  const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
+                                                  const isFulfilled = hasBatches && prmReqQty > 0 && (Math.abs(allocatedSum - prmReqQty) <= 0.001 || allocatedSum >= (prmReqQty - 0.001));
+                                                  const needsLot = !hasBatches || (prmReqQty > 0 && allocatedSum < (prmReqQty - 0.001));
+
+                                                  const formatDispQty = (v) => {
+                                                    if (v === null || v === undefined || isNaN(v)) return '0';
+                                                    const n = Number(v);
+                                                    if (Number.isInteger(n)) return String(n);
+                                                    return Number(n.toFixed(4)).toString();
+                                                  };
+
+                                                  const dispAlloc = formatDispQty(allocatedSum);
+                                                  const dispReq = formatDispQty(prmReqQty);
+
                                                   if (hasBatches) {
                                                     return (
                                                       <button
                                                         type="button"
                                                         onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                        className={`px-1 py-0.2 rounded border font-mono text-[9px] cursor-pointer flex items-center gap-0.5 ${
-                                                          needsLot
-                                                            ? 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-900 dark:text-amber-200'
-                                                            : 'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-900 dark:text-blue-300'
+                                                        className={`px-1.5 py-0.5 rounded border font-mono text-[9px] font-semibold cursor-pointer flex items-center gap-1 shadow-2xs transition-colors ${
+                                                          isFulfilled
+                                                            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200'
+                                                            : 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200'
                                                         }`}
-                                                        title={needsLot ? `Allocated ${roundedAllocSum} / ${prmReqQty} ${prm.uom || ''} — Click to allocate warehouse stock lots` : 'Click to view or adjust lot allocations'}
+                                                        title={
+                                                          isFulfilled
+                                                            ? `Fully allocated: ${dispAlloc} / ${dispReq} ${prm.uom || ''} — Click to view or adjust lots`
+                                                            : `Partially allocated: ${dispAlloc} / ${dispReq} ${prm.uom || ''} — Click to allocate warehouse stock lots`
+                                                        }
                                                       >
-                                                        <Boxes className={`w-2 h-2 ${needsLot ? 'text-amber-600' : 'text-blue-600'}`} />
+                                                        {isFulfilled ? (
+                                                          <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 stroke-[3]" />
+                                                        ) : (
+                                                          <AlertTriangle className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                                                        )}
                                                         <span>
                                                           {prm.allocatedBatches.length === 1
                                                             ? `#${String(prm.allocatedBatches[0].lotNumber || prm.allocatedBatches[0].internalBatchNo).replace(/^#+/, '')}`
                                                             : `${prm.allocatedBatches.length} Lots`}
                                                         </span>
-                                                        <span className="opacity-75">({roundedAllocSum}/{prmReqQty})</span>
+                                                        <span className={`opacity-90 font-bold ${isFulfilled ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                                                          ({dispAlloc}/{dispReq})
+                                                        </span>
                                                       </button>
                                                     );
                                                   }
@@ -7082,9 +7170,9 @@ export default function ProductionFloorCockpitModal({
                                                     <button
                                                       type="button"
                                                       onClick={() => openProductRmLotModal(idx, prmIdx)}
-                                                      className="px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-0.5"
+                                                      className="px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-900 dark:text-amber-300 font-bold text-[9px] cursor-pointer flex items-center gap-1 shadow-2xs"
                                                     >
-                                                      <Plus className="w-2 h-2 text-amber-600" />
+                                                      <Plus className="w-2.5 h-2.5 text-amber-600" />
                                                       <span>Allocate Lot</span>
                                                     </button>
                                                   );
