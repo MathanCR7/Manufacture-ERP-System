@@ -267,6 +267,25 @@ export default function ProductionLotAllocationModal({
         const rawLots = Array.isArray(batchesRes.data) ? batchesRes.data : [];
         // Strictly filter out any lots that have 0 remaining balance or are marked DEPLETED
         const lots = rawLots.filter(l => Number(l.availableQty ?? l.netQty ?? 0) > 0.0001 && l.status !== 'DEPLETED');
+        
+        // Fallback to catalog availableBatches if endpoint returned empty but catalog has active batches
+        if (lots.length === 0 && Array.isArray(master?.availableBatches) && master.availableBatches.length > 0) {
+          master.availableBatches.forEach(mb => {
+            if (Number(mb.remainingQty || mb.availableQty || 0) > 0.0001) {
+              lots.push({
+                id: mb.id,
+                internalBatchNo: mb.batchNo,
+                supplierBatchNo: mb.batchNo,
+                mfgBatchNo: mb.batchNo,
+                availableQty: Number(mb.remainingQty || mb.availableQty),
+                netQty: Number(mb.remainingQty || mb.availableQty),
+                expiryDate: mb.expiryDate,
+                unitRate: Number(mb.unitRate || row.unitRate || 0),
+                source: 'PURCHASE_GRN'
+              });
+            }
+          });
+        }
         const meta = metaRes?.data || null;
 
         // Ensure lots are strictly sorted in FEFO / FIFO expiry order

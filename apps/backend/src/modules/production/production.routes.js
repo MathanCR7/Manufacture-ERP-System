@@ -1404,34 +1404,83 @@ const getBatchesForRawMaterial = async (rmId) => {
       }
     }
 
-    // 3. Fallback: Synthesize active warehouse lot for material only if positive warehouse inventory exists
-    if (formatted.length === 0 && Number(rm?.currentStock || 0) > 0) {
-      const mDate = rm?.createdAt || new Date();
-      const expDate = new Date(new Date(mDate).getTime() + 365 * 24 * 60 * 60 * 1000);
-      const stock = Number(rm?.currentStock);
-      const fallbackRate = Number(rm?.ratePerUnit || 54);
-      formatted.push({
-        id: `wh-${rm?.id || rmId}`,
-        internalBatchNo: `BATCH-${rawClean}-001`,
-        supplierBatchNo: 'BATCH-01',
-        mfgBatchNo: 'BATCH-01',
-        batchQty: 1,
-        weight: '25 kg / 50',
-        mfgDate: mDate,
-        expiryDate: expDate,
-        netQty: stock,
-        availableQty: stock,
-        storageLocation: 'Primary Warehouse',
-        grnNumber: 'GRN-OPENING',
-        grnRef: 'GRN-OPENING',
-        poNumber: 'PO-OPENING',
-        poReferenceNo: 'PO-OPENING',
-        supplierName: 'SUP-LOT-DIRECT',
-        unitCost: fallbackRate,
-        unitRate: fallbackRate,
-        rate: fallbackRate,
-        source: 'WAREHOUSE_LOT'
-      });
+    // 3. Fallback: Synthesize active warehouse lot for material if positive inventory exists in DB or stock ledger
+    if (formatted.length === 0) {
+      let stock = Number(rm?.currentStock || 0);
+      let contributingPOs = [];
+      let masterRate = Number(rm?.ratePerUnit || 54);
+
+      if (stock <= 0.0001) {
+        try {
+          const { computeRmStockCore } = require('../rawmaterial/rawmaterial.controller');
+          const stockRes = await computeRmStockCore({ period: 'all' });
+          const matched = stockRes?.materials?.find(m => m.id === rm?.id || m.code === rm?.code || m.code === rmId);
+          if (matched && Number(matched.availableStock || matched.currentStock || 0) > 0.0001) {
+            stock = Number(matched.availableStock || matched.currentStock || 0);
+            contributingPOs = matched.contributingPOs || [];
+            if (matched.ratePerUnit || matched.rateWithTax) {
+              masterRate = Number(matched.ratePerUnit || matched.rateWithTax);
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (stock > 0.0001) {
+        if (contributingPOs.length > 0) {
+          contributingPOs.forEach((cpo, idx) => {
+            const alloc = Number(cpo.allocatedQty || stock);
+            if (alloc > 0.0001) {
+              formatted.push({
+                id: cpo.poId || `wh-${rm?.id || rmId}-${idx}`,
+                internalBatchNo: cpo.poRef || `BATCH-${rawClean}-${String(idx + 1).padStart(3, '0')}`,
+                supplierBatchNo: 'BATCH-01',
+                mfgBatchNo: 'BATCH-01',
+                batchQty: 1,
+                weight: '25 kg / 50',
+                mfgDate: cpo.poDate || rm?.createdAt || new Date(),
+                expiryDate: new Date(new Date(cpo.poDate || rm?.createdAt || new Date()).getTime() + 365 * 24 * 60 * 60 * 1000),
+                netQty: alloc,
+                availableQty: alloc,
+                storageLocation: 'Primary Godown',
+                grnNumber: cpo.poRef || 'GRN-PO',
+                grnRef: cpo.poRef || 'GRN-PO',
+                poNumber: cpo.poRef || 'PO-LOT',
+                poReferenceNo: cpo.poRef || 'PO-LOT',
+                supplierName: cpo.supplierName || 'SUP-LOT-DIRECT',
+                unitCost: Number(cpo.unitPrice || masterRate),
+                unitRate: Number(cpo.unitPrice || masterRate),
+                rate: Number(cpo.unitPrice || masterRate),
+                source: 'PURCHASE_GRN'
+              });
+            }
+          });
+        } else {
+          const mDate = rm?.createdAt || new Date();
+          const expDate = new Date(new Date(mDate).getTime() + 365 * 24 * 60 * 60 * 1000);
+          formatted.push({
+            id: `wh-${rm?.id || rmId}`,
+            internalBatchNo: `BATCH-${rawClean}-001`,
+            supplierBatchNo: 'BATCH-01',
+            mfgBatchNo: 'BATCH-01',
+            batchQty: 1,
+            weight: '25 kg / 50',
+            mfgDate: mDate,
+            expiryDate: expDate,
+            netQty: stock,
+            availableQty: stock,
+            storageLocation: 'Primary Warehouse',
+            grnNumber: 'GRN-OPENING',
+            grnRef: 'GRN-OPENING',
+            poNumber: 'PO-OPENING',
+            poReferenceNo: 'PO-OPENING',
+            supplierName: 'SUP-LOT-DIRECT',
+            unitCost: masterRate,
+            unitRate: masterRate,
+            rate: masterRate,
+            source: 'WAREHOUSE_LOT'
+          });
+        }
+      }
     }
 
     // FEFO Sort: earliest expiry first

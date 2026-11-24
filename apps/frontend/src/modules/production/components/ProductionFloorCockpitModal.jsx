@@ -369,7 +369,7 @@ function createPackagingItem(def, pieces, existing = null, master = null) {
     addToMix: false,
     unitRate: rate,
     totalCost: totalCost,
-    currentStock: Number(master?.currentStock ?? def.stock ?? 50000),
+    currentStock: Number(master?.availableStock ?? master?.currentStock ?? def.stock ?? 50000),
     allocatedBatches
   };
 }
@@ -1066,7 +1066,7 @@ export default function ProductionFloorCockpitModal({
                 consumptionUnit: master.consumptionUnit,
                 density: 1.0,
                 availableQty: reqQty,
-                warehouseStock: Number(master.currentStock || reqQty),
+                warehouseStock: Number(master.availableStock ?? master.currentStock ?? reqQty),
                 requiredQty: reqQty,
                 takenQty: reqQty,
                 evaporates: defaultEvap,
@@ -2915,7 +2915,7 @@ export default function ProductionFloorCockpitModal({
           altRate: altRate,
           unitRate: unitRate,
           totalCost: Number((unitRate * initialQty).toFixed(2)),
-          currentStock: Number(rm.currentStock || 0),
+          currentStock: Number(rm.availableStock !== undefined ? rm.availableStock : (rm.currentStock || 0)),
           allocatedBatches: topBatch ? [
             {
               batchId: topBatch.id,
@@ -2995,7 +2995,7 @@ export default function ProductionFloorCockpitModal({
       consumptionUnit: rm.consumptionUnit,
       density: Number(rm.density_g_per_ml || 1.0),
       availableQty: rm.availableBatches?.length > 0 ? 10 : 0,
-      warehouseStock: Number(rm.currentStock || 0),
+      warehouseStock: Number(rm.availableStock ?? rm.currentStock ?? 0),
       requiredQty: 10,
       takenQty: 10,
       evaporates: rm.evaporates_by_default !== undefined ? Boolean(rm.evaporates_by_default) : (

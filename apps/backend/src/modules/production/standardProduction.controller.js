@@ -2411,22 +2411,35 @@ class StandardProductionController {
     try {
       const isUuid = (str) => typeof str === 'string' && /^[0-9a-fA-F-]{32,36}$/.test(str.trim());
 
-      const materials = await prisma.rawMaterial.findMany({
-        include: {
-          category: true,
-          uoms: true
-        },
-        orderBy: { name: 'asc' }
-      });
+      const { computeRmStockCore } = require('../rawmaterial/rawmaterial.controller');
+      const [materials, batches, stockResult] = await Promise.all([
+        prisma.rawMaterial.findMany({
+          include: {
+            category: true,
+            uoms: true
+          },
+          orderBy: { name: 'asc' }
+        }),
+        prisma.inventoryBatch.findMany({
+          where: { 
+            netQty: { gt: 0.0001 },
+            status: { notIn: ['DEPLETED', 'EXHAUSTED', 'CONSUMED', 'WASTED'] }
+          },
+          orderBy: [{ expiryDate: 'asc' }, { createdAt: 'asc' }]
+        }),
+        computeRmStockCore({ period: 'all' }).catch(err => {
+          console.warn('computeRmStockCore notice in getRawMaterialsCatalog:', err.message);
+          return null;
+        })
+      ]);
 
-      // Query active inventory batches (excluding depleted lots)
-      const batches = await prisma.inventoryBatch.findMany({
-        where: { 
-          netQty: { gt: 0.0001 },
-          status: { notIn: ['DEPLETED', 'EXHAUSTED', 'CONSUMED', 'WASTED'] }
-        },
-        orderBy: [{ expiryDate: 'asc' }, { createdAt: 'asc' }]
-      });
+      const stockMap = new Map();
+      if (stockResult?.materials) {
+        stockResult.materials.forEach(sm => {
+          if (sm.id) stockMap.set(sm.id, sm);
+          if (sm.code) stockMap.set(sm.code.trim().toUpperCase(), sm);
+        });
+      }
 
       const batchMap = new Map();
       batches.forEach(b => {
@@ -2447,6 +2460,21 @@ class StandardProductionController {
         const uomAbbr = primaryUom?.abbreviation || primaryUom?.name || (!isUuid(m.unitId) ? m.unitId : null) || (!isUuid(m.consumptionUnit) ? m.consumptionUnit : null) || 'kg';
         const uomName = primaryUom?.name || uomAbbr;
 
+        const sm = stockMap.get(m.id) || (m.code ? stockMap.get(m.code.trim().toUpperCase()) : null);
+        const curStock = sm ? Number(sm.currentStock ?? 0) : Number(m.currentStock || 0);
+        const availStock = sm ? Number(sm.availableStock ?? curStock) : curStock;
+
+        let activeBatches = batchMap.get(m.id) || [];
+        if (activeBatches.length === 0 && sm?.contributingPOs && sm.contributingPOs.length > 0 && availStock > 0.0001) {
+          activeBatches = sm.contributingPOs.map((cpo, idx) => ({
+            id: cpo.poId || `cpo-${m.id}-${idx}`,
+            batchNo: cpo.poRef || `LOT-${m.code || 'RM'}`,
+            expiryDate: null,
+            remainingQty: Number(cpo.allocatedQty || availStock),
+            receivedQty: Number(cpo.lineQty || cpo.allocatedQty || availStock)
+          }));
+        }
+
         return {
           id: m.id,
           code: m.code,
@@ -2464,13 +2492,16 @@ class StandardProductionController {
           baseUomQty: Number(m.baseUomQty || 1),
           conversionFactor: Number(m.conversionFactor || 1),
           consumptionUnit: (!isUuid(m.consumptionUnit) ? m.consumptionUnit : null) || uomAbbr,
-          currentStock: Number(m.currentStock || 0),
+          currentStock: availStock,
+          totalStock: curStock,
+          availableStock: availStock,
+          inProgressStock: sm ? Number(sm.inProgressStock || 0) : 0,
           density_g_per_ml: Number(m.density_g_per_ml || 1.0),
           evaporates_by_default: Boolean(m.evaporates_by_default),
-          ratePerUnit: Number(m.ratePerUnit || 0),
+          ratePerUnit: Number(sm?.ratePerUnit || sm?.rateWithTax || m.ratePerUnit || 0),
           hsnCode: m.hsnCode || '',
           description: m.description || '',
-          availableBatches: batchMap.get(m.id) || []
+          availableBatches: activeBatches
         };
       });
 

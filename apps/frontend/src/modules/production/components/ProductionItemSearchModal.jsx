@@ -729,7 +729,7 @@ export default function ProductionItemSearchModal({
 
               {filteredRMs.map(rm => {
                 const isSelected = !!selectedRMs[rm.id];
-                const liveStock = Number(rm.currentStock || 0);
+                const liveStock = Number(rm.availableStock !== undefined ? rm.availableStock : (rm.currentStock || 0));
                 const hasAlt = Boolean(rm.hasAlternateUom && rm.alternateUom);
                 const topBatch = rm.availableBatches?.[0];
                 const cleanUom = formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, 'kg', rm);
