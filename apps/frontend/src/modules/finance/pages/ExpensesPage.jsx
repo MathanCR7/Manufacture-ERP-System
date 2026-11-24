@@ -1405,6 +1405,7 @@ export default function ExpensesPage() {
   const [isMultiModalFullScreen, setIsMultiModalFullScreen] = useState(true);
   const [editingExpense, setEditingExpense] = useState(null);
   const [viewingExpense, setViewingExpense] = useState(null);
+  const [isViewFullScreen, setIsViewFullScreen] = useState(false);
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
   const [targetRowIdxForNewSupplier, setTargetRowIdxForNewSupplier] = useState(null);
 
@@ -1744,6 +1745,7 @@ export default function ExpensesPage() {
 
   // Handlers for Multi-Entry Grid (Per-Expense Charges, Summary & Payment)
   const handleOpenMultiModal = () => {
+    setEditingExpense(null);
     refetchNextNumber();
     setBatchRows([
       getInitialBatchRow(1),
@@ -1756,6 +1758,7 @@ export default function ExpensesPage() {
 
   const handleCloseMultiModal = () => {
     setIsMultiModalOpen(false);
+    setEditingExpense(null);
   };
 
   const handleAddBatchRow = () => {
@@ -2039,7 +2042,18 @@ export default function ExpensesPage() {
       };
     });
 
-    bulkCreateMutation.mutate(payload);
+    if (editingExpense) {
+      updateMutation.mutate({
+        id: editingExpense.id,
+        data: payload[0]
+      }, {
+        onSuccess: () => {
+          handleCloseMultiModal();
+        }
+      });
+    } else {
+      bulkCreateMutation.mutate(payload);
+    }
   };
 
   // Upload Attachments for Row
@@ -2121,39 +2135,42 @@ export default function ExpensesPage() {
     setEditChargesPayment(prev => ({ ...prev, [field]: value }));
   }, []);
 
-  // Open Edit Modal for Single Record
+  // Open Edit Modal - Redirects & Loads Exact Expense Details into Create/Batch Grid
   const handleOpenEditModal = (expense) => {
     setEditingExpense(expense);
-    setEditAttachments(Array.isArray(expense.attachments) ? [...expense.attachments] : []);
 
     const isSupplier = Boolean(expense.isSupplierExpense || expense.supplierId || expense.supplierName);
-    const taxable = expense.taxableAmount != null ? Number(expense.taxableAmount) : Number(expense.amount);
-    const gstRate = expense.gstPercentage != null ? Number(expense.gstPercentage) : 0;
+    const foundSupplier = suppliers.find(s => s.id === expense.supplierId) || (expense.supplierName ? {
+      id: expense.supplierId || '',
+      name: expense.supplierName,
+      gstin: expense.supplierGstin || ''
+    } : null);
 
-    resetEdit({
+    const editRow = {
+      id: expense.id,
       expenseNumber: expense.expenseNumber || '',
-      date: new Date(expense.date).toISOString().split('T')[0],
+      date: expense.date ? new Date(expense.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       categoryId: expense.categoryId || activeMasterCategories.find(c => c.name === expense.category)?.id || '',
-      category: expense.category,
+      category: expense.category || 'Office Supplies',
       title: (expense.title || '').toUpperCase(),
       isSupplierExpense: isSupplier,
+      selectedSupplier: foundSupplier,
       supplierId: expense.supplierId || '',
       supplierName: expense.supplierName || '',
       supplierGstin: expense.supplierGstin || '',
       invoiceNo: expense.invoiceNo || '',
       invoiceDate: expense.invoiceDate ? new Date(expense.invoiceDate).toISOString().split('T')[0] : '',
-      taxableAmount: taxable,
-      gstPercentage: gstRate,
+      taxableAmount: expense.taxableAmount != null ? String(expense.taxableAmount) : String(expense.amount || '0'),
+      gstPercentage: expense.gstPercentage != null ? Number(expense.gstPercentage) : 18,
       cgstAmount: expense.cgstAmount || 0,
       sgstAmount: expense.sgstAmount || 0,
       igstAmount: expense.igstAmount || 0,
-      totalAmount: expense.totalAmount || expense.amount,
+      totalAmount: expense.totalAmount || expense.amount || 0,
       isInterState: Boolean(expense.isInterState),
       hsnSacCode: expense.hsnSacCode || '',
-      notes: expense.notes || ''
-    });
-
-    setEditChargesPayment({
+      notes: expense.notes || '',
+      remarks: expense.remarks || '',
+      attachments: Array.isArray(expense.attachments) ? [...expense.attachments] : [],
       discountAmount: expense.discountAmount != null ? String(Number(expense.discountAmount)) : '0',
       shippingAmount: expense.shippingAmount != null ? String(Number(expense.shippingAmount)) : '0',
       shippingGstApplicable: Boolean(expense.shippingGstApplicable),
@@ -2168,124 +2185,17 @@ export default function ExpensesPage() {
       otherChargesLabel: expense.otherChargesLabel || 'Other Charges',
       otherChargesGstApplicable: Boolean(expense.otherChargesGstApplicable),
       otherChargesGstRate: expense.otherChargesGstRate != null ? Number(expense.otherChargesGstRate) : 18,
-      remarks: '',
-      paymentMode: expense.paymentMode || 'CASH',
       paymentStatus: expense.paymentStatus || 'PAID',
-      paidAmount: expense.paidAmount != null
-        ? String(Number(expense.paidAmount))
-        : String(Number(expense.totalAmount || expense.amount || 0)),
+      paidAmount: String(expense.paidAmount != null ? expense.paidAmount : (expense.paymentStatus === 'UNPAID' ? 0 : (expense.totalAmount || expense.amount || 0))),
+      paymentMode: expense.paymentMode || 'CASH',
       paymentRef: expense.paymentRef || '',
       paymentImage: expense.paymentImage || null,
       paymentNotes: expense.paymentNotes || ''
-    });
-  };
+    };
 
-  // Upload Attachments inside Single Edit Modal
-  const handleUploadEditAttachments = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    setIsUploadingAttachments(true);
-    try {
-      const formData = new FormData();
-      files.forEach(f => formData.append('files', f));
-      if (editingExpense?.id) {
-        formData.append('expenseId', editingExpense.id);
-      }
-
-      const res = await api.post('/finance/expenses/upload-attachments', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      if (res.data?.success && res.data?.files) {
-        setEditAttachments(prev => [...prev, ...res.data.files]);
-        showCustomToast('Files Uploaded', `${res.data.files.length} attachment(s) uploaded.`, 'success');
-      }
-    } catch (err) {
-      showCustomToast('Upload Failed', err.response?.data?.error || 'Failed to upload attachments.', 'error');
-    } finally {
-      setIsUploadingAttachments(false);
-      if (e.target) e.target.value = '';
-    }
-  };
-
-  // Remove Attachment inside Single Edit Modal
-  const handleRemoveEditAttachment = async (fileObj) => {
-    try {
-      await api.delete('/finance/expenses/attachments', {
-        data: {
-          expenseId: editingExpense?.id,
-          url: fileObj.url,
-          fileId: fileObj.id
-        }
-      });
-      setEditAttachments(prev => prev.filter(it => it.id !== fileObj.id && it.url !== fileObj.url));
-      showCustomToast('Attachment Removed', 'File deleted from server storage.', 'success');
-    } catch (err) {
-      console.warn('Failed to delete attachment:', err);
-    }
-  };
-
-  // Submit Edit Form (including Per-Expense Charges & Payment Details)
-  const onEditSubmit = (data) => {
-    if (editingExpense) {
-      const selectedCat = activeMasterCategories.find(c => c.id === data.categoryId || c.name === data.category);
-      const fin = computeExpenseFinancials({
-        ...data,
-        ...editChargesPayment
-      });
-
-      updateMutation.mutate({
-        id: editingExpense.id,
-        data: {
-          expenseNumber: data.expenseNumber || undefined,
-          date: data.date,
-          category: selectedCat ? selectedCat.name : data.category,
-          categoryId: selectedCat ? selectedCat.id : data.categoryId,
-          title: (data.title || '').trim().toUpperCase(),
-          amount: fin.grandTotal,
-          taxableAmount: fin.taxable,
-          isSupplierExpense: Boolean(data.isSupplierExpense),
-          supplierId: data.supplierId || null,
-          supplierName: data.supplierName || null,
-          supplierGstin: data.supplierGstin || null,
-          invoiceNo: data.invoiceNo || null,
-          invoiceDate: data.invoiceDate || null,
-          gstPercentage: fin.gstRate,
-          cgstAmount: fin.cgstAmount,
-          sgstAmount: fin.sgstAmount,
-          igstAmount: fin.igstAmount,
-          totalAmount: fin.grandTotal,
-          isInterState: fin.isInterState,
-          hsnSacCode: data.hsnSacCode || null,
-          notes: data.notes || null,
-          attachments: editAttachments,
-          // Payment fields
-          paymentMode: fin.paymentMode,
-          paymentStatus: fin.paymentStatus,
-          paidAmount: fin.paidAmountNum,
-          paymentRef: editChargesPayment.paymentRef ? String(editChargesPayment.paymentRef).trim() : null,
-          paymentImage: editChargesPayment.paymentImage || null,
-          paymentNotes: editChargesPayment.paymentNotes ? String(editChargesPayment.paymentNotes).trim() : null,
-          // Charges breakdown fields
-          shippingAmount: fin.shipping,
-          shippingGstApplicable: Boolean(editChargesPayment.shippingGstApplicable),
-          shippingGstRate: fin.shippingGstRate,
-          packingAmount: fin.packing,
-          packingGstApplicable: Boolean(editChargesPayment.packingGstApplicable),
-          packingGstRate: fin.packingGstRate,
-          loadingAmount: fin.loading,
-          loadingGstApplicable: Boolean(editChargesPayment.loadingGstApplicable),
-          loadingGstRate: fin.loadingGstRate,
-          otherCharges: fin.otherCharges,
-          otherChargesLabel: editChargesPayment.otherChargesLabel ? String(editChargesPayment.otherChargesLabel).trim() : null,
-          otherChargesGstApplicable: Boolean(editChargesPayment.otherChargesGstApplicable),
-          otherChargesGstRate: fin.otherChargesGstRate,
-          discountAmount: fin.discount,
-          roundOff: fin.roundOff
-        }
-      });
-    }
+    setBatchRows([editRow]);
+    setActiveBatchRowIdx(0);
+    setIsMultiModalOpen(true);
   };
 
   // Delete Single Expense
@@ -2413,24 +2323,24 @@ export default function ExpensesPage() {
   }, [summary, getCategoryMeta]);
 
   return (
-    <div className="p-2.5 sm:p-4 space-y-3 max-w-[1720px] mx-auto">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200/80 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-            <span>Finance</span>
-            <span>/</span>
-            <span>Expenses</span>
+    <div className="w-full px-2 sm:px-3 py-2 space-y-2">
+      {/* Top Header - Ultra-Compact Single Row */}
+      <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-slate-200/80 dark:border-slate-800">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900 shrink-0">
+            <DollarSign className="w-3.5 h-3.5 stroke-[2.5]" />
           </div>
-          <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2 mt-0.5">
-            <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900">
-              <DollarSign className="w-4 h-4 stroke-[2.5]" />
+          <div className="flex items-baseline gap-1.5 truncate">
+            <h1 className="text-sm sm:text-base font-black text-slate-900 dark:text-white tracking-tight">
+              Expenses
+            </h1>
+            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 hidden sm:inline">
+              Finance / Expenses Management
             </span>
-            Expenses Management
-          </h1>
+          </div>
         </div>
 
-        <div className="flex items-center flex-wrap gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           <Button
             size="sm"
             variant="outline"
@@ -2439,96 +2349,98 @@ export default function ExpensesPage() {
               refetchSummary();
             }}
             disabled={isFetching}
-            className="h-8 px-2.5 rounded-lg border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="h-7 px-2 rounded-lg border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            title="Refresh expenses"
           >
-            <RotateCcw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? 'animate-spin' : ''}`} />
-            Refresh
+            <RotateCcw className={`w-3 h-3 sm:mr-1 ${isFetching ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
 
           <Button
             size="sm"
             variant="outline"
             onClick={() => downloadExpensesCSV(expenses, 'manufacturing_expenses')}
-            className="h-8 px-2.5 rounded-lg border-emerald-200 dark:border-emerald-800/60 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+            className="h-7 px-2 rounded-lg border-emerald-200 dark:border-emerald-800/60 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+            title="Export CSV"
           >
-            <Download className="w-3.5 h-3.5 mr-1.5" />
-            Export CSV
+            <Download className="w-3 h-3 sm:mr-1" />
+            <span className="hidden sm:inline">Export</span>
           </Button>
 
           <Button
             size="sm"
             onClick={handleOpenMultiModal}
-            className="h-8 px-3 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs shadow-xs"
+            className="h-7 px-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-[11px] shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Add Expenses
+            <Plus className="w-3 h-3 mr-1" />
+            <span>Add Expenses</span>
           </Button>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2">
-        <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
-            <div className="min-w-0 pr-1">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Total Expenses</p>
-              <h3 className="text-base sm:text-lg font-black font-mono text-slate-900 dark:text-white mt-0.5 leading-none">
+      {/* KPI Cards - Ultra-Compact Reduced Height Row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+        <div className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-2.5 py-1 flex items-center justify-between shadow-2xs">
+          <div className="min-w-0 pr-1">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block leading-tight">Total Expenses</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-sm font-black font-mono text-slate-900 dark:text-white leading-tight">
                 ₹{summary?.total ? summary.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-              </h3>
-              <p className="text-[9px] text-slate-400 mt-0.5 leading-none">{expenses.length} total entries</p>
+              </span>
+              <span className="text-[9px] text-slate-400 leading-tight">({expenses.length} entries)</span>
             </div>
-            <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shrink-0">
-              <Layers className="w-3.5 h-3.5" />
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="w-5 h-5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <Layers className="w-3 h-3" />
+          </div>
+        </div>
 
-        <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
-            <div className="min-w-0 pr-1">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">This Month's Spend</p>
-              <h3 className="text-base sm:text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 leading-none">
+        <div className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-2.5 py-1 flex items-center justify-between shadow-2xs">
+          <div className="min-w-0 pr-1">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block leading-tight">This Month's Spend</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400 leading-tight">
                 ₹{summary?.monthly ? summary.monthly.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-              </h3>
-              <p className="text-[9px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5 leading-none">Current cycle</p>
+              </span>
+              <span className="text-[9px] text-emerald-600/80 dark:text-emerald-400/80 leading-tight">(Current cycle)</span>
             </div>
-            <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900 shrink-0">
-              <TrendingUp className="w-3.5 h-3.5" />
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="w-5 h-5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-3 h-3" />
+          </div>
+        </div>
 
-        <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
-            <div className="min-w-0 pr-1">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Supplier Tagged</p>
-              <h3 className="text-base sm:text-lg font-black font-mono text-purple-600 dark:text-purple-400 mt-0.5 leading-none">
+        <div className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-2.5 py-1 flex items-center justify-between shadow-2xs">
+          <div className="min-w-0 pr-1">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block leading-tight">Supplier Tagged</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-sm font-black font-mono text-purple-600 dark:text-purple-400 leading-tight">
                 {expenses.filter(e => e.isSupplierExpense || e.supplierId || e.supplierName).length}
-              </h3>
-              <p className="text-[9px] text-purple-500/80 dark:text-purple-400/80 mt-0.5 leading-none">With vendor invoices</p>
+              </span>
+              <span className="text-[9px] text-purple-500/80 dark:text-purple-400/80 leading-tight">(With vendor inv)</span>
             </div>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900 shrink-0">
-              <Building2 className="w-3.5 h-3.5" />
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="w-5 h-5 rounded bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+            <Building2 className="w-3 h-3" />
+          </div>
+        </div>
 
-        <Card className="rounded-xl border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-          <CardContent className="p-2 sm:p-2.5 flex items-center justify-between">
-            <div className="min-w-0 pr-1">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Top Cost Center</p>
-              <h3 className="text-xs sm:text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5 truncate leading-none">
+        <div className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-2.5 py-1 flex items-center justify-between shadow-2xs">
+          <div className="min-w-0 pr-1">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block leading-tight">Top Cost Center</span>
+            <div className="flex items-baseline gap-1.5 truncate">
+              <span className="text-xs font-black text-amber-600 dark:text-amber-400 leading-tight truncate">
                 {summary?.categoryBreakdown && summary.categoryBreakdown.length > 0
                   ? [...summary.categoryBreakdown].sort((a, b) => b.amount - a.amount)[0]?.category
                   : 'None'}
-              </h3>
-              <p className="text-[9px] text-amber-500/80 dark:text-amber-400/80 mt-0.5 leading-none">Highest volume</p>
+              </span>
+              <span className="text-[9px] text-amber-500/80 dark:text-amber-400/80 leading-tight shrink-0">(Highest vol)</span>
             </div>
-            <div className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900 shrink-0">
-              <CreditCard className="w-3.5 h-3.5" />
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="w-5 h-5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <CreditCard className="w-3 h-3" />
+          </div>
+        </div>
       </div>
 
       {/* Filter and Control Bar */}
@@ -3123,17 +3035,34 @@ export default function ExpensesPage() {
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                    Record Expenses (Multi-Entry Grid)
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                      SUPPLIER &amp; GST
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-mono flex items-center gap-1">
-                      <Hash className="w-3 h-3 text-purple-500" />
-                      Next: {candidateExpenseNumber}
-                    </span>
+                    {editingExpense ? (
+                      <>
+                        <span>Edit Expense</span>
+                        <span className="font-mono text-xs font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                          {editingExpense.expenseNumber || 'EXP'}
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                          EDIT MODE
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        Record Expenses (Multi-Entry Grid)
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                          SUPPLIER &amp; GST
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-mono flex items-center gap-1">
+                          <Hash className="w-3 h-3 text-purple-500" />
+                          Next: {candidateExpenseNumber}
+                        </span>
+                      </>
+                    )}
                   </h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
-                    Enter batch expenses with per-row Charges, Financial Summary &amp; Payment Settlement.
+                    {editingExpense
+                      ? `Modifying all financial parameters, vendor tags, GST breakdown, ancillary charges & payment details.`
+                      : `Enter batch expenses with per-row Charges, Financial Summary & Payment Settlement.`
+                    }
                   </p>
                 </div>
               </div>
@@ -3173,33 +3102,42 @@ export default function ExpensesPage() {
             {/* Quick Action Bar */}
             <div className="px-4 py-1.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAddBatchRow}
-                  className="h-7 px-2.5 rounded-lg border-indigo-200 dark:border-indigo-800/80 font-bold text-[11px] bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 shadow-2xs"
-                >
-                  <Plus className="w-3 h-3 mr-1" />
-                  Add Row
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleAddMultipleBatchRows(3)}
-                  className="h-7 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:border-indigo-300"
-                >
-                  <PlusCircle className="w-3 h-3 mr-1 text-slate-400" />
-                  +3 Rows
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleAddMultipleBatchRows(5)}
-                  className="h-7 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:border-indigo-300 hidden sm:inline-flex"
-                >
-                  <PlusCircle className="w-3 h-3 mr-1 text-slate-400" />
-                  +5 Rows
-                </Button>
+                {editingExpense ? (
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                    <Edit2 className="w-3.5 h-3.5" />
+                    Editing Record: {editingExpense.expenseNumber || 'EXP'} • {editingExpense.title}
+                  </span>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddBatchRow}
+                      className="h-7 px-2.5 rounded-lg border-indigo-200 dark:border-indigo-800/80 font-bold text-[11px] bg-indigo-50/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 shadow-2xs"
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Row
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleAddMultipleBatchRows(3)}
+                      className="h-7 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:border-indigo-300"
+                    >
+                      <PlusCircle className="w-3 h-3 mr-1 text-slate-400" />
+                      +3 Rows
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleAddMultipleBatchRows(5)}
+                      className="h-7 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 font-bold text-[11px] hover:border-indigo-300 hidden sm:inline-flex"
+                    >
+                      <PlusCircle className="w-3 h-3 mr-1 text-slate-400" />
+                      +5 Rows
+                    </Button>
+                  </>
+                )}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -3682,18 +3620,23 @@ export default function ExpensesPage() {
                 <Button
                   type="button"
                   onClick={handleSaveBatchExpenses}
-                  disabled={bulkCreateMutation.isPending || batchSummary.validCount === 0}
+                  disabled={bulkCreateMutation.isPending || updateMutation.isPending || batchSummary.validCount === 0}
                   className="rounded-xl text-xs font-black h-8.5 px-5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-md hover:shadow-indigo-500/25 transition-all flex items-center gap-1.5"
                 >
-                  {bulkCreateMutation.isPending ? (
+                  {bulkCreateMutation.isPending || updateMutation.isPending ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving Expenses...</span>
+                      <span>{editingExpense ? 'Updating Expense...' : 'Saving Expenses...'}</span>
                     </>
                   ) : (
                     <>
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Save ({batchSummary.validCount} Expense{batchSummary.validCount !== 1 ? 's' : ''}) • ₹{batchSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>
+                        {editingExpense
+                          ? `Update Expense • ₹${(rowSummaries[0] || computeExpenseFinancials(batchRows[0], 0)).grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                          : `Save (${batchSummary.validCount} Expense${batchSummary.validCount !== 1 ? 's' : ''}) • ₹${batchSummary.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                        }
+                      </span>
                     </>
                   )}
                 </Button>
@@ -3811,10 +3754,8 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      {/* =========================================================================
-          EDIT EXPENSE RECORD MODAL WITH SUPPLIER & GST CALCULATION
-          ========================================================================= */}
-      {editingExpense && (
+      {/* Legacy Single Edit Modal replaced by Multi-Entry Create/Edit Grid */}
+      {false && editingExpense && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/50 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[94vh]">
             <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/60 dark:bg-slate-950/60">
@@ -4237,286 +4178,450 @@ export default function ExpensesPage() {
       )}
 
       {/* =========================================================================
-          VIEW EXPENSE DETAILS MODAL
+          VIEW EXPENSE DETAILS MODAL (FULL SCREEN CAPABLE & COMPREHENSIVE VIEW)
           ========================================================================= */}
       {viewingExpense && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                  <FileText className="w-4 h-4" />
+        <div className={`fixed inset-0 z-50 flex ${isViewFullScreen ? 'p-0' : 'items-center justify-center p-2 sm:p-4'} bg-black/60 backdrop-blur-xs animate-in fade-in duration-150`}>
+          <div className={`bg-white dark:bg-slate-900 ${isViewFullScreen ? 'w-screen h-screen rounded-none' : 'rounded-2xl max-w-4xl w-full max-h-[92vh]'} border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden transition-all duration-200`}>
+            {/* Header */}
+            <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 bg-gradient-to-r from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900 shrink-0">
+                  <FileText className="w-4 h-4 stroke-[2.5]" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                      Expense Details
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                      Expense Overview &amp; Verification
                     </h3>
-                    <span className="font-mono text-xs font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                    <span className="font-mono text-xs font-black px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
                       {viewingExpense.expenseNumber || 'EXP-000001'}
                     </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getCategoryMeta(viewingExpense.category).bg}`}>
+                      {viewingExpense.category || 'General'}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                        viewingExpense.paymentStatus === 'PAID'
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                          : viewingExpense.paymentStatus === 'PARTIALLY_PAID'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                          : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
+                      }`}
+                    >
+                      {viewingExpense.paymentStatus || 'PAID'}
+                    </span>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    {viewingExpense.date ? new Date(viewingExpense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} • {viewingExpense.category}
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    Date: {viewingExpense.date ? new Date(viewingExpense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    {viewingExpense.user?.name ? ` • Recorded by ${viewingExpense.user.name}` : ''}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setViewingExpense(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsViewFullScreen(!isViewFullScreen)}
+                  className="h-7.5 px-2.5 rounded-lg border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold flex items-center gap-1.5"
+                  title={isViewFullScreen ? "Exit Fullscreen (Windowed)" : "Full Screen View"}
+                >
+                  {isViewFullScreen ? (
+                    <>
+                      <Minimize2 className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="hidden sm:inline">Windowed</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="hidden sm:inline">Full Screen</span>
+                    </>
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setViewingExpense(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  title="Close (Esc)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-3.5 text-xs overflow-y-auto pr-1 flex-1">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Title / Purpose</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 uppercase">{viewingExpense.title}</p>
-              </div>
-
-              {/* Supplier Info if available */}
-              {(viewingExpense.isSupplierExpense || viewingExpense.supplierName) && (
-                <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase flex items-center gap-1">
-                      <Building2 className="w-3.5 h-3.5" />
-                      Supplier Details
+            {/* Content: 2-column layout */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 bg-slate-50/50 dark:bg-slate-950/40">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-start">
+                {/* Left Column (md:col-span-6): Details, Supplier, Attachments, Notes */}
+                <div className="md:col-span-6 space-y-3">
+                  {/* Title / Purpose Card */}
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Title / Purpose *
                     </span>
-                    {viewingExpense.invoiceNo && (
-                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-white dark:bg-slate-900 border text-slate-700 dark:text-slate-300">
-                        Invoice #{viewingExpense.invoiceNo}
-                      </span>
-                    )}
-                  </div>
-                  <p className="font-bold text-slate-900 dark:text-white">{viewingExpense.supplierName || 'Unknown Vendor'}</p>
-                  {viewingExpense.supplierGstin && (
-                    <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400">GSTIN: {viewingExpense.supplierGstin}</p>
-                  )}
-                </div>
-              )}
-
-              {/* Financial & GST Breakdown Grid */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500">Taxable Value:</span>
-                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
-                    ₹{Number(viewingExpense.taxableAmount || viewingExpense.amount || 0).toFixed(2)}
-                  </span>
-                </div>
-
-                {/* Additional breakdown charges */}
-                {Number(viewingExpense.discountAmount || 0) > 0 && (
-                  <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                    <span>Discount:</span>
-                    <span className="font-mono font-semibold">-₹{Number(viewingExpense.discountAmount).toFixed(2)}</span>
-                  </div>
-                )}
-                {Number(viewingExpense.shippingAmount || 0) > 0 && (
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>
-                      Shipping {viewingExpense.shippingGstApplicable ? `(GST ${Number(viewingExpense.shippingGstRate ?? 18)}% = +₹${((Number(viewingExpense.shippingAmount) * Number(viewingExpense.shippingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
-                    </span>
-                    <span className="font-mono">₹{Number(viewingExpense.shippingAmount).toFixed(2)}</span>
-                  </div>
-                )}
-                {Number(viewingExpense.packingAmount || 0) > 0 && (
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>
-                      Packing {viewingExpense.packingGstApplicable ? `(GST ${Number(viewingExpense.packingGstRate ?? 18)}% = +₹${((Number(viewingExpense.packingAmount) * Number(viewingExpense.packingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
-                    </span>
-                    <span className="font-mono">₹{Number(viewingExpense.packingAmount).toFixed(2)}</span>
-                  </div>
-                )}
-                {Number(viewingExpense.loadingAmount || 0) > 0 && (
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>
-                      Loading & Unloading {viewingExpense.loadingGstApplicable ? `(GST ${Number(viewingExpense.loadingGstRate ?? 18)}% = +₹${((Number(viewingExpense.loadingAmount) * Number(viewingExpense.loadingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
-                    </span>
-                    <span className="font-mono">₹{Number(viewingExpense.loadingAmount).toFixed(2)}</span>
-                  </div>
-                )}
-                {Number(viewingExpense.otherCharges || 0) > 0 && (
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>
-                      {viewingExpense.otherChargesLabel || 'Other Charges'} {viewingExpense.otherChargesGstApplicable ? `(GST ${Number(viewingExpense.otherChargesGstRate ?? 18)}% = +₹${((Number(viewingExpense.otherCharges) * Number(viewingExpense.otherChargesGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
-                    </span>
-                    <span className="font-mono">₹{Number(viewingExpense.otherCharges).toFixed(2)}</span>
-                  </div>
-                )}
-
-                {(Number(viewingExpense.gstPercentage || 0) > 0 || (Number(viewingExpense.cgstAmount || 0) + Number(viewingExpense.sgstAmount || 0) + Number(viewingExpense.igstAmount || 0)) > 0) && (
-                  <>
-                    <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-200/50 dark:border-slate-800/50">
-                      <span>GST Mode ({viewingExpense.isInterState ? 'Interstate IGST' : 'Intrastate CGST+SGST'}):</span>
-                      <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                        {Number(viewingExpense.gstPercentage || 0)}% {Number(viewingExpense.gstPercentage || 0) === 0 ? '(Charges GST)' : ''}
-                      </span>
-                    </div>
-
-                    {viewingExpense.isInterState ? (
-                      <div className="flex justify-between items-center text-slate-500">
-                        <span>IGST Amount:</span>
-                        <span className="font-mono text-slate-700 dark:text-slate-300">
-                          ₹{Number(viewingExpense.igstAmount || 0).toFixed(2)}
+                    <h2 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                      {viewingExpense.title}
+                    </h2>
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] border-t border-slate-100 dark:border-slate-800/80">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Category &amp; Cost Center:</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">{viewingExpense.category}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">Expense Date:</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {viewingExpense.date ? new Date(viewingExpense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                         </span>
                       </div>
-                    ) : (
-                      <>
-                        <div className="flex justify-between items-center text-slate-500">
-                          <span>CGST Amount:</span>
-                          <span className="font-mono text-slate-700 dark:text-slate-300">
-                            ₹{Number(viewingExpense.cgstAmount || 0).toFixed(2)}
-                          </span>
+                      {viewingExpense.hsnSacCode && (
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">HSN / SAC Code:</span>
+                          <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{viewingExpense.hsnSacCode}</span>
                         </div>
-                        <div className="flex justify-between items-center text-slate-500">
-                          <span>SGST Amount:</span>
-                          <span className="font-mono text-slate-700 dark:text-slate-300">
-                            ₹{Number(viewingExpense.sgstAmount || 0).toFixed(2)}
-                          </span>
+                      )}
+                      {viewingExpense.createdAt && (
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">System Timestamp:</span>
+                          <span className="font-mono text-[10px] text-slate-500">{new Date(viewingExpense.createdAt).toLocaleString('en-IN')}</span>
                         </div>
-                      </>
-                    )}
-                  </>
-                )}
-
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                  <span className="font-bold text-slate-900 dark:text-white uppercase text-xs">Grand Total:</span>
-                  <span className="text-base font-black font-mono text-indigo-600 dark:text-indigo-400">
-                    ₹{Number(viewingExpense.totalAmount || viewingExpense.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Payment Details Section */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
-                    Payment & Settlement
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                      viewingExpense.paymentStatus === 'PAID'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
-                        : viewingExpense.paymentStatus === 'PARTIALLY_PAID'
-                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
-                        : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
-                    }`}
-                  >
-                    {viewingExpense.paymentStatus || 'PAID'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 pt-1 text-slate-600 dark:text-slate-400">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Payment Mode:</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      {getPaymentModeShortLabel(viewingExpense.paymentMode || 'CASH')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Paid Amount:</span>
-                    <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
-                      ₹{Number(viewingExpense.paidAmount ?? (viewingExpense.paymentStatus === 'UNPAID' ? 0 : (viewingExpense.totalAmount || viewingExpense.amount || 0))).toFixed(2)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Balance Due:</span>
-                    <span className="font-bold font-mono text-amber-600 dark:text-amber-400">
-                      ₹{Math.max(0, Number(viewingExpense.totalAmount || viewingExpense.amount || 0) - Number(viewingExpense.paidAmount ?? (viewingExpense.paymentStatus === 'UNPAID' ? 0 : (viewingExpense.totalAmount || viewingExpense.amount || 0)))).toFixed(2)}
-                    </span>
-                  </div>
-                  {viewingExpense.paymentRef && (
-                    <div className="col-span-2">
-                      <span className="text-[10px] text-slate-400 block">Reference / Cheque / UTR:</span>
-                      <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200">
-                        {viewingExpense.paymentRef}
-                      </span>
+                      )}
                     </div>
-                  )}
-                  {viewingExpense.paymentNotes && (
-                    <div className="col-span-2">
-                      <span className="text-[10px] text-slate-400 block">Payment Notes:</span>
-                      <span className="text-xs text-slate-700 dark:text-slate-300">
-                        {viewingExpense.paymentNotes}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {viewingExpense.paymentImage && (
-                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Payment Receipt / Proof</span>
-                    <button
-                      type="button"
-                      onClick={() => handlePreviewAttachment({ url: viewingExpense.paymentImage, name: `Receipt-${viewingExpense.expenseNumber || 'EXP'}` })}
-                      className="h-7 px-2.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 inline-flex items-center gap-1.5 transition-colors shadow-2xs"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      View Receipt
-                    </button>
                   </div>
-                )}
-              </div>
 
-              {/* Attachments List */}
-              {viewingExpense.attachments?.length > 0 && (
-                <div className="space-y-1.5">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                    Expense Attachments ({viewingExpense.attachments.length})
-                  </span>
-                  <div className="space-y-1">
-                    {viewingExpense.attachments.map((file, idx) => (
-                      <div
-                        key={file.id || idx}
-                        className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between gap-2"
-                      >
-                        <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate flex items-center gap-1.5">
-                          <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                          {file.name || file.originalName || 'Document'}
+                  {/* Supplier & Invoice Card */}
+                  {(viewingExpense.isSupplierExpense || viewingExpense.supplierName) ? (
+                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/50 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-indigo-50 dark:border-indigo-950">
+                        <span className="text-[10px] font-black text-indigo-700 dark:text-indigo-400 uppercase flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                          Supplier &amp; Tax Invoice Details
                         </span>
-                        <div className="flex items-center gap-1 shrink-0">
+                        {viewingExpense.invoiceNo && (
+                          <span className="font-mono text-[10px] font-black px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            Inv #{viewingExpense.invoiceNo}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">{viewingExpense.supplierName || 'Unknown Vendor'}</p>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
+                          <div>
+                            <span className="text-slate-400 text-[10px] block">Supplier GSTIN:</span>
+                            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {viewingExpense.supplierGstin || 'Not Available (Unregistered)'}
+                            </span>
+                          </div>
+                          {viewingExpense.invoiceDate && (
+                            <div>
+                              <span className="text-slate-400 text-[10px] block">Invoice Date:</span>
+                              <span className="font-medium text-slate-700 dark:text-slate-300">
+                                {new Date(viewingExpense.invoiceDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 text-[11px] text-slate-500 flex items-center gap-2">
+                      <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>Internal Operational Expense (Non-Supplier Direct Entry)</span>
+                    </div>
+                  )}
+
+                  {/* Payment Receipt / Proof Photo */}
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-2">
+                    <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
+                      Payment Receipt / Proof Photo
+                    </span>
+                    {viewingExpense.paymentImage ? (
+                      <div className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <img
+                          src={resolvePaymentImageUrl(viewingExpense.paymentImage)}
+                          alt="Payment Receipt"
+                          className="w-14 h-14 object-cover rounded-md border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs hover:opacity-90 transition-opacity"
+                          onClick={() => handlePreviewAttachment({ url: viewingExpense.paymentImage, name: `Receipt-${viewingExpense.expenseNumber || 'EXP'}` })}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">Payment Voucher / Receipt</p>
+                          <p className="text-[10px] text-slate-400">Click to view full image</p>
                           <button
                             type="button"
-                            onClick={() => handlePreviewAttachment(file)}
-                            className="h-6 px-2 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 inline-flex items-center gap-1 shadow-2xs"
+                            onClick={() => handlePreviewAttachment({ url: viewingExpense.paymentImage, name: `Receipt-${viewingExpense.expenseNumber || 'EXP'}` })}
+                            className="mt-1 h-6 px-2 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold inline-flex items-center gap-1 transition-colors"
                           >
                             <Eye className="w-3 h-3" />
-                            View
+                            View Full Photo
                           </button>
-                          <a
-                            href={getFileUrl(file.url)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="h-6 px-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center"
-                            title="Open in New Window"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
                         </div>
                       </div>
-                    ))}
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic py-1">No payment receipt photo attached.</p>
+                    )}
+                  </div>
+
+                  {/* Supporting Attachments */}
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-2">
+                    <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1.5">
+                      <Paperclip className="w-3.5 h-3.5 text-indigo-500" />
+                      Supporting Files &amp; Attachments ({viewingExpense.attachments?.length || 0})
+                    </span>
+                    {viewingExpense.attachments?.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {viewingExpense.attachments.map((file, idx) => (
+                          <div
+                            key={file.id || idx}
+                            className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between gap-2"
+                          >
+                            <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                              {file.name || file.originalName || 'Document'}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handlePreviewAttachment(file)}
+                                className="h-6 px-2 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 inline-flex items-center gap-1 shadow-2xs"
+                              >
+                                <Eye className="w-3 h-3" />
+                                View
+                              </button>
+                              <a
+                                href={getFileUrl(file.url)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="h-6 px-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center"
+                                title="Open in New Window"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic py-1">No file attachments associated.</p>
+                    )}
+                  </div>
+
+                  {/* Notes / Remarks */}
+                  {viewingExpense.notes && (
+                    <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Notes / Remarks</span>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{viewingExpense.notes}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column (md:col-span-6): Financial & Tax Ledger, Payment Settlement */}
+                <div className="md:col-span-6 space-y-3">
+                  {/* Financial & GST Breakdown Ledger */}
+                  <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-2.5">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-[10px] font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                        <Calculator className="w-3.5 h-3.5 text-indigo-500" />
+                        Financial &amp; GST Tax Ledger
+                      </span>
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        INR (₹)
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                        <span>Taxable Value (Base):</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          ₹{Number(viewingExpense.taxableAmount || viewingExpense.amount || 0).toFixed(2)}
+                        </span>
+                      </div>
+
+                      {Number(viewingExpense.discountAmount || 0) > 0 && (
+                        <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                          <span>Discount Applied:</span>
+                          <span className="font-mono font-bold">-₹{Number(viewingExpense.discountAmount).toFixed(2)}</span>
+                        </div>
+                      )}
+
+                      {/* Ancillary Charges */}
+                      {Number(viewingExpense.shippingAmount || 0) > 0 && (
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                          <span>
+                            Freight / Shipping {viewingExpense.shippingGstApplicable ? `(GST ${Number(viewingExpense.shippingGstRate ?? 18)}% = +₹${((Number(viewingExpense.shippingAmount) * Number(viewingExpense.shippingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                          </span>
+                          <span className="font-mono">₹{Number(viewingExpense.shippingAmount).toFixed(2)}</span>
+                        </div>
+                      )}
+
+                      {Number(viewingExpense.packingAmount || 0) > 0 && (
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                          <span>
+                            Packaging {viewingExpense.packingGstApplicable ? `(GST ${Number(viewingExpense.packingGstRate ?? 18)}% = +₹${((Number(viewingExpense.packingAmount) * Number(viewingExpense.packingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                          </span>
+                          <span className="font-mono">₹{Number(viewingExpense.packingAmount).toFixed(2)}</span>
+                        </div>
+                      )}
+
+                      {Number(viewingExpense.loadingAmount || 0) > 0 && (
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                          <span>
+                            Loading &amp; Unloading {viewingExpense.loadingGstApplicable ? `(GST ${Number(viewingExpense.loadingGstRate ?? 18)}% = +₹${((Number(viewingExpense.loadingAmount) * Number(viewingExpense.loadingGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                          </span>
+                          <span className="font-mono">₹{Number(viewingExpense.loadingAmount).toFixed(2)}</span>
+                        </div>
+                      )}
+
+                      {Number(viewingExpense.otherCharges || 0) > 0 && (
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                          <span>
+                            {viewingExpense.otherChargesLabel || 'Other Charges'} {viewingExpense.otherChargesGstApplicable ? `(GST ${Number(viewingExpense.otherChargesGstRate ?? 18)}% = +₹${((Number(viewingExpense.otherCharges) * Number(viewingExpense.otherChargesGstRate ?? 18)) / 100).toFixed(2)})` : '(No GST)'}:
+                          </span>
+                          <span className="font-mono">₹{Number(viewingExpense.otherCharges).toFixed(2)}</span>
+                        </div>
+                      )}
+
+                      {/* GST Tax Breakdown */}
+                      {(Number(viewingExpense.gstPercentage || 0) > 0 || (Number(viewingExpense.cgstAmount || 0) + Number(viewingExpense.sgstAmount || 0) + Number(viewingExpense.igstAmount || 0)) > 0) && (
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                          <div className="flex justify-between items-center text-slate-500">
+                            <span>GST Mode:</span>
+                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                              {viewingExpense.isInterState ? 'Interstate (IGST)' : 'Intrastate (CGST + SGST)'} • {Number(viewingExpense.gstPercentage || 0)}%
+                            </span>
+                          </div>
+
+                          {viewingExpense.isInterState ? (
+                            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                              <span>IGST Amount:</span>
+                              <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                ₹{Number(viewingExpense.igstAmount || 0).toFixed(2)}
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                                <span>CGST Amount:</span>
+                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                  ₹{Number(viewingExpense.cgstAmount || 0).toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                                <span>SGST Amount:</span>
+                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                  ₹{Number(viewingExpense.sgstAmount || 0).toFixed(2)}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                          <div className="flex justify-between items-center text-slate-500 text-[11px]">
+                            <span>Total GST Tax:</span>
+                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                              ₹{(Number(viewingExpense.cgstAmount || 0) + Number(viewingExpense.sgstAmount || 0) + Number(viewingExpense.igstAmount || 0)).toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Grand Total */}
+                      <div className="pt-2.5 mt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center bg-indigo-50/50 dark:bg-indigo-950/30 p-2.5 rounded-xl">
+                        <div>
+                          <span className="font-black text-slate-900 dark:text-white uppercase text-xs block">
+                            Net Grand Total
+                          </span>
+                          <span className="text-[10px] text-slate-400">Inclusive of all taxes &amp; charges</span>
+                        </div>
+                        <span className="text-xl font-black font-mono text-indigo-600 dark:text-indigo-400">
+                          ₹{Number(viewingExpense.totalAmount || viewingExpense.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payment & Settlement Card */}
+                  <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-2xs space-y-2.5">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                      <span className="text-[10px] font-black text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                        Payment &amp; Settlement Details
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                          viewingExpense.paymentStatus === 'PAID'
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                            : viewingExpense.paymentStatus === 'PARTIALLY_PAID'
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
+                            : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
+                        }`}
+                      >
+                        {viewingExpense.paymentStatus || 'PAID'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Payment Mode</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
+                          {getPaymentModeShortLabel(viewingExpense.paymentMode || 'CASH')}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Paid Amount</span>
+                        <span className="font-black font-mono text-emerald-600 dark:text-emerald-400 mt-0.5 block">
+                          ₹{Number(viewingExpense.paidAmount ?? (viewingExpense.paymentStatus === 'UNPAID' ? 0 : (viewingExpense.totalAmount || viewingExpense.amount || 0))).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[10px] text-slate-400 block uppercase font-bold">Balance Due</span>
+                        <span className="font-black font-mono text-amber-600 dark:text-amber-400 mt-0.5 block">
+                          ₹{Math.max(0, Number(viewingExpense.totalAmount || viewingExpense.amount || 0) - Number(viewingExpense.paidAmount ?? (viewingExpense.paymentStatus === 'UNPAID' ? 0 : (viewingExpense.totalAmount || viewingExpense.amount || 0)))).toFixed(2)}
+                        </span>
+                      </div>
+
+                      {viewingExpense.paymentRef && (
+                        <div className="col-span-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                          <span className="text-[10px] text-slate-400 block uppercase font-bold">Reference / Cheque / UTR #</span>
+                          <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 mt-0.5 block">
+                            {viewingExpense.paymentRef}
+                          </span>
+                        </div>
+                      )}
+
+                      {viewingExpense.paymentNotes && (
+                        <div className="col-span-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
+                          <span className="text-[10px] text-slate-400 block uppercase font-bold">Payment Notes</span>
+                          <span className="text-xs text-slate-700 dark:text-slate-300 mt-0.5 block">
+                            {viewingExpense.paymentNotes}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              )}
-
-              {viewingExpense.notes && (
-                <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Reference / Notes</span>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 p-2 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
-                    {viewingExpense.notes}
-                  </p>
-                </div>
-              )}
+              </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
+            {/* Modal Footer */}
+            <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-2 shrink-0">
               <Button
                 type="button"
+                onClick={() => {
+                  const exp = viewingExpense;
+                  setViewingExpense(null);
+                  handleOpenEditModal(exp);
+                }}
+                className="h-8 px-3.5 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-lg flex items-center gap-1.5 shadow-xs transition-all active:scale-[0.98]"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                Edit This Expense
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => setViewingExpense(null)}
-                className="h-8 px-4 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                className="h-8 px-4 text-xs font-bold rounded-lg border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Close
               </Button>
@@ -4539,10 +4644,7 @@ export default function ExpensesPage() {
               setTargetRowIdxForNewSupplier(null);
             }
             if (editingExpense) {
-              setValueEdit('supplierId', newSupplier.id);
-              setValueEdit('supplierName', newSupplier.name);
-              setValueEdit('supplierGstin', newSupplier.gstin || '');
-              setValueEdit('isInterState', isInterStateForSupplier(newSupplier));
+              handleUpdateBatchRow(0, 'supplierSelect', newSupplier);
             }
             showCustomToast('Supplier Added', `${newSupplier.name} registered and selected.`, 'success');
           }}
