@@ -1017,7 +1017,16 @@ export default function SalesOrderPage() {
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const count = ordersData?.total || (Array.isArray(ordersData?.data) ? ordersData.data.length : 0);
         const seq = String(count + 1).padStart(4, '0');
-        setDocNo(`${prefix}/26-27/${month}/${seq}`);
+        const year = now.getFullYear();
+        let startY, endY;
+        if (now.getMonth() + 1 >= 4) {
+          startY = String(year).slice(-2);
+          endY = String(year + 1).slice(-2);
+        } else {
+          startY = String(year - 1).slice(-2);
+          endY = String(year).slice(-2);
+        }
+        setDocNo(`${prefix}${seq}${startY}${endY}${month}`);
       });
   }, [editOrderId, getPrefixForMode, ordersData]);
 

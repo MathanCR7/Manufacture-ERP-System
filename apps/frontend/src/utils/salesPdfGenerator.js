@@ -205,6 +205,9 @@ export function computeCategoryBifurcation(items = []) {
 export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   const showRates = options.showRates !== false && !options.withoutRate;
   const isWithoutRate = !showRates;
+  const showCategoryWise = options.withCategoryWise !== undefined
+    ? Boolean(options.withCategoryWise)
+    : (options.showCategoryWise !== undefined ? Boolean(options.showCategoryWise) : true);
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -232,7 +235,7 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   const buyerState = order.buyerStateCode || (order.customer?.gstin ? order.customer.gstin.substring(0, 2) : sellerState);
   const isInterState = String(sellerState) !== String(buyerState);
 
-  const docNo = order.docNo || order.referenceNo || 'SO-0001';
+  const docNo = order.docNo || order.referenceNo || 'SO0001262711';
   const rawNoUpper = String(docNo).toUpperCase();
   const rawTypeUpper = String(order.type || '').toUpperCase();
   const rawModeUpper = String(order.orderMode || '').toUpperCase();
@@ -428,35 +431,65 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
     { id: 'unit', label: 'Unit', w: 20, align: 'center' }
   ];
 
-  doc.setFillColor(30, 27, 75);
-  doc.rect(margin, curY, contentWidth, 7, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(255, 255, 255);
+  const renderTableHeader = (headerY) => {
+    doc.setFillColor(30, 27, 75);
+    doc.rect(margin, headerY, contentWidth, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
 
-  let headerX = margin;
-  cols.forEach(c => {
-    if (c.hasRupee) {
-      const prefix = `${c.label} (`;
-      const prefixW = doc.getTextWidth(prefix);
-      const rupeeW = 2.4;
-      const closeW = doc.getTextWidth(')');
-      const totalHeaderW = prefixW + rupeeW + closeW;
+    let headerX = margin;
+    cols.forEach(c => {
+      if (c.hasRupee) {
+        const prefix = `${c.label} (`;
+        const prefixW = doc.getTextWidth(prefix);
+        const rupeeW = 2.4;
+        const closeW = doc.getTextWidth(')');
+        const totalHeaderW = prefixW + rupeeW + closeW;
 
-      const startX = c.align === 'right' 
-        ? headerX + c.w - totalHeaderW - 1.5 
-        : (c.align === 'center' ? headerX + (c.w - totalHeaderW) / 2 : headerX + 1.5);
+        const startX = c.align === 'right' 
+          ? headerX + c.w - totalHeaderW - 1.5 
+          : (c.align === 'center' ? headerX + (c.w - totalHeaderW) / 2 : headerX + 1.5);
 
-      doc.text(prefix, startX, curY + 4.8);
-      drawRupeeGlyph(doc, startX + prefixW + 0.2, curY + 4.8, 2.3, true);
-      doc.text(')', startX + prefixW + rupeeW + 0.4, curY + 4.8);
-    } else {
-      const textX = c.align === 'right' ? headerX + c.w - 1.5 : (c.align === 'center' ? headerX + (c.w / 2) : headerX + 1.5);
-      doc.text(c.label, textX, curY + 4.8, { align: c.align });
+        doc.text(prefix, startX, headerY + 4.8);
+        drawRupeeGlyph(doc, startX + prefixW + 0.2, headerY + 4.8, 2.3, true);
+        doc.text(')', startX + prefixW + rupeeW + 0.4, headerY + 4.8);
+      } else {
+        const textX = c.align === 'right' ? headerX + c.w - 1.5 : (c.align === 'center' ? headerX + (c.w / 2) : headerX + 1.5);
+        doc.text(c.label, textX, headerY + 4.8, { align: c.align });
+      }
+      headerX += c.w;
+    });
+  };
+
+  const renderContinuationHeader = () => {
+    doc.addPage();
+    // Top subtle accent bar
+    doc.setFillColor(30, 27, 75);
+    doc.rect(0, 0, pageWidth, 2.5, 'F');
+
+    // Continuation Title & Reference
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 27, 75);
+    const contDocNo = order.docNo || order.referenceNo || '';
+    doc.text(`${docTitle} — ${contDocNo} (Continued)`, margin, 9.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    const custName = (order.customer?.name || order.customerName || '').substring(0, 42);
+    if (custName) {
+      doc.text(`Customer: ${custName}`, pageWidth - margin, 9.5, { align: 'right' });
     }
-    headerX += c.w;
-  });
 
+    const nextHeaderY = 12.5;
+    renderTableHeader(nextHeaderY);
+    curY = nextHeaderY + 7;
+  };
+
+  // Render initial table header on Page 1
+  renderTableHeader(curY);
   curY += 7;
 
   // Items Table Rows: filter out items marked as packing charge so they appear only in the summary
@@ -476,17 +509,16 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
     curY += rowH;
   } else {
     items.forEach((it, idx) => {
-    const rowH = 9.5;
-    const pageBottomThreshold = isWithoutRate ? 45 : 75;
-    if (curY + rowH > pageHeight - pageBottomThreshold) {
-      doc.addPage();
-      curY = 15;
-    }
+      const rowH = 9.5;
+      // Utilize full page down to bottom margin (16mm threshold)
+      if (curY + rowH > pageHeight - 16) {
+        renderContinuationHeader();
+      }
 
-    if (idx % 2 === 1) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(margin, curY, contentWidth, rowH, 'F');
-    }
+      if (idx % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, curY, contentWidth, rowH, 'F');
+      }
 
     const qty = Number(it.quantity || 1);
     const unitPrice = Number(it.unitPrice || 0);
@@ -655,9 +687,21 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   doc.line(margin, curY, pageWidth - margin, curY);
   curY += 4;
 
-  if (isWithoutRate) {
-    // ── WITHOUT RATE: CATEGORY-WISE SUMMARY & QUANTITY BIFURCATION ──
-    const { bifurcationList, totalCategories, totalVarieties, totalQty } = computeCategoryBifurcation(items);
+  // ── CATEGORY-WISE SUMMARY & QUANTITY BIFURCATION ──
+  const { bifurcationList, totalCategories, totalVarieties, totalQty } = computeCategoryBifurcation(items);
+
+  if (showCategoryWise && bifurcationList.length > 0) {
+    const bifTableHeight = 8 + 4 + 7 + (bifurcationList.length * 7) + 7 + 4;
+    if (curY + bifTableHeight > pageHeight - 16) {
+      doc.addPage();
+      doc.setFillColor(30, 27, 75);
+      doc.rect(0, 0, pageWidth, 2.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`${docTitle} — ${order.docNo || order.referenceNo || ''} (Category Summary)`, margin, 9.5);
+      curY = 14;
+    }
 
     // Total Tally Strip
     doc.setFillColor(241, 245, 249);
@@ -672,13 +716,6 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
     doc.text(`TOTAL QUANTITY DISPATCHED: ${totalQty} Units`, pageWidth - margin - 4, curY + 5.2, { align: 'right' });
 
     curY += 12;
-
-    // Check page break before category bifurcation table
-    const bifTableHeight = 7 + (bifurcationList.length * 7) + 7 + 35;
-    if (curY + bifTableHeight > pageHeight - 15) {
-      doc.addPage();
-      curY = 15;
-    }
 
     // Bifurcation Table Header
     doc.setFillColor(30, 27, 75);
@@ -707,6 +744,13 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
     // Bifurcation Rows
     bifurcationList.forEach((b, bIdx) => {
       const bRowH = 7;
+      if (curY + bRowH > pageHeight - 16) {
+        doc.addPage();
+        doc.setFillColor(30, 27, 75);
+        doc.rect(0, 0, pageWidth, 2.5, 'F');
+        curY = 14;
+      }
+
       if (bIdx % 2 === 1) {
         doc.setFillColor(248, 250, 252);
         doc.rect(margin, curY, contentWidth, bRowH, 'F');
@@ -758,12 +802,30 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
     totalBx += bifCols[2].w;
     doc.text(`${totalQty} Units`, totalBx + bifCols[3].w - 2, curY + 4.8, { align: 'right' });
 
-    curY += 12;
+    curY += 10;
+  } else if (isWithoutRate && !showCategoryWise) {
+    // When without category wise, still render a neat compact dispatch tally strip
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, curY, contentWidth, 8, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(margin, curY, contentWidth, 8, 'S');
 
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`TOTAL MERCHANDISE ITEMS: ${totalVarieties} Varieties`, margin + 4, curY + 5.2);
+    doc.text(`TOTAL QUANTITY DISPATCHED: ${totalQty} Units`, pageWidth - margin - 4, curY + 5.2, { align: 'right' });
+
+    curY += 12;
+  }
+
+  if (isWithoutRate) {
     // Delivery Instructions & Signatures Block
     const sigH = 28;
     if (curY + sigH > pageHeight - 12) {
       doc.addPage();
+      doc.setFillColor(30, 27, 75);
+      doc.rect(0, 0, pageWidth, 2.5, 'F');
       curY = 15;
     }
 
@@ -803,6 +865,17 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
     doc.setFontSize(7);
     doc.setTextColor(30, 27, 75);
     doc.text('Authorized Signatory / Warehouse Dispatcher', rSigX + (sigColW / 2), curY + 24, { align: 'center' });
+
+    // Page numbers loop for Without Rate documents
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+      doc.text(`Official Dispatch Document • ${order.docNo || order.referenceNo || ''}`, margin, pageHeight - 6);
+    }
 
     return doc.output('blob');
   }
@@ -1138,6 +1211,17 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   doc.setTextColor(148, 163, 184);
   doc.text('Authorized Signatory / Digitally Signed', rSumX + (sumColW / 2), curY + 14, { align: 'center' });
 
+  // Page numbers loop for With Rate commercial documents
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+    doc.text(`Official Commercial Document • ${order.docNo || order.referenceNo || ''}`, margin, pageHeight - 6);
+  }
+
   return doc.output('blob');
 }
 
@@ -1149,6 +1233,10 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
  */
 export function generateThermalReceipt(order, companyDetails = {}, options = {}) {
   const showRates = options.showRates !== false && !options.withoutRate;
+  const isWithoutRate = !showRates;
+  const showCategoryWise = options.withCategoryWise !== undefined
+    ? Boolean(options.withCategoryWise)
+    : (options.showCategoryWise !== undefined ? Boolean(options.showCategoryWise) : true);
   const companyName = companyDetails.companyName || 'RETAIL FACTORY OUTLET';
   const companyAddress = companyDetails.companyAddress || 'Main Outlet, Salem, TN';
   const companyGstin = companyDetails.companyGstin || '33AAAAA0000A1Z5';
@@ -1183,10 +1271,10 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
   // Calculate overall page height precisely so there is no cut-off or excessive trailing blank space
   let estHeight = 72 + itemsTotalH; // Top header + meta box + items header
   if (showRates) {
-    estHeight += 65; // Financial breakdown + payment info + footer
+    estHeight += 65 + (showCategoryWise ? (18 + (bifurcationList.length * 5.5)) : 0);
   } else {
     // Total dispatch summary card (18mm) + Category bifurcation table (18mm + bifLines * 5.5mm) + Signature box (28mm) + footer (10mm)
-    estHeight += 18 + 18 + (bifurcationList.length * 5.5) + 28 + 12;
+    estHeight += 18 + (showCategoryWise ? (18 + (bifurcationList.length * 5.5)) : 0) + 28 + 12;
   }
   const dynamicHeight = Math.max(150, Math.ceil(estHeight) + 10);
 
@@ -1565,96 +1653,98 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
     curY += sumCardH + 3.5;
 
     // 2. Category-Wise Bifurcation Table (True Table-Wise Display)
-    const bifCols = [
-      { label: '#', w: 6.0, align: 'center' },
-      { label: 'CATEGORY / FLAVOUR GROUP', w: 38.0, align: 'left' },
-      { label: 'VARIETIES', w: 14.0, align: 'center' },
-      { label: 'TOTAL QTY', w: 15.0, align: 'right' }
-    ];
+    if (showCategoryWise) {
+      const bifCols = [
+        { label: '#', w: 6.0, align: 'center' },
+        { label: 'CATEGORY / FLAVOUR GROUP', w: 38.0, align: 'left' },
+        { label: 'VARIETIES', w: 14.0, align: 'center' },
+        { label: 'TOTAL QTY', w: 15.0, align: 'right' }
+      ];
 
-    // Bifurcation Table Header
-    const bthH = 5.5;
-    doc.setFillColor(30, 27, 75);
-    doc.rect(margin, curY, tableW, bthH, 'F');
+      // Bifurcation Table Header
+      const bthH = 5.5;
+      doc.setFillColor(30, 27, 75);
+      doc.rect(margin, curY, tableW, bthH, 'F');
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.2);
-    doc.setTextColor(255, 255, 255);
-
-    let bhX = margin;
-    bifCols.forEach(c => {
-      let tX;
-      if (c.align === 'right') tX = bhX + c.w - 1.5;
-      else if (c.align === 'center') tX = bhX + (c.w / 2);
-      else tX = bhX + 1.5;
-      doc.text(c.label, tX, curY + 3.8, { align: c.align });
-      bhX += c.w;
-    });
-
-    curY += bthH;
-
-    // Bifurcation Rows
-    bifurcationList.forEach((b, bIdx) => {
-      const bRowH = 5.2;
-      if (bIdx % 2 === 1) {
-        doc.setFillColor(248, 250, 252);
-        doc.rect(margin, curY, tableW, bRowH, 'F');
-      }
-
-      // Border lines
-      doc.setDrawColor(226, 232, 240);
-      doc.line(margin, curY + bRowH, margin + tableW, curY + bRowH);
-      doc.line(margin, curY, margin, curY + bRowH);
-      doc.line(margin + tableW, curY, margin + tableW, curY + bRowH);
-
-      const bY = curY + 3.6;
-
-      // Col 1: Index
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.0);
-      doc.setTextColor(71, 85, 105);
-      doc.text(String(bIdx + 1), margin + (bifCols[0].w / 2), bY, { align: 'center' });
-
-      // Col 2: Category
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.2);
-      doc.setTextColor(15, 23, 42);
-      doc.text(b.category.substring(0, 28), margin + bifCols[0].w + 1.5, bY);
+      doc.setTextColor(255, 255, 255);
 
-      // Col 3: Varieties
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.0);
-      doc.setTextColor(51, 65, 85);
-      const varText = `${b.varietyCount} ${b.varietyCount === 1 ? 'Variety' : 'Varieties'}`;
-      doc.text(varText, margin + bifCols[0].w + bifCols[1].w + (bifCols[2].w / 2), bY, { align: 'center' });
+      let bhX = margin;
+      bifCols.forEach(c => {
+        let tX;
+        if (c.align === 'right') tX = bhX + c.w - 1.5;
+        else if (c.align === 'center') tX = bhX + (c.w / 2);
+        else tX = bhX + 1.5;
+        doc.text(c.label, tX, curY + 3.8, { align: c.align });
+        bhX += c.w;
+      });
 
-      // Col 4: Qty
+      curY += bthH;
+
+      // Bifurcation Rows
+      bifurcationList.forEach((b, bIdx) => {
+        const bRowH = 5.2;
+        if (bIdx % 2 === 1) {
+          doc.setFillColor(248, 250, 252);
+          doc.rect(margin, curY, tableW, bRowH, 'F');
+        }
+
+        // Border lines
+        doc.setDrawColor(226, 232, 240);
+        doc.line(margin, curY + bRowH, margin + tableW, curY + bRowH);
+        doc.line(margin, curY, margin, curY + bRowH);
+        doc.line(margin + tableW, curY, margin + tableW, curY + bRowH);
+
+        const bY = curY + 3.6;
+
+        // Col 1: Index
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.0);
+        doc.setTextColor(71, 85, 105);
+        doc.text(String(bIdx + 1), margin + (bifCols[0].w / 2), bY, { align: 'center' });
+
+        // Col 2: Category
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(15, 23, 42);
+        doc.text(b.category.substring(0, 28), margin + bifCols[0].w + 1.5, bY);
+
+        // Col 3: Varieties
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.0);
+        doc.setTextColor(51, 65, 85);
+        const varText = `${b.varietyCount} ${b.varietyCount === 1 ? 'Variety' : 'Varieties'}`;
+        doc.text(varText, margin + bifCols[0].w + bifCols[1].w + (bifCols[2].w / 2), bY, { align: 'center' });
+
+        // Col 4: Qty
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${b.totalQty} ${b.uom}`, margin + tableW - 1.5, bY, { align: 'right' });
+
+        curY += bRowH;
+      });
+
+      // Total Row for Category Bifurcation Table
+      const totRowH = 5.5;
+      doc.setFillColor(241, 245, 249);
+      doc.rect(margin, curY, tableW, totRowH, 'F');
+      doc.setDrawColor(203, 213, 225);
+      doc.line(margin, curY + totRowH, margin + tableW, curY + totRowH);
+      doc.line(margin, curY, margin, curY + totRowH);
+      doc.line(margin + tableW, curY, margin + tableW, curY + totRowH);
+
+      const totY = curY + 3.8;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.2);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`${b.totalQty} ${b.uom}`, margin + tableW - 1.5, bY, { align: 'right' });
+      doc.setTextColor(30, 27, 75);
+      doc.text(`TOTAL (${totalCategories} Grps)`, margin + bifCols[0].w + 1.5, totY);
+      doc.text(`${totalVarieties} Varieties`, margin + bifCols[0].w + bifCols[1].w + (bifCols[2].w / 2), totY, { align: 'center' });
+      doc.text(`${totalQty} Units`, margin + tableW - 1.5, totY, { align: 'right' });
 
-      curY += bRowH;
-    });
-
-    // Total Row for Category Bifurcation Table
-    const totRowH = 5.5;
-    doc.setFillColor(241, 245, 249);
-    doc.rect(margin, curY, tableW, totRowH, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.line(margin, curY + totRowH, margin + tableW, curY + totRowH);
-    doc.line(margin, curY, margin, curY + totRowH);
-    doc.line(margin + tableW, curY, margin + tableW, curY + totRowH);
-
-    const totY = curY + 3.8;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.2);
-    doc.setTextColor(30, 27, 75);
-    doc.text(`TOTAL (${totalCategories} Grps)`, margin + bifCols[0].w + 1.5, totY);
-    doc.text(`${totalVarieties} Varieties`, margin + bifCols[0].w + bifCols[1].w + (bifCols[2].w / 2), totY, { align: 'center' });
-    doc.text(`${totalQty} Units`, margin + tableW - 1.5, totY, { align: 'right' });
-
-    curY += totRowH + 4.0;
+      curY += totRowH + 4.0;
+    }
 
     // 3. Receiver Acknowledgment & Verification Box
     const ackH = 26.0;

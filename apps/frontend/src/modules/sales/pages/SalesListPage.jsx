@@ -18,7 +18,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
-import { generateA4TaxInvoice, generateThermalReceipt, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
+import { generateA4TaxInvoice, generateThermalReceipt, getSalesDocumentPdfFilename, computeCategoryBifurcation } from '@/utils/salesPdfGenerator';
 import { numberToWordsINR, getIndianStates, computeOrderGstSlabs, formatChargeGstLabel, getOrderAncillaryTaxCodes, getTaxRateFromCode } from '@/utils/gstEngine';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 import ProductPriceHistoryModal from '@/modules/item-setup/components/ProductPriceHistoryModal';
@@ -64,6 +64,8 @@ export default function SalesListPage() {
   const [companySettings, setCompanySettings] = useState(null);
   const [layoutMode, setLayoutMode] = useState('A4'); // A4 or POS
   const [priceMode, setPriceMode] = useState('WITH_RATE'); // 'WITH_RATE' | 'WITHOUT_RATE'
+  const [categoryMode, setCategoryMode] = useState('WITH_CATEGORY'); // 'WITH_CATEGORY' | 'WITHOUT_CATEGORY'
+  const [contentsSummaryType, setContentsSummaryType] = useState('CATEGORY'); // 'NONE' | 'CATEGORY'
   const [activePdfUrl, setActivePdfUrl] = useState(null);
   const [activeStudioTab, setActiveStudioTab] = useState('contents'); // 'contents' | 'batch-cost' | 'logistics' | 'accounting' | 'tax' | 'attachments' | 'pdf'
   const [batchCostAudit, setBatchCostAudit] = useState(null);
@@ -293,7 +295,8 @@ export default function SalesListPage() {
       const activeSettings = companySettings || storeCompany;
       const pdfOptions = {
         showRates: priceMode === 'WITH_RATE',
-        withoutRate: priceMode === 'WITHOUT_RATE'
+        withoutRate: priceMode === 'WITHOUT_RATE',
+        withCategoryWise: categoryMode === 'WITH_CATEGORY'
       };
       let blob;
       try {
@@ -319,7 +322,7 @@ export default function SalesListPage() {
         setActivePdfUrl(url);
       }
     }
-  }, [selectedOrder, layoutMode, priceMode, companySettings]);
+  }, [selectedOrder, layoutMode, priceMode, categoryMode, companySettings]);
 
   // Reset page when search term changes
   useEffect(() => {
@@ -462,7 +465,8 @@ export default function SalesListPage() {
 
     const pdfOptions = {
       showRates: priceMode === 'WITH_RATE',
-      withoutRate: priceMode === 'WITHOUT_RATE'
+      withoutRate: priceMode === 'WITHOUT_RATE',
+      withCategoryWise: categoryMode === 'WITH_CATEGORY'
     };
     let blob;
     try {
@@ -521,7 +525,7 @@ export default function SalesListPage() {
     let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
     if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
 
-    const docNo = order.docNo || order.referenceNo || 'SO-000000';
+    const docNo = order.docNo || order.referenceNo || 'SO0001262711';
     const grandTotal = Number(order.grandTotal || order.totalSubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
     const dateStr = new Date(order.createdAt).toLocaleDateString('en-GB');
     const custName = order.customerName || order.customer?.name || 'Valued Client';
@@ -717,7 +721,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
   const handleResendEmail = async (order) => {
     const defaultEmail = order.customer?.email || 'mathansethupathy@gmail.com';
     const customerName = order.customer?.name || order.customerName || 'Mathan C';
-    const docNo = order.docNo || order.referenceNo || 'SO-100100001';
+    const docNo = order.docNo || order.referenceNo || 'SO0001262711';
     const grandTotal = Number(order.grandTotal || 0).toFixed(2);
 
     const confirm = await Swal.fire({
@@ -1126,6 +1130,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
     const itemsList = selectedOrder.items || [];
     // Only non-packing line items (Products and Raw Materials) belong to Total Product Amount
     const productLines = itemsList.filter(item => !item.isPackingCharge && !item.is_packing_charge);
+    const categoryBifurcationData = computeCategoryBifurcation(productLines);
     const totalProductAmount = productLines.reduce((sum, item) => sum + (Number(item.unitPrice || 0) * Number(item.quantity || 0)), 0);
     const totalBeforeDiscount = itemsList.reduce((sum, item) => sum + (Number(item.unitPrice || 0) * Number(item.quantity || 0)), 0);
     const lineDiscountTotal = itemsList.reduce((sum, item) => sum + (Number(item.discount || 0) * Number(item.quantity || 0)), 0);
@@ -1711,13 +1716,81 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-slate-500 font-bold">Summary Type:</span>
-                  <span className="font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">No Summary</span>
+                  <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setContentsSummaryType('NONE')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                        contentsSummaryType === 'NONE'
+                          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      No Summary
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setContentsSummaryType('CATEGORY')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                        contentsSummaryType === 'CATEGORY'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      Category Summary
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="text-[11px] text-slate-500">
                 Catalog Feasibility Verified • {itemsList.length} Rows Registered
               </div>
             </div>
+
+            {/* Category-Wise Summary Card & Bifurcation Table */}
+            {contentsSummaryType === 'CATEGORY' && (
+              <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 shadow-xs">
+                  <div className="text-xs font-black tracking-wide text-indigo-950 dark:text-indigo-300">
+                    TOTAL MERCHANDISE ITEMS: <span className="text-indigo-600 dark:text-indigo-400 font-black">{categoryBifurcationData.totalVarieties} Varieties</span>
+                  </div>
+                  <div className="text-xs font-black tracking-wide text-slate-800 dark:text-white">
+                    TOTAL QUANTITY DISPATCHED: <span className="text-emerald-600 dark:text-emerald-400 font-black">{categoryBifurcationData.totalQty} Units</span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-indigo-950 text-white uppercase font-bold text-[10px] tracking-wider">
+                      <tr>
+                        <th className="px-3 py-2.5 text-center w-12">#</th>
+                        <th className="px-4 py-2.5">Product Category / Flavour Group</th>
+                        <th className="px-4 py-2.5 text-center">Product Varieties</th>
+                        <th className="px-4 py-2.5 text-right">Total Dispatched Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium bg-white dark:bg-slate-900">
+                      {categoryBifurcationData.bifurcationList.map((b, bIdx) => (
+                        <tr key={bIdx} className={bIdx % 2 === 1 ? 'bg-slate-50/70 dark:bg-slate-800/30' : ''}>
+                          <td className="px-3 py-2 text-center text-slate-400 font-mono font-bold">{bIdx + 1}</td>
+                          <td className="px-4 py-2 font-bold text-slate-900 dark:text-white">{b.category}</td>
+                          <td className="px-4 py-2 text-center text-slate-600 dark:text-slate-400">{b.varietyCount} {b.varietyCount === 1 ? 'Variety' : 'Varieties'}</td>
+                          <td className="px-4 py-2 text-right font-mono font-black text-slate-900 dark:text-white">{b.totalQty} {b.uom}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-slate-100 dark:bg-slate-950 font-bold border-t-2 border-slate-300 dark:border-slate-700">
+                      <tr>
+                        <td className="px-3 py-2.5 text-center font-black text-slate-900 dark:text-white">TOTAL</td>
+                        <td className="px-4 py-2.5 text-indigo-700 dark:text-indigo-400 font-black">{categoryBifurcationData.totalCategories} Categories</td>
+                        <td className="px-4 py-2.5 text-center text-indigo-700 dark:text-indigo-400 font-black">{categoryBifurcationData.totalVarieties} Varieties</td>
+                        <td className="px-4 py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">{categoryBifurcationData.totalQty} Units</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Line Items Table */}
             <div className="w-full text-xs">
@@ -3059,6 +3132,35 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                     </button>
                   </div>
                 </div>
+
+                {/* Category Summary: With Category Wise vs Without Category Wise */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Category Summary:</span>
+                  <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setCategoryMode('WITH_CATEGORY')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        categoryMode === 'WITH_CATEGORY'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      With Category Wise
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCategoryMode('WITHOUT_CATEGORY')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        categoryMode === 'WITHOUT_CATEGORY'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Without Category Wise
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -3579,7 +3681,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                             {/* Document Ref & Specific Commercial Badge & Flow Links */}
                             <td className="px-3.5 py-3 align-middle">
                               <div className="font-mono font-bold text-slate-900 dark:text-white text-xs truncate max-w-[150px]">
-                                {(order.docNo && order.docNo !== 'NaN' && !order.docNo.includes('NaN')) ? order.docNo : (order.referenceNo || 'INV-000000')}
+                                {(order.docNo && order.docNo !== 'NaN' && !order.docNo.includes('NaN')) ? order.docNo : (order.referenceNo || 'INV0001262711')}
                               </div>
                               <div className="mt-1 flex items-center gap-1 flex-wrap">
                                 {isPos && (
@@ -3924,7 +4026,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                       {/* Document Ref & Specific Commercial Badge & Flow Links */}
                       <td className="px-3.5 py-3 align-middle">
                         <div className="font-mono font-bold text-slate-900 dark:text-white text-xs truncate max-w-[150px]">
-                          {(order.docNo && order.docNo !== 'NaN' && !order.docNo.includes('NaN')) ? order.docNo : (order.referenceNo || 'INV-000000')}
+                          {(order.docNo && order.docNo !== 'NaN' && !order.docNo.includes('NaN')) ? order.docNo : (order.referenceNo || 'INV0001262711')}
                         </div>
                         <div className="mt-1 flex items-center gap-1 flex-wrap">
                           {isPos && (

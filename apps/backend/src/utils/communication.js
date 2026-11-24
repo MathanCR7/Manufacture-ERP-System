@@ -458,7 +458,7 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     const companyEmail = settings?.companyEmail || settings?.email || '';
     const sellerState = settings?.stateCode || (companyGstin ? companyGstin.substring(0, 2) : '33');
 
-    const docNo = invoice.docNo || invoice.referenceNo || 'SO-000001';
+    const docNo = invoice.docNo || invoice.referenceNo || 'SO0001262711';
     const rawTypeUpper = String(invoice.type || invoice.orderMode || '').toUpperCase();
     const isQuotation = rawTypeUpper === 'QUOTATION' || String(docNo).toUpperCase().startsWith('QT');
     const isInvoice = rawTypeUpper === 'INVOICE' || String(docNo).toUpperCase().startsWith('INV');
@@ -2223,7 +2223,7 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
   const companyEmail = settings?.companyEmail || settings?.email || 'billing@leonex.com';
   const sellerState = settings?.stateCode || (companyGstin ? companyGstin.substring(0, 2) : '33');
 
-  const docNo = invoice.docNo || invoice.referenceNo || 'SO-000001';
+  const docNo = invoice.docNo || invoice.referenceNo || 'SO0001262711';
   const rawTypeUpper = String(invoice.type || invoice.orderMode || '').toUpperCase();
   const isQuotation = rawTypeUpper === 'QUOTATION' || String(docNo).toUpperCase().startsWith('QT');
   const isInvoice = rawTypeUpper === 'INVOICE' || String(docNo).toUpperCase().startsWith('INV');
@@ -2846,7 +2846,7 @@ const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicate
 
   const email = targetEmail || orderData.customer?.email || 'mathansethupathy@gmail.com';
   const phone = orderData.customer?.phone || orderData.customerPhone;
-  const docNo = orderData.docNo || orderData.referenceNo || 'SO-000001';
+  const docNo = orderData.docNo || orderData.referenceNo || 'SO0001262711';
   const rawTypeUpper = String(orderData.type || orderData.orderMode || '').toUpperCase();
   const isQuotation = rawTypeUpper === 'QUOTATION' || String(docNo).toUpperCase().startsWith('QT');
   const isInvoice = rawTypeUpper === 'INVOICE' || String(docNo).toUpperCase().startsWith('INV');
