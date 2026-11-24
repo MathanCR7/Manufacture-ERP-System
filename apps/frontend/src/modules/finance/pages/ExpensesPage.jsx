@@ -1834,6 +1834,8 @@ export default function ExpensesPage() {
         target.supplierName = value?.name || '';
         target.supplierGstin = value?.gstin || '';
         target.isInterState = isInterStateForSupplier(value);
+      } else if (field === 'title') {
+        target.title = typeof value === 'string' ? value.toUpperCase() : value;
       } else {
         target[field] = value;
       }
@@ -1994,7 +1996,7 @@ export default function ExpensesPage() {
         date: row.date,
         categoryId: row.categoryId || undefined,
         category: row.category,
-        title: row.title.trim(),
+        title: (row.title || '').trim().toUpperCase(),
         amount: fin.grandTotal,
         taxableAmount: fin.taxable,
         isSupplierExpense: Boolean(row.isSupplierExpense),
@@ -2134,7 +2136,7 @@ export default function ExpensesPage() {
       date: new Date(expense.date).toISOString().split('T')[0],
       categoryId: expense.categoryId || activeMasterCategories.find(c => c.name === expense.category)?.id || '',
       category: expense.category,
-      title: expense.title,
+      title: (expense.title || '').toUpperCase(),
       isSupplierExpense: isSupplier,
       supplierId: expense.supplierId || '',
       supplierName: expense.supplierName || '',
@@ -2241,7 +2243,7 @@ export default function ExpensesPage() {
           date: data.date,
           category: selectedCat ? selectedCat.name : data.category,
           categoryId: selectedCat ? selectedCat.id : data.categoryId,
-          title: data.title,
+          title: (data.title || '').trim().toUpperCase(),
           amount: fin.grandTotal,
           taxableAmount: fin.taxable,
           isSupplierExpense: Boolean(data.isSupplierExpense),
@@ -2810,7 +2812,7 @@ export default function ExpensesPage() {
 
                         {/* Title, SAC & Notes */}
                         <TableCell className="px-2 py-2 max-w-[180px]">
-                          <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs" title={exp.title}>
+                          <div className="font-bold text-slate-900 dark:text-slate-100 truncate text-xs uppercase" title={exp.title}>
                             {exp.title}
                           </div>
                           {(exp.hsnSacCode || exp.notes) && (
@@ -3346,10 +3348,10 @@ export default function ExpensesPage() {
                           <td className="px-1.5 py-1.5">
                             <textarea
                               rows={2}
-                              placeholder="e.g. Travel expense, purchase expense, freight..."
+                              placeholder="e.g. TRAVEL EXPENSE, PURCHASE EXPENSE, FREIGHT..."
                               value={row.title}
-                              onChange={(e) => handleUpdateBatchRow(idx, 'title', e.target.value)}
-                              className="w-full h-[58px] px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium resize-none leading-tight"
+                              onChange={(e) => handleUpdateBatchRow(idx, 'title', e.target.value.toUpperCase())}
+                              className="w-full h-[58px] px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium resize-none leading-tight uppercase"
                             />
                           </td>
 
@@ -3962,9 +3964,14 @@ export default function ExpensesPage() {
               <div className="space-y-1">
                 <Label className="text-[10px] font-bold text-slate-500 uppercase">Title / Purpose *</Label>
                 <Input
-                  {...registerEdit('title', { required: 'Title is required' })}
-                  placeholder="e.g. Travel expense, purchase expense, freight..."
-                  className="h-8 text-xs rounded-lg"
+                  {...registerEdit('title', {
+                    required: 'Title is required',
+                    onChange: (e) => {
+                      setValueEdit('title', e.target.value.toUpperCase());
+                    }
+                  })}
+                  placeholder="e.g. TRAVEL EXPENSE, PURCHASE EXPENSE, FREIGHT..."
+                  className="h-8 text-xs rounded-lg uppercase"
                 />
                 {editErrors.title && <span className="text-[10px] text-rose-500">{editErrors.title.message}</span>}
               </div>
@@ -4268,7 +4275,7 @@ export default function ExpensesPage() {
             <div className="space-y-3.5 text-xs overflow-y-auto pr-1 flex-1">
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Title / Purpose</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">{viewingExpense.title}</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 uppercase">{viewingExpense.title}</p>
               </div>
 
               {/* Supplier Info if available */}

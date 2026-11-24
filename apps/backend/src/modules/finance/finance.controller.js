@@ -333,6 +333,7 @@ const createExpense = async (req, res, next) => {
       : await generateNextExpenseNumber(prisma);
 
     const resolvedTotal = numTotal || numericAmount;
+    const finalTitle = title.trim().toUpperCase();
     const chargesAndPayment = buildExpenseChargesAndPayment(req.body, {
       expenseNumber: finalExpenseNumber,
       totalAmount: resolvedTotal,
@@ -342,7 +343,7 @@ const createExpense = async (req, res, next) => {
     const expense = await prisma.expense.create({
       data: {
         expenseNumber: finalExpenseNumber,
-        title: title.trim(),
+        title: finalTitle,
         amount: resolvedTotal,
         category: resolvedCatName,
         categoryId: resolvedCatId,
@@ -490,7 +491,7 @@ const createBulkExpenses = async (req, res, next) => {
 
       validExpenses.push({
         expenseNumber: rowExpenseNumber,
-        title: item.title.trim(),
+        title: item.title.trim().toUpperCase(),
         amount: numTotal || numAmt,
         category: resolvedCatName,
         categoryId: resolvedCatId,
@@ -809,6 +810,7 @@ const updateExpense = async (req, res, next) => {
     const { categoryId: resolvedCatId, category: resolvedCatName } = await resolveCategoryData(category, categoryId);
 
     const resolvedTotal = numTotal || numericAmount;
+    const finalTitle = title.trim().toUpperCase();
     const resolvedExpenseNo = expenseNumber !== undefined
       ? (expenseNumber ? String(expenseNumber).trim() : existing.expenseNumber)
       : existing.expenseNumber;
@@ -823,7 +825,7 @@ const updateExpense = async (req, res, next) => {
       where: { id },
       data: {
         expenseNumber: expenseNumber !== undefined ? (expenseNumber ? String(expenseNumber).trim() : null) : existing.expenseNumber,
-        title: title.trim(),
+        title: finalTitle,
         amount: resolvedTotal,
         category: resolvedCatName,
         categoryId: resolvedCatId,
