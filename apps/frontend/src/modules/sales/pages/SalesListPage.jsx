@@ -302,16 +302,22 @@ export default function SalesListPage() {
           : generateThermalReceipt(selectedOrder, activeSettings, pdfOptions);
       } catch (err) {
         console.warn('Advanced PDF generator error, falling back to legacy compiler:', err);
-        blob = layoutMode === 'A4' 
-          ? compileInvoiceA4PDF(selectedOrder, activeSettings, pdfOptions) 
-          : compileThermalBillPDF(selectedOrder, activeSettings, pdfOptions);
+        try {
+          blob = layoutMode === 'A4' 
+            ? compileInvoiceA4PDF(selectedOrder, activeSettings, pdfOptions) 
+            : compileThermalBillPDF(selectedOrder, activeSettings, pdfOptions);
+        } catch (fallbackErr) {
+          console.error('All PDF compilers failed:', fallbackErr);
+        }
       }
       
       if (activePdfUrl) {
         URL.revokeObjectURL(activePdfUrl);
       }
-      const url = URL.createObjectURL(blob);
-      setActivePdfUrl(url);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        setActivePdfUrl(url);
+      }
     }
   }, [selectedOrder, layoutMode, priceMode, companySettings]);
 
@@ -464,9 +470,22 @@ export default function SalesListPage() {
         ? generateA4TaxInvoice(selectedOrder, activeSettings, pdfOptions)
         : generateThermalReceipt(selectedOrder, activeSettings, pdfOptions);
     } catch (err) {
-      blob = layoutMode === 'A4' 
-        ? compileInvoiceA4PDF(selectedOrder, activeSettings, pdfOptions) 
-        : compileThermalBillPDF(selectedOrder, activeSettings, pdfOptions);
+      try {
+        blob = layoutMode === 'A4' 
+          ? compileInvoiceA4PDF(selectedOrder, activeSettings, pdfOptions) 
+          : compileThermalBillPDF(selectedOrder, activeSettings, pdfOptions);
+      } catch (fallbackErr) {
+        console.error('All PDF download compilers failed:', fallbackErr);
+      }
+    }
+    if (!blob) {
+      Swal.fire({
+        icon: 'error',
+        title: 'PDF Generation Failed',
+        text: 'An error occurred while compiling the document PDF.',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
     }
     const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
