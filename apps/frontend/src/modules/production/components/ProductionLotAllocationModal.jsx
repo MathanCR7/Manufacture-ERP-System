@@ -158,8 +158,8 @@ export default function ProductionLotAllocationModal({
     if (rowUom && rowUom === altUomLower) return 'ALT';
 
     // 2. Unit family match:
-    const isSmall = (u) => ['ml', 'milliliter', 'millilitre', 'gm', 'g', 'gram'].includes(String(u || '').toLowerCase().trim());
-    const isLarge = (u) => ['liter', 'ltr', 'l', 'litre', 'kg', 'kgs', 'kilogram'].includes(String(u || '').toLowerCase().trim());
+    const isSmall = (u) => ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(String(u || '').toLowerCase().trim());
+    const isLarge = (u) => ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(String(u || '').toLowerCase().trim());
 
     if (isSmall(rowUom)) {
       if (isSmall(baseUomLower)) return 'BASE';

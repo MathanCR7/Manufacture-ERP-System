@@ -67,8 +67,8 @@ const cleanStaffNameOnly = (val) => {
     .trim();
 };
 
-const isSmallUnit = (u) => ['ml', 'milliliter', 'millilitre', 'gm', 'g', 'gram'].includes(String(u || '').toLowerCase().trim());
-const isLargeUnit = (u) => ['liter', 'ltr', 'l', 'litre', 'kg', 'kgs', 'kilogram'].includes(String(u || '').toLowerCase().trim());
+const isSmallUnit = (u) => ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(String(u || '').toLowerCase().trim());
+const isLargeUnit = (u) => ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(String(u || '').toLowerCase().trim());
 
 const getEffectiveUnitFactor = (item) => {
   let f = Number(item?.conversionFactor || 0);

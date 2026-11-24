@@ -511,8 +511,11 @@ async function deductBaseRawMaterialsOnce(tx, batchId) {
   return deductionLog;
 }
 
+const isSmallUom = (u) => ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(String(u || '').toLowerCase().trim());
+const isLargeUom = (u) => ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(String(u || '').toLowerCase().trim());
+
 /**
- * Normalizes a product raw material quantity to its base warehouse UOM (e.g., gm/ml -> kg/L).
+ * Normalizes a product raw material quantity to its base warehouse UOM (e.g., gm/ml -> kg/L, or liter -> ml for essences).
  */
 function normalizePrmToBaseQty(prm, rmMeta) {
   const rawQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
@@ -520,17 +523,21 @@ function normalizePrmToBaseQty(prm, rmMeta) {
 
   const uom = String(prm.uom || prm.primaryUom || '').trim().toLowerCase();
   const baseUom = String(rmMeta?.unitId || prm.primaryUom || '').trim().toLowerCase();
-  const altUom = String(rmMeta?.alternateUom || prm.alternateUom || '').trim().toLowerCase();
-  const factor = Number(rmMeta?.conversionFactor || prm.conversionFactor || 1);
-  const isAltMode = prm.activeEntryMode === 'ALT' || (altUom && uom === altUom);
+  if (baseUom && uom && uom === baseUom) return rawQty;
 
-  if ((isAltMode || (factor > 1 && (uom === 'gm' || uom === 'g' || uom === 'ml'))) && factor > 1) {
-    return rawQty / factor;
+  let factor = Number(rmMeta?.conversionFactor || prm.conversionFactor || 0);
+  if (factor > 0 && factor < 1) factor = Math.round(1 / factor);
+  if (!factor || factor <= 1) factor = 1000;
+
+  // Case 1: Base is large (kg/liter), input is small (gm/ml) -> divide by 1000
+  if (isLargeUom(baseUom) && isSmallUom(uom)) {
+    return Number((rawQty / factor).toFixed(6));
   }
-  if ((baseUom === 'kg' || baseUom === 'l' || baseUom === 'ltr' || baseUom === 'liter' || baseUom === 'litre') &&
-      (uom === 'gm' || uom === 'g' || uom === 'gram' || uom === 'grams' || uom === 'ml' || uom === 'milliliter' || uom === 'millilitre')) {
-    return rawQty / (factor > 1 ? factor : 1000);
+  // Case 2: Base is small (ml/gm like essences), input is large (liter/kg) -> multiply by 1000
+  if (isSmallUom(baseUom) && isLargeUom(uom)) {
+    return Number((rawQty * factor).toFixed(4));
   }
+
   return rawQty;
 }
 
@@ -541,17 +548,23 @@ function normalizeAbToBaseQty(ab, rmMeta) {
   let aQty = Number(ab.allocatedQty ?? ab.qty ?? 0);
   if (!aQty || isNaN(aQty)) return 0;
 
-  const factor = Number(rmMeta?.conversionFactor || 1);
+  const baseUom = String(rmMeta?.unitId || rmMeta?.unit?.abbreviation || '').toLowerCase().trim();
   const uom = String(ab.uom || '').trim().toLowerCase();
-  const altUom = String(rmMeta?.alternateUom || '').trim().toLowerCase();
+  if (baseUom && uom && uom === baseUom) return aQty;
 
-  if (factor > 1 && (uom === altUom || uom === 'gm' || uom === 'ml')) {
-    if (ab.allocatedAltQty && Math.abs(aQty - Number(ab.allocatedAltQty)) < 0.001) {
-      aQty = aQty / factor;
-    } else if (aQty > 10 && (rmMeta?.unitId === 'kg' || rmMeta?.unitId === 'liter')) {
-      aQty = aQty / factor;
-    }
+  let factor = Number(rmMeta?.conversionFactor || 0);
+  if (factor > 0 && factor < 1) factor = Math.round(1 / factor);
+  if (!factor || factor <= 1) factor = 1000;
+
+  // Case 1: Warehouse base is large (kg/liter), batch allocated in small (gm/ml)
+  if (isLargeUom(baseUom) && isSmallUom(uom)) {
+    return Number((aQty / factor).toFixed(6));
   }
+  // Case 2: Warehouse base is small (ml/gm like essences), batch allocated in large (liter/kg)
+  if (isSmallUom(baseUom) && isLargeUom(uom)) {
+    return Number((aQty * factor).toFixed(4));
+  }
+
   return aQty;
 }
 

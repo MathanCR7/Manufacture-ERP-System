@@ -47,13 +47,13 @@ function getConversionFactor(baseUom, altUom, explicitFactor, rawMaterial) {
   }
 
   // 3. Known standard metric units
-  const isLiter = ['liter', 'litre', 'l', 'liters', 'litres'].includes(b);
-  const isMl = ['ml', 'milliliter', 'millilitre', 'mls'].includes(a);
-  if (isLiter && isMl) return 1000;
+  const isLiter = (u) => ['liter', 'litre', 'l', 'liters', 'litres'].includes(u);
+  const isMl = (u) => ['ml', 'milliliter', 'millilitre', 'mls'].includes(u);
+  const isKg = (u) => ['kg', 'kilogram', 'kgs', 'kilograms', 'kilo'].includes(u);
+  const isGm = (u) => ['gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(u);
 
-  const isKg = ['kg', 'kilogram', 'kgs', 'kilograms'].includes(b);
-  const isGm = ['gm', 'g', 'gram', 'grams', 'gms'].includes(a);
-  if (isKg && isGm) return 1000;
+  if ((isLiter(b) && isMl(a)) || (isKg(b) && isGm(a))) return 1000;
+  if ((isMl(b) && isLiter(a)) || (isGm(b) && isKg(a))) return 0.001;
 
   const isMeter = ['m', 'meter', 'metre', 'meters'].includes(b);
   const isCm = ['cm', 'centimeter', 'centimeters'].includes(a);
@@ -67,7 +67,7 @@ function getConversionFactor(baseUom, altUom, explicitFactor, rawMaterial) {
 
 /**
  * Converts any input quantity into canonical Base UOM.
- * E.g., 4200 ml -> 4.2 liter; 800 gm -> 0.8 kg.
+ * E.g., 4200 ml -> 4.2 liter; 800 gm -> 0.8 kg; 0.012 liter -> 12 ml (when base is ml).
  */
 function toCanonicalBaseQty({
   inputQty,
@@ -83,10 +83,25 @@ function toCanonicalBaseQty({
   const b = cleanUom(baseUom);
   const a = cleanUom(altUom);
   const s = cleanUom(selectedUom);
-  const factor = getConversionFactor(b, a, conversionFactor);
+  if (b && s && s === b) return val;
+
+  const isSmall = (u) => ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(u);
+  const isLarge = (u) => ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(u);
+
+  let factor = getConversionFactor(b, a, conversionFactor);
+  if (factor > 0 && factor < 1) factor = Math.round(1 / factor);
+  if (!factor || factor <= 1) factor = 1000;
+
+  // Base is Large (kg/L) and selected is Small (gm/ml): divide by 1000
+  if (isLarge(b) && isSmall(s)) {
+    return Number((val / factor).toFixed(4));
+  }
+  // Base is Small (ml/gm) and selected is Large (L/kg): multiply by 1000
+  if (isSmall(b) && isLarge(s)) {
+    return Number((val * factor).toFixed(4));
+  }
 
   const isAlternate = factor > 1 && (s === a || (!s && a));
-
   if (isAlternate) {
     return Number((val / factor).toFixed(4));
   }

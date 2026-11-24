@@ -56,6 +56,8 @@ export function toMl(qty, uom, density = 1.0) {
     case 'g':
     case 'gm':
     case 'gms':
+    case 'grm':
+    case 'grms':
     case 'gram':
     case 'grams':
       return numQty / d;
@@ -86,9 +88,9 @@ export function toMl(qty, uom, density = 1.0) {
 
     default:
       if (norm.endsWith('ml')) return numQty;
-      if (norm.endsWith('l') || norm.endsWith('ltr')) return numQty * 1000;
+      if (norm.endsWith('l') || norm.endsWith('ltr') || norm.endsWith('liter') || norm.endsWith('litre')) return numQty * 1000;
       if (norm.endsWith('kg')) return (numQty * 1000) / d;
-      if (norm.endsWith('g') || norm.endsWith('gm')) return numQty / d;
+      if (norm.endsWith('g') || norm.endsWith('gm') || norm.endsWith('grm') || norm.endsWith('gram') || norm.endsWith('grams')) return numQty / d;
       return (numQty * 1000) / d;
   }
 }
