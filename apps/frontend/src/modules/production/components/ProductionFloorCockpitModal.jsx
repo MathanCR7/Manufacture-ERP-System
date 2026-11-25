@@ -3485,9 +3485,49 @@ export default function ProductionFloorCockpitModal({
       }
 
       const unallocated = rmRows.filter(r => {
-        const taken = Number(r.takenQty ?? r.requiredQty ?? 0);
-        const allocSum = (r.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
-        return taken <= 0 || allocSum < (taken - 0.0001);
+        const master = findMaster(r);
+        const reqQty = Number(r.takenQty ?? r.requiredQty ?? 0);
+        if (reqQty <= 0) return true; // invalid taken qty
+
+        const hasBatches = Array.isArray(r.allocatedBatches) && r.allocatedBatches.length > 0;
+        if (!hasBatches) return true;
+
+        const rUomLower = String(r.uom || '').toLowerCase().trim();
+        const isSmall = isSmallUnit(rUomLower);
+        const isLarge = isLargeUnit(rUomLower);
+        const factor = getEffectiveUnitFactor(r || master);
+
+        const allocatedSum = r.allocatedBatches.reduce((s, b) => {
+          const bQty = Number(b.allocatedQty || 0);
+          const bAlt = Number(b.allocatedAltQty || 0);
+          if (isSmall) {
+            if (bAlt > 0 && bAlt >= reqQty * 0.5) return s + bAlt;
+            if (bQty > 0 && bQty >= reqQty * 0.5) return s + bQty;
+            if (bQty > 0 && bQty < (reqQty * 0.1)) return s + (bQty * factor);
+            if (bAlt > 0 && bAlt < (reqQty * 0.1)) return s + (bAlt * factor);
+            return s + (bQty > 0 ? bQty : bAlt);
+          } else if (isLarge) {
+            if (bQty > 0 && bQty <= (reqQty * 2 || 100)) return s + bQty;
+            if (bAlt > 0 && bAlt <= (reqQty * 2 || 100)) return s + bAlt;
+            if (bQty > 0 && bQty > (reqQty * 10)) return s + (bQty / factor);
+            if (bAlt > 0 && bAlt > (reqQty * 10)) return s + (bAlt / factor);
+            return s + (bQty > 0 ? bQty : bAlt);
+          }
+          return s + (bQty > 0 ? bQty : bAlt);
+        }, 0);
+
+        const isFulfilled = (
+          Math.abs(allocatedSum - reqQty) <= 0.005 ||
+          allocatedSum >= (reqQty - 0.005) ||
+          r.allocatedBatches.some(b => {
+            const bQ = Number(b.allocatedQty || 0);
+            const bA = Number(b.allocatedAltQty || 0);
+            return Math.abs(bQ - reqQty) <= 0.005 || Math.abs(bA - reqQty) <= 0.005 ||
+                   (factor > 1 && (Math.abs(bQ * factor - reqQty) <= 0.005 || Math.abs(bA * factor - reqQty) <= 0.005 || Math.abs(bQ / factor - reqQty) <= 0.005));
+          })
+        );
+
+        return !isFulfilled;
       });
 
       if (unallocated.length > 0) {
@@ -3497,7 +3537,7 @@ export default function ProductionFloorCockpitModal({
             <p>Warehouse batch/lot allocation is <strong>mandatory</strong> before proceeding.</p>
             <p class="text-rose-600 font-semibold">The following base raw materials are missing or incompletely allocated:</p>
             <ul class="list-disc pl-5 font-mono text-xs text-slate-700 dark:text-slate-300">
-              ${unallocated.map(u => `<li><strong>${u.rawMaterialName}</strong> (Required: ${u.takenQty || u.requiredQty} ${formatCleanUom(u.uom, 'kg', u)}, Allocated: ${(u.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0)} ${formatCleanUom(u.uom, 'kg', u)})</li>`).join('')}
+              ${unallocated.map(u => `<li><strong>${u.rawMaterialName}</strong> (Required: ${u.takenQty || u.requiredQty} ${formatCleanUom(u.uom, 'kg', u)})</li>`).join('')}
             </ul>
             <p class="text-xs text-slate-500">Please click the <strong>Allocate Lots</strong> button for each item to select warehouse lots.</p>
           </div>`,
@@ -3534,14 +3574,63 @@ export default function ProductionFloorCockpitModal({
       allocations.forEach((alloc, aIdx) => {
         const prodName = alloc.productName || `Product #${alloc.seq || aIdx + 1}`;
         (alloc.productRms || []).forEach(prm => {
-          const qty = Number(prm.takenQty ?? prm.qty ?? 0);
-          const allocSum = (prm.allocatedBatches || []).reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
-          if (qty > 0 && allocSum < (qty - 0.0001)) {
+          const master = findMaster(prm);
+          const prmReqQty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
+          if (prmReqQty <= 0) return;
+
+          const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
+          if (!hasBatches) {
             unallocatedPrms.push({
               product: prodName,
               material: prm.rawMaterialName || prm.rmName || prm.name,
-              req: qty,
-              alloc: allocSum,
+              req: prmReqQty,
+              alloc: 0,
+              uom: prm.uom || 'units'
+            });
+            return;
+          }
+
+          const prmUomLower = String(prm.uom || '').toLowerCase().trim();
+          const isSmall = isSmallUnit(prmUomLower);
+          const isLarge = isLargeUnit(prmUomLower);
+          const factor = getEffectiveUnitFactor(prm || master);
+
+          const allocatedSum = prm.allocatedBatches.reduce((s, b) => {
+            const bQty = Number(b.allocatedQty || 0);
+            const bAlt = Number(b.allocatedAltQty || 0);
+            if (isSmall) {
+              if (bAlt > 0 && bAlt >= prmReqQty * 0.5) return s + bAlt;
+              if (bQty > 0 && bQty >= prmReqQty * 0.5) return s + bQty;
+              if (bQty > 0 && bQty < (prmReqQty * 0.1)) return s + (bQty * factor);
+              if (bAlt > 0 && bAlt < (prmReqQty * 0.1)) return s + (bAlt * factor);
+              return s + (bQty > 0 ? bQty : bAlt);
+            } else if (isLarge) {
+              if (bQty > 0 && bQty <= (prmReqQty * 2 || 100)) return s + bQty;
+              if (bAlt > 0 && bAlt <= (prmReqQty * 2 || 100)) return s + bAlt;
+              if (bQty > 0 && bQty > (prmReqQty * 10)) return s + (bQty / factor);
+              if (bAlt > 0 && bAlt > (prmReqQty * 10)) return s + (bAlt / factor);
+              return s + (bQty > 0 ? bQty : bAlt);
+            }
+            return s + (bQty > 0 ? bQty : bAlt);
+          }, 0);
+
+          const isFulfilled = (
+            Math.abs(allocatedSum - prmReqQty) <= 0.005 ||
+            allocatedSum >= (prmReqQty - 0.005) ||
+            prm.allocatedBatches.some(b => {
+              const bQ = Number(b.allocatedQty || 0);
+              const bA = Number(b.allocatedAltQty || 0);
+              return Math.abs(bQ - prmReqQty) <= 0.005 || Math.abs(bA - prmReqQty) <= 0.005 ||
+                     (factor > 1 && (Math.abs(bQ * factor - prmReqQty) <= 0.005 || Math.abs(bA * factor - prmReqQty) <= 0.005 || Math.abs(bQ / factor - prmReqQty) <= 0.005));
+            })
+          );
+
+          if (!isFulfilled) {
+            unallocatedPrms.push({
+              product: prodName,
+              material: prm.rawMaterialName || prm.rmName || prm.name,
+              req: prmReqQty,
+              alloc: Number(allocatedSum.toFixed(4)),
               uom: prm.uom || 'units'
             });
           }
