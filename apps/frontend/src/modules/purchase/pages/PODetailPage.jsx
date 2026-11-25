@@ -178,6 +178,14 @@ export default function PODetailPage() {
     }
   }, [highlightActive]);
 
+  // Auto-open payment settlement modal when requested via query param or navigation state
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    if (sp.get('action') === 'payment' || sp.get('payment') === 'true' || location.state?.openPayment) {
+      setPaymentModalOpen(true);
+    }
+  }, [location.search, location.state]);
+
   // Fetch PO Details
   const { data: po, isLoading, error } = useQuery({
     queryKey: ['po', id],

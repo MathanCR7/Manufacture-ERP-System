@@ -90,12 +90,28 @@ export default function DocumentDetailDrawer({ isOpen, onClose, doc, onRecordPay
                 Party: <strong>{header.party_name}</strong> • Issued: {formatDate(header.doc_date)} • Due: {formatDate(header.due_date)}
               </p>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <a
+                href={
+                  header.doc_type === 'PURCHASE_ORDER' ? `/purchase-orders/${header.doc_id}` :
+                  header.doc_type === 'ASSET_PO' ? `/asset-management/orders?id=${header.doc_id}` :
+                  header.doc_type === 'EXPENSE' ? `/finance/expenses?search=${encodeURIComponent(header.doc_no || '')}` :
+                  header.doc_type === 'SALES_ORDER' ? `/sales/orders?search=${encodeURIComponent(header.doc_no || '')}` :
+                  header.doc_type === 'SALES_INVOICE' ? `/sales/billing?invoiceId=${header.doc_id}` : '#'
+                }
+                title="Open original document page"
+                className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 font-bold hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-[11px] text-slate-700 dark:text-slate-300"
+              >
+                <span>Open Document</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Body Content */}
