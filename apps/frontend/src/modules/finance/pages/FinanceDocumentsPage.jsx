@@ -1,12 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { formatINR, formatDate, renderPaymentStatusChip, renderFulfilmentChip } from '@/utils/financeFormatters';
+import { exportToExcel, exportToPDF, exportToCSV } from '@/utils/reportExportUtils';
+import SearchSelect from '@/components/ui/SearchSelect';
 import { 
   FileText, Search, Filter, RefreshCw, Download, 
-  CreditCard, ChevronRight, Layers, ArrowUpDown, CheckSquare, 
+  CreditCard, ChevronRight, Layers, ArrowUpDown, ArrowUp, ArrowDown, CheckSquare, 
   AlertTriangle, ShoppingCart, HardDrive, DollarSign, Package,
-  ExternalLink, ChevronLeft, ChevronsLeft, ChevronsRight, Eye
+  ExternalLink, ChevronLeft, ChevronsLeft, ChevronsRight, Eye,
+  Printer, FileSpreadsheet, CheckCircle2, Clock, X, SlidersHorizontal,
+  Building2, Calendar, ShieldCheck, ArrowRight
 } from 'lucide-react';
 import DocumentDetailDrawer from '../components/DocumentDetailDrawer';
 import RecordPaymentModal from '../components/RecordPaymentModal';
@@ -44,6 +48,7 @@ export default function FinanceDocumentsPage() {
   const [summary, setSummary] = useState(null);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Modals & Drawers
   const [selectedDoc, setSelectedDoc] = useState(null);
@@ -161,9 +166,9 @@ export default function FinanceDocumentsPage() {
   };
 
   const handlePartyChange = (newParty) => {
-    setPartyFilter(newParty);
+    setPartyFilter(newParty || '');
     setPage(1);
-    updateQueryParams({ party_id: newParty, page: 1 });
+    updateQueryParams({ party_id: newParty || '', page: 1 });
   };
 
   const handleSearchSubmit = (e) => {
@@ -171,6 +176,13 @@ export default function FinanceDocumentsPage() {
     setActiveSearch(searchInput);
     setPage(1);
     updateQueryParams({ search: searchInput.trim(), page: 1 });
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setActiveSearch('');
+    setPage(1);
+    updateQueryParams({ search: '', page: 1 });
   };
 
   const handlePageChange = (newPage) => {
@@ -195,6 +207,13 @@ export default function FinanceDocumentsPage() {
     updateQueryParams({ sortBy: col, sortDir: newDir });
   };
 
+  const renderSortIndicator = (col) => {
+    if (sortBy !== col) return <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />;
+    return sortDir === 'ASC' 
+      ? <ArrowUp className="w-3 h-3 text-primary font-bold" />
+      : <ArrowDown className="w-3 h-3 text-primary font-bold" />;
+  };
+
   // Helper to get target URL for original document
   const getOriginalDocumentUrl = (doc) => {
     if (!doc) return '#';
@@ -205,9 +224,9 @@ export default function FinanceDocumentsPage() {
       case 'ASSET_PO':
         return `/asset-management/orders?id=${docId}`;
       case 'EXPENSE':
-        return `/finance/expenses?search=${encodeURIComponent(doc.doc_no || '')}`;
+        return `/finance/expenses?id=${docId}&search=${encodeURIComponent(doc.doc_no || '')}`;
       case 'SALES_ORDER':
-        return `/sales/orders?search=${encodeURIComponent(doc.doc_no || '')}`;
+        return `/sales/orders?id=${docId}&search=${encodeURIComponent(doc.doc_no || '')}`;
       case 'SALES_INVOICE':
         return `/sales/billing?invoiceId=${docId}`;
       default:
@@ -216,7 +235,17 @@ export default function FinanceDocumentsPage() {
   };
 
   /**
-   * KEY ACTION: Redirect directly to the original page with ID and auto-trigger payment settlement
+   * VIEW ACTION: Redirect to the respective page (Asset, PO, Sales, Expense)
+   */
+  const handleViewRedirect = (doc, e) => {
+    if (e) e.stopPropagation();
+    if (!doc) return;
+    const url = getOriginalDocumentUrl(doc);
+    navigate(url, { state: { fromFinance: true, docId: doc.doc_id, docNo: doc.doc_no } });
+  };
+
+  /**
+   * PAY ACTION: Redirect directly to the original page with ID and auto-trigger payment settlement
    */
   const handlePayRedirect = (doc, e) => {
     if (e) e.stopPropagation();
@@ -267,7 +296,6 @@ export default function FinanceDocumentsPage() {
         break;
 
       default:
-        // Fallback to in-app payment modal
         setPaymentModalDoc(doc);
         setIsPaymentModalOpen(true);
         break;
@@ -279,32 +307,96 @@ export default function FinanceDocumentsPage() {
     setIsDetailOpen(true);
   };
 
-  const handleExportCSV = () => {
-    if (!documents || documents.length === 0) return;
-    const headers = ['Doc No', 'Type', 'Date', 'Due Date', 'Party', 'Direction', 'Subtotal', 'Tax', 'Grand Total', 'Paid', 'Balance', 'Status', 'Overdue'];
-    const rows = documents.map(d => [
-      d.doc_no,
-      d.doc_type,
-      d.doc_date,
-      d.due_date,
-      `"${(d.party_name || '').replace(/"/g, '""')}"`,
-      d.direction,
-      d.subtotal,
-      Number(d.tax_cgst || 0) + Number(d.tax_sgst || 0) + Number(d.tax_igst || 0),
-      d.grand_total,
-      d.paid_amount,
-      d.balance,
-      d.payment_status,
-      d.is_overdue ? 'YES' : 'NO'
-    ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Finance_Documents_${activeTab}_${statusFilter}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // Prepare normalized export data
+  const getNormalizedExportRows = useCallback(() => {
+    if (!documents || documents.length === 0) return [];
+    return documents.map(d => ({
+      'Doc No': d.doc_no || '',
+      'Document Type': d.doc_type || '',
+      'Date': formatDate(d.doc_date),
+      'Due Date': d.due_date ? formatDate(d.due_date) : 'N/A',
+      'Party / Vendor': d.party_name || '',
+      'Direction': d.direction || '',
+      'Subtotal (₹)': Number(d.subtotal || 0),
+      'CGST (₹)': Number(d.tax_cgst || 0),
+      'SGST (₹)': Number(d.tax_sgst || 0),
+      'IGST (₹)': Number(d.tax_igst || 0),
+      'Total GST (₹)': Number(d.tax_cgst || 0) + Number(d.tax_sgst || 0) + Number(d.tax_igst || 0),
+      'Grand Total (₹)': Number(d.grand_total || 0),
+      'Paid Amount (₹)': Number(d.paid_amount || 0),
+      'Balance Outstanding (₹)': Number(d.balance || 0),
+      'Payment Status': (d.payment_status || 'UNPAID').replace(/_/g, ' '),
+      'Fulfilment Status': d.fulfilment_status || 'PENDING',
+      'Is Overdue': d.is_overdue ? `YES (${d.overdue_days || 0} days)` : 'NO'
+    }));
+  }, [documents]);
+
+  /**
+   * EXCEL EXPORT (.xlsx)
+   */
+  const handleExportExcel = () => {
+    const rows = getNormalizedExportRows();
+    if (!rows.length) {
+      alert('No documents available to export.');
+      return;
+    }
+
+    const columns = Object.keys(rows[0]).map(key => ({
+      header: key,
+      key: key
+    }));
+
+    const statusSuffix = statusFilter !== 'ALL' ? `_${statusFilter}` : '';
+    const filename = `Finance_Documents_${activeTab}${statusSuffix}`;
+    exportToExcel(filename, 'Finance Ledger', columns, rows);
+  };
+
+  /**
+   * PDF EXPORT (.pdf)
+   */
+  const handleDownloadPDF = () => {
+    if (!documents || documents.length === 0) {
+      alert('No documents available to export.');
+      return;
+    }
+
+    const columns = [
+      { header: 'Doc No', key: 'doc_no' },
+      { header: 'Date', key: 'doc_date', accessor: (d) => formatDate(d.doc_date) },
+      { header: 'Due Date', key: 'due_date', accessor: (d) => d.due_date ? formatDate(d.due_date) : '—' },
+      { header: 'Party / Counterparty', key: 'party_name' },
+      { header: 'Grand Total', key: 'grand_total', accessor: (d) => formatINR(d.grand_total) },
+      { header: 'Paid', key: 'paid_amount', accessor: (d) => formatINR(d.paid_amount) },
+      { header: 'Balance', key: 'balance', accessor: (d) => formatINR(d.balance) },
+      { header: 'Payment Status', key: 'payment_status', accessor: (d) => `${d.payment_status || 'UNPAID'}${d.is_overdue ? ' (OVERDUE)' : ''}` }
+    ];
+
+    const summaryCards = summary ? [
+      { label: 'Total Billed', value: formatINR(summary.totalBilled) },
+      { label: 'GST Tax', value: formatINR(summary.totalTax) },
+      { label: 'Settled / Paid', value: formatINR(summary.totalPaid) },
+      { label: 'Balance Outstanding', value: formatINR(summary.totalBalance) }
+    ] : [];
+
+    const statusLabel = statusFilter !== 'ALL' ? `Status: ${statusFilter}` : 'All Statuses';
+    const typeLabel = activeTab !== 'ALL' ? `Type: ${activeTab}` : 'All Document Types';
+    const subtitle = `Filter: ${typeLabel} | ${statusLabel} | Direction: ${directionFilter} | Records: ${documents.length}`;
+
+    exportToPDF({
+      title: 'Financial Documents & Ledger Report',
+      subtitle,
+      columns,
+      data: documents,
+      summaryCards,
+      companyName: 'Manufacturing ERP — Finance'
+    });
+  };
+
+  /**
+   * PRINT REPORT (Print Dialog with Dedicated Print Layout)
+   */
+  const handlePrint = () => {
+    window.print();
   };
 
   const tabs = [
@@ -348,12 +440,82 @@ export default function FinanceDocumentsPage() {
   const recordStart = meta.total === 0 ? 0 : (page - 1) * limit + 1;
   const recordEnd = Math.min(page * limit, meta.total);
 
+  // Normalize parties options for SearchSelect component
+  const partySelectOptions = useMemo(() => {
+    return [
+      { value: '', label: 'All Parties / Counterparties', subLabel: 'Show all vendors & customers' },
+      ...parties.map(p => ({
+        value: p.id,
+        label: p.name,
+        subLabel: `${p.type || 'PARTY'}${p.gstin ? ` • ${p.gstin}` : ''}`
+      }))
+    ];
+  }, [parties]);
+
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-7xl mx-auto">
-      {/* Page Title & Top Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="p-3 sm:p-6 space-y-4 max-w-[1680px] mx-auto font-sans">
+      {/* ── PRINT-ONLY STYLES ── */}
+      <style>{`
+        @media print {
+          nav, aside, header, .no-print, button, input, select, .action-cell {
+            display: none !important;
+          }
+          body {
+            background: white !important;
+            color: black !important;
+            font-size: 10pt !important;
+          }
+          .print-header {
+            display: block !important;
+            margin-bottom: 16px !important;
+          }
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+          }
+          th, td {
+            border: 1px solid #cbd5e1 !important;
+            padding: 4px 6px !important;
+            font-size: 8pt !important;
+          }
+          thead {
+            background-color: #f1f5f9 !important;
+            -webkit-print-color-adjust: exact;
+          }
+          .kpi-container {
+            display: grid !important;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 8px !important;
+            margin-bottom: 12px !important;
+          }
+        }
+        @media screen {
+          .print-header {
+            display: none;
+          }
+        }
+      `}</style>
+
+      {/* Print-Only Header Banner */}
+      <div className="print-header border-b pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Manufacturing ERP — Financial Ledger Report</h1>
+            <p className="text-xs text-gray-500">
+              Active Filter: {activeTab} | Status: {statusFilter} | Direction: {directionFilter}
+            </p>
+          </div>
+          <div className="text-right text-xs text-gray-500">
+            <p>Printed: {new Date().toLocaleString('en-IN')}</p>
+            <p>Total Records: {meta.total}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── TOP HEADER & ACTION BUTTONS ── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 no-print">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
               <FileText className="w-6 h-6 text-primary" />
               Financial Documents & Ledger
@@ -364,36 +526,70 @@ export default function FinanceDocumentsPage() {
                 Overdue Filter Active
               </span>
             )}
+            {statusFilter === 'UNPAID' && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                🔴 Unpaid Filter Active
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Real-time unified tracking of Payables, Receivables, Taxes, and Payment Allocations
+            Unified multi-ledger tracking of Payables, Receivables, Taxes, and Payment Allocations
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Action Controls: Print, Excel, PDF, General Payment */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Print Report */}
           <button
+            type="button"
+            onClick={handlePrint}
+            title="Print printable summary with active filters"
+            className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
+            <span>Print Report</span>
+          </button>
+
+          {/* Download PDF */}
+          <button
+            type="button"
+            onClick={handleDownloadPDF}
+            title="Download formatted PDF report"
+            className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span>Download PDF</span>
+          </button>
+
+          {/* Export Excel */}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            title="Export full financial ledger to Microsoft Excel (.xlsx)"
+            className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-bold text-xs text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Export Excel</span>
+          </button>
+
+          {/* General Payment Entry */}
+          <button
+            type="button"
             onClick={() => {
               setPaymentModalDoc(null);
               setIsPaymentModalOpen(true);
             }}
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm flex items-center gap-1.5"
+            className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all shadow-sm flex items-center gap-1.5 active:scale-95 cursor-pointer"
           >
             <CreditCard className="w-4 h-4" />
-            General Payment Entry
-          </button>
-          <button
-            onClick={handleExportCSV}
-            className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 font-semibold text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export CSV
+            <span>General Payment</span>
           </button>
         </div>
       </div>
 
-      {/* KPI / Aggregate Summary Banner */}
+      {/* ── KPI / AGGREGATE SUMMARY BANNER ── */}
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs kpi-container">
           <div>
             <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Billed</div>
             <div className="text-base font-black text-slate-900 dark:text-white mt-0.5">
@@ -413,7 +609,7 @@ export default function FinanceDocumentsPage() {
             </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Advance Paid</div>
+            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Advance Held</div>
             <div className="text-base font-black text-blue-600 mt-0.5">
               {formatINR(summary.totalAdvance)}
             </div>
@@ -427,8 +623,8 @@ export default function FinanceDocumentsPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto gap-2 text-xs font-semibold">
+      {/* ── TABS ── */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto gap-2 text-xs font-semibold no-print">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -436,7 +632,7 @@ export default function FinanceDocumentsPage() {
             <button
               key={tab.id}
               onClick={() => handleTabChange(tab.id)}
-              className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 font-bold whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 py-2.5 px-3 border-b-2 font-bold whitespace-nowrap transition-colors cursor-pointer ${
                 active
                   ? 'border-primary text-primary dark:text-primary-400'
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
@@ -449,165 +645,179 @@ export default function FinanceDocumentsPage() {
         })}
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
-        <form onSubmit={handleSearchSubmit} className="flex-1 min-w-[200px] max-w-sm relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by Doc No, Vendor or Customer..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="w-full h-8 pl-8 pr-2.5 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-xs"
-          />
-        </form>
+      {/* ── ADVANCED RESPONSIVE FILTER TOOLBAR ── */}
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs space-y-3 no-print">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+          
+          {/* 1. Global Search with Clear Button (Span 4 cols) */}
+          <div className="md:col-span-4 relative">
+            <form onSubmit={handleSearchSubmit} className="relative w-full">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search Doc No, Vendor, Customer..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="w-full h-9 pl-9 pr-8 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-xs font-medium focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={handleClearSearch}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </form>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Status Chip Filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => handleStatusChange(e.target.value)}
-            className={`h-8 px-2.5 rounded-md border text-xs font-bold transition-colors ${
-              statusFilter === 'OVERDUE'
-                ? 'border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
-                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
-            }`}
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="OVERDUE">⚠️ Overdue Only</option>
-            <option value="UNPAID">🔴 Unpaid</option>
-            <option value="ADVANCE_PAID">🔵 Advance Paid</option>
-            <option value="PARTIALLY_PAID">🟡 Partially Paid</option>
-            <option value="PAID">🟢 Paid</option>
-            <option value="OVERPAID">🟣 Overpaid</option>
-          </select>
+          {/* 2. Searchable Combobox for Parties / Counterparties (Span 4 cols) */}
+          <div className="md:col-span-4 min-w-0">
+            <SearchSelect
+              options={partySelectOptions}
+              value={partyFilter}
+              onChange={handlePartyChange}
+              placeholder="All Parties / Counterparties"
+              searchPlaceholder="Filter vendors & customers..."
+              size="sm"
+              className="w-full text-xs"
+              triggerClassName="h-9 rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium"
+            />
+          </div>
 
-          {/* Party Dropdown */}
-          <select
-            value={partyFilter}
-            onChange={(e) => handlePartyChange(e.target.value)}
-            className="h-8 px-2.5 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs max-w-[180px]"
-          >
-            <option value="">All Parties</option>
-            {parties.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-
-          {/* Direction Filter */}
-          <div className="flex rounded-md border border-slate-300 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800 text-[11px]">
-            <button
-              onClick={() => handleDirectionChange('ALL')}
-              className={`px-2 py-0.5 rounded font-bold transition-all ${
-                directionFilter === 'ALL' ? 'bg-white dark:bg-slate-900 shadow-2xs text-slate-900 dark:text-white' : 'text-slate-500'
+          {/* 3. Status Filter Dropdown (Span 2 cols) */}
+          <div className="md:col-span-2 min-w-0">
+            <select
+              value={statusFilter}
+              onChange={(e) => handleStatusChange(e.target.value)}
+              className={`w-full h-9 px-2.5 rounded-lg border text-xs font-bold transition-all outline-none cursor-pointer ${
+                statusFilter === 'OVERDUE'
+                  ? 'border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800 shadow-2xs'
+                  : statusFilter === 'UNPAID'
+                  ? 'border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800 shadow-2xs'
+                  : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200'
               }`}
             >
-              All
-            </button>
+              <option value="ALL">All Statuses</option>
+              <option value="OVERDUE">⚠️ Overdue Only</option>
+              <option value="UNPAID">🔴 Unpaid</option>
+              <option value="PARTIALLY_PAID">🟡 Partially Paid</option>
+              <option value="PAID">🟢 Fully Paid</option>
+              <option value="ADVANCE_PAID">🔵 Advance Paid</option>
+              <option value="OVERPAID">🟣 Overpaid</option>
+            </select>
+          </div>
+
+          {/* 4. Direction Pills & Refresh (Span 2 cols) */}
+          <div className="md:col-span-2 flex items-center justify-between sm:justify-end gap-1.5">
+            <div className="flex rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 bg-slate-100 dark:bg-slate-800 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => handleDirectionChange('ALL')}
+                className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                  directionFilter === 'ALL' ? 'bg-white dark:bg-slate-900 shadow-2xs text-slate-900 dark:text-white' : 'text-slate-500'
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDirectionChange('PAYABLE')}
+                className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                  directionFilter === 'PAYABLE' ? 'bg-white dark:bg-slate-900 shadow-2xs text-rose-600' : 'text-slate-500'
+                }`}
+              >
+                Pay
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDirectionChange('RECEIVABLE')}
+                className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                  directionFilter === 'RECEIVABLE' ? 'bg-white dark:bg-slate-900 shadow-2xs text-emerald-600' : 'text-slate-500'
+                }`}
+              >
+                Recv
+              </button>
+            </div>
+
             <button
-              onClick={() => handleDirectionChange('PAYABLE')}
-              className={`px-2 py-0.5 rounded font-bold transition-all ${
-                directionFilter === 'PAYABLE' ? 'bg-white dark:bg-slate-900 shadow-2xs text-rose-600' : 'text-slate-500'
-              }`}
+              type="button"
+              onClick={fetchDocuments}
+              title="Refresh Ledger Data"
+              className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
-              Payable
-            </button>
-            <button
-              onClick={() => handleDirectionChange('RECEIVABLE')}
-              className={`px-2 py-0.5 rounded font-bold transition-all ${
-                directionFilter === 'RECEIVABLE' ? 'bg-white dark:bg-slate-900 shadow-2xs text-emerald-600' : 'text-slate-500'
-              }`}
-            >
-              Receivable
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
-          {/* Page Size Limit Selector */}
-          <select
-            value={limit}
-            onChange={(e) => handleLimitChange(Number(e.target.value))}
-            className="h-8 px-2 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
-            title="Rows per page"
-          >
-            <option value={10}>10 / page</option>
-            <option value={25}>25 / page</option>
-            <option value={50}>50 / page</option>
-            <option value={100}>100 / page</option>
-          </select>
-
-          <button
-            onClick={fetchDocuments}
-            title="Refresh Ledger"
-            className="p-1.5 rounded-md border border-slate-300 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </div>
 
-      {/* Data Table */}
+      {/* ── DATA TABLE (STRICT MIN-WIDTHS, NO INTERCEPTION) ── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs text-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
+          <table className="w-full text-left border-collapse table-auto">
             <thead className="bg-slate-50 dark:bg-slate-950/70 border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase font-bold text-slate-500 tracking-wider select-none">
               <tr>
-                <th className="py-2.5 px-3 cursor-pointer hover:text-slate-800" onClick={() => handleSortToggle('doc_no')}>
+                <th className="py-3 px-3 min-w-[130px] cursor-pointer hover:text-slate-800 group" onClick={() => handleSortToggle('doc_no')}>
                   <div className="flex items-center gap-1">
                     <span>Doc No</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {renderSortIndicator('doc_no')}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 cursor-pointer hover:text-slate-800" onClick={() => handleSortToggle('doc_date')}>
+                <th className="py-3 px-2 min-w-[110px] cursor-pointer hover:text-slate-800 group" onClick={() => handleSortToggle('doc_date')}>
                   <div className="flex items-center gap-1">
                     <span>Date</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {renderSortIndicator('doc_date')}
                   </div>
                 </th>
-                <th className="py-2.5 px-3 cursor-pointer hover:text-slate-800" onClick={() => handleSortToggle('party_name')}>
+                <th className="py-3 px-3 min-w-[200px] max-w-[260px] cursor-pointer hover:text-slate-800 group" onClick={() => handleSortToggle('party_name')}>
                   <div className="flex items-center gap-1">
                     <span>Party / Counterparty</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {renderSortIndicator('party_name')}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-right">Subtotal</th>
-                <th className="py-2.5 px-2 text-right">GST</th>
-                <th className="py-2.5 px-2 text-right cursor-pointer hover:text-slate-800" onClick={() => handleSortToggle('grand_total')}>
+                <th className="py-3 px-2 text-right min-w-[95px]">Subtotal</th>
+                <th className="py-3 px-2 text-right min-w-[90px]">GST</th>
+                <th className="py-3 px-2 text-right min-w-[115px] cursor-pointer hover:text-slate-800 group" onClick={() => handleSortToggle('grand_total')}>
                   <div className="flex items-center justify-end gap-1">
                     <span>Grand Total</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {renderSortIndicator('grand_total')}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-right cursor-pointer hover:text-slate-800" onClick={() => handleSortToggle('paid_amount')}>
+                <th className="py-3 px-2 text-right min-w-[105px] cursor-pointer hover:text-slate-800 group" onClick={() => handleSortToggle('paid_amount')}>
                   <div className="flex items-center justify-end gap-1">
                     <span>Paid</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {renderSortIndicator('paid_amount')}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-right cursor-pointer hover:text-slate-800" onClick={() => handleSortToggle('balance')}>
+                <th className="py-3 px-2 text-right min-w-[110px] cursor-pointer hover:text-slate-800 group" onClick={() => handleSortToggle('balance')}>
                   <div className="flex items-center justify-end gap-1">
                     <span>Balance</span>
-                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                    {renderSortIndicator('balance')}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-center">Progress</th>
-                <th className="py-2.5 px-2">Fulfilment</th>
-                <th className="py-2.5 px-3">Payment Status</th>
-                <th className="py-2.5 px-3 text-center">Actions</th>
+                <th className="py-3 px-2 text-center min-w-[75px]">Settled</th>
+                <th className="py-3 px-2 min-w-[100px]">Fulfilment</th>
+                <th className="py-3 px-3 min-w-[130px]">Payment Status</th>
+                <th className="py-3 px-3 text-center min-w-[175px] action-cell">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
               {loading && documents.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-slate-400">
-                    <RefreshCw className="w-5 h-5 mx-auto animate-spin mb-2 text-primary" />
-                    Loading financial ledger documents...
+                  <td colSpan={12} className="py-16 text-center text-slate-400">
+                    <RefreshCw className="w-6 h-6 mx-auto animate-spin mb-2 text-primary" />
+                    <span>Loading financial documents & live payment allocations...</span>
                   </td>
                 </tr>
               ) : documents.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-slate-400">
-                    <AlertTriangle className="w-6 h-6 mx-auto mb-1 text-slate-400" />
-                    No documents matching the active criteria found.
+                  <td colSpan={12} className="py-16 text-center text-slate-400">
+                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                    <p className="font-bold text-slate-600 dark:text-slate-300 text-sm">No financial documents match the active filter</p>
+                    <p className="text-xs text-slate-400 mt-1">Try resetting the party dropdown or selecting "All Statuses".</p>
                   </td>
                 </tr>
               ) : (
@@ -624,82 +834,123 @@ export default function FinanceDocumentsPage() {
                       className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group cursor-pointer"
                       onClick={() => handleRowClick(doc)}
                     >
-                      <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
+                      {/* 1. Doc No with link icon */}
+                      <td className="py-3 px-3 font-bold text-slate-900 dark:text-white whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <span className="text-primary hover:underline">{doc.doc_no}</span>
-                          <a
-                            href={getOriginalDocumentUrl(doc)}
-                            onClick={(e) => e.stopPropagation()}
-                            title={`Open original ${doc.doc_type} page`}
-                            className="text-slate-400 hover:text-primary transition-colors p-0.5 rounded opacity-60 group-hover:opacity-100"
+                          <button
+                            type="button"
+                            onClick={(e) => handleViewRedirect(doc, e)}
+                            title={`Open original ${doc.doc_type}`}
+                            className="text-slate-400 hover:text-primary transition-colors p-0.5 rounded opacity-50 group-hover:opacity-100 no-print cursor-pointer"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
+                          </button>
+                        </div>
+                        <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                          {doc.doc_type.replace(/_/g, ' ')}
                         </div>
                       </td>
-                      <td className="py-2.5 px-2 text-slate-500 whitespace-nowrap">
-                        <div>{formatDate(doc.doc_date)}</div>
+
+                      {/* 2. Date & Due Date */}
+                      <td className="py-3 px-2 text-slate-500 whitespace-nowrap">
+                        <div className="font-medium text-slate-700 dark:text-slate-300">{formatDate(doc.doc_date)}</div>
                         {doc.due_date && (
-                          <div className={`text-[10px] ${doc.is_overdue ? 'text-rose-600 font-bold' : 'text-slate-400'}`}>
+                          <div className={`text-[10px] ${doc.is_overdue ? 'text-rose-600 font-extrabold' : 'text-slate-400 font-medium'}`}>
                             Due: {formatDate(doc.due_date)}
                           </div>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-slate-200 max-w-[200px] truncate" title={doc.party_name}>
-                        {doc.party_name}
+
+                      {/* 3. Party / Counterparty */}
+                      <td className="py-3 px-3 font-medium text-slate-800 dark:text-slate-200 max-w-[240px] truncate" title={doc.party_name}>
+                        <div className="truncate font-semibold">{doc.party_name}</div>
+                        <div className="text-[10px] text-slate-400">{doc.direction === 'PAYABLE' ? 'Supplier / Payee' : 'Customer / Payer'}</div>
                       </td>
-                      <td className="py-2.5 px-2 text-right text-slate-600 dark:text-slate-400 font-mono">
+
+                      {/* 4. Subtotal */}
+                      <td className="py-3 px-2 text-right text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">
                         {formatINR(doc.subtotal)}
                       </td>
-                      <td className="py-2.5 px-2 text-right text-slate-600 dark:text-slate-400 font-mono">
+
+                      {/* 5. GST */}
+                      <td className="py-3 px-2 text-right text-slate-600 dark:text-slate-400 font-mono whitespace-nowrap">
                         {formatINR(Number(doc.tax_cgst || 0) + Number(doc.tax_sgst || 0) + Number(doc.tax_igst || 0))}
                       </td>
-                      <td className="py-2.5 px-2 text-right font-extrabold text-slate-900 dark:text-white font-mono">
+
+                      {/* 6. Grand Total */}
+                      <td className="py-3 px-2 text-right font-black text-slate-900 dark:text-white font-mono whitespace-nowrap">
                         {formatINR(doc.grand_total)}
                       </td>
-                      <td className="py-2.5 px-2 text-right font-bold text-emerald-600 font-mono">
+
+                      {/* 7. Paid */}
+                      <td className="py-3 px-2 text-right font-bold text-emerald-600 font-mono whitespace-nowrap">
                         {formatINR(doc.paid_amount)}
                       </td>
-                      <td className="py-2.5 px-2 text-right font-extrabold font-mono text-rose-600">
+
+                      {/* 8. Balance */}
+                      <td className="py-3 px-2 text-right font-black font-mono text-rose-600 whitespace-nowrap">
                         {formatINR(doc.balance)}
                       </td>
-                      <td className="py-2.5 px-2 text-center">
-                        <div className="w-14 mx-auto bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+
+                      {/* 9. Progress Settled */}
+                      <td className="py-3 px-2 text-center whitespace-nowrap">
+                        <div className="w-12 mx-auto bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                           <div
                             className={`h-full ${progress === 100 ? 'bg-emerald-500' : progress > 0 ? 'bg-amber-500' : 'bg-transparent'}`}
                             style={{ width: `${progress}%` }}
                           />
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono">{progress}%</span>
+                        <span className="text-[10px] text-slate-400 font-mono font-bold">{progress}%</span>
                       </td>
-                      <td className="py-2.5 px-2 whitespace-nowrap">
+
+                      {/* 10. Fulfilment */}
+                      <td className="py-3 px-2 whitespace-nowrap">
                         {renderFulfilmentChip(doc.fulfilment_status)}
                       </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">
+
+                      {/* 11. Payment Status */}
+                      <td className="py-3 px-3 whitespace-nowrap">
                         {renderPaymentStatusChip(doc.payment_status, doc.is_overdue, doc.overdue_days)}
                       </td>
-                      <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+
+                      {/* 12. Actions (View + Pay + Drawer) */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap action-cell" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
+                          {/* PAY BUTTON */}
                           {isSettleable ? (
                             <button
                               type="button"
                               onClick={(e) => handlePayRedirect(doc, e)}
-                              title="Go to original page and settle payment with live synchronization"
-                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] shadow-sm transition-all flex items-center gap-1 active:scale-95"
+                              title="Redirect to original page to record synchronized payment"
+                              className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] shadow-sm transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
                             >
                               <CreditCard className="w-3 h-3" />
-                              Pay
+                              <span>Pay</span>
                             </button>
                           ) : (
                             <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                              Settled
+                              Paid
                             </span>
                           )}
+
+                          {/* VIEW BUTTON (Redirects to original PO, Asset, Sales, or Expense page) */}
+                          <button
+                            type="button"
+                            onClick={(e) => handleViewRedirect(doc, e)}
+                            title={`View original ${doc.doc_type} document`}
+                            className="px-2.5 py-1 rounded-md bg-sky-50 hover:bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:hover:bg-sky-900/50 dark:text-sky-300 font-bold text-[11px] border border-sky-200 dark:border-sky-800 transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>View</span>
+                          </button>
+
+                          {/* QUICK DRAWER BUTTON */}
                           <button
                             type="button"
                             onClick={() => handleRowClick(doc)}
-                            title="Inspect document ledger & timeline drawer"
-                            className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            title="Inspect on-page line items and timeline drawer"
+                            className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -713,33 +964,52 @@ export default function FinanceDocumentsPage() {
           </table>
         </div>
 
-        {/* Rich Interactive Pagination Footer */}
-        <div className="px-4 py-3 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 text-slate-500">
+        {/* ── RICH INTERACTIVE PAGINATION FOOTER ── */}
+        <div className="px-4 py-3 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs no-print">
+          
+          {/* Records range and Limit dropdown */}
+          <div className="flex flex-wrap items-center gap-3 text-slate-500">
             <span>
               Showing <strong className="text-slate-800 dark:text-slate-200">{recordStart}</strong> to{' '}
               <strong className="text-slate-800 dark:text-slate-200">{recordEnd}</strong> of{' '}
               <strong className="text-slate-800 dark:text-slate-200">{meta.total}</strong> documents
             </span>
+
+            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-300 dark:border-slate-700">
+              <span className="text-[11px]">Rows:</span>
+              <select
+                value={limit}
+                onChange={(e) => handleLimitChange(Number(e.target.value))}
+                className="h-7 px-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold cursor-pointer outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
           </div>
 
+          {/* Pagination Controls */}
           <div className="flex items-center gap-1">
             {/* First Page */}
             <button
+              type="button"
               disabled={page <= 1}
               onClick={() => handlePageChange(1)}
               title="First Page"
-              className="p-1.5 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              className="p-1.5 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
             >
               <ChevronsLeft className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
             </button>
 
             {/* Previous Page */}
             <button
+              type="button"
               disabled={page <= 1}
               onClick={() => handlePageChange(page - 1)}
               title="Previous Page"
-              className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300"
+              className="px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span>Prev</span>
@@ -759,10 +1029,11 @@ export default function FinanceDocumentsPage() {
                 return (
                   <button
                     key={`page-${item}`}
+                    type="button"
                     onClick={() => handlePageChange(item)}
-                    className={`min-w-[28px] h-7 px-2 rounded font-bold transition-all text-xs ${
+                    className={`min-w-[30px] h-7 px-2 rounded-md font-bold transition-all text-xs cursor-pointer ${
                       isCurrent
-                        ? 'bg-primary text-white shadow-2xs font-extrabold'
+                        ? 'bg-primary text-white shadow-2xs font-black'
                         : 'border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
                     }`}
                   >
@@ -772,17 +1043,18 @@ export default function FinanceDocumentsPage() {
               })}
             </div>
 
-            {/* Current Page Indicator on mobile */}
+            {/* Current Page Indicator on small screens */}
             <span className="sm:hidden px-2 font-bold text-slate-700 dark:text-slate-300">
               {page} / {meta.totalPages || 1}
             </span>
 
             {/* Next Page */}
             <button
+              type="button"
               disabled={page >= (meta.totalPages || 1)}
               onClick={() => handlePageChange(page + 1)}
               title="Next Page"
-              className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300"
+              className="px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
             >
               <span>Next</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -790,18 +1062,20 @@ export default function FinanceDocumentsPage() {
 
             {/* Last Page */}
             <button
+              type="button"
               disabled={page >= (meta.totalPages || 1)}
               onClick={() => handlePageChange(meta.totalPages || 1)}
               title="Last Page"
-              className="p-1.5 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+              className="p-1.5 rounded-md border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
             >
               <ChevronsRight className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
             </button>
           </div>
+
         </div>
       </div>
 
-      {/* Document Detail Drawer */}
+      {/* ── DOCUMENT DETAIL DRAWER ── */}
       <DocumentDetailDrawer
         isOpen={isDetailOpen}
         onClose={() => setIsDetailOpen(false)}
@@ -810,7 +1084,7 @@ export default function FinanceDocumentsPage() {
         onRefresh={fetchDocuments}
       />
 
-      {/* General Record Payment Modal */}
+      {/* ── GENERAL RECORD PAYMENT MODAL ── */}
       <RecordPaymentModal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
