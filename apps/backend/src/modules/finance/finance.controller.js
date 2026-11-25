@@ -1006,6 +1006,531 @@ const getExpensesSummary = async (req, res, next) => {
   }
 };
 
+// ============================================================================
+// ENTERPRISE FINANCE & ACCOUNTING CONTROLLER METHODS
+// ============================================================================
+
+/**
+ * Get Finance Dashboard KPIs, Charts, and Attention Items
+ */
+const getFinanceDashboard = async (req, res, next) => {
+  try {
+    const { direction = 'ALL', from, to } = req.query;
+
+    let dirClause = '1=1';
+    if (direction === 'PAYABLE') dirClause = "direction = 'PAYABLE'";
+    if (direction === 'RECEIVABLE') dirClause = "direction = 'RECEIVABLE'";
+
+    let dateClause = '1=1';
+    if (from) dateClause += ` AND doc_date >= '${from}'::date`;
+    if (to) dateClause += ` AND doc_date <= '${to}'::date`;
+
+    // 1. Core KPIs
+    const kpiRows = await prisma.$queryRawUnsafe(`
+      SELECT 
+        COALESCE(SUM(grand_total), 0)::numeric(14,2) AS total_billed,
+        COALESCE(SUM(paid_amount), 0)::numeric(14,2) AS total_paid,
+        COALESCE(SUM(advance_amount), 0)::numeric(14,2) AS total_advance,
+        COALESCE(SUM(balance), 0)::numeric(14,2) AS total_outstanding,
+        COUNT(CASE WHEN is_overdue THEN 1 END)::int AS overdue_count,
+        COALESCE(SUM(CASE WHEN is_overdue THEN balance ELSE 0 END), 0)::numeric(14,2) AS overdue_amount
+      FROM v_finance_documents
+      WHERE ${dirClause} AND ${dateClause};
+    `);
+
+    // 2. GST Summary from v_gst_register
+    const gstRows = await prisma.$queryRawUnsafe(`
+      SELECT 
+        COALESCE(SUM(total_itc), 0)::numeric(14,2) as itc_balance,
+        COALESCE(SUM(total_output), 0)::numeric(14,2) as output_liability,
+        COALESCE(SUM(net_gst_payable), 0)::numeric(14,2) as net_gst_payable,
+        COALESCE(SUM(carry_forward_itc), 0)::numeric(14,2) as carry_forward_itc
+      FROM v_gst_register;
+    `);
+
+    // 3. Monthly Trend (Last 6-12 Months)
+    const trendRows = await prisma.$queryRawUnsafe(`
+      SELECT 
+        TO_CHAR(doc_date, 'YYYY-MM') as month,
+        ROUND(COALESCE(SUM(grand_total), 0), 2) as billed,
+        ROUND(COALESCE(SUM(paid_amount), 0), 2) as paid,
+        ROUND(COALESCE(SUM(balance), 0), 2) as outstanding
+      FROM v_finance_documents
+      WHERE ${dirClause}
+      GROUP BY TO_CHAR(doc_date, 'YYYY-MM')
+      ORDER BY month ASC;
+    `);
+
+    // 4. Aging Buckets
+    const agingRows = await prisma.$queryRawUnsafe(`
+      SELECT 
+        age_bucket,
+        ROUND(COALESCE(SUM(balance), 0), 2) as amount,
+        COUNT(*)::int as count
+      FROM v_finance_documents
+      WHERE ${dirClause} AND balance > 1
+      GROUP BY age_bucket
+      ORDER BY 
+        CASE age_bucket
+          WHEN 'Current' THEN 1
+          WHEN '0-30' THEN 2
+          WHEN '31-60' THEN 3
+          WHEN '61-90' THEN 4
+          ELSE 5
+        END;
+    `);
+
+    // 5. Expense Share by Category
+    const expenseShares = await prisma.$queryRawUnsafe(`
+      SELECT 
+        COALESCE(category, 'General') as category,
+        ROUND(SUM(COALESCE("totalAmount", amount, 0)), 2) as total_amount,
+        COUNT(*)::int as count
+      FROM "Expense"
+      GROUP BY COALESCE(category, 'General')
+      ORDER BY total_amount DESC;
+    `);
+
+    // 6. Top 5 Suppliers by Outstanding
+    const topSuppliers = await prisma.$queryRawUnsafe(`
+      SELECT party_name, ROUND(SUM(balance), 2) as outstanding
+      FROM v_finance_documents
+      WHERE direction = 'PAYABLE' AND balance > 1
+      GROUP BY party_name
+      ORDER BY outstanding DESC
+      LIMIT 5;
+    `);
+
+    // 7. Top 5 Customers by Receivable
+    const topCustomers = await prisma.$queryRawUnsafe(`
+      SELECT party_name, ROUND(SUM(balance), 2) as receivable
+      FROM v_finance_documents
+      WHERE direction = 'RECEIVABLE' AND balance > 1
+      GROUP BY party_name
+      ORDER BY receivable DESC
+      LIMIT 5;
+    `);
+
+    // 8. Needs Attention List (Overdue, Unallocated, and Production Ready)
+    const attentionItems = await prisma.$queryRawUnsafe(`
+      SELECT 
+        doc_type, doc_id, doc_no, doc_date, due_date, party_name, grand_total, balance, payment_status, is_overdue, overdue_days, fulfilment_status,
+        CASE 
+          WHEN is_overdue THEN 'Overdue Payment (' || overdue_days || ' days past due)'
+          WHEN doc_type = 'SALES_ORDER' AND fulfilment_status = 'COMPLETE' AND payment_status = 'UNPAID' THEN 'Production Complete - Payment Pending'
+          WHEN doc_type = 'PURCHASE_ORDER' AND fulfilment_status = 'COMPLETE' AND balance > 1 THEN 'GRN Received - Bill Pending Payment'
+          ELSE 'Needs Review'
+        END as alert_reason
+      FROM v_finance_documents
+      WHERE (is_overdue = true OR (fulfilment_status = 'COMPLETE' AND balance > 1))
+      ORDER BY overdue_days DESC, grand_total DESC
+      LIMIT 10;
+    `);
+
+    return res.json({
+      success: true,
+      data: {
+        kpi: {
+          totalBilled: Number(kpiRows[0]?.total_billed || 0),
+          totalPaid: Number(kpiRows[0]?.total_paid || 0),
+          totalAdvance: Number(kpiRows[0]?.total_advance || 0),
+          totalOutstanding: Number(kpiRows[0]?.total_outstanding || 0),
+          overdueCount: Number(kpiRows[0]?.overdue_count || 0),
+          overdueAmount: Number(kpiRows[0]?.overdue_amount || 0),
+          netGstPayable: Number(gstRows[0]?.net_gst_payable || 0),
+          itcBalance: Number(gstRows[0]?.itc_balance || 0),
+          carryForwardItc: Number(gstRows[0]?.carry_forward_itc || 0)
+        },
+        monthlyTrend: trendRows,
+        agingBuckets: agingRows,
+        expenseShares,
+        topSuppliers,
+        topCustomers,
+        attentionItems
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get unified documents list with multi-filtering and pagination
+ */
+const getFinanceDocuments = async (req, res, next) => {
+  try {
+    const {
+      type = 'ALL',
+      status = 'ALL',
+      direction,
+      party_id,
+      from,
+      to,
+      search,
+      page = 1,
+      limit = 25,
+      sortBy = 'doc_date',
+      sortDir = 'DESC'
+    } = req.query;
+
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const conditions = ['1=1'];
+
+    if (type !== 'ALL') {
+      conditions.push(`doc_type = '${type.toUpperCase()}'`);
+    }
+    if (direction && ['PAYABLE', 'RECEIVABLE'].includes(direction.toUpperCase())) {
+      conditions.push(`direction = '${direction.toUpperCase()}'`);
+    }
+    if (status && status !== 'ALL') {
+      if (status.toUpperCase() === 'OVERDUE') {
+        conditions.push(`is_overdue = true`);
+      } else {
+        conditions.push(`payment_status = '${status.toUpperCase()}'`);
+      }
+    }
+    if (party_id) {
+      conditions.push(`party_id = '${party_id}'`);
+    }
+    if (from) {
+      conditions.push(`doc_date >= '${from}'::date`);
+    }
+    if (to) {
+      conditions.push(`doc_date <= '${to}'::date`);
+    }
+    if (search && search.trim()) {
+      const q = search.trim().replace(/'/g, "''");
+      conditions.push(`(doc_no ILIKE '%${q}%' OR party_name ILIKE '%${q}%')`);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Total Count & Summary
+    const summaryRows = await prisma.$queryRawUnsafe(`
+      SELECT 
+        COUNT(*)::int as total,
+        COALESCE(SUM(subtotal), 0)::numeric(14,2) as total_subtotal,
+        COALESCE(SUM(tax_cgst + tax_sgst + tax_igst), 0)::numeric(14,2) as total_tax,
+        COALESCE(SUM(grand_total), 0)::numeric(14,2) as total_grand,
+        COALESCE(SUM(paid_amount), 0)::numeric(14,2) as total_paid,
+        COALESCE(SUM(advance_amount), 0)::numeric(14,2) as total_advance,
+        COALESCE(SUM(balance), 0)::numeric(14,2) as total_balance
+      FROM v_finance_documents
+      WHERE ${whereClause};
+    `);
+
+    const total = summaryRows[0]?.total || 0;
+
+    // Allowed sort columns
+    const allowedSortCols = ['doc_date', 'due_date', 'grand_total', 'paid_amount', 'balance', 'doc_no', 'party_name'];
+    const resolvedSort = allowedSortCols.includes(sortBy) ? sortBy : 'doc_date';
+    const resolvedDir = sortDir.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT *
+      FROM v_finance_documents
+      WHERE ${whereClause}
+      ORDER BY ${resolvedSort} ${resolvedDir}, doc_id DESC
+      LIMIT ${parseInt(limit, 10)} OFFSET ${offset};
+    `);
+
+    return res.json({
+      success: true,
+      data: rows,
+      summary: {
+        totalBilled: Number(summaryRows[0]?.total_grand || 0),
+        totalSubtotal: Number(summaryRows[0]?.total_subtotal || 0),
+        totalTax: Number(summaryRows[0]?.total_tax || 0),
+        totalPaid: Number(summaryRows[0]?.total_paid || 0),
+        totalAdvance: Number(summaryRows[0]?.total_advance || 0),
+        totalBalance: Number(summaryRows[0]?.total_balance || 0)
+      },
+      meta: {
+        total,
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        totalPages: Math.ceil(total / parseInt(limit, 10))
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get single document detail with line items, tax split, payments, and timeline
+ */
+const getFinanceDocumentDetail = async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+
+    const docHeaderRows = await prisma.$queryRawUnsafe(`
+      SELECT * FROM v_finance_documents 
+      WHERE doc_type = $1 AND doc_id = $2 LIMIT 1;
+    `, type.toUpperCase(), id);
+
+    if (!docHeaderRows || docHeaderRows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Document not found' });
+    }
+
+    const header = docHeaderRows[0];
+    let lineItems = [];
+    let linkedTimeline = [];
+
+    // Fetch line items based on document type
+    if (type.toUpperCase() === 'PURCHASE_ORDER') {
+      const po = await prisma.rawMaterialPO.findUnique({
+        where: { id },
+        include: { supplier: true }
+      });
+      lineItems = Array.isArray(po?.items) ? po.items : [];
+      linkedTimeline = [
+        { title: 'PO Issued', date: po?.createdAt, status: 'Completed', details: `PO #${po?.referenceNo}` },
+        { title: 'GRN Receipt', date: po?.createdAt, status: header.fulfilment_status === 'COMPLETE' ? 'Completed' : 'Pending', details: `${po?.totalReceivedQty || 0} received` },
+        { title: 'Payment Settlement', date: po?.paymentDate, status: header.payment_status === 'PAID' ? 'Completed' : 'In Progress', details: `Paid ₹${header.paid_amount} / ₹${header.grand_total}` }
+      ];
+    } else if (type.toUpperCase() === 'ASSET_PO') {
+      const apo = await prisma.assetPO.findUnique({
+        where: { id },
+        include: { items: true }
+      });
+      lineItems = apo?.items || [];
+      linkedTimeline = [
+        { title: 'Asset PO Created', date: apo?.createdAt, status: 'Completed', details: `PO #${apo?.poNo}` },
+        { title: 'Delivery & Inspection', date: apo?.deliveryDate, status: header.document_status === 'Closed' ? 'Completed' : 'Pending', details: apo?.status },
+        { title: 'Asset Capitalization', date: apo?.updatedAt, status: header.document_status === 'Closed' ? 'Completed' : 'Pending', details: `Commissioning Complete` }
+      ];
+    } else if (type.toUpperCase() === 'SALES_ORDER') {
+      const so = await prisma.customerOrder.findUnique({
+        where: { id },
+        include: { items: { include: { product: true } }, customer: true }
+      });
+      lineItems = so?.items || [];
+      linkedTimeline = [
+        { title: 'Sales Order Booked', date: so?.createdAt, status: 'Completed', details: `SO #${so?.docNo}` },
+        { title: 'Production Execution', date: so?.createdAt, status: header.fulfilment_status === 'COMPLETE' ? 'Completed' : 'Pending', details: so?.status },
+        { title: 'Dispatch & Billing', date: so?.dueDate, status: header.payment_status === 'PAID' ? 'Completed' : 'Pending', details: `Grand Total: ₹${header.grand_total}` }
+      ];
+    } else if (type.toUpperCase() === 'EXPENSE') {
+      const exp = await prisma.expense.findUnique({
+        where: { id },
+        include: { expenseCategory: true }
+      });
+      lineItems = [{
+        name: exp?.title || exp?.category,
+        category: exp?.category,
+        taxable: exp?.taxableAmount || exp?.amount,
+        gstRate: exp?.gstPercentage,
+        total: exp?.totalAmount
+      }];
+      linkedTimeline = [
+        { title: 'Expense Incurred', date: exp?.date, status: 'Completed', details: exp?.expenseNumber },
+        { title: 'Accounting Verification', date: exp?.createdAt, status: 'Completed', details: exp?.paymentMode }
+      ];
+    }
+
+    // Fetch payment allocations and payment transactions
+    const paymentAllocations = await prisma.$queryRawUnsafe(`
+      SELECT 
+        pa.id as allocation_id,
+        pa.amount as allocated_amount,
+        pa.kind as allocation_kind,
+        pa.created_at as allocated_at,
+        p.id as payment_id,
+        p.payment_no,
+        p.pay_date,
+        p.mode as payment_mode,
+        p.reference_no,
+        p.notes,
+        p.is_reversed,
+        b.name as account_name
+      FROM payment_allocations pa
+      JOIN payments p ON p.id = pa.payment_id
+      LEFT JOIN bank_accounts b ON b.id = p.bank_account_id
+      WHERE pa.doc_type = $1 AND pa.doc_id = $2
+      ORDER BY p.pay_date DESC, pa.id DESC;
+    `, type.toUpperCase(), id);
+
+    return res.json({
+      success: true,
+      data: {
+        header,
+        lineItems,
+        paymentAllocations,
+        linkedTimeline
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get Party Ledger with running balance
+ */
+const getPartyLedger = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { from, to } = req.query;
+
+    const partyRows = await prisma.$queryRawUnsafe(`
+      SELECT id, name, type, gstin, phone, email, address, opening_balance, opening_balance_type, credit_days, credit_limit
+      FROM parties WHERE id = $1 LIMIT 1;
+    `, id);
+
+    if (!partyRows || partyRows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Party not found' });
+    }
+
+    const party = partyRows[0];
+    let dateFilter = '1=1';
+    if (from) dateFilter += ` AND txn_date >= '${from}'::date`;
+    if (to) dateFilter += ` AND txn_date <= '${to}'::date`;
+
+    const txns = await prisma.$queryRawUnsafe(`
+      SELECT txn_date, ref_no, txn_type, description, debit, credit
+      FROM v_party_ledger
+      WHERE party_id = $1 AND ${dateFilter}
+      ORDER BY txn_date ASC, ref_no ASC;
+    `, id);
+
+    // Compute running balance
+    let running = party.opening_balance_type === 'CR' ? -Number(party.opening_balance) : Number(party.opening_balance);
+    const ledger = txns.map(t => {
+      const dr = Number(t.debit) || 0;
+      const cr = Number(t.credit) || 0;
+      running += (dr - cr);
+      return {
+        ...t,
+        debit: dr,
+        credit: cr,
+        running_balance: Number(running.toFixed(2))
+      };
+    });
+
+    return res.json({
+      success: true,
+      party,
+      openingBalance: Number(party.opening_balance),
+      closingBalance: Number(running.toFixed(2)),
+      ledger
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get Aging Matrix Report
+ */
+const getAgingReport = async (req, res, next) => {
+  try {
+    const { direction = 'PAYABLE' } = req.query;
+    const isPayable = direction.toUpperCase() === 'PAYABLE';
+
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT * FROM ${isPayable ? 'v_aging_payables' : 'v_aging_receivables'};
+    `);
+
+    return res.json({
+      success: true,
+      direction: direction.toUpperCase(),
+      data: rows
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get GST Monthly Register
+ */
+const getGstRegister = async (req, res, next) => {
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT * FROM v_gst_register;
+    `);
+
+    return res.json({
+      success: true,
+      data: rows
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get Cash & Bank Book Transactions
+ */
+const getCashBankBook = async (req, res, next) => {
+  try {
+    const { account_id, from, to } = req.query;
+    let conditions = ['1=1'];
+    if (account_id) conditions.push(`bank_account_id = ${Number(account_id)}`);
+    if (from) conditions.push(`pay_date >= '${from}'::date`);
+    if (to) conditions.push(`pay_date <= '${to}'::date`);
+
+    const whereClause = conditions.join(' AND ');
+
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT * FROM v_cash_bank_book
+      WHERE ${whereClause}
+      ORDER BY pay_date DESC, created_at DESC;
+    `);
+
+    return res.json({
+      success: true,
+      data: rows
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get Quotations Pipeline (Excluded from balance sheet)
+ */
+const getQuotationPipeline = async (req, res, next) => {
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT * FROM v_quotation_pipeline ORDER BY created_at DESC;
+    `);
+
+    return res.json({
+      success: true,
+      data: rows
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get list of Parties for selectors
+ */
+const getPartiesList = async (req, res, next) => {
+  try {
+    const { type } = req.query;
+    let typeClause = '1=1';
+    if (type) typeClause = `type = '${type.toUpperCase()}' OR type = 'BOTH'`;
+
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT id, name, type, gstin, phone, email, credit_days, credit_limit
+      FROM parties
+      WHERE ${typeClause}
+      ORDER BY name ASC;
+    `);
+
+    return res.json({
+      success: true,
+      data: rows
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getNextExpenseNumber,
   createExpense,
@@ -1016,5 +1541,16 @@ module.exports = {
   deleteExpense,
   getExpensesSummary,
   uploadExpenseAttachments,
-  removeExpenseAttachmentFile
+  removeExpenseAttachmentFile,
+  // New Finance & Accounting API
+  getFinanceDashboard,
+  getFinanceDocuments,
+  getFinanceDocumentDetail,
+  getPartyLedger,
+  getAgingReport,
+  getGstRegister,
+  getCashBankBook,
+  getQuotationPipeline,
+  getPartiesList
 };
+

@@ -78,7 +78,11 @@ const getEffectiveUnitFactor = (item) => {
     if (b > 0 && a > 0) f = Math.max(b, a) / Math.min(b, a);
   }
   if (f > 0 && f < 1) f = Math.round(1 / f);
-  return (f && f > 1) ? f : 1000;
+  if (f && f > 1) return f;
+  const u = String(item?.unitId || item?.uom || item?.primaryUom || '').toLowerCase().trim();
+  const alt = String(item?.alternateUom || '').toLowerCase().trim();
+  if (isLargeUnit(u) || isSmallUnit(alt) || isSmallUnit(u)) return 1000;
+  return 1000;
 };
 
 /**
@@ -1225,12 +1229,16 @@ export default function ProductionFloorCockpitModal({
               (prm.rawMaterialName && rc.name && rc.name.toLowerCase() === prm.rawMaterialName.toLowerCase())
             );
 
-            const hasAlt = Boolean(m ? (m.hasAlternateUom && m.alternateUom) : (prm.hasAlternateUom && prm.alternateUom));
-            const altUom = m?.alternateUom || prm.alternateUom || null;
             const primUom = m?.uom || m?.unitId || prm.primaryUom || (isPackagingMaterial(prm) ? 'pcs' : 'ml');
-            const factor = Number(m?.conversionFactor || prm.conversionFactor || 1);
-            const baseQty = Number(m?.baseUomQty || 1000);
-            const altQty = Number(m?.alternateUomQty || 1);
+            const primUomLower = String(primUom || '').toLowerCase().trim();
+            const autoLarge = isLargeUnit(primUomLower);
+            const autoDefaultAlt = (primUomLower === 'kg' || primUomLower === 'kgs' || primUomLower === 'kilogram') ? 'gm' : 'ml';
+            const hasAlt = Boolean((m ? (m.hasAlternateUom && m.alternateUom) : (prm.hasAlternateUom && prm.alternateUom)) || autoLarge);
+            const altUom = m?.alternateUom || prm.alternateUom || (autoLarge ? autoDefaultAlt : null);
+            let factor = Number(m?.conversionFactor || prm.conversionFactor || (autoLarge ? 1000 : 1));
+            if (autoLarge && factor <= 1) factor = 1000;
+            const baseQty = Number(m?.baseUomQty || (autoLarge ? 1 : 1000));
+            const altQty = Number(m?.alternateUomQty || (autoLarge ? 1000 : 1));
             const rawUnitRate = Number(prm.unitRate || m?.ratePerUnit || (prm.rmCode === 'RM-00047' ? 4.01 : 0));
             const activeUom = prm.uom || (hasAlt ? altUom : primUom);
             const isAltUom = Boolean(hasAlt && altUom && String(activeUom).toLowerCase() === String(altUom).toLowerCase());
@@ -2885,13 +2893,14 @@ export default function ProductionFloorCockpitModal({
       const newPrms = selectedMaterials.map(rm => {
         const isPackaging = isPackagingMaterial(rm);
         const cleanUom = formatCleanUom(rm.consumptionUnit || rm.uom || rm.unitId, isPackaging ? 'pcs' : 'ml', rm);
-        const hasAlt = Boolean(rm.hasAlternateUom && rm.alternateUom);
-        const altUom = rm.alternateUom || null;
-        let convFactor = Number(rm.conversionFactor || 1);
         const bStr = String(cleanUom || '').toLowerCase();
+        const autoLarge = isLargeUnit(bStr);
+        const autoDefaultAlt = (bStr === 'kg' || bStr === 'kgs' || bStr === 'kilogram') ? 'gm' : 'ml';
+        const hasAlt = Boolean((rm.hasAlternateUom && rm.alternateUom) || autoLarge);
+        const altUom = rm.alternateUom || (autoLarge ? autoDefaultAlt : null);
+        let convFactor = Number(rm.conversionFactor || 1);
         const aStr = String(altUom || '').toLowerCase();
-        if ((bStr === 'kg' || bStr === 'kgs' || bStr === 'kilogram' || bStr === 'liter' || bStr === 'litre' || bStr === 'l') &&
-            (aStr === 'gm' || aStr === 'g' || aStr === 'gram' || aStr === 'ml' || aStr === 'milliliter')) {
+        if (autoLarge || (bStr && aStr)) {
           if (convFactor > 0 && convFactor < 1) convFactor = Math.round(1 / convFactor);
           if (!convFactor || convFactor <= 1) convFactor = 1000;
         }
@@ -3593,25 +3602,43 @@ export default function ProductionFloorCockpitModal({
           const prmUomLower = String(prm.uom || '').toLowerCase().trim();
           const isSmall = isSmallUnit(prmUomLower);
           const isLarge = isLargeUnit(prmUomLower);
-          const factor = getEffectiveUnitFactor(prm || master);
+          const factor = Math.max(1, getEffectiveUnitFactor(prm), getEffectiveUnitFactor(master), 1000);
 
           const allocatedSum = prm.allocatedBatches.reduce((s, b) => {
+            const bUomLower = String(b.uom || b.unit || '').toLowerCase().trim();
             const bQty = Number(b.allocatedQty || 0);
             const bAlt = Number(b.allocatedAltQty || 0);
+
+            let batchNormalized = 0;
             if (isSmall) {
-              if (bAlt > 0 && bAlt >= prmReqQty * 0.5) return s + bAlt;
-              if (bQty > 0 && bQty >= prmReqQty * 0.5) return s + bQty;
-              if (bQty > 0 && bQty < (prmReqQty * 0.1)) return s + (bQty * factor);
-              if (bAlt > 0 && bAlt < (prmReqQty * 0.1)) return s + (bAlt * factor);
-              return s + (bQty > 0 ? bQty : bAlt);
+              if (bAlt > 0 && (bAlt >= prmReqQty * 0.5 || isSmallUnit(b.altUom))) {
+                batchNormalized = bAlt;
+              } else if (bQty > 0 && (bQty >= prmReqQty * 0.5 || isSmallUnit(bUomLower))) {
+                batchNormalized = bQty;
+              } else if (bQty > 0 && (isLargeUnit(bUomLower) || bQty <= prmReqQty * 0.1 || bQty <= 5)) {
+                batchNormalized = bQty * factor;
+              } else if (bAlt > 0 && (isLargeUnit(bUomLower) || bAlt <= prmReqQty * 0.1 || bAlt <= 5)) {
+                batchNormalized = bAlt * factor;
+              } else {
+                batchNormalized = bAlt > 0 ? bAlt : (bQty > 0 ? (bQty < 10 ? bQty * factor : bQty) : 0);
+              }
             } else if (isLarge) {
-              if (bQty > 0 && bQty <= (prmReqQty * 2 || 100)) return s + bQty;
-              if (bAlt > 0 && bAlt <= (prmReqQty * 2 || 100)) return s + bAlt;
-              if (bQty > 0 && bQty > (prmReqQty * 10)) return s + (bQty / factor);
-              if (bAlt > 0 && bAlt > (prmReqQty * 10)) return s + (bAlt / factor);
-              return s + (bQty > 0 ? bQty : bAlt);
+              if (bQty > 0 && (isLargeUnit(bUomLower) || bQty <= Math.max(10, prmReqQty * 2))) {
+                batchNormalized = bQty;
+              } else if (bAlt > 0 && (isLargeUnit(bUomLower) || bAlt <= Math.max(10, prmReqQty * 2))) {
+                batchNormalized = bAlt;
+              } else if (bQty > 0 && (isSmallUnit(bUomLower) || bQty >= prmReqQty * 10)) {
+                batchNormalized = bQty / factor;
+              } else if (bAlt > 0 && (isSmallUnit(bUomLower) || bAlt >= prmReqQty * 10)) {
+                batchNormalized = bAlt / factor;
+              } else {
+                batchNormalized = bQty > 0 ? bQty : bAlt;
+              }
+            } else {
+              batchNormalized = bQty > 0 ? bQty : bAlt;
             }
-            return s + (bQty > 0 ? bQty : bAlt);
+
+            return s + batchNormalized;
           }, 0);
 
           const isFulfilled = (
@@ -3621,7 +3648,12 @@ export default function ProductionFloorCockpitModal({
               const bQ = Number(b.allocatedQty || 0);
               const bA = Number(b.allocatedAltQty || 0);
               return Math.abs(bQ - prmReqQty) <= 0.005 || Math.abs(bA - prmReqQty) <= 0.005 ||
-                     (factor > 1 && (Math.abs(bQ * factor - prmReqQty) <= 0.005 || Math.abs(bA * factor - prmReqQty) <= 0.005 || Math.abs(bQ / factor - prmReqQty) <= 0.005));
+                     (factor > 1 && (
+                       Math.abs(bQ * factor - prmReqQty) <= 0.005 ||
+                       Math.abs(bA * factor - prmReqQty) <= 0.005 ||
+                       Math.abs(bQ / factor - prmReqQty) <= 0.005 ||
+                       Math.abs(bA / factor - prmReqQty) <= 0.005
+                     ));
             })
           );
 
@@ -5111,6 +5143,16 @@ export default function ProductionFloorCockpitModal({
             <span className="text-[10px] font-mono font-bold text-slate-300 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700 shrink-0 hidden sm:inline">
               {batch?.referenceNo || batch?.batchNo || `#${batchId?.slice(0, 8)}`}
             </span>
+            {batch?.salesOrder && (
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-0.5 rounded border shrink-0 bg-blue-950/70 text-blue-300 border-blue-700/70 hidden md:inline-flex">
+                <span>SO #{batch.salesOrder.docNo || batch.salesOrder.doc_no || batch.salesOrder.orderNumber}</span>
+                <span className={`text-[9px] font-extrabold uppercase px-1 rounded ${
+                  batch.salesOrder.payment_status === 'PAID' ? 'bg-emerald-900 text-emerald-300' : 'bg-amber-900 text-amber-300'
+                }`}>
+                  {batch.salesOrder.payment_status || 'Unpaid'}
+                </span>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -7186,26 +7228,44 @@ export default function ProductionFloorCockpitModal({
                                                   const prmUomLower = String(prm.uom || '').toLowerCase().trim();
                                                   const isSmall = isSmallUnit(prmUomLower);
                                                   const isLarge = isLargeUnit(prmUomLower);
-                                                  const factor = getEffectiveUnitFactor(prm || master);
+                                                  const factor = Math.max(1, getEffectiveUnitFactor(prm), getEffectiveUnitFactor(master), 1000);
                                                   const prmReqQty = Number(prm.takenQty ?? prm.qty ?? prm.requiredQty ?? 0);
 
                                                   const allocatedSum = (prm.allocatedBatches || []).reduce((s, b) => {
+                                                    const bUomLower = String(b.uom || b.unit || '').toLowerCase().trim();
                                                     const bQty = Number(b.allocatedQty || 0);
                                                     const bAlt = Number(b.allocatedAltQty || 0);
+
+                                                    let batchNormalized = 0;
                                                     if (isSmall) {
-                                                      if (bAlt > 0 && bAlt >= prmReqQty * 0.5) return s + bAlt;
-                                                      if (bQty > 0 && bQty >= prmReqQty * 0.5) return s + bQty;
-                                                      if (bQty > 0 && bQty < (prmReqQty * 0.1)) return s + (bQty * factor);
-                                                      if (bAlt > 0 && bAlt < (prmReqQty * 0.1)) return s + (bAlt * factor);
-                                                      return s + (bQty > 0 ? bQty : bAlt);
+                                                      if (bAlt > 0 && (bAlt >= prmReqQty * 0.5 || isSmallUnit(b.altUom))) {
+                                                        batchNormalized = bAlt;
+                                                      } else if (bQty > 0 && (bQty >= prmReqQty * 0.5 || isSmallUnit(bUomLower))) {
+                                                        batchNormalized = bQty;
+                                                      } else if (bQty > 0 && (isLargeUnit(bUomLower) || bQty <= prmReqQty * 0.1 || bQty <= 5)) {
+                                                        batchNormalized = bQty * factor;
+                                                      } else if (bAlt > 0 && (isLargeUnit(bUomLower) || bAlt <= prmReqQty * 0.1 || bAlt <= 5)) {
+                                                        batchNormalized = bAlt * factor;
+                                                      } else {
+                                                        batchNormalized = bAlt > 0 ? bAlt : (bQty > 0 ? (bQty < 10 ? bQty * factor : bQty) : 0);
+                                                      }
                                                     } else if (isLarge) {
-                                                      if (bQty > 0 && bQty <= (prmReqQty * 2 || 100)) return s + bQty;
-                                                      if (bAlt > 0 && bAlt <= (prmReqQty * 2 || 100)) return s + bAlt;
-                                                      if (bQty > 0 && bQty > (prmReqQty * 10)) return s + (bQty / factor);
-                                                      if (bAlt > 0 && bAlt > (prmReqQty * 10)) return s + (bAlt / factor);
-                                                      return s + (bQty > 0 ? bQty : bAlt);
+                                                      if (bQty > 0 && (isLargeUnit(bUomLower) || bQty <= Math.max(10, prmReqQty * 2))) {
+                                                        batchNormalized = bQty;
+                                                      } else if (bAlt > 0 && (isLargeUnit(bUomLower) || bAlt <= Math.max(10, prmReqQty * 2))) {
+                                                        batchNormalized = bAlt;
+                                                      } else if (bQty > 0 && (isSmallUnit(bUomLower) || bQty >= prmReqQty * 10)) {
+                                                        batchNormalized = bQty / factor;
+                                                      } else if (bAlt > 0 && (isSmallUnit(bUomLower) || bAlt >= prmReqQty * 10)) {
+                                                        batchNormalized = bAlt / factor;
+                                                      } else {
+                                                        batchNormalized = bQty > 0 ? bQty : bAlt;
+                                                      }
+                                                    } else {
+                                                      batchNormalized = bQty > 0 ? bQty : bAlt;
                                                     }
-                                                    return s + (bQty > 0 ? bQty : bAlt);
+
+                                                    return s + batchNormalized;
                                                   }, 0);
 
                                                   const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;

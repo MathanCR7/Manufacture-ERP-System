@@ -139,6 +139,10 @@ const AssetManagementPage = lazy(() => import('@/modules/asset-management/pages/
 
 // Finance Module
 const ExpensesPage = lazy(() => import('@/modules/finance/pages/ExpensesPage'));
+const FinanceModuleDashboardPage = lazy(() => import('@/modules/finance/pages/FinanceDashboardPage'));
+const FinanceDocumentsPage = lazy(() => import('@/modules/finance/pages/FinanceDocumentsPage'));
+const PartyLedgerAgingPage = lazy(() => import('@/modules/finance/pages/PartyLedgerAgingPage'));
+const GstAndBooksPage = lazy(() => import('@/modules/finance/pages/GstAndBooksPage'));
 
 // Reports & Analytics Module Pages
 const RMConsumptionReportPage = lazy(() => import('@/pages/reports/RMConsumptionReportPage'));
@@ -525,9 +529,16 @@ const AppRouter = () => {
             </Route>
 
             {/* Finance & Accounts */}
-            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'PURCHASE_ACCOUNTANT']} />}>
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR']} />}>
+              <Route path="/finance" element={<FinanceModuleDashboardPage />} />
+              <Route path="/finance/dashboard" element={<FinanceModuleDashboardPage />} />
+              <Route path="/finance/documents" element={<FinanceDocumentsPage />} />
+              <Route path="/finance/ledger" element={<PartyLedgerAgingPage />} />
+              <Route path="/finance/aging" element={<PartyLedgerAgingPage />} />
+              <Route path="/finance/gst" element={<GstAndBooksPage />} />
+              <Route path="/finance/cashbook" element={<GstAndBooksPage />} />
               <Route path="/finance/expenses" element={<ExpensesPage />} />
-              <Route path="/finance/accounts" element={<PlaceholderPage title="Accounts" />} />
+              <Route path="/finance/accounts" element={<GstAndBooksPage />} />
             </Route>
 
             {/* Admin & Setup */}

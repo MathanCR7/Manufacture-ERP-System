@@ -811,13 +811,26 @@ const MENU_GROUPS = [
     ]
   },
   {
-    id: 'expense',
-    title: 'Expense',
+    id: 'finance',
+    title: 'Finance & Accounts',
     icon: DollarSign,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'],
     items: [
-      { name: '💸 Expenses', path: '/finance/expenses', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: '💳 Expense Master', path: '/setup/expense-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'] },
+      { name: '📊 Finance Dashboard', path: '/finance', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '📁 Financial Documents', path: '/finance/documents', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '👥 Party Ledger & Aging', path: '/finance/ledger', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '🏛️ GST Register', path: '/finance/gst', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '🏦 Cash & Bank Book', path: '/finance/cashbook', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+    ]
+  },
+  {
+    id: 'expense',
+    title: 'Expenses',
+    icon: Wallet,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'],
+    items: [
+      { name: '💸 Operating Expenses', path: '/finance/expenses', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '💳 Expense Master', path: '/setup/expense-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
     ]
   },
 
@@ -896,13 +909,14 @@ const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'companyDirectory' },
   { type: 'group', id: 'assetManagement' },
   { type: 'group', id: 'purchases' },
+  { type: 'group', id: 'finance' },
+  { type: 'group', id: 'expense' },
   { type: 'group', id: 'lab' },
   { type: 'group', id: 'rmStock' },
   { type: 'group', id: 'salesAndOrders' },
   { type: 'group', id: 'forecasting' },
   { type: 'group', id: 'production' },
   { type: 'group', id: 'products' },
-  { type: 'group', id: 'expense' },
   { type: 'group', id: 'reports' },
 
   { type: 'group', id: 'parties' },

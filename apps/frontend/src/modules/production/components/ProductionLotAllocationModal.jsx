@@ -120,13 +120,16 @@ export default function ProductionLotAllocationModal({
     'liter';
   const baseUom = cleanUomString(rawBase, 'units');
 
+  const bLower = String(baseUom || '').toLowerCase().trim();
+  const autoLarge = bLower === 'kg' || bLower === 'kgs' || bLower === 'kilogram' || bLower === 'liter' || bLower === 'litre' || bLower === 'l';
+  const autoDefaultAlt = (bLower === 'kg' || bLower === 'kgs' || bLower === 'kilogram') ? 'gm' : 'ml';
   const hasAlt = Boolean(
-    resolvedMaster
+    (resolvedMaster
       ? (resolvedMaster.hasAlternateUom && resolvedMaster.alternateUom)
-      : (row.hasAlternateUom && row.alternateUom)
+      : (row.hasAlternateUom && row.alternateUom)) || autoLarge
   );
-  const rawAlt = resolvedMaster?.alternateUom || row.alternateUom || resolvedMaster?.consumptionUnit;
-  const altUom = hasAlt ? cleanUomString(rawAlt, 'ml') : null;
+  const rawAlt = resolvedMaster?.alternateUom || row.alternateUom || (autoLarge ? autoDefaultAlt : resolvedMaster?.consumptionUnit);
+  const altUom = hasAlt ? cleanUomString(rawAlt, autoLarge ? autoDefaultAlt : 'ml') : null;
 
   const conversionFactor = useMemo(() => {
     let f = Number(
