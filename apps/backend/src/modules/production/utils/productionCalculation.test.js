@@ -51,14 +51,15 @@ it('converts grams and kg with non-standard density 0.6', () => {
   assert.strictEqual(round2(toMl(6, 'kg', 0.6)), 10000);
 });
 
-it('throws when converting solid piece units (pcs, nos, box)', () => {
-  assert.throws(() => toMl(10, 'pcs'), /cannot be converted/i);
-  assert.throws(() => toMl(5, 'nos'), /cannot be converted/i);
+it('returns 0 when converting solid piece/packaging units (pcs, nos, box)', () => {
+  assert.strictEqual(toMl(10, 'pcs'), 0);
+  assert.strictEqual(toMl(5, 'nos'), 0);
+  assert.strictEqual(toMl(2, 'roll'), 0);
 });
 
-it('throws on invalid or non-positive density', () => {
-  assert.throws(() => toMl(10, 'kg', 0), /Density must be greater than 0/);
-  assert.throws(() => toMl(10, 'kg', -1), /Density must be greater than 0/);
+it('safely defaults density to 1.0 when invalid or non-positive density provided', () => {
+  assert.strictEqual(round2(toMl(10, 'kg', 0)), 10000);
+  assert.strictEqual(round2(toMl(10, 'kg', -1)), 10000);
 });
 
 // ── 2. Evaporation & Merge Rules ──

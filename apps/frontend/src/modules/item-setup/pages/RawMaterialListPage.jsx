@@ -254,8 +254,10 @@ function RawMaterialForm({ editId, onBack }) {
     if (existingData) {
       let unitValue = existingData.unitId ? existingData.unitId.toLowerCase() : '';
       if (unitValue === 'ltr') unitValue = 'liter';
+      const catId = existingData.categoryId || existingData.category?.id || existingData.category_id || '';
       const normalizedData = {
         ...existingData,
+        categoryId: catId,
         unitId: unitValue,
         hasAlternateUom: Boolean(existingData.hasAlternateUom),
         alternateUom: existingData.alternateUom || existingData.consumptionUnit || '',
@@ -266,6 +268,16 @@ function RawMaterialForm({ editId, onBack }) {
       setHasHsnDescription(!!existingData.hsnCode && !!existingData.description);
     }
   }, [existingData, reset]);
+
+  // Ensure categoryId stays in sync even if categories array loads asynchronously
+  useEffect(() => {
+    if (existingData && Array.isArray(categories) && categories.length > 0) {
+      const catId = existingData.categoryId || existingData.category?.id || existingData.category_id;
+      if (catId && (!watch('categoryId') || watch('categoryId') !== catId)) {
+        setValue('categoryId', catId, { shouldValidate: true, shouldDirty: false });
+      }
+    }
+  }, [existingData, categories, setValue, watch]);
 
   const mutation = useMutation({
     mutationFn: async (data) => {
@@ -415,10 +427,17 @@ function RawMaterialForm({ editId, onBack }) {
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Category *</label>
               <select
                 {...register('categoryId', { required: 'Category is required' })}
+                value={watch('categoryId') || ''}
+                onChange={(e) => setValue('categoryId', e.target.value, { shouldValidate: true })}
                 disabled={isPurchased}
                 className={`w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 font-medium h-8 ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
               >
-                <option value="">Select Category...</option>
+                <option value="">{categories?.length ? 'Select Category...' : 'Loading categories...'}</option>
+                {existingData?.category && !categories?.some(c => c.id === existingData.category.id) && (
+                  <option key={existingData.category.id} value={existingData.category.id}>
+                    {existingData.category.name}
+                  </option>
+                )}
                 {categories?.map((cat) => (
                   <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}

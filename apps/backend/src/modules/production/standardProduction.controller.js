@@ -2741,12 +2741,52 @@ class StandardProductionController {
                 const prmQty = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
                 const prmId = prm.rmId || prm.rawMaterialId;
                 if (prmQty > 0 && prmId) {
+                  let canonicalDeductQty = prmQty;
+                  try {
+                    const rmMeta = await tx.rawMaterial.findUnique({
+                      where: { id: prmId },
+                      select: { id: true, unitId: true, conversionFactor: true }
+                    });
+                    if (rmMeta) {
+                      const uom = String(prm.uom || '').trim().toLowerCase();
+                      const baseUom = String(rmMeta.unitId || '').trim().toLowerCase();
+                      let factor = Number(rmMeta.conversionFactor || 0);
+                      if (factor > 0 && factor < 1) factor = Math.round(1 / factor);
+                      if (!factor || factor <= 1) factor = 1000;
+
+                      const isSmall = ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(uom);
+                      const isLarge = ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(uom);
+                      const baseIsSmall = ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(baseUom);
+                      const baseIsLarge = ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(baseUom);
+
+                      if (Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0) {
+                        canonicalDeductQty = prm.allocatedBatches.reduce((s, ab) => {
+                          const abQty = Number(ab.allocatedQty || ab.qty || 0);
+                          const abUom = String(ab.uom || uom).trim().toLowerCase();
+                          if (baseIsLarge && ['ml', 'milliliter', 'millilitre', 'mls', 'gm', 'g', 'gram', 'grams', 'gms', 'grm', 'grms'].includes(abUom)) {
+                            return s + (abQty / factor);
+                          }
+                          if (baseIsSmall && ['liter', 'ltr', 'l', 'litre', 'liters', 'litres', 'kg', 'kgs', 'kilogram', 'kilograms', 'kilo'].includes(abUom)) {
+                            return s + (abQty * factor);
+                          }
+                          return s + abQty;
+                        }, 0);
+                      } else if (prm.baseTakenQty !== undefined && Number(prm.baseTakenQty) > 0) {
+                        canonicalDeductQty = Number(prm.baseTakenQty);
+                      } else if (baseIsLarge && isSmall) {
+                        canonicalDeductQty = Number((prmQty / factor).toFixed(6));
+                      } else if (baseIsSmall && isLarge) {
+                        canonicalDeductQty = Number((prmQty * factor).toFixed(4));
+                      }
+                    }
+                  } catch (_) {}
+
                   await tx.$executeRawUnsafe(`
                     UPDATE "RawMaterial" 
                     SET "currentStock" = GREATEST(0, "currentStock" - $1),
                         "updatedAt" = CURRENT_TIMESTAMP
                     WHERE id = $2;
-                  `, prmQty, prmId);
+                  `, canonicalDeductQty, prmId);
 
                   if (Array.isArray(prm.allocatedBatches)) {
                     for (const ab of prm.allocatedBatches) {

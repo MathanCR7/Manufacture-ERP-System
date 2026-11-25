@@ -3202,6 +3202,7 @@ export default function ProductionFloorCockpitModal({
             const master = findMaster(current);
             const masterBaseIsSmall = isSmallUnit(master?.unitId);
             current.activeEntryMode = masterBaseIsSmall ? 'BASE' : 'ALT';
+            current.baseTakenQty = masterBaseIsSmall ? current.takenQty : currentQty;
 
             if (current.unitRate > 0) {
               const largeRate = current.baseRate && current.baseRate > current.unitRate ? current.baseRate : (current.unitRate > 10 ? current.unitRate : current.unitRate * factor);
@@ -3229,6 +3230,7 @@ export default function ProductionFloorCockpitModal({
             const master = findMaster(current);
             const masterBaseIsLarge = isLargeUnit(master?.unitId);
             current.activeEntryMode = masterBaseIsLarge ? 'BASE' : 'ALT';
+            current.baseTakenQty = masterBaseIsLarge ? current.takenQty : currentQty;
 
             if (current.baseRate > 10) {
               current.unitRate = current.baseRate;
@@ -9037,8 +9039,6 @@ export default function ProductionFloorCockpitModal({
                 variant="outline"
                 size="sm"
                 onClick={() => setViewMode('REPORT')}
-                className="h-7 px-2.5 text-xs font-bold rounded border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1 cursor-pointer"
-              >
                 <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>View Clean Report</span>
               </Button>
@@ -9058,7 +9058,7 @@ export default function ProductionFloorCockpitModal({
               </Button>
             )}
 
-            {/* Next Step Button */}
+            {/* Next Step */}
             {viewMode === 'STEPS' && (activeStep < 5) && (
               <Button
                 type="button"
