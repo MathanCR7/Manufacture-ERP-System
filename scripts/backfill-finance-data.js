@@ -1,8 +1,6 @@
-const { PrismaClient } = require('E:/MANUFACTURING_ERP/apps/backend/node_modules/@prisma/client');
-
-const prisma = new PrismaClient({
-  datasources: { db: { url: 'process.env.DATABASE_URL' } }
-});
+const path = require('path');
+require('../apps/backend/node_modules/dotenv').config({ path: path.resolve(__dirname, '../apps/backend/.env') });
+const prisma = require('../apps/backend/src/database/prisma');
 
 async function main() {
   console.log('--- Step 2: Backfilling Historical Payments ---');

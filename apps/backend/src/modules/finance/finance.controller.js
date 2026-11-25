@@ -1127,6 +1127,86 @@ const getFinanceDashboard = async (req, res, next) => {
       LIMIT 10;
     `);
 
+    // 9. Split by Direction (Payable vs Receivable totals)
+    const splitRows = await prisma.$queryRawUnsafe(`
+      SELECT 
+        direction,
+        COALESCE(SUM(grand_total), 0)::numeric(14,2) AS total_billed,
+        COALESCE(SUM(paid_amount), 0)::numeric(14,2) AS total_paid,
+        COALESCE(SUM(advance_amount), 0)::numeric(14,2) AS total_advance,
+        COALESCE(SUM(balance), 0)::numeric(14,2) AS total_outstanding,
+        COUNT(CASE WHEN is_overdue THEN 1 END)::int AS overdue_count,
+        COALESCE(SUM(CASE WHEN is_overdue THEN balance ELSE 0 END), 0)::numeric(14,2) AS overdue_amount
+      FROM v_finance_documents
+      WHERE ${dateClause}
+      GROUP BY direction;
+    `);
+
+    // 10. Document Type Breakdown (Raw Materials, Capital Assets, Expenses, Sales Orders)
+    const docTypeSummary = await prisma.$queryRawUnsafe(`
+      SELECT 
+        doc_type,
+        direction,
+        COUNT(*)::int as count,
+        COALESCE(SUM(grand_total), 0)::numeric(14,2) AS total,
+        COALESCE(SUM(paid_amount), 0)::numeric(14,2) AS paid,
+        COALESCE(SUM(balance), 0)::numeric(14,2) AS balance
+      FROM v_finance_documents
+      WHERE ${dateClause}
+      GROUP BY doc_type, direction
+      ORDER BY total DESC;
+    `);
+
+    // 11. Bank & Cash Liquidity Balances
+    const bankRows = await prisma.$queryRawUnsafe(`
+      SELECT id::text as id, name, type, current_balance::numeric(14,2) as current_balance, account_number, ifsc_code
+      FROM bank_accounts
+      WHERE is_active = true
+      ORDER BY type ASC, name ASC;
+    `);
+
+    // 12. Recent Realized Transactions
+    const recentPayments = await prisma.$queryRawUnsafe(`
+      SELECT p.id::text as id, p.payment_no, p.pay_date, p.amount::numeric(14,2) as amount, 
+             p.direction, p.mode, p.reference_no, p.notes,
+             COALESCE(pt.name, 'Internal') as party_name,
+             COALESCE(b.name, 'Cash / Bank') as account_name
+      FROM payments p
+      LEFT JOIN parties pt ON pt.id = p.party_id
+      LEFT JOIN bank_accounts b ON b.id = p.bank_account_id
+      WHERE p.is_reversed = false
+      ORDER BY p.pay_date DESC, p.id DESC
+      LIMIT 8;
+    `);
+
+    // 13. Upcoming Dues in Next 30 Days
+    const upcomingDues = await prisma.$queryRawUnsafe(`
+      SELECT 
+        doc_type, doc_id, doc_no, doc_date, due_date, party_name, grand_total, balance, direction
+      FROM v_finance_documents
+      WHERE balance > 1 AND due_date >= CURRENT_DATE AND due_date <= (CURRENT_DATE + INTERVAL '30 days')
+      ORDER BY due_date ASC
+      LIMIT 6;
+    `);
+
+    // 14. Cash Inflow vs Outflow Historical Trend
+    const cashFlowTrend = await prisma.$queryRawUnsafe(`
+      SELECT 
+        TO_CHAR(doc_date, 'YYYY-MM') as month,
+        ROUND(COALESCE(SUM(CASE WHEN direction = 'RECEIVABLE' THEN paid_amount ELSE 0 END), 0), 2) as cash_inflow,
+        ROUND(COALESCE(SUM(CASE WHEN direction = 'PAYABLE' THEN paid_amount ELSE 0 END), 0), 2) as cash_outflow,
+        ROUND(COALESCE(SUM(CASE WHEN direction = 'RECEIVABLE' THEN grand_total ELSE 0 END), 0), 2) as revenue_billed,
+        ROUND(COALESCE(SUM(CASE WHEN direction = 'PAYABLE' THEN grand_total ELSE 0 END), 0), 2) as spend_billed
+      FROM v_finance_documents
+      GROUP BY TO_CHAR(doc_date, 'YYYY-MM')
+      ORDER BY month ASC;
+    `);
+
+    let totalLiquidCash = 0;
+    bankRows.forEach(b => {
+      totalLiquidCash += Number(b.current_balance || 0);
+    });
+
     return res.json({
       success: true,
       data: {
@@ -1139,8 +1219,15 @@ const getFinanceDashboard = async (req, res, next) => {
           overdueAmount: Number(kpiRows[0]?.overdue_amount || 0),
           netGstPayable: Number(gstRows[0]?.net_gst_payable || 0),
           itcBalance: Number(gstRows[0]?.itc_balance || 0),
-          carryForwardItc: Number(gstRows[0]?.carry_forward_itc || 0)
+          carryForwardItc: Number(gstRows[0]?.carry_forward_itc || 0),
+          totalLiquidCash
         },
+        splitDirection: splitRows,
+        docTypeSummary,
+        bankBalances: bankRows,
+        recentPayments,
+        upcomingDues,
+        cashFlowTrend,
         monthlyTrend: trendRows,
         agingBuckets: agingRows,
         expenseShares,
