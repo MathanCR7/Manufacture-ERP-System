@@ -9039,6 +9039,8 @@ export default function ProductionFloorCockpitModal({
                 variant="outline"
                 size="sm"
                 onClick={() => setViewMode('REPORT')}
+                className="h-7 px-2.5 text-xs font-bold rounded border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-1 cursor-pointer"
+              >
                 <FileSpreadsheet className="w-3 h-3 text-emerald-600" />
                 <span>View Clean Report</span>
               </Button>
