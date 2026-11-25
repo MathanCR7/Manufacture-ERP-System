@@ -4479,12 +4479,22 @@ export default function RMINOUTStockPage() {
                               {formatUOM(mat.uom)}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white py-1 px-1 w-[62px] min-w-[62px] max-w-[62px] text-[10.5px]">
-                              {cur.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                            <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white py-1 px-1 w-[62px] min-w-[62px] max-w-[62px] text-[10.5px]" title={mat.hasAlternateUom && mat.alternateUom ? `Total Stock: ${Number((cur * (mat.conversionFactor || 1)).toFixed(2)).toLocaleString('en-IN')} ${mat.alternateUom}` : undefined}>
+                              <div>{cur.toLocaleString('en-IN', { maximumFractionDigits: cur < 1 ? 4 : 1 })}</div>
+                              {mat.hasAlternateUom && mat.alternateUom && (
+                                <div className="text-[8px] font-normal text-indigo-600 dark:text-indigo-400 leading-tight">
+                                  {Number((cur * (mat.conversionFactor || 1)).toFixed(1)).toLocaleString('en-IN')}{mat.alternateUom}
+                                </div>
+                              )}
                             </TableCell>
 
-                            <TableCell className="text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 py-1 px-1 w-[62px] min-w-[62px] max-w-[62px] text-[10.5px]">
-                              {free.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                            <TableCell className="text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 py-1 px-1 w-[62px] min-w-[62px] max-w-[62px] text-[10.5px]" title={mat.hasAlternateUom && mat.alternateUom ? `Available Stock: ${Number((free * (mat.conversionFactor || 1)).toFixed(2)).toLocaleString('en-IN')} ${mat.alternateUom}` : undefined}>
+                              <div>{free.toLocaleString('en-IN', { maximumFractionDigits: free < 1 ? 4 : 1 })}</div>
+                              {mat.hasAlternateUom && mat.alternateUom && (
+                                <div className="text-[8px] font-normal text-emerald-600 dark:text-emerald-400 leading-tight font-bold">
+                                  {Number((free * (mat.conversionFactor || 1)).toFixed(1)).toLocaleString('en-IN')}{mat.alternateUom}
+                                </div>
+                              )}
                             </TableCell>
 
                             <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 py-1 px-1 w-[68px] min-w-[68px] max-w-[68px] text-[10.5px]">
@@ -4504,9 +4514,11 @@ export default function RMINOUTStockPage() {
                               {wip > 0 && (
                                 <span
                                   className="inline-block mt-0.5 px-1 py-0 rounded bg-yellow-100 dark:bg-yellow-950/70 text-yellow-950 dark:text-yellow-200 border border-yellow-400 text-[8.5px] font-bold leading-tight"
-                                  title="In Progress WIP (Not deducted until production completes)"
+                                  title={mat.hasAlternateUom && mat.alternateUom ? `In Progress WIP: ${Number((wip * (mat.conversionFactor || 1)).toFixed(2)).toLocaleString('en-IN')} ${mat.alternateUom}` : "In Progress WIP (Not deducted until production completes)"}
                                 >
-                                  🟡 {wip.toLocaleString('en-IN', { maximumFractionDigits: wip < 1 ? 4 : 1 })}
+                                  🟡 {mat.hasAlternateUom && mat.alternateUom && (wip * (mat.conversionFactor || 1)) >= 1 
+                                       ? `${Number((wip * (mat.conversionFactor || 1)).toFixed(0)).toLocaleString('en-IN')}${mat.alternateUom}` 
+                                       : wip.toLocaleString('en-IN', { maximumFractionDigits: wip < 1 ? 4 : 1 })}
                                 </span>
                               )}
                             </TableCell>
@@ -4579,7 +4591,11 @@ export default function RMINOUTStockPage() {
                                           <div className="w-full flex flex-col items-center gap-0.5 rounded bg-yellow-100 dark:bg-yellow-950/85 border border-yellow-400 dark:border-yellow-600 px-1 py-0.5 shadow-2xs">
                                             <span className="inline-flex items-center justify-center gap-0.5 font-bold text-yellow-950 dark:text-yellow-200 text-[9px] leading-tight">
                                               <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse shrink-0" />
-                                              <span>{cell.wipQty.toLocaleString('en-IN', { maximumFractionDigits: cell.wipQty < 1 ? 4 : 2 })} WIP</span>
+                                              <span>
+                                                {mat.hasAlternateUom && mat.alternateUom && (cell.wipQty * (mat.conversionFactor || 1)) >= 1
+                                                  ? `${Number((cell.wipQty * (mat.conversionFactor || 1)).toFixed(0)).toLocaleString('en-IN')} ${mat.alternateUom} WIP`
+                                                  : `${cell.wipQty.toLocaleString('en-IN', { maximumFractionDigits: cell.wipQty < 1 ? 4 : 2 })} WIP`}
+                                              </span>
                                             </span>
                                             {(cell.wipProductionNos || []).map((pNo, pIdx) => (
                                               <button
