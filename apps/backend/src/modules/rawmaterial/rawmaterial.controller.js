@@ -4309,6 +4309,20 @@ async function computeRmStockCore(queryParams = {}) {
         const firstLot = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches[0]
           ? (prm.allocatedBatches[0].internalBatchNo || prm.allocatedBatches[0].lotNumber)
           : null;
+
+        // Canonical base quantity derivation from allocated lots or explicit base taken fields
+        let canonicalBaseQty = null;
+        if (Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0) {
+          const sumAlloc = prm.allocatedBatches.reduce((acc, b) => acc + Number(b.allocatedQty || 0), 0);
+          if (sumAlloc > 0) canonicalBaseQty = sumAlloc;
+        }
+        if (canonicalBaseQty === null && prm.baseTakenQty && Number(prm.baseTakenQty) > 0) {
+          canonicalBaseQty = Number(prm.baseTakenQty);
+        }
+        if (canonicalBaseQty === null && prm.baseRequiredQty && Number(prm.baseRequiredQty) > 0) {
+          canonicalBaseQty = Number(prm.baseRequiredQty);
+        }
+
         normalizedProdLines.push({
           sourceId: `alloc-${pa.id}-${idx}`,
           rmLookup: [prm.rmId, prm.rawMaterialId, prm.rmCode, prm.rmName],
@@ -4321,6 +4335,8 @@ async function computeRmStockCore(queryParams = {}) {
           cancelledAt: pa.cancelled_at || null,
           deletedAt: pa.deleted_at || null,
           usageStatus: 'ALLOCATED',
+          uom: prm.uom || null,
+          canonicalBaseQty,
           requiredQty: prmQty,
           actualUsedQty: prmQty,
           startDate: pa.start_date || pa.started_at || pa.created_at || new Date(),
@@ -4393,8 +4409,30 @@ async function computeRmStockCore(queryParams = {}) {
       // Rule: If production batch is draft / planned / not started, do not display WIP/OUT and do not reduce stock.
       if (isNotStarted) continue;
 
-      const qty = Number(u.actualUsedQty || u.requiredQty || 0);
+      // Canonicalize quantity to rm.unitId (master Base UOM)
+      let qty = Number(u.actualUsedQty || u.requiredQty || 0);
       if (qty <= 0) continue;
+
+      if (u.canonicalBaseQty && Number(u.canonicalBaseQty) > 0) {
+        qty = Number(u.canonicalBaseQty);
+      } else if (u.uom && rm.unitId) {
+        const uomNorm = String(u.uom).toLowerCase().trim();
+        const baseNorm = String(rm.unitId).toLowerCase().trim();
+        const factor = Number(rm.conversionFactor) || 1000;
+        if (uomNorm !== baseNorm && factor > 1) {
+          const isSmall = ['gm', 'g', 'grm', 'ml', 'milliliter', 'gram', 'grams'].includes(uomNorm);
+          const isLarge = ['kg', 'kilogram', 'kilograms', 'l', 'lt', 'ltr', 'liter', 'litres', 'litre'].includes(baseNorm);
+          if (isSmall && isLarge) {
+            qty = qty / factor;
+          } else {
+            const isLineLarge = ['kg', 'kilogram', 'kilograms', 'l', 'lt', 'ltr', 'liter', 'litres', 'litre'].includes(uomNorm);
+            const isBaseSmall = ['gm', 'g', 'grm', 'ml', 'milliliter', 'gram', 'grams'].includes(baseNorm);
+            if (isLineLarge && isBaseSmall) {
+              qty = qty * factor;
+            }
+          }
+        }
+      }
 
       // The production start date is the definitive date when production started
       const prodStartDate = u.startDate || u.startedAt || u.createdAt || new Date();
