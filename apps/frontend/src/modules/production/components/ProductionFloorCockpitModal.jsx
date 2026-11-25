@@ -7118,8 +7118,17 @@ export default function ProductionFloorCockpitModal({
                                                   }, 0);
 
                                                   const hasBatches = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0;
-                                                  const isFulfilled = hasBatches && prmReqQty > 0 && (Math.abs(allocatedSum - prmReqQty) <= 0.001 || allocatedSum >= (prmReqQty - 0.001));
-                                                  const needsLot = !hasBatches || (prmReqQty > 0 && allocatedSum < (prmReqQty - 0.001));
+                                                  const isFulfilled = hasBatches && prmReqQty > 0 && (
+                                                    Math.abs(allocatedSum - prmReqQty) <= 0.005 ||
+                                                    allocatedSum >= (prmReqQty - 0.005) ||
+                                                    (prm.allocatedBatches || []).some(b => {
+                                                      const bQ = Number(b.allocatedQty || 0);
+                                                      const bA = Number(b.allocatedAltQty || 0);
+                                                      return Math.abs(bQ - prmReqQty) <= 0.005 || Math.abs(bA - prmReqQty) <= 0.005 ||
+                                                             (factor > 1 && (Math.abs(bQ * factor - prmReqQty) <= 0.005 || Math.abs(bA * factor - prmReqQty) <= 0.005 || Math.abs(bQ / factor - prmReqQty) <= 0.005));
+                                                    })
+                                                  );
+                                                  const needsLot = !hasBatches || (!isFulfilled && prmReqQty > 0);
 
                                                   const formatDispQty = (v) => {
                                                     if (v === null || v === undefined || isNaN(v)) return '0';
@@ -7128,8 +7137,8 @@ export default function ProductionFloorCockpitModal({
                                                     return Number(n.toFixed(4)).toString();
                                                   };
 
-                                                  const dispAlloc = formatDispQty(allocatedSum);
                                                   const dispReq = formatDispQty(prmReqQty);
+                                                  const dispAlloc = isFulfilled ? dispReq : formatDispQty(allocatedSum);
 
                                                   if (hasBatches) {
                                                     return (
@@ -9036,7 +9045,7 @@ export default function ProductionFloorCockpitModal({
             ) : null}
 
             {/* Previous Step */}
-            {viewMode === 'STEPS' && activeStep > 1 && (
+            {viewMode === 'STEPS' && (activeStep > 1) && (
               <Button
                 type="button"
                 variant="outline"
@@ -9049,8 +9058,8 @@ export default function ProductionFloorCockpitModal({
               </Button>
             )}
 
-            {/* Next Step */}
-            {viewMode === 'STEPS' && activeStep < 5 && (
+            {/* Next Step Button */}
+            {viewMode === 'STEPS' && (activeStep < 5) && (
               <Button
                 type="button"
                 size="sm"

@@ -866,9 +866,9 @@ export default function BatchAllocationGrid({
                               )}
                               <span className="text-[9px] text-indigo-900 dark:text-indigo-200 font-black">
                                 ({isAltMode && (b.allocatedAltQty || (b.allocatedQty && factor)) ? (
-                                  `${b.allocatedAltQty || Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean} / ${b.allocatedQty} ${baseUomClean}`
+                                  `${b.allocatedAltQty || Number(Number(b.allocatedQty * factor).toFixed(4))} ${altUomClean} / ${b.allocatedQty} ${baseUomClean}`
                                 ) : (
-                                  `${b.allocatedQty} ${baseUomClean}${hasAlt && altUomClean ? ` / ${Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean}` : ''}`
+                                  `${b.allocatedQty} ${baseUomClean}${hasAlt && altUomClean ? ` / ${Number(Number(b.allocatedQty * factor).toFixed(4))} ${altUomClean}` : ''}`
                                 )}
                                 {b.availableQty ? ` • Rem: ${Number(Math.max(0, Number(b.availableQty) - Number(b.allocatedQty)).toFixed(3))} ${baseUomClean}` : ''})
                               </span>

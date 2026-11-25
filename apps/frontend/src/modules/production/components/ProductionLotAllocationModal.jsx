@@ -1123,13 +1123,13 @@ export default function ProductionLotAllocationModal({
               <span>
                 Required:{' '}
                 <strong className="text-slate-900 dark:text-white font-black">
-                  {Number(targetRequiredQty.toFixed(2)).toLocaleString()} {activeUom}
+                  {Number(targetRequiredQty.toFixed(4))} {activeUom}
                 </strong>
                 {hasAlt && altUom && (
                   <span className="text-[10px] text-slate-400 ml-1">
                     (≈ {uomMode === 'ALT'
                       ? `${Number((targetRequiredQty / conversionFactor).toFixed(4))} ${baseUom}`
-                      : `${Number((targetRequiredQty * conversionFactor).toFixed(2)).toLocaleString()} ${altUom}`
+                      : `${Number((targetRequiredQty * conversionFactor).toFixed(4))} ${altUom}`
                     })
                   </span>
                 )}
@@ -1138,14 +1138,14 @@ export default function ProductionLotAllocationModal({
               <span>
                 Allocated:{' '}
                 <strong className="text-indigo-600 dark:text-indigo-400 font-black">
-                  {Number(totalAllocatedInModal.toFixed(2)).toLocaleString()} {activeUom}
+                  {Number(totalAllocatedInModal.toFixed(4))} {activeUom}
                 </strong>
               </span>
               <span>•</span>
               <span>
                 Balance:{' '}
-                <strong className={totalAllocatedInModal >= targetRequiredQty ? 'text-emerald-600' : 'text-amber-600'}>
-                  {Math.max(0, targetRequiredQty - totalAllocatedInModal).toFixed(2)} {activeUom}
+                <strong className={totalAllocatedInModal >= (targetRequiredQty - 0.0001) ? 'text-emerald-600' : 'text-amber-600'}>
+                  {Number(Math.max(0, targetRequiredQty - totalAllocatedInModal).toFixed(4))} {activeUom}
                 </strong>
               </span>
             </div>
@@ -1420,13 +1420,13 @@ export default function ProductionLotAllocationModal({
           <div className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
             <span>Total Allocated: </span>
             <strong className="text-indigo-600 dark:text-indigo-400 font-black">
-              {Number(totalAllocatedInModal.toFixed(2)).toLocaleString()} {activeUom}
+              {Number(totalAllocatedInModal.toFixed(4))} {activeUom}
             </strong>
             {hasAlt && altUom && (
               <span className="text-[11px] text-slate-400 ml-1.5 font-normal">
                 (≈ {uomMode === 'ALT'
                   ? `${Number((totalAllocatedInModal / conversionFactor).toFixed(4))} ${baseUom}`
-                  : `${Number((totalAllocatedInModal * conversionFactor).toFixed(2)).toLocaleString()} ${altUom}`
+                  : `${Number((totalAllocatedInModal * conversionFactor).toFixed(4))} ${altUom}`
                 })
               </span>
             )}
