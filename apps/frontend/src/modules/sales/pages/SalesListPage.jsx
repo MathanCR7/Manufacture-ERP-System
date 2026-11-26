@@ -7,7 +7,7 @@ import {
   MessageSquare, Mail, Play, Building2, Send, Share2,
   ArrowUp, ArrowDown, ArrowUpDown, Filter, Save, Camera, ImageIcon, Paperclip,
   Package, Truck, Check, ExternalLink, Maximize2, Trash2, Calendar, Phone,
-  FileCheck, ShieldCheck, MapPin, Edit3, GitFork, CheckCheck, Network, Lock, TrendingUp
+  FileCheck, ShieldCheck, MapPin, Edit3, GitFork, CheckCheck, Network, Lock, TrendingUp, Factory
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -334,8 +334,8 @@ export default function SalesListPage() {
     const all = orders.length;
     const pos = orders.filter(o => o.type === 'POS').length;
     const invoices = orders.filter(o => o.type === 'Invoice').length;
-    const salesOrders = orders.filter(o => o.type === 'Sales Order' && o.status !== 'Waiting for Production' && o.orderMode !== 'NEED_PLANNING').length;
-    const needProduction = orders.filter(o => o.status === 'Waiting for Production' || o.orderMode === 'NEED_PLANNING').length;
+    const salesOrders = orders.filter(o => o.type === 'Sales Order').length;
+    const needProduction = orders.filter(o => o.status === 'Waiting for Production' || o.orderMode === 'NEED_PLANNING' || (o.type === 'Sales Order' && !o.isInvoicedOrder)).length;
     const quotations = orders.filter(o => o.type === 'Quotation').length;
     return { all, pos, invoices, salesOrders, needProduction, quotations };
   }, [orders]);
@@ -348,7 +348,7 @@ export default function SalesListPage() {
       } else if (typeFilter === 'Invoice') {
         if (order.type !== 'Invoice') return false;
       } else if (typeFilter === 'Sales Order') {
-        if (order.type !== 'Sales Order' || order.status === 'Waiting for Production' || order.orderMode === 'NEED_PLANNING') return false;
+        if (order.type !== 'Sales Order') return false;
       } else if (typeFilter === 'Waiting for Production') {
         if (order.status !== 'Waiting for Production' && order.orderMode !== 'NEED_PLANNING') return false;
       } else if (typeFilter === 'Quotation') {
@@ -1221,10 +1221,10 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider flex items-center gap-1 ${
                   isInvoicedOrder
                     ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                    : 'bg-blue-100 text-blue-900 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+                    : 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                 }`}>
-                  {isInvoicedOrder ? <Lock className="w-3 h-3 text-emerald-600" /> : null}
-                  {isInvoicedOrder ? '🛒 Sales Order (Invoiced & Locked)' : '🛒 Sales Order (Direct In-Stock)'}
+                  {isInvoicedOrder ? <Lock className="w-3 h-3 text-emerald-600" /> : <Factory className="w-3 h-3 text-amber-600 animate-pulse" />}
+                  {isInvoicedOrder ? '🛒 Sales Order (Invoiced & Locked)' : '⚙️ Sales Order (Need Production)'}
                 </span>
               )}
               {isQuote && (
@@ -1485,6 +1485,27 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
               >
                 <CheckCheck className="w-3.5 h-3.5" /> View Tax Invoice #{selectedOrder.childOrders?.find(c => c.type === 'Invoice' || c.orderType === 'Invoice')?.docNo || 'INV'}
               </Button>
+            ) : isSO && !isInvoicedOrder ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Button
+                  type="button"
+                  onClick={() => navigate(`/production/standard/add?salesOrderId=${selectedOrder.id}`)}
+                  className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
+                  title="Convert to Standard Production Batch"
+                >
+                  <Factory className="w-3.5 h-3.5" /> Produce (Standard Batch)
+                </Button>
+                {selectedOrder.status !== 'Delivered' && (
+                  <Button
+                    type="button"
+                    onClick={() => navigate(`/sales/order?convertFrom=${selectedOrder.id}&mode=INVOICE`)}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
+                    title="Convert to Tax Invoice"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" /> Convert to Invoice
+                  </Button>
+                )}
+              </div>
             ) : isSO && selectedOrder.status !== 'Delivered' && (
               <Button
                 type="button"
@@ -3695,8 +3716,13 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                                   </span>
                                 )}
                                 {isSO && !isNeedPlanning && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shadow-xs whitespace-nowrap">
-                                    <CheckCircle2 className="w-2.5 h-2.5" /> 🛒 Sales Order
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border shadow-xs whitespace-nowrap ${
+                                    isInvoicedOrder
+                                      ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                                  }`}>
+                                    {isInvoicedOrder ? <CheckCircle2 className="w-2.5 h-2.5" /> : <Factory className="w-2.5 h-2.5 text-amber-600 animate-pulse" />}
+                                    {isInvoicedOrder ? '🛒 Sales Order' : '⚙️ Sales Order (Need Production)'}
                                   </span>
                                 )}
                                 {isQuote && (
@@ -3810,6 +3836,11 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                                   <Lock className="w-2.5 h-2.5 text-emerald-600" />
                                   Invoiced
                                 </button>
+                              ) : (isSO && !isInvoicedOrder) ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-black rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-xs">
+                                  <Factory className="w-2.5 h-2.5 text-amber-600 animate-pulse" />
+                                  Need Production
+                                </span>
                               ) : isNeedPlanning ? (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40">
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
@@ -3833,6 +3864,17 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                             {/* Actions Column */}
                             <td className="px-3 py-2.5 text-center align-middle">
                               <div className="flex items-center justify-center gap-1 flex-nowrap">
+                                {isSO && !isInvoicedOrder && (
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/production/standard/add?salesOrderId=${order.id}`)}
+                                    className="h-7 px-2 rounded-lg flex items-center gap-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-[10px] font-bold shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Produce this order in Standard Production"
+                                  >
+                                    <Factory className="w-3 h-3" />
+                                    <span className="hidden sm:inline">Produce</span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => setSearchParams({ id: order.id })}
@@ -4040,8 +4082,13 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                             </span>
                           )}
                           {isSO && !isNeedPlanning && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shadow-xs whitespace-nowrap">
-                              <CheckCircle2 className="w-2.5 h-2.5" /> 🛒 Sales Order
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border shadow-xs whitespace-nowrap ${
+                              isInvoicedOrder
+                                ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                                : 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                            }`}>
+                              {isInvoicedOrder ? <CheckCircle2 className="w-2.5 h-2.5" /> : <Factory className="w-2.5 h-2.5 text-amber-600 animate-pulse" />}
+                              {isInvoicedOrder ? '🛒 Sales Order' : '⚙️ Sales Order (Need Production)'}
                             </span>
                           )}
                           {isQuote && (
@@ -4192,6 +4239,11 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                             <Lock className="w-2.5 h-2.5 text-emerald-600" />
                             Invoiced
                           </button>
+                        ) : (isSO && !isInvoicedOrder) ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-black rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-xs">
+                            <Factory className="w-2.5 h-2.5 text-amber-600 animate-pulse" />
+                            Need Production
+                          </span>
                         ) : isNeedPlanning ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
@@ -4215,7 +4267,17 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                       {/* Actions Column (STRICTLY ICON-ONLY, NO OVERFLOW) */}
                       <td className="px-3 py-2.5 text-center align-middle">
                         <div className="flex items-center justify-center gap-1 flex-nowrap">
-                          
+                          {isSO && !isInvoicedOrder && (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/production/standard/add?salesOrderId=${order.id}`)}
+                              className="h-7 px-2 rounded-lg flex items-center gap-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-[10px] font-bold shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                              title="Produce this order in Standard Production"
+                            >
+                              <Factory className="w-3 h-3" />
+                              <span className="hidden sm:inline">Produce</span>
+                            </button>
+                          )}
                           {/* 1. View Details (Document Studio) */}
                           <button
                             type="button"

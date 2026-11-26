@@ -5,7 +5,8 @@ import {
   Factory, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
   Package, Check, Layers, Lock, FlaskConical, X, ArrowUpDown, ArrowUp, ArrowDown,
-  RotateCcw, ChevronDown, Printer, Tag, Pencil, Sliders, Droplets, Trash2
+  RotateCcw, ChevronDown, Printer, Tag, Pencil, Sliders, Droplets, Trash2,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -63,7 +64,7 @@ export default function StandardProductionListPage() {
   const [batchToComplete, setBatchToComplete] = useState(null);
   const [completing, setCompleting] = useState(false);
   
-  // Pro Filters & Search State matching /rm/stock
+  // Pro Filters & Search State
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [baseFilter, setBaseFilter] = useState('ALL');
@@ -128,7 +129,7 @@ export default function StandardProductionListPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [batches]);
 
-  // Computed status counts for high-contrast filter pills
+  // Computed status counts for filter pills
   const statusCounts = useMemo(() => {
     const counts = {
       ALL: batches.length,
@@ -384,10 +385,10 @@ export default function StandardProductionListPage() {
     }
   };
 
-  // ── FILTER & SORT MATCHING /rm/stock PATTERN ──
+  // ── FILTER & SORT MATCHING COMPACT PATTERN ──
   const sortedAndFiltered = useMemo(() => {
     let result = batches.filter(b => {
-      // 1. Text Search across referenceNo, batchNo, product name, baseName, templateName, shift, machineLine
+      // 1. Text Search across referenceNo, batchNo, baseName, templateName, shift, machineLine, status
       const term = searchTerm.toLowerCase().trim();
       if (term) {
         const matchesTerm = (
@@ -479,23 +480,7 @@ export default function StandardProductionListPage() {
         return (b.baseName || '').localeCompare(a.baseName || '', undefined, { sensitivity: 'base' });
       }
 
-      // 4. Target Product Sort
-      if (sortBy === 'product_asc') {
-        return (a.product?.name || '').localeCompare(b.product?.name || '', undefined, { sensitivity: 'base' });
-      }
-      if (sortBy === 'product_desc') {
-        return (b.product?.name || '').localeCompare(a.product?.name || '', undefined, { sensitivity: 'base' });
-      }
-
-      // 5. Planned Qty Sort
-      if (sortBy === 'qty_desc') {
-        return Number(b.quantity || 0) - Number(a.quantity || 0);
-      }
-      if (sortBy === 'qty_asc') {
-        return Number(a.quantity || 0) - Number(b.quantity || 0);
-      }
-
-      // 6. Status Sort
+      // 4. Status Sort
       if (sortBy === 'status_asc') {
         return (a.status || '').localeCompare(b.status || '');
       }
@@ -503,7 +488,7 @@ export default function StandardProductionListPage() {
         return (b.status || '').localeCompare(a.status || '');
       }
 
-      // 7. Grand Total Cost Sort
+      // 5. Grand Total Cost Sort
       if (sortBy === 'cost_desc') {
         return Number(b.totalCost || 0) - Number(a.totalCost || 0);
       }
@@ -511,7 +496,7 @@ export default function StandardProductionListPage() {
         return Number(a.totalCost || 0) - Number(b.totalCost || 0);
       }
 
-      // 8. Cost/Unit Sort
+      // 6. Cost/Unit Sort
       if (sortBy === 'cost_unit_desc') {
         const unitCostA = a.costPerUnit || (a.quantity > 0 ? a.totalCost / a.quantity : 0);
         const unitCostB = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
@@ -541,6 +526,7 @@ export default function StandardProductionListPage() {
     setStatusFilter('ALL');
     setBaseFilter('ALL');
     setShiftFilter('ALL');
+    setDatePreset('ALL');
     setSortBy('date_desc');
     setCurrentPage(1);
   };
@@ -558,16 +544,6 @@ export default function StandardProductionListPage() {
 
   const handleToggleSortBase = () => {
     setSortBy(prev => prev === 'base_asc' ? 'base_desc' : 'base_asc');
-    setCurrentPage(1);
-  };
-
-  const handleToggleSortProduct = () => {
-    setSortBy(prev => prev === 'product_asc' ? 'product_desc' : 'product_asc');
-    setCurrentPage(1);
-  };
-
-  const handleToggleSortQty = () => {
-    setSortBy(prev => prev === 'qty_desc' ? 'qty_asc' : 'qty_desc');
     setCurrentPage(1);
   };
 
@@ -594,122 +570,110 @@ export default function StandardProductionListPage() {
   };
 
   return (
-    <div className="w-full px-2 sm:px-4 lg:px-6 py-3.5 space-y-3.5">
+    <div className="w-full px-2 sm:px-3 lg:px-4 py-2.5 space-y-2.5 max-w-[1700px] mx-auto text-slate-800 dark:text-slate-100">
       
-      {/* ── HEADER ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-3xs">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shrink-0">
-              <Factory className="w-6 h-6" />
+      {/* ── HEADER (Compact & Stylish) ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 px-3.5 py-2.5 rounded-xl border border-slate-200/90 dark:border-slate-800 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-xs shadow-indigo-500/20 shrink-0">
+            <Factory className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                Standard Production Management
+              </h1>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800">
+                Daily Shopfloor
+              </span>
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
-                  Standard Production Management
-                </h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                  Daily Shopfloor
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Planned routine manufacturing batches, capacity utilization & standard formula execution • Click <span className="inline-flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">📄 Clean Sheet</span> on any batch to view executive costing &amp; PO traceability
-              </p>
-            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Routine manufacturing batches & capacity tracking • Click <span className="inline-flex items-center gap-0.5 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1 py-0.2 rounded border border-emerald-200/80 dark:border-emerald-800">📄 Clean Sheet</span> on any batch to view executive cost &amp; lot traceability
+            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={fetchBatches} 
-            disabled={loading}
-            className="rounded-xl border-slate-200 dark:border-slate-800 h-8 text-xs font-bold cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-
-          <Button 
+          <button 
+            type="button"
             onClick={() => navigate('/production/standard/add')}
-            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 text-xs shadow-sm cursor-pointer"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold h-9 px-4 rounded-xl text-xs shadow-sm hover:shadow-md hover:shadow-indigo-500/20 active:scale-[0.98] transition-all cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            + Add Standard Batch
-          </Button>
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>Add Standard Batch</span>
+          </button>
         </div>
       </div>
 
-      {/* ── METRIC CARDS (Full Width, Sleek & Modern) ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-3xs flex items-center justify-between">
+      {/* ── METRIC CARDS (High-Density, 4 Columns) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+        <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-indigo-200 dark:hover:border-indigo-900/50 transition-all flex items-center justify-between">
           <div>
-            <p className="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider">Total Batches</p>
-            <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-0.5 font-mono">{batches.length}</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Batches</p>
+            <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-0.5 font-mono">{batches.length}</h3>
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-800 text-slate-500 flex items-center justify-center">
-            <Layers className="w-5 h-5 text-indigo-500" />
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+            <Layers className="w-4 h-4" />
           </div>
         </div>
 
-        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-900/40 shadow-3xs flex items-center justify-between">
+        <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200/70 dark:border-amber-900/40 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-amber-300 dark:hover:border-amber-800 transition-all flex items-center justify-between">
           <div>
-            <p className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
               In Progress
             </p>
-            <h3 className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-0.5 font-mono">
+            <h3 className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 mt-0.5 font-mono">
               {batches.filter(b => b.status === 'In Progress').length}
             </h3>
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center">
-            <Clock className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center">
+            <Clock className="w-4 h-4" />
           </div>
         </div>
 
-        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-emerald-900/40 shadow-3xs flex items-center justify-between">
+        <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/70 dark:border-emerald-900/40 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-emerald-300 dark:hover:border-emerald-800 transition-all flex items-center justify-between">
           <div>
-            <p className="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Completed</p>
-            <h3 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5 font-mono">
+            <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Completed</p>
+            <h3 className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5 font-mono">
               {batches.filter(b => b.status === 'Completed' || b.status === 'qc_passed').length}
             </h3>
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
-            <CheckCircle2 className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+            <CheckCircle2 className="w-4 h-4" />
           </div>
         </div>
 
-        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/40 shadow-3xs flex items-center justify-between">
+        <div className="p-2.5 sm:p-3 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200/70 dark:border-indigo-900/40 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-indigo-300 dark:hover:border-indigo-800 transition-all flex items-center justify-between">
           <div>
             {canViewCosting ? (
               <>
-                <p className="text-[10.5px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Planned Total Cost</p>
-                <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
+                <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Planned Total Cost</p>
+                <h3 className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
                   ₹{formatCurrency(batches.reduce((s, b) => s + (b.totalCost || 0), 0))}
                 </h3>
               </>
             ) : (
               <>
-                <p className="text-[10.5px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Planned Total Units</p>
-                <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
+                <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Total Units</p>
+                <h3 className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
                   {batches.reduce((s, b) => s + (Number(b.quantity) || 0), 0).toLocaleString()} Nos
                 </h3>
               </>
             )}
           </div>
-          <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 flex items-center justify-center">
-            <Database className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 flex items-center justify-center">
+            <Database className="w-4 h-4" />
           </div>
         </div>
       </div>
 
-      {/* ── MAIN BATCH TABLE CARD MATCHING /rm/stock TOOLBAR & LAYOUT ── */}
-      <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden flex flex-col text-xs">
+      {/* ── MAIN BATCH TABLE CARD ── */}
+      <Card className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden flex flex-col text-xs">
         <CardContent className="p-0">
 
           {/* Quick Filter Status Pills Navigation Ribbon */}
-          <div className="px-3.5 pt-3 pb-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar">
+          <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-950/30 flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar">
             {[
               { id: 'ALL', label: 'All Batches', count: statusCounts.ALL },
               { id: 'Planned', label: 'Draft / Planned', count: statusCounts.PLANNED },
@@ -724,17 +688,17 @@ export default function StandardProductionListPage() {
                   key={tab.id}
                   type="button"
                   onClick={() => { setStatusFilter(tab.id); setCurrentPage(1); }}
-                  className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all text-xs cursor-pointer shrink-0 border ${
+                  className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all text-xs cursor-pointer shrink-0 border ${
                     isActive 
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   {tab.pulse && (
-                    <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-amber-300' : 'bg-amber-500'} animate-pulse`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-amber-300' : 'bg-amber-500'} animate-pulse`} />
                   )}
                   <span>{tab.label}</span>
-                  <span className={`px-1.5 py-0.2 rounded-full font-mono text-[10px] ${
+                  <span className={`px-1.5 py-0.2 rounded font-mono text-[9.5px] ${
                     isActive 
                       ? 'bg-white/20 text-white' 
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
@@ -746,13 +710,13 @@ export default function StandardProductionListPage() {
             })}
           </div>
 
-          {/* Integrated Pro Toolbar: Search + Status + Base + Shift + Reset (Identical to /rm/stock) */}
-          <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+          {/* Integrated Compact Toolbar: Search + Status + Base + Shift + Date + Reset */}
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/80 bg-white dark:bg-slate-900/60 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2">
             
-            {/* Search Input with quick clear and match counter */}
+            {/* Search Input with quick clear */}
             <div className="flex items-center gap-2 flex-1 max-w-md">
               <div className="relative w-full">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 <input
                   type="text"
                   placeholder="Search batch #, base, shift, status..."
@@ -761,22 +725,22 @@ export default function StandardProductionListPage() {
                     setSearchTerm(e.target.value); 
                     setCurrentPage(1); 
                   }}
-                  className="w-full pl-8 pr-7 py-1.5 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 shadow-3xs transition-all placeholder:text-slate-400"
+                  className="w-full pl-9 pr-8 py-2 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs bg-slate-50/60 focus:bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-9 shadow-3xs transition-all placeholder:text-slate-400"
                 />
                 {searchTerm && (
                   <button
                     onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full transition-colors cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full transition-colors cursor-pointer"
                     title="Clear search"
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
 
               {searchTerm && (
                 <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold whitespace-nowrap hidden sm:inline-flex items-center gap-1">
-                  <span>Found {sortedAndFiltered.length} matches</span>
+                  <span>{sortedAndFiltered.length} found</span>
                 </div>
               )}
             </div>
@@ -785,14 +749,14 @@ export default function StandardProductionListPage() {
             <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto justify-start lg:justify-end">
               
               {/* Status Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[125px] flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[135px] flex items-center">
                 <select
                   value={statusFilter}
                   onChange={(e) => {
                     setStatusFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-9 pl-3.5 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Status"
                 >
                   <option value="ALL">All Status</option>
@@ -803,63 +767,63 @@ export default function StandardProductionListPage() {
                   <option value="Paused">Paused</option>
                   <option value="Cancelled">Cancelled</option>
                 </select>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
-                  <ChevronDown className="w-3 h-3" />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3.5 h-3.5" />
                 </span>
               </div>
 
               {/* Base Master Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[125px] flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[170px] flex items-center">
                 <select
                   value={baseFilter}
                   onChange={(e) => {
                     setBaseFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-9 pl-3.5 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Base"
                 >
-                  <option value="ALL">All Base Formulations</option>
+                  <option value="ALL">All Formulations</option>
                   {baseOptions.map(base => (
                     <option key={base} value={base}>{base}</option>
                   ))}
                 </select>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
-                  <ChevronDown className="w-3 h-3" />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3.5 h-3.5" />
                 </span>
               </div>
 
               {/* Shift Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[105px] flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] flex items-center">
                 <select
                   value={shiftFilter}
                   onChange={(e) => {
                     setShiftFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-9 pl-3.5 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Shift"
                 >
                   <option value="ALL">All Shifts</option>
-                  <option value="Morning">Morning Shift</option>
-                  <option value="Evening">Evening Shift</option>
-                  <option value="Night">Night Shift</option>
-                  <option value="General">General Shift</option>
+                  <option value="Morning">Morning</option>
+                  <option value="Evening">Evening</option>
+                  <option value="Night">Night</option>
+                  <option value="General">General</option>
                 </select>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
-                  <ChevronDown className="w-3 h-3" />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3.5 h-3.5" />
                 </span>
               </div>
 
               {/* Date Preset Filter */}
-              <div className="relative flex-1 sm:flex-none min-w-[115px] flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[125px] flex items-center">
                 <select
                   value={datePreset}
                   onChange={(e) => {
                     setDatePreset(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-9 pl-3.5 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Date Range"
                 >
                   <option value="ALL">All Dates</option>
@@ -867,8 +831,8 @@ export default function StandardProductionListPage() {
                   <option value="THIS_WEEK">This Week</option>
                   <option value="THIS_MONTH">This Month</option>
                 </select>
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
-                  <ChevronDown className="w-3 h-3" />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3.5 h-3.5" />
                 </span>
               </div>
 
@@ -877,10 +841,10 @@ export default function StandardProductionListPage() {
                 type="button"
                 onClick={handleResetFilters}
                 title="Reset All Filters and Search"
-                className="h-8 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 flex items-center gap-1 font-bold text-xs shadow-3xs cursor-pointer transition-all"
+                className="h-9 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950 hover:bg-slate-50 text-slate-600 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-1.5 font-semibold text-xs shadow-3xs cursor-pointer transition-all hover:border-slate-300"
               >
-                <RotateCcw className="w-3 h-3" />
-                <span className="hidden sm:inline">Reset</span>
+                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                <span>Reset</span>
               </button>
             </div>
           </div>
@@ -888,22 +852,22 @@ export default function StandardProductionListPage() {
           {/* ── BATCH LIST TABLE WITH INTERACTIVE COLUMN SORTING ── */}
           <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
+              <thead className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200/80 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                 <tr>
 
                   {/* Multi-Select All Checkbox */}
-                  <th className="py-2 px-2.5 w-8 text-center">
+                  <th className="py-2 px-2 w-8 text-center">
                     <input
                       type="checkbox"
                       checked={paginatedBatches.length > 0 && paginatedBatches.every(b => selectedBatchIds.includes(b.id))}
                       onChange={() => handleSelectAll(paginatedBatches)}
-                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                       title="Select/Deselect all batches on this page"
                     />
                   </th>
                   
                   {/* 1. Batch No */}
-                  <th className="py-2 px-2.5 w-[150px] whitespace-nowrap">
+                  <th className="py-2 px-2 w-[155px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortBatch}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -921,7 +885,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 2. Date & Shift */}
-                  <th className="py-2 px-2.5 w-[140px] whitespace-nowrap">
+                  <th className="py-2 px-2 w-[140px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortDate}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -939,7 +903,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 3. Base & Template */}
-                  <th className="py-2 px-2.5 min-w-[150px] whitespace-nowrap">
+                  <th className="py-2 px-2 min-w-[150px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortBase}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -957,7 +921,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 4. Status */}
-                  <th className="py-2 px-2.5 w-[130px] text-center whitespace-nowrap">
+                  <th className="py-2 px-2 w-[130px] text-center whitespace-nowrap">
                     <button
                       onClick={handleToggleSortStatus}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
@@ -977,7 +941,7 @@ export default function StandardProductionListPage() {
                   {/* 5 & 6. Grand Total & Cost/Unit */}
                   {canViewCosting ? (
                     <>
-                      <th className="py-2 px-2.5 w-[110px] text-right whitespace-nowrap">
+                      <th className="py-2 px-2 w-[105px] text-right whitespace-nowrap">
                         <button
                           onClick={handleToggleSortCost}
                           className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
@@ -993,7 +957,7 @@ export default function StandardProductionListPage() {
                           )}
                         </button>
                       </th>
-                      <th className="py-2 px-2.5 w-[100px] text-right whitespace-nowrap">
+                      <th className="py-2 px-2 w-[95px] text-right whitespace-nowrap">
                         <button
                           onClick={handleToggleSortCostUnit}
                           className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
@@ -1013,28 +977,28 @@ export default function StandardProductionListPage() {
                   ) : null}
 
                   {/* 7. Operations */}
-                  <th className="py-2 px-2.5 text-right whitespace-nowrap">Operations</th>
+                  <th className="py-2 px-3 text-right whitespace-nowrap">Operations</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading ? (
                   <tr>
-                    <td colSpan={canViewCosting ? 8 : 6} className="py-10 text-center text-slate-400">
-                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
-                      Loading standard production batches...
+                    <td colSpan={canViewCosting ? 8 : 6} className="py-8 text-center text-slate-400">
+                      <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-1.5 text-indigo-500" />
+                      <span className="text-xs">Loading standard production batches...</span>
                     </td>
                   </tr>
                 ) : paginatedBatches.length === 0 ? (
                   <tr>
-                    <td colSpan={canViewCosting ? 8 : 6} className="py-10 text-center text-slate-400">
-                      <div className="flex flex-col items-center justify-center gap-1.5">
-                        <Package className="w-7 h-7 text-slate-300 dark:text-slate-600" />
-                        <span className="font-semibold text-slate-600 dark:text-slate-400">No standard production batches found matching criteria.</span>
+                    <td colSpan={canViewCosting ? 8 : 6} className="py-8 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <Package className="w-6 h-6 text-slate-300 dark:text-slate-600" />
+                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs">No standard production batches found matching criteria.</span>
                         {searchTerm && (
                           <button
                             onClick={handleResetFilters}
-                            className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer mt-1"
+                            className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer mt-0.5"
                           >
                             Clear search and filters
                           </button>
@@ -1052,31 +1016,35 @@ export default function StandardProductionListPage() {
                     return (
                       <tr 
                         key={b.id} 
-                        className={`transition-colors ${
+                        className={`transition-colors border-b border-slate-100 dark:border-slate-800/60 ${
                           isSelected 
-                            ? 'bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-50 dark:hover:bg-indigo-950/60' 
+                            ? 'bg-indigo-50/50 dark:bg-indigo-950/30 hover:bg-indigo-50/70' 
                             : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
                         }`}
                       >
 
                         {/* Row Selection Checkbox */}
-                        <td className="py-2 px-2.5 text-center">
+                        <td className="py-1.5 px-2 text-center">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleToggleSelectBatch(b.id)}
-                            className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                           />
                         </td>
                         
                         {/* 1. Batch No */}
-                        <td className="py-2 px-2.5 font-mono whitespace-nowrap">
-                          <div className="font-black text-indigo-600 dark:text-indigo-400 text-xs">
+                        <td className="py-1.5 px-2 font-mono whitespace-nowrap">
+                          <div 
+                            onClick={() => handleOpenCockpit(b, 'STEPS', true)}
+                            className="font-black text-indigo-600 dark:text-indigo-400 text-xs hover:underline cursor-pointer tracking-tight"
+                            title="Click to view batch parameters"
+                          >
                             {displayRefNo}
                           </div>
                           <div className="flex items-center gap-1 flex-wrap mt-0.5">
                             {b.shortBatchCode && (
-                              <span className="inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                              <span className="inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800">
                                 {b.shortBatchCode}
                               </span>
                             )}
@@ -1089,8 +1057,8 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 2. Date & Shift */}
-                        <td className="py-2 px-2.5 whitespace-nowrap">
-                          <span className="font-bold text-slate-900 dark:text-white block">
+                        <td className="py-1.5 px-2 whitespace-nowrap">
+                          <span className="font-bold text-slate-900 dark:text-white block text-xs">
                             {new Date(b.startDate).toLocaleDateString('en-GB')}
                           </span>
                           <span className="text-[10px] text-slate-400 block font-mono">
@@ -1099,30 +1067,33 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 3. Base & Template */}
-                        <td className="py-2 px-2.5 whitespace-nowrap">
-                          <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
-                            {b.baseName || 'Standard Base'}
-                          </span>
-                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-mono">
+                        <td className="py-1.5 px-2 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <FlaskConical className="w-3 h-3 text-indigo-500 shrink-0" />
+                            <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                              {b.baseName || 'Standard Base'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-mono ml-4.5">
                             {b.templateName || 'Master Formula'}
                           </span>
                         </td>
 
                         {/* 4. Status */}
-                        <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                        <td className="py-1.5 px-2 text-center whitespace-nowrap">
                           <div className="flex flex-col items-center gap-0.5">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black ${
                               b.status === 'Completed' || b.status === 'qc_passed'
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800'
                                 : b.status === 'Lab Test In Progress'
-                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-pulse'
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800 animate-pulse'
                                 : b.status === 'In Progress'
-                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800'
                                 : b.status === 'Paused'
                                 ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200'
                                 : b.status === 'qc_failed'
                                 ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                                : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800'
                             }`}>
                               {b.status === 'Lab Test In Progress'
                                 ? '🔬 In QC Queue'
@@ -1144,111 +1115,117 @@ export default function StandardProductionListPage() {
                         {/* 5 & 6. Grand Total & Cost/Unit */}
                         {canViewCosting ? (
                           <>
-                            <td className="py-2 px-2.5 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
+                            <td className="py-1.5 px-2 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap text-xs">
                               ₹{formatCurrency(b.totalCost)}
                             </td>
-                            <td className="py-2 px-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap text-xs">
                               ₹{formatCurrency(unitCost)}
                             </td>
                           </>
                         ) : null}
 
-                        {/* 7. Operations */}
-                        <td className="py-2 px-2.5 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5 flex-nowrap shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
+                        {/* 7. Operations (Stylish Capsule Buttons with Perfect Padding) */}
+                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-2 flex-nowrap shrink-0">
+                            
+                            {/* View Button */}
+                            <button
+                              type="button"
                               onClick={() => handleOpenCockpit(b, 'STEPS', true)}
-                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                              className="inline-flex items-center gap-1.5 h-7.5 px-3.5 rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 text-xs font-bold cursor-pointer shadow-3xs hover:shadow-2xs active:scale-[0.98] transition-all shrink-0"
                               title="View entered floor cockpit parameters in read-only mode"
                             >
-                              <Eye className="w-3 h-3 text-indigo-500 shrink-0" />
-                              View
-                            </Button>
+                              <Eye className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                              <span>View</span>
+                            </button>
 
+                            {/* Draft/Planned Batch Operations */}
                             {(b.status === 'Planned' || b.status === 'Draft') && (
                               <>
-                                <Button
-                                  size="sm"
+                                <button
+                                  type="button"
                                   onClick={() => handleOpenCockpit(b, 'STEPS', false)}
-                                  className="bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  className="inline-flex items-center gap-1.5 h-7.5 px-3.5 rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 text-xs font-bold cursor-pointer shadow-3xs active:scale-[0.98] transition-all shrink-0"
                                   title="Open Floor Cockpit to allocate lots and preview merge math"
                                 >
-                                  <Sliders className="w-3 h-3 shrink-0" />
-                                  Floor Run
-                                </Button>
+                                  <Sliders className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                  <span>Floor Run</span>
+                                </button>
 
-                                <Button
-                                  variant="outline"
-                                  size="sm"
+                                <button
+                                  type="button"
                                   onClick={() => navigate(`/production/standard/edit/${b.id}`)}
-                                  className="rounded-xl border-amber-200 dark:border-amber-800/60 bg-amber-50/60 hover:bg-amber-100 text-amber-700 dark:text-amber-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  className="inline-flex items-center gap-1.5 h-7.5 px-3.5 rounded-full border border-amber-300/90 dark:border-amber-800 bg-amber-50/80 hover:bg-amber-100 text-amber-800 dark:text-amber-300 text-xs font-bold cursor-pointer shadow-3xs active:scale-[0.98] transition-all shrink-0"
                                   title="Edit draft batch and details"
                                 >
-                                  <Pencil className="w-3 h-3 text-amber-600 shrink-0" />
-                                  Edit
-                                </Button>
+                                  <Pencil className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                  <span>Edit</span>
+                                </button>
 
-                                <Button
-                                  size="sm"
+                                <button
+                                  type="button"
                                   onClick={() => handleStartBatch(b)}
-                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  className="inline-flex items-center gap-1.5 h-7.5 px-4 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer shadow-xs hover:shadow-indigo-500/25 active:scale-[0.98] transition-all shrink-0"
                                   title="Start manufacturing batch on floor"
                                 >
-                                  <Play className="w-3 h-3 fill-current shrink-0" />
-                                  Start
-                                </Button>
+                                  <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                                  <span>Start</span>
+                                </button>
                               </>
                             )}
 
+                            {/* In Progress or Paused Batch Operations */}
                             {(b.status === 'In Progress' || b.status === 'Paused') && (
-                              <Button
-                                size="sm"
+                              <button
+                                type="button"
                                 onClick={() => handleOpenCockpit(b, 'STEPS', false)}
-                                className={`${b.status === 'Paused' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl text-xs font-bold h-7 px-3 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0`}
+                                className={`inline-flex items-center gap-1.5 h-7.5 px-4 rounded-full text-white text-xs font-bold cursor-pointer shadow-xs active:scale-[0.98] transition-all shrink-0 ${
+                                  b.status === 'Paused' 
+                                    ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/25' 
+                                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25'
+                                }`}
                                 title={b.status === 'Paused' ? 'Resume Paused Production / Start Next Day or Edit Completed Day Costs' : 'Open Floor Execution Cockpit (Evaporation & Mould Math)'}
                               >
-                                <Sliders className="w-3 h-3 shrink-0" />
+                                <Sliders className="w-3.5 h-3.5 shrink-0" />
                                 <span>{b.status === 'Paused' ? `Continue (Day ${(b.completedDaysCount || 0) + 1})` : 'Floor Run'}</span>
-                              </Button>
+                              </button>
                             )}
 
+                            {/* Completed / Has Day Runs Operations */}
                             {(b.status === 'Completed' || b.status === 'qc_passed' || Number(b.completedDaysCount || 0) > 0) && (
                               <>
-                                <Button
-                                  size="sm"
+                                <button
+                                  type="button"
                                   onClick={() => handleOpenCleanSheet(b)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
+                                  className="inline-flex items-center gap-1.5 h-7.5 px-4 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer shadow-xs hover:shadow-emerald-600/30 active:scale-[0.98] transition-all shrink-0"
                                   title="Open Executive Clean Sheet, Day-by-Day Yields, PO Raw Material Consumption & Cost Ledger"
                                 >
-                                  <FileText className="w-3 h-3 shrink-0" />
-                                  Clean Sheet
-                                </Button>
+                                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Clean Sheet</span>
+                                </button>
 
-                                <Button
-                                  variant="outline"
-                                  size="sm"
+                                <button
+                                  type="button"
                                   onClick={() => handleOpenLabelModal(b)}
-                                  className="rounded-xl border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                  className="inline-flex items-center gap-1.5 h-7.5 px-3.5 rounded-full border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 hover:bg-indigo-50/80 text-indigo-700 dark:text-indigo-300 text-xs font-bold cursor-pointer shadow-3xs active:scale-[0.98] transition-all shrink-0"
                                   title="Print GST Compliance, Product Batch & 8-Digit Serial Label"
                                 >
-                                  <Printer className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  GST Label
-                                </Button>
+                                  <Printer className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                  <span>GST Label</span>
+                                </button>
                               </>
                             )}
 
+                            {/* Admin Delete Action */}
                             {canDeleteBatch && (
-                              <Button
-                                variant="outline"
-                                size="sm"
+                              <button
+                                type="button"
                                 onClick={() => handleDeleteBatch(b)}
-                                className="rounded-xl border-rose-200 dark:border-rose-900/60 bg-rose-50/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
+                                className="inline-flex items-center justify-center h-7.5 w-7.5 rounded-full border border-rose-200 dark:border-rose-900/60 bg-rose-50/80 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-600 text-xs cursor-pointer shadow-3xs active:scale-[0.98] transition-all shrink-0"
                                 title="Delete production batch and automatically restore all raw material stock to inventory"
                               >
-                                <Trash2 className="w-3 h-3 text-rose-500 shrink-0" />
-                              </Button>
+                                <Trash2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1260,8 +1237,8 @@ export default function StandardProductionListPage() {
             </table>
           </div>
 
-          {/* ── PAGINATION CONTROLS (Identical to /rm/stock) ── */}
-          <div className="px-3.5 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          {/* ── PAGINATION CONTROLS (Compact & Integrated) ── */}
+          <div className="px-3 py-1.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
             <div className="text-center sm:text-left">
               {sortedAndFiltered.length > 0 ? (
                 <span>
@@ -1273,7 +1250,7 @@ export default function StandardProductionListPage() {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex justify-center">
+              <div className="flex justify-center scale-90 sm:scale-95 origin-center">
                 <Pagination 
                   currentPage={currentPage} 
                   totalPages={totalPages} 
@@ -1333,32 +1310,31 @@ export default function StandardProductionListPage() {
 
       {/* ── FLOATING MULTI-SELECT ACTION BAR ── */}
       {selectedBatchIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-950/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-slate-700/80 flex items-center gap-3 sm:gap-4 animate-in fade-in slide-in-from-bottom-4 text-xs font-bold">
-          <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
-            <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-mono">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-slate-950/95 text-white backdrop-blur-md px-4 py-2 rounded-xl shadow-2xl border border-slate-700/80 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 text-xs font-bold">
+          <div className="flex items-center gap-2 pr-2.5 border-r border-slate-700">
+            <span className="w-4.5 h-4.5 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-mono">
               {selectedBatchIds.length}
             </span>
-            <span className="hidden sm:inline">Batches Selected</span>
+            <span className="hidden sm:inline text-xs">Selected</span>
           </div>
 
-          <Button
-            size="sm"
+          <button
+            type="button"
             onClick={handleBulkStart}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2.5 rounded-xl font-bold text-xs"
+            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-7.5 px-3 rounded-lg font-bold text-xs shadow-xs transition-all cursor-pointer"
           >
-            <Play className="w-3 h-3 mr-1 fill-current" />
-            Start Selected
-          </Button>
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Start Selected</span>
+          </button>
 
-          <Button
-            size="sm"
-            variant="outline"
+          <button
+            type="button"
             onClick={handleExportSelectedCSV}
-            className="border-slate-700 hover:bg-slate-800 text-white h-7 px-2.5 rounded-xl font-bold text-xs"
+            className="inline-flex items-center gap-1.5 border border-slate-700 hover:bg-slate-800 text-white h-7.5 px-3 rounded-lg font-bold text-xs shadow-xs transition-all cursor-pointer"
           >
-            <FileSpreadsheet className="w-3 h-3 mr-1" />
-            Export CSV
-          </Button>
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Export CSV</span>
+          </button>
 
           <button
             onClick={handleClearSelection}

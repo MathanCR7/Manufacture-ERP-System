@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   Factory, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
   Layers, Clock, AlertCircle, Sparkles, Database, Check, Package,
-  Sliders, ChevronRight, Boxes, RotateCcw, Plus
+  Sliders, ChevronRight, Boxes, RotateCcw, Plus, ShoppingCart, User,
+  ExternalLink, ChevronDown, ChevronUp, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,13 +28,21 @@ const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 export default function StandardProductionFormPage() {
   const navigate = useNavigate();
   const { id: paramId } = useParams();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+  const salesOrderIdFromUrl = searchParams.get('salesOrderId') || searchParams.get('orderId');
   const editBatchId = paramId || searchParams.get('id') || searchParams.get('editId') || null;
   const isEditMode = Boolean(editBatchId);
 
   const [editingBatchNo, setEditingBatchNo] = useState('');
   const [editingBatchStatus, setEditingBatchStatus] = useState('');
   const [loadingBatch, setLoadingBatch] = useState(false);
+
+  // ── Linked Sales Order Demand State ──
+  const [linkedSalesOrder, setLinkedSalesOrder] = useState(() => location.state?.salesOrder || null);
+  const [loadingSalesOrder, setLoadingSalesOrder] = useState(false);
+  const [demandPanelOpen, setDemandPanelOpen] = useState(true);
+  const [openSalesOrdersList, setOpenSalesOrdersList] = useState([]);
 
   // ── Master Data from Live APIs ──
   const [bases, setBases] = useState([]);
@@ -138,6 +147,109 @@ export default function StandardProductionFormPage() {
       unit: formatCleanUom(prod.unit, 'pcs', prod)
     };
     setSelectedProducts(prev => [...prev, newProd]);
+  };
+
+  // ── Fetch linked Sales Order details if salesOrderId is in URL or state ──
+  useEffect(() => {
+    const targetSoId = salesOrderIdFromUrl || location.state?.salesOrderId;
+    if (!targetSoId) {
+      // Also fetch open sales orders list for optional side selection
+      api.get('/orders')
+        .then(res => {
+          const list = Array.isArray(res.data) ? res.data : [];
+          const openSOs = list.filter(o => 
+            o.type === 'Sales Order' && 
+            !o.deletedAt && 
+            !o.isInvoicedOrder && 
+            !(o.childOrders && o.childOrders.some(c => c.type === 'Invoice' || c.orderType === 'Invoice')) &&
+            o.status !== 'Delivered'
+          );
+          setOpenSalesOrdersList(openSOs);
+        })
+        .catch(() => {});
+      return;
+    }
+
+    if (linkedSalesOrder && linkedSalesOrder.id === targetSoId && linkedSalesOrder.items?.length > 0) return;
+
+    let isSubscribed = true;
+    setLoadingSalesOrder(true);
+    api.get(`/orders/${targetSoId}`)
+      .then(res => {
+        if (!isSubscribed) return;
+        const ord = res.data;
+        if (ord) {
+          setLinkedSalesOrder(ord);
+          setNote(prev => prev ? prev : `Production for Sales Order #${ord.docNo || ord.referenceNo || ''} (${ord.customer?.name || ord.customerName || 'Customer'})`);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load linked sales order demand:', err);
+      })
+      .finally(() => {
+        if (isSubscribed) setLoadingSalesOrder(false);
+      });
+
+    return () => { isSubscribed = false; };
+  }, [salesOrderIdFromUrl, location.state]);
+
+  // Handler to add a demanded product from the sales order to Step 3
+  const handleAddProductFromSalesDemand = (item) => {
+    const pId = item.productId || item.product?.id || item.id;
+    if (selectedProducts.some(p => p.productId === pId)) {
+      Swal.fire({ title: 'Already Added', text: 'This product is already selected in the batch queue.', icon: 'info' });
+      return;
+    }
+    const matchedMaster = products.find(p => p.id === pId) || item.product || {};
+    const demandedQty = Number(item.shortfallQty > 0 ? item.shortfallQty : (item.quantity || 100));
+    const prodName = matchedMaster.name || item.productName || item.name || 'End Product';
+    const prodCode = matchedMaster.code || item.productCode || item.code || 'FG-ITEM';
+    const prodUnit = formatCleanUom(matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || item.uomName || matchedMaster.unit, 'pcs', matchedMaster);
+
+    const newProd = {
+      productId: pId,
+      name: prodName,
+      code: prodCode,
+      series: matchedMaster.specifications?.series || matchedMaster.series || 'REGULAR',
+      group: matchedMaster.specifications?.group || matchedMaster.group || 'GENERAL',
+      factor: Number(matchedMaster.specifications?.factor || matchedMaster.factor || 1),
+      baseName: matchedMaster.specifications?.baseName || matchedMaster.baseName || selectedBaseName,
+      plannedQty: demandedQty,
+      unit: prodUnit
+    };
+
+    setSelectedProducts(prev => [...prev, newProd]);
+
+    if (!selectedBaseId && matchedMaster.baseId && bases.some(b => b.id === matchedMaster.baseId)) {
+      setSelectedBaseId(matchedMaster.baseId);
+    }
+    if (!selectedTemplate && allTemplates.length > 0) {
+      const matchTpl = allTemplates.find(t => (matchedMaster.baseId && t.baseId === matchedMaster.baseId) || t.baseId === selectedBaseId) || allTemplates[0];
+      if (matchTpl) {
+        handleSelectTemplate(matchTpl);
+      }
+    }
+  };
+
+  const handleAddAllSalesDemandProducts = () => {
+    if (!linkedSalesOrder?.items || linkedSalesOrder.items.length === 0) return;
+    let count = 0;
+    linkedSalesOrder.items.forEach(it => {
+      const pId = it.productId || it.product?.id || it.id;
+      if (!selectedProducts.some(p => p.productId === pId)) {
+        handleAddProductFromSalesDemand(it);
+        count++;
+      }
+    });
+    if (count > 0) {
+      Swal.fire({
+        title: 'End Products Added',
+        text: `Successfully added ${count} end product(s) to the batch queue.`,
+        icon: 'success',
+        timer: 1800,
+        showConfirmButton: false
+      });
+    }
   };
 
   // ── 14 Standard Factory Stages Palette (Section 5 & 6) ──
@@ -1370,6 +1482,123 @@ export default function StandardProductionFormPage() {
           {/* ── RIGHT SIDEBAR (STICKY, TOP: 92px): BATCH SUMMARY & LABOUR STAFF ── */}
           <aside className="space-y-5 xl:sticky xl:top-[92px]">
             
+            {/* ── SALES ORDER DEMAND & END PRODUCTS (SIDEBAR PANEL) ── */}
+            {linkedSalesOrder ? (
+              <div className="bg-gradient-to-br from-amber-50/95 via-orange-50/60 to-amber-100/70 dark:from-amber-950/50 dark:via-orange-950/30 dark:to-amber-900/40 border-2 border-amber-300 dark:border-amber-700/80 rounded-2xl p-4 shadow-sm space-y-3">
+                <div className="flex items-center justify-between pb-2.5 border-b border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs">
+                      <ShoppingCart className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-amber-950 dark:text-amber-200 uppercase tracking-tight flex items-center gap-1.5">
+                        <span>SO Demand End Products</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-mono font-black">
+                          {linkedSalesOrder.items?.length || 0}
+                        </span>
+                      </h4>
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold truncate max-w-[180px]">
+                        SO #{linkedSalesOrder.docNo || linkedSalesOrder.referenceNo || 'SO'} • {linkedSalesOrder.customer?.name || linkedSalesOrder.customerName || 'Customer'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleAddAllSalesDemandProducts}
+                    className="h-6.5 px-2.5 text-[10.5px] font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-3xs cursor-pointer flex items-center gap-1 shrink-0"
+                    title="Add all demanded end products into batch queue"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Add All</span>
+                  </Button>
+                </div>
+
+                {/* Items List */}
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {(linkedSalesOrder.items || []).map((it, idx) => {
+                    const pId = it.productId || it.product?.id || it.id;
+                    const isAdded = selectedProducts.some(p => p.productId === pId);
+                    const prodName = it.product?.name || it.productName || it.name || 'End Product';
+                    const prodCode = it.product?.code || it.productCode || it.code || 'ITEM';
+                    const qty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
+                    const uom = it.uomName || it.product?.unit?.abbreviation || 'pcs';
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${
+                          isAdded
+                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 shadow-3xs'
+                            : 'bg-white dark:bg-slate-900 border-amber-200/90 dark:border-slate-800 shadow-3xs'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-slate-900 dark:text-white truncate text-[11.5px]" title={prodName}>
+                            {prodName}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
+                            <span>{prodCode}</span>
+                            <span>•</span>
+                            <span className="font-bold text-amber-600 dark:text-amber-400">
+                              Demanded: {qty} {uom}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          {isAdded ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                              <Check className="w-3 h-3" /> In Batch
+                            </span>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleAddProductFromSalesDemand(it)}
+                              className="h-6.5 px-2.5 text-[10.5px] font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1 shrink-0"
+                              title="Add this demanded end product to Step 3 batch queue"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>+ Add</span>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : openSalesOrdersList.length > 0 ? (
+              <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-2xl p-4 shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <ShoppingCart className="w-3.5 h-3.5 text-amber-600" />
+                    Load Sales Order Demand
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold">
+                    {openSalesOrdersList.length} Open
+                  </span>
+                </div>
+                <select
+                  onChange={(e) => {
+                    const selId = e.target.value;
+                    const found = openSalesOrdersList.find(o => o.id === selId);
+                    if (found) setLinkedSalesOrder(found);
+                  }}
+                  defaultValue=""
+                  className="w-full h-8 px-2 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none"
+                >
+                  <option value="" disabled>Select an open Sales Order...</option>
+                  {openSalesOrdersList.map(so => (
+                    <option key={so.id} value={so.id}>
+                      {so.docNo || so.referenceNo} • {so.customerName || so.customer?.name} ({so.items?.length || 0} items)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
             {/* Card "Batch summary" */}
             <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs space-y-4">
               <div className="pb-3 border-b border-[#E3E6EC] dark:border-slate-800">

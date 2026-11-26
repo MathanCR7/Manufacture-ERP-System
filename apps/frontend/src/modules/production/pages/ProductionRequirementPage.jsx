@@ -6,8 +6,8 @@ import {
   Layers, Package, AlertTriangle, ArrowRight, RefreshCw,
   Search, Clock, CheckCircle2, ChevronRight, ExternalLink,
   Calendar, Factory, Sparkles, Filter, ArrowUpDown, ArrowUp, ArrowDown,
-  RotateCcw, RotateCw, ChevronDown, Flame, ShoppingCart, ShieldCheck,
-  Eye, FileText, Check, X, AlertCircle, TrendingDown, Building2
+  RotateCcw, RotateCw, ChevronDown, ChevronUp, Flame, ShoppingCart, ShieldCheck,
+  Eye, FileText, Check, X, AlertCircle, TrendingDown, Building2, User, Boxes
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Pagination } from '@/components/ui/Pagination';
@@ -24,6 +24,10 @@ export default function ProductionRequirementPage() {
   // Sorting State - default net deficit descending
   const [sortBy, setSortBy] = useState('net_desc');
 
+  // View Mode: 'SALES_ORDER' (default as requested) or 'PRODUCT'
+  const [viewMode, setViewMode] = useState('SALES_ORDER');
+  const [expandedOrders, setExpandedOrders] = useState(new Set());
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -36,6 +40,16 @@ export default function ProductionRequirementPage() {
     queryKey: ['production-requirements'],
     queryFn: async () => {
       const res = await api.get('/orders/production-requirements');
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    refetchInterval: 30000
+  });
+
+  // Fetch open Sales Orders for Sales Order Wise view
+  const { data: allCustomerOrders = [], isLoading: isLoadingOrders, isRefetching: isRefetchingOrders, refetch: refetchOrders } = useQuery({
+    queryKey: ['sales-orders-production-demand'],
+    queryFn: async () => {
+      const res = await api.get('/orders');
       return Array.isArray(res.data) ? res.data : [];
     },
     refetchInterval: 30000
@@ -208,6 +222,94 @@ export default function ProductionRequirementPage() {
     return filteredAndSorted.slice(start, start + itemsPerPage);
   }, [filteredAndSorted, currentPage, itemsPerPage]);
 
+  // ── Open Sales Orders Needing Production ──
+  const salesOrdersNeedingProduction = useMemo(() => {
+    return allCustomerOrders.filter(order => {
+      if (order.type !== 'Sales Order' || order.deletedAt) return false;
+      const isInvoiced = (
+        order.status === 'Delivered' ||
+        order.isInvoicedOrder ||
+        (order.childOrders && order.childOrders.some(c => c.type === 'Invoice' || c.orderType === 'Invoice'))
+      );
+      if (isInvoiced) return false;
+      return true;
+    }).map(order => {
+      const items = Array.isArray(order.items) ? order.items : [];
+      const totalDemandedQty = items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+      const totalShortfallQty = items.reduce((s, it) => s + Number(it.shortfallQty || 0), 0);
+      const urgency = getDeliveryUrgency(order.deliveryDate);
+      return {
+        ...order,
+        items,
+        totalDemandedQty,
+        totalShortfallQty,
+        urgency
+      };
+    });
+  }, [allCustomerOrders]);
+
+  const filteredAndSortedSalesOrders = useMemo(() => {
+    const list = salesOrdersNeedingProduction.filter(order => {
+      // Metric Card Filter matching
+      if (activeCardFilter === 'CUSTOMER_SHORTFALL' && Number(order.totalShortfallQty || 0) <= 0) return false;
+      
+      // Urgency Filter
+      if (urgencyFilter !== 'ALL') {
+        if (urgencyFilter === 'OVERDUE' && order.urgency.status !== 'OVERDUE') return false;
+        if (urgencyFilter === 'TODAY' && order.urgency.status !== 'TODAY') return false;
+        if (urgencyFilter === 'WEEK' && order.urgency.status !== 'WEEK' && order.urgency.status !== 'TODAY') return false;
+        if (urgencyFilter === 'LATER' && order.urgency.status !== 'LATER') return false;
+      }
+      // Search Filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const refMatch = (order.docNo || order.referenceNo || '').toLowerCase().includes(q);
+        const nameMatch = (order.customerName || order.customer?.name || '').toLowerCase().includes(q);
+        const itemMatch = (order.items || []).some(it => 
+          (it.productName || it.product?.name || '').toLowerCase().includes(q) ||
+          (it.productCode || it.product?.code || '').toLowerCase().includes(q)
+        );
+        if (!refMatch && !nameMatch && !itemMatch) return false;
+      }
+      return true;
+    });
+
+    return list.sort((a, b) => {
+      if (sortBy === 'date_asc') return new Date(a.deliveryDate || a.createdAt) - new Date(b.deliveryDate || b.createdAt);
+      if (sortBy === 'date_desc') return new Date(b.deliveryDate || b.createdAt) - new Date(a.deliveryDate || a.createdAt);
+      if (sortBy === 'name_asc') return (a.customerName || a.customer?.name || '').localeCompare(b.customerName || b.customer?.name || '');
+      if (sortBy === 'name_desc') return (b.customerName || b.customer?.name || '').localeCompare(a.customerName || a.customer?.name || '');
+      if (sortBy === 'shortfall_desc' || sortBy === 'net_desc') return Number(b.totalDemandedQty || 0) - Number(a.totalDemandedQty || 0);
+      if (sortBy === 'shortfall_asc' || sortBy === 'net_asc') return Number(a.totalDemandedQty || 0) - Number(b.totalDemandedQty || 0);
+      return new Date(a.deliveryDate || a.createdAt) - new Date(b.deliveryDate || b.createdAt);
+    });
+  }, [salesOrdersNeedingProduction, activeCardFilter, urgencyFilter, searchQuery, sortBy]);
+
+  const totalSoPages = Math.ceil(filteredAndSortedSalesOrders.length / itemsPerPage) || 1;
+  const paginatedSalesOrders = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredAndSortedSalesOrders.slice(start, start + itemsPerPage);
+  }, [filteredAndSortedSalesOrders, currentPage, itemsPerPage]);
+
+  const toggleExpandOrder = (id) => {
+    setExpandedOrders(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleConvertSoToStandard = (order) => {
+    navigate(`/production/standard/add?salesOrderId=${order.id}`, {
+      state: {
+        salesOrderId: order.id,
+        salesOrder: order,
+        items: order.items
+      }
+    });
+  };
+
   return (
     <div className="w-full min-h-screen bg-[#F4F5F8] dark:bg-slate-950 font-['Plus_Jakarta_Sans',sans-serif] text-slate-800 dark:text-slate-100 flex flex-col">
       
@@ -239,13 +341,13 @@ export default function ProductionRequirementPage() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
-            disabled={isRefetching || isLoading}
+            onClick={() => { refetch(); refetchOrders(); }}
+            disabled={isRefetching || isLoading || isRefetchingOrders || isLoadingOrders}
             className="h-9 px-3 rounded-xl border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold cursor-pointer shadow-3xs"
             title="Refresh demand deficit"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-indigo-500 ${isRefetching ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{isRefetching ? 'Syncing...' : 'Sync Demand'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-indigo-500 ${(isRefetching || isRefetchingOrders) ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{(isRefetching || isRefetchingOrders) ? 'Syncing...' : 'Sync Demand'}</span>
           </Button>
 
           <Button
@@ -415,28 +517,66 @@ export default function ProductionRequirementPage() {
           
           <div className="p-3 border-b border-[#E3E6EC] dark:border-slate-800 flex flex-col lg:flex-row items-center justify-between gap-3">
             
-            {/* Search Input */}
-            <div className="relative w-full lg:w-96 flex items-center">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
-                }}
-                placeholder="Search product name, code, customer, or SO doc #..."
-                className="w-full h-9 pl-9 pr-8 text-xs font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all placeholder:text-slate-400"
-              />
-              {searchQuery && (
+            <div className="flex items-center gap-2.5 w-full lg:w-auto flex-wrap">
+              {/* Search Input */}
+              <div className="relative w-full sm:w-80 lg:w-88 flex items-center">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder={viewMode === 'SALES_ORDER' ? "Search SO doc #, customer, or demanded item..." : "Search product name, code, customer, or SO doc #..."}
+                  className="w-full h-9 pl-9 pr-8 text-xs font-semibold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all placeholder:text-slate-400"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* View Mode Toggle: Sales Order Wise vs Product Wise */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  onClick={() => { setViewMode('SALES_ORDER'); setCurrentPage(1); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                    viewMode === 'SALES_ORDER'
+                      ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="View requirements grouped by individual open Sales Orders"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <ShoppingCart className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Sales Order Wise</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                    {salesOrdersNeedingProduction.length}
+                  </span>
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => { setViewMode('PRODUCT'); setCurrentPage(1); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                    viewMode === 'PRODUCT'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="View requirements aggregated by products"
+                >
+                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Product Wise</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300">
+                    {requirements.length}
+                  </span>
+                </button>
+              </div>
             </div>
 
             {/* Filter Dropdowns */}
@@ -555,7 +695,238 @@ export default function ProductionRequirementPage() {
 
           {/* ── C) DATA TABLE ── */}
           <div className="overflow-x-auto w-full">
-            <table className="w-full text-left border-collapse text-xs">
+            {viewMode === 'SALES_ORDER' ? (
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50/70 dark:bg-slate-950/60 border-b border-slate-200/80 dark:border-slate-800 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">
+                    <th 
+                      onClick={() => setSortBy(s => s === 'date_asc' ? 'date_desc' : 'date_asc')}
+                      className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors select-none whitespace-nowrap min-w-[150px]"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Sales Order # &amp; Date</span>
+                        {sortBy === 'date_asc' ? <ArrowUp className="w-3 h-3 text-amber-500" /> : 
+                         sortBy === 'date_desc' ? <ArrowDown className="w-3 h-3 text-amber-500" /> : 
+                         <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => setSortBy(s => s === 'name_asc' ? 'name_desc' : 'name_asc')}
+                      className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors select-none whitespace-nowrap min-w-[160px]"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Customer &amp; Client</span>
+                        {sortBy === 'name_asc' ? <ArrowUp className="w-3 h-3 text-amber-500" /> : 
+                         sortBy === 'name_desc' ? <ArrowDown className="w-3 h-3 text-amber-500" /> : 
+                         <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap min-w-[130px]">
+                      Due Date &amp; Urgency
+                    </th>
+                    <th className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 min-w-[300px]">
+                      Demanded Items / End Products To Produce
+                    </th>
+                    <th 
+                      onClick={() => setSortBy(s => s === 'shortfall_desc' ? 'shortfall_asc' : 'shortfall_desc')}
+                      className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 text-right cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-colors select-none whitespace-nowrap min-w-[120px]"
+                    >
+                      <div className="flex items-center justify-end gap-1.5">
+                        <span>Total Demanded</span>
+                        {sortBy === 'shortfall_desc' ? <ArrowDown className="w-3 h-3 text-amber-500" /> : 
+                         sortBy === 'shortfall_asc' ? <ArrowUp className="w-3 h-3 text-amber-500" /> : 
+                         <ArrowUpDown className="w-3 h-3 text-slate-400" />}
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 text-center whitespace-nowrap w-[220px] min-w-[220px]">
+                      Production Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                  {isLoadingOrders ? (
+                    <tr>
+                      <td colSpan={6} className="py-14 text-center text-slate-400">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
+                        <span>Loading open sales orders requiring production...</span>
+                      </td>
+                    </tr>
+                  ) : paginatedSalesOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-14 text-center text-slate-400">
+                        <CheckCircle2 className="w-10 h-10 mx-auto mb-2 text-emerald-500 opacity-90" />
+                        <p className="font-semibold text-slate-700 dark:text-slate-300 text-sm">
+                          {searchQuery || urgencyFilter !== 'ALL'
+                            ? 'No open sales orders match the active filters'
+                            : 'No Pending Sales Orders!'}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                          All customer sales orders are currently satisfied or converted into tax invoices.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedSalesOrders.map(order => {
+                      const isExpanded = expandedOrders.has(order.id);
+                      const items = order.items || [];
+                      const displayItems = isExpanded ? items : items.slice(0, 3);
+
+                      return (
+                        <tr key={order.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                          {/* 1. SO Ref & Date */}
+                          <td className="py-3 px-3 align-top min-w-[150px]">
+                            <div className="font-mono font-black text-slate-900 dark:text-white text-xs">
+                              {order.docNo || order.referenceNo || 'SO'}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              {order.createdAt ? new Date(order.createdAt).toLocaleDateString('en-GB') : ''}
+                            </div>
+                            <div className="mt-1 flex items-center gap-1 flex-wrap">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                <Factory className="w-2.5 h-2.5 text-amber-600 animate-pulse" /> Need Production
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 2. Customer & Client */}
+                          <td className="py-3 px-3 align-top min-w-[160px]">
+                            <div className="font-bold text-slate-900 dark:text-white text-xs truncate max-w-[180px]" title={order.customerName || order.customer?.name}>
+                              {order.customerName || order.customer?.name || 'Customer'}
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                              {order.customer?.phone || order.customerPhone || 'Direct Client'}
+                            </div>
+                            <div className="mt-1">
+                              {(order.customer?.customerType === 'B2B' || order.customer?.customerType === 'DISTRIBUTOR') ? (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                  <Building2 className="w-2.5 h-2.5" /> B2B
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                                  <User className="w-2.5 h-2.5" /> Retail
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 3. Due Date & Urgency */}
+                          <td className="py-3 px-3 align-top min-w-[130px]">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                                <Calendar className="w-3 h-3 text-slate-400" />
+                                {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString('en-GB') : 'Immediate'}
+                              </span>
+                              <span className={`text-[9.5px] font-black uppercase mt-1 ${
+                                order.urgency.status === 'OVERDUE'
+                                  ? 'text-rose-600 dark:text-rose-400 font-bold'
+                                  : order.urgency.status === 'TODAY'
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : order.urgency.status === 'WEEK'
+                                  ? 'text-indigo-600 dark:text-indigo-400'
+                                  : 'text-slate-400'
+                              }`}>
+                                {order.urgency.label}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 4. Demanded Items / End Products To Produce */}
+                          <td className="py-3 px-3 align-top min-w-[300px]">
+                            <div className="space-y-1.5">
+                              {displayItems.map((it, itIdx) => {
+                                const pName = it.product?.name || it.productName || 'End Product';
+                                const pCode = it.product?.code || it.productCode || 'ITEM';
+                                const qty = Number(it.quantity || 0);
+                                const shortfall = Number(it.shortfallQty || 0);
+                                const uom = it.uomName || it.product?.unit?.abbreviation || 'pcs';
+
+                                return (
+                                  <div key={itIdx} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+                                    <div className="min-w-0">
+                                      <span className="font-extrabold text-slate-900 dark:text-white truncate block text-[11px]" title={pName}>
+                                        {pName}
+                                      </span>
+                                      <span className="font-mono text-[9.5px] text-slate-400">
+                                        {pCode}
+                                      </span>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className="font-mono font-black text-slate-900 dark:text-white text-xs">
+                                        {qty.toLocaleString('en-IN')} {uom}
+                                      </span>
+                                      {shortfall > 0 && (
+                                        <div className="text-[9.5px] font-mono text-rose-600 font-bold">
+                                          Short: -{shortfall.toLocaleString('en-IN')}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {items.length > 3 && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpandOrder(order.id)}
+                                  className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer flex items-center gap-0.5"
+                                >
+                                  {isExpanded ? (
+                                    <><span>Show less</span><ChevronUp className="w-3 h-3" /></>
+                                  ) : (
+                                    <><span>+{items.length - 3} more end products</span><ChevronDown className="w-3 h-3" /></>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 5. Total Demanded Qty */}
+                          <td className="py-3 px-3 align-top text-right min-w-[120px]">
+                            <div className="font-mono font-black text-slate-900 dark:text-white text-xs sm:text-sm">
+                              {order.totalDemandedQty.toLocaleString('en-IN')}
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              Across {items.length} items
+                            </div>
+                            {order.totalShortfallQty > 0 && (
+                              <div className="text-[10px] font-mono text-rose-600 font-bold mt-0.5">
+                                Shortfall: -{order.totalShortfallQty.toLocaleString('en-IN')}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 6. Production Actions */}
+                          <td className="py-3 px-3 align-top text-center whitespace-nowrap">
+                            <div className="flex flex-col items-center justify-center gap-1.5 w-full">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleConvertSoToStandard(order)}
+                                className="h-8 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold text-xs shadow-xs cursor-pointer inline-flex items-center gap-1.5 transition-transform active:scale-95 w-full justify-center"
+                                title="Convert this Sales Order directly into Standard Production"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                                <span>Convert into Production</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </Button>
+
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/sales/order?edit=${order.id}&from=/production/requirements`)}
+                                className="text-[10.5px] font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>View Sales Order</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50/70 dark:bg-slate-950/60 border-b border-slate-200/80 dark:border-slate-800 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider">
                   
@@ -906,19 +1277,20 @@ export default function ProductionRequirementPage() {
                 )}
               </tbody>
             </table>
+            )}
           </div>
 
           {/* ── D) PAGINATION BAR ── */}
           <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
             <div className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">
-              Showing <strong className="text-slate-800 dark:text-slate-200">{filteredAndSorted.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}</strong> to <strong className="text-slate-800 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, filteredAndSorted.length)}</strong> of <strong className="text-slate-800 dark:text-slate-200">{filteredAndSorted.length}</strong> requirement items
+              Showing <strong className="text-slate-800 dark:text-slate-200">{viewMode === 'SALES_ORDER' ? (filteredAndSortedSalesOrders.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1) : (filteredAndSorted.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1)}</strong> to <strong className="text-slate-800 dark:text-slate-200">{viewMode === 'SALES_ORDER' ? Math.min(currentPage * itemsPerPage, filteredAndSortedSalesOrders.length) : Math.min(currentPage * itemsPerPage, filteredAndSorted.length)}</strong> of <strong className="text-slate-800 dark:text-slate-200">{viewMode === 'SALES_ORDER' ? filteredAndSortedSalesOrders.length : filteredAndSorted.length}</strong> {viewMode === 'SALES_ORDER' ? 'sales orders' : 'requirement items'}
             </div>
 
             <div className="flex items-center gap-3">
               <Pagination
                 currentPage={currentPage}
-                totalPages={totalPages}
-                totalRecords={filteredAndSorted.length}
+                totalPages={viewMode === 'SALES_ORDER' ? totalSoPages : totalPages}
+                totalRecords={viewMode === 'SALES_ORDER' ? filteredAndSortedSalesOrders.length : filteredAndSorted.length}
                 pageSize={itemsPerPage}
                 onPageChange={setCurrentPage}
               />
