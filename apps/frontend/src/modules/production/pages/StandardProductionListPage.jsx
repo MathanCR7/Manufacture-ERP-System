@@ -174,14 +174,13 @@ export default function StandardProductionListPage() {
     const selectedBatches = batches.filter(b => selectedBatchIds.includes(b.id));
     if (selectedBatches.length === 0) return;
 
-    const headers = ['Batch No', 'Date', 'Shift', 'Base Name', 'Product', 'Planned Qty', 'Status', 'Total Cost'];
+    const headers = ['Batch No', 'Date', 'Shift', 'Base Name', 'Template', 'Status', 'Total Cost'];
     const rows = selectedBatches.map(b => [
       `"${b.referenceNo || b.batchNo || ''}"`,
       `"${new Date(b.startDate || b.createdAt).toLocaleDateString('en-GB')}"`,
       `"${b.shift || 'Morning'}"`,
       `"${b.baseName || ''}"`,
-      `"${b.product?.name || ''}"`,
-      b.quantity || 0,
+      `"${b.templateName || ''}"`,
       `"${b.status || ''}"`,
       b.totalCost || 0
     ]);
@@ -756,7 +755,7 @@ export default function StandardProductionListPage() {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search batch #, product, base, shift, status..."
+                  placeholder="Search batch #, base, shift, status..."
                   value={searchTerm}
                   onChange={(e) => { 
                     setSearchTerm(e.target.value); 
@@ -893,7 +892,7 @@ export default function StandardProductionListPage() {
                 <tr>
 
                   {/* Multi-Select All Checkbox */}
-                  <th className="py-2.5 px-3 w-8 text-center">
+                  <th className="py-2 px-2.5 w-8 text-center">
                     <input
                       type="checkbox"
                       checked={paginatedBatches.length > 0 && paginatedBatches.every(b => selectedBatchIds.includes(b.id))}
@@ -904,7 +903,7 @@ export default function StandardProductionListPage() {
                   </th>
                   
                   {/* 1. Batch No */}
-                  <th className="py-2.5 px-3 w-[160px] whitespace-nowrap">
+                  <th className="py-2 px-2.5 w-[150px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortBatch}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -922,7 +921,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 2. Date & Shift */}
-                  <th className="py-2.5 px-3 w-[150px] whitespace-nowrap">
+                  <th className="py-2 px-2.5 w-[140px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortDate}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -940,7 +939,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 3. Base & Template */}
-                  <th className="py-2.5 px-3 w-[170px] whitespace-nowrap">
+                  <th className="py-2 px-2.5 min-w-[150px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortBase}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -957,44 +956,8 @@ export default function StandardProductionListPage() {
                     </button>
                   </th>
 
-                  {/* 4. Target Product */}
-                  <th className="py-2.5 px-3 min-w-[180px]">
-                    <button
-                      onClick={handleToggleSortProduct}
-                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
-                      title="Sort by Product Name"
-                    >
-                      <span>Target Product</span>
-                      {sortBy === 'product_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                      ) : sortBy === 'product_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                      )}
-                    </button>
-                  </th>
-
-                  {/* 5. Planned Qty & Yield */}
-                  <th className="py-2.5 px-3 w-[125px] text-center whitespace-nowrap">
-                    <button
-                      onClick={handleToggleSortQty}
-                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
-                      title="Sort by Planned Quantity"
-                    >
-                      <span>Planned Qty / Yield</span>
-                      {sortBy === 'qty_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                      ) : sortBy === 'qty_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                      ) : (
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                      )}
-                    </button>
-                  </th>
-
-                  {/* 6. Status */}
-                  <th className="py-2.5 px-3 w-[140px] text-center whitespace-nowrap">
+                  {/* 4. Status */}
+                  <th className="py-2 px-2.5 w-[130px] text-center whitespace-nowrap">
                     <button
                       onClick={handleToggleSortStatus}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
@@ -1011,10 +974,10 @@ export default function StandardProductionListPage() {
                     </button>
                   </th>
 
-                  {/* 7 & 8. Grand Total & Cost/Unit */}
+                  {/* 5 & 6. Grand Total & Cost/Unit */}
                   {canViewCosting ? (
                     <>
-                      <th className="py-2.5 px-3 w-[120px] text-right whitespace-nowrap">
+                      <th className="py-2 px-2.5 w-[110px] text-right whitespace-nowrap">
                         <button
                           onClick={handleToggleSortCost}
                           className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
@@ -1030,7 +993,7 @@ export default function StandardProductionListPage() {
                           )}
                         </button>
                       </th>
-                      <th className="py-2.5 px-3 w-[110px] text-right whitespace-nowrap">
+                      <th className="py-2 px-2.5 w-[100px] text-right whitespace-nowrap">
                         <button
                           onClick={handleToggleSortCostUnit}
                           className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
@@ -1049,22 +1012,22 @@ export default function StandardProductionListPage() {
                     </>
                   ) : null}
 
-                  {/* 9. Operations & Yield */}
-                  <th className="py-2.5 px-3 w-[210px] text-right whitespace-nowrap">Operations & Yield</th>
+                  {/* 7. Operations */}
+                  <th className="py-2 px-2.5 text-right whitespace-nowrap">Operations</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading ? (
                   <tr>
-                    <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
+                    <td colSpan={canViewCosting ? 8 : 6} className="py-10 text-center text-slate-400">
                       <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
                       Loading standard production batches...
                     </td>
                   </tr>
                 ) : paginatedBatches.length === 0 ? (
                   <tr>
-                    <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
+                    <td colSpan={canViewCosting ? 8 : 6} className="py-10 text-center text-slate-400">
                       <div className="flex flex-col items-center justify-center gap-1.5">
                         <Package className="w-7 h-7 text-slate-300 dark:text-slate-600" />
                         <span className="font-semibold text-slate-600 dark:text-slate-400">No standard production batches found matching criteria.</span>
@@ -1097,7 +1060,7 @@ export default function StandardProductionListPage() {
                       >
 
                         {/* Row Selection Checkbox */}
-                        <td className="py-2.5 px-3 text-center">
+                        <td className="py-2 px-2.5 text-center">
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -1107,7 +1070,7 @@ export default function StandardProductionListPage() {
                         </td>
                         
                         {/* 1. Batch No */}
-                        <td className="py-2.5 px-3 font-mono whitespace-nowrap">
+                        <td className="py-2 px-2.5 font-mono whitespace-nowrap">
                           <div className="font-black text-indigo-600 dark:text-indigo-400 text-xs">
                             {displayRefNo}
                           </div>
@@ -1126,7 +1089,7 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 2. Date & Shift */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
+                        <td className="py-2 px-2.5 whitespace-nowrap">
                           <span className="font-bold text-slate-900 dark:text-white block">
                             {new Date(b.startDate).toLocaleDateString('en-GB')}
                           </span>
@@ -1136,7 +1099,7 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 3. Base & Template */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
+                        <td className="py-2 px-2.5 whitespace-nowrap">
                           <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                             {b.baseName || 'Standard Base'}
                           </span>
@@ -1145,45 +1108,8 @@ export default function StandardProductionListPage() {
                           </span>
                         </td>
 
-                        {/* 4. Target Product */}
-                        <td className="py-2.5 px-3">
-                          <span className="font-extrabold text-slate-900 dark:text-white block">
-                            {b.product?.name || 'Finished Goods'}
-                          </span>
-                          {b.product?.code && (
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              SKU: {b.product.code}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* 5. Planned Qty & Actual Yield */}
-                        <td className="py-2.5 px-3 text-center font-mono whitespace-nowrap">
-                          {b.status === 'Completed' || b.status === 'qc_passed' ? (
-                            <div className="flex flex-col items-center gap-0.5 font-mono">
-                              <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                                <span className="text-[9px] uppercase font-semibold text-slate-400 mr-1 font-sans">Target:</span>
-                                {b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                              </div>
-                              <div className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] font-black text-emerald-700 dark:text-emerald-300">
-                                <span className="text-[9px] uppercase font-bold text-emerald-600 dark:text-emerald-400 font-sans">Yield:</span>
-                                {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <span className="font-black text-slate-900 dark:text-white text-xs block font-mono">
-                                {b.quantity}
-                              </span>
-                              <span className="text-[10px] text-slate-400 uppercase font-semibold">
-                                {b.product?.unit?.abbreviation || 'Nos'}
-                              </span>
-                            </>
-                          )}
-                        </td>
-
-                        {/* 6. Status */}
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        {/* 4. Status */}
+                        <td className="py-2 px-2.5 text-center whitespace-nowrap">
                           <div className="flex flex-col items-center gap-0.5">
                             <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
                               b.status === 'Completed' || b.status === 'qc_passed'
@@ -1215,20 +1141,20 @@ export default function StandardProductionListPage() {
                           </div>
                         </td>
 
-                        {/* 7 & 8. Grand Total & Cost/Unit */}
+                        {/* 5 & 6. Grand Total & Cost/Unit */}
                         {canViewCosting ? (
                           <>
-                            <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
+                            <td className="py-2 px-2.5 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
                               ₹{formatCurrency(b.totalCost)}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            <td className="py-2 px-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                               ₹{formatCurrency(unitCost)}
                             </td>
                           </>
                         ) : null}
 
-                        {/* 9. Operations & Yield (Never wraps, clean single row) */}
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap min-w-[260px]">
+                        {/* 7. Operations */}
+                        <td className="py-2 px-2.5 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5 flex-nowrap shrink-0">
                             <Button
                               variant="outline"
@@ -1310,12 +1236,6 @@ export default function StandardProductionListPage() {
                                   <Printer className="w-3 h-3 text-indigo-500 shrink-0" />
                                   GST Label
                                 </Button>
-
-                                {(b.status === 'Completed' || b.status === 'qc_passed') && (
-                                  <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
-                                    {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                                  </span>
-                                )}
                               </>
                             )}
 
