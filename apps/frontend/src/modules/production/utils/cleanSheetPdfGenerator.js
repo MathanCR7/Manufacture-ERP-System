@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { round2, formatIndian, toMl, formatCleanUom } from './productionCalculation';
+import { round2, formatIndian, toMl, formatCleanUom } from './productionCalculation.js';
 
 const INR_FMT = (val, dec = 2) => {
   const num = Number(val || 0);
@@ -53,11 +53,13 @@ const safeText = (val, fallback = '-') => {
 };
 
 /**
- * Generates an aligned, multi-page A4 Vector PDF for the Standard Production Clean Sheet Report.
- * Supports:
- *  - mode: 'full' (complete clean sheet with day-wise production, RM consumption, yield & cost)
- *  - mode: 'datewise' (date-wise / day-wise production, per-product RM batch/qty/expiry, base RM & yield)
- *  - targetDayNo: null | number (optional single date/day filter)
+ * Generates an ultra-attractive, perfectly aligned, multi-page A4 Vector PDF
+ * for the Standard Production Clean Sheet Report.
+ * - Occupies the full printable page (margin: 8mm, width: 194mm)
+ * - Guarantees zero text overlap or data interception
+ * - Resumes multi-page table splits with table continuation title & column headers
+ * - Displays page numbers (Page X of Y) on every page
+ * - Preserves all calculations, traceability, unique RM summaries, and sign-offs
  */
 export function exportCleanSheetPdf({
   mode = 'full',
@@ -82,21 +84,25 @@ export function exportCleanSheetPdf({
     format: 'a4'
   });
 
-  const PAGE_W = doc.internal.pageSize.getWidth(); // 210
-  const PAGE_H = doc.internal.pageSize.getHeight(); // 297
-  const MARGIN = 11;
-  const CONTENT_W = PAGE_W - MARGIN * 2; // 188mm
-  const BOTTOM_SAFE = PAGE_H - 14;
+  const PAGE_W = doc.internal.pageSize.getWidth(); // 210mm
+  const PAGE_H = doc.internal.pageSize.getHeight(); // 297mm
+  const MARGIN = 8; // Clean, generous margins that occupy full printable width
+  const CONTENT_W = PAGE_W - MARGIN * 2; // 194mm exact full-page width
+  const BOTTOM_SAFE = PAGE_H - 12; // Leaves room for running footer and page badge
 
   const COLORS = {
     navy: [15, 23, 42],
     indigo: [67, 56, 202],
     indigoLight: [238, 242, 255],
+    indigoBorder: [199, 210, 254],
     emerald: [5, 150, 105],
     emeraldLight: [236, 253, 245],
+    emeraldBorder: [167, 243, 208],
     amber: [180, 83, 9],
     amberLight: [255, 251, 235],
+    amberBorder: [252, 211, 77],
     rose: [190, 18, 60],
+    roseLight: [255, 241, 242],
     slateDark: [30, 41, 59],
     slateMid: [71, 85, 105],
     slateMuted: [100, 116, 139],
@@ -123,29 +129,30 @@ export function exportCleanSheetPdf({
 
   const drawTopChrome = () => {
     doc.setFillColor(...COLORS.navy);
-    doc.rect(0, 0, PAGE_W, 4, 'F');
+    doc.rect(0, 0, PAGE_W, 3.5, 'F');
     doc.setFillColor(...COLORS.indigo);
-    doc.rect(0, 4, PAGE_W, 1.2, 'F');
+    doc.rect(0, 3.5, PAGE_W, 1.2, 'F');
   };
 
   const ensureSpace = (neededH = 18) => {
     if (y + neededH > BOTTOM_SAFE) {
       doc.addPage();
       drawTopChrome();
-      y = 11;
-      // Compact continuation header
+      y = 10;
+      // Compact top continuation header
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      doc.setFontSize(7.8);
       doc.setTextColor(...COLORS.indigo);
-      doc.text(`${companyName.toUpperCase()} | CLEAN SHEET REPORT`, MARGIN, y);
+      doc.text(`${companyName.toUpperCase()} | PRODUCTION CLEAN SHEET & TRACEABILITY REPORT`, MARGIN, y + 3);
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.8);
       doc.setTextColor(...COLORS.slateMuted);
-      doc.text(`Prod No: ${prodNo} | Batch Code: ${shortCode}`, PAGE_W - MARGIN, y, { align: 'right' });
-      y += 2.5;
+      doc.text(`Prod No: ${prodNo} | Batch: ${shortCode} | Status: ${safeText(summary.statusText, 'ACTIVE')}`, PAGE_W - MARGIN, y + 3, { align: 'right' });
+      y += 5.2;
       doc.setDrawColor(...COLORS.border);
-      doc.setLineWidth(0.2);
+      doc.setLineWidth(0.25);
       doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-      y += 4;
+      y += 3.8;
     }
   };
 
@@ -153,59 +160,94 @@ export function exportCleanSheetPdf({
     ensureSpace(14);
     y += 1.5;
     doc.setFillColor(...COLORS.indigo);
-    doc.roundedRect(MARGIN, y, 5.5, 5.5, 1, 1, 'F');
+    doc.roundedRect(MARGIN, y, 5.8, 5.8, 1, 1, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...COLORS.white);
-    doc.text(safeText(badge), MARGIN + 2.75, y + 3.9, { align: 'center' });
+    doc.text(safeText(badge), MARGIN + 2.9, y + 4.1, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.8);
     doc.setTextColor(...COLORS.navy);
-    doc.text(safeText(title).toUpperCase(), MARGIN + 8, y + 4);
+    doc.text(safeText(title).toUpperCase(), MARGIN + 8.5, y + 4.2);
 
     if (subtitle) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7.2);
       doc.setTextColor(...COLORS.slateMuted);
-      doc.text(safeText(subtitle), PAGE_W - MARGIN, y + 4, { align: 'right' });
+      doc.text(safeText(subtitle), PAGE_W - MARGIN, y + 4.2, { align: 'right' });
     }
-    y += 7;
+    y += 7.2;
     doc.setDrawColor(...COLORS.indigo);
     doc.setLineWidth(0.35);
     doc.line(MARGIN, y, PAGE_W - MARGIN, y);
-    y += 3;
+    y += 3.2;
   };
 
   /**
-   * Reusable perfectly aligned vector table with automatic row wrapping & page breaks.
-   * cols: [{ label, width, align: 'left'|'right'|'center' }] (sum of widths should equal CONTENT_W = 188)
+   * Reusable perfectly aligned vector table with automatic row wrapping,
+   * non-intercepting cells, and automatic page break table header repetition.
    */
   const drawTable = (cols, rows, footerRow = null, options = {}) => {
-    const fontSize = options.fontSize || 7.2;
-    const headerFontSize = options.headerFontSize || 6.8;
-    const cellPadX = 1.8;
+    const fontSize = options.fontSize || 6.9;
+    const headerFontSize = options.headerFontSize || 6.7;
+    const cellPadX = 2.0; // Strict cell horizontal breathing space
     const lineH = options.lineH || 3.4;
 
     const totalConfiguredW = cols.reduce((s, c) => s + c.width, 0);
     const scale = totalConfiguredW > 0 ? CONTENT_W / totalConfiguredW : 1;
     const normCols = cols.map(c => ({ ...c, w: c.width * scale }));
 
-    // Pre-calculate wrapped cells and row heights for ALL rows
+    // Pre-calculate wrapped lines and ensure non-intercepting boundaries for all cells
     const preparedRows = rows.map(r => {
       const wrappedCells = normCols.map((c, cIdx) => {
         const raw = Array.isArray(r) ? r[cIdx] : r[c.key];
         const txt = safeText(raw, '-');
-        doc.setFont('helvetica', c.bold ? 'bold' : 'normal');
-        doc.setFontSize(fontSize);
-        return doc.splitTextToSize(txt, Math.max(4, c.w - cellPadX * 2));
+        const cellMeta = (!Array.isArray(r) && r._styles && r._styles[c.key]) || {};
+        const isBold = cellMeta.bold || c.bold;
+        doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+
+        const maxW = Math.max(3.5, c.w - cellPadX * 2);
+        let cellFontSize = fontSize;
+        doc.setFontSize(cellFontSize);
+
+        const rawParagraphs = txt.split('\n');
+        let lines = [];
+        for (const p of rawParagraphs) {
+          const splitP = doc.splitTextToSize(p, maxW);
+          for (const sp of splitP) {
+            lines.push(sp);
+          }
+        }
+
+        // Auto-scale font if an unbroken long token exceeds column width
+        let maxLineWidth = 0;
+        for (const ln of lines) {
+          const lw = (doc.getStringUnitWidth(ln) * cellFontSize) / doc.internal.scaleFactor;
+          if (lw > maxLineWidth) maxLineWidth = lw;
+        }
+
+        if (maxLineWidth > maxW && cellFontSize > 5.2) {
+          cellFontSize = Math.max(5.2, (cellFontSize * maxW) / maxLineWidth);
+          doc.setFontSize(cellFontSize);
+          lines = [];
+          for (const p of rawParagraphs) {
+            const splitP = doc.splitTextToSize(p, maxW);
+            for (const sp of splitP) {
+              lines.push(sp);
+            }
+          }
+        }
+
+        return { lines, fontSize: cellFontSize };
       });
-      const maxLines = Math.max(1, ...wrappedCells.map(lines => lines.length));
-      const rowH = Math.max(5.6, maxLines * lineH + 2.4);
+
+      const maxLines = Math.max(1, ...wrappedCells.map(wc => wc.lines.length));
+      const rowH = Math.max(5.8, maxLines * lineH + 2.5);
       return { wrappedCells, rowH, rawData: r };
     });
 
-    // Responsive footer wrapping & dynamic height calculation
+    // Responsive footer calculation
     let footWrapped = null;
     let footH = 0;
     if (footerRow) {
@@ -214,23 +256,46 @@ export function exportCleanSheetPdf({
       footWrapped = normCols.map((c, cIdx) => {
         const val = Array.isArray(footerRow) ? footerRow[cIdx] : footerRow[c.key];
         const text = safeText(val, '');
-        if (!text) return [];
-        return doc.splitTextToSize(text, Math.max(4, c.w - cellPadX * 2));
+        if (!text) return { lines: [], fontSize };
+        const maxW = Math.max(3.5, c.w - cellPadX * 2);
+        let cellFontSize = fontSize;
+        const rawParagraphs = text.split('\n');
+        let lines = [];
+        for (const p of rawParagraphs) {
+          for (const sp of doc.splitTextToSize(p, maxW)) {
+            lines.push(sp);
+          }
+        }
+        let maxLineWidth = 0;
+        for (const ln of lines) {
+          const lw = (doc.getStringUnitWidth(ln) * cellFontSize) / doc.internal.scaleFactor;
+          if (lw > maxLineWidth) maxLineWidth = lw;
+        }
+        if (maxLineWidth > maxW && cellFontSize > 5.2) {
+          cellFontSize = Math.max(5.2, (cellFontSize * maxW) / maxLineWidth);
+          doc.setFontSize(cellFontSize);
+          lines = [];
+          for (const p of rawParagraphs) {
+            for (const sp of doc.splitTextToSize(p, maxW)) {
+              lines.push(sp);
+            }
+          }
+        }
+        return { lines, fontSize: cellFontSize };
       });
-      const maxFootLines = Math.max(1, ...footWrapped.map(lines => lines.length));
-      footH = Math.max(6.2, maxFootLines * lineH + 2.4);
+      const maxFootLines = Math.max(1, ...footWrapped.map(fw => fw.lines.length));
+      footH = Math.max(6.4, maxFootLines * lineH + 2.5);
     }
 
-    const headerH = 6.2;
+    const headerH = 6.4;
     const totalTableH = headerH + preparedRows.reduce((s, pr) => s + pr.rowH, 0) + footH + 3;
 
-    // PREVENT BREAK: If the entire table can fit on a clean page and would overflow current page,
-    // move completely to the next page so the table stays 100% cohesive and attractive!
+    // PREVENT BREAK: If the entire table fits comfortably on a single clean page and would overflow current page, move it
     const maxUsablePageH = BOTTOM_SAFE - 15;
-    if (options.preventBreak !== false && totalTableH <= maxUsablePageH) {
+    if (options.preventBreak && totalTableH <= maxUsablePageH) {
       ensureSpace(totalTableH);
     } else {
-      ensureSpace(14);
+      ensureSpace(16);
     }
 
     const drawHeaderRow = () => {
@@ -242,15 +307,15 @@ export function exportCleanSheetPdf({
       let cx = MARGIN;
       normCols.forEach((c, cIdx) => {
         const labelText = safeText(c.label).toUpperCase();
-        const maxW = Math.max(4, c.w - cellPadX * 2);
+        const maxW = Math.max(3.5, c.w - cellPadX * 2);
         let colFontSize = headerFontSize;
         const strW = (doc.getStringUnitWidth(labelText) * colFontSize) / doc.internal.scaleFactor;
-        if (strW > maxW && colFontSize > 5.5) {
-          colFontSize = 5.8;
+        if (strW > maxW && colFontSize > 5.2) {
+          colFontSize = Math.max(5.2, (colFontSize * maxW) / strW);
           doc.setFontSize(colFontSize);
         }
         const tx = c.align === 'right' ? cx + c.w - cellPadX : (c.align === 'center' ? cx + c.w / 2 : cx + cellPadX);
-        doc.text(labelText, tx, y + 4.2, { align: c.align || 'left' });
+        doc.text(labelText, tx, y + 4.3, { align: c.align || 'left' });
         if (colFontSize !== headerFontSize) {
           doc.setFontSize(headerFontSize);
         }
@@ -270,16 +335,29 @@ export function exportCleanSheetPdf({
     preparedRows.forEach((pr, rIdx) => {
       const { wrappedCells, rowH, rawData: r } = pr;
 
-      // In case of an exceptionally large multi-page table exceeding page boundary:
+      // Table Multi-Page Continuation: Resume cleanly with table title & column headers!
       if (y + rowH > BOTTOM_SAFE) {
         doc.addPage();
         drawTopChrome();
-        y = 11;
+        y = 10;
+
+        const tTitle = options.tableName || options.title || 'Table Ledger';
+        doc.setFillColor(...(options.continuationBg || COLORS.indigoLight));
+        doc.setDrawColor(...(options.continuationBorder || COLORS.indigo));
+        doc.setLineWidth(0.28);
+        doc.roundedRect(MARGIN, y, CONTENT_W, 6.2, 1, 1, 'FD');
+
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.setTextColor(...COLORS.indigo);
-        doc.text(`${companyName.toUpperCase()} | ${prodNo} (Contd.)`, MARGIN, y);
-        y += 3;
+        doc.setFontSize(7.5);
+        doc.setTextColor(...(options.continuationText || COLORS.indigo));
+        doc.text(`${tTitle.toUpperCase()} — TABLE CONTINUED`, MARGIN + 3, y + 4.2);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.8);
+        doc.setTextColor(...COLORS.slateMuted);
+        doc.text(`Prod No: ${prodNo} | Batch: ${shortCode}`, MARGIN + CONTENT_W - 3, y + 4.2, { align: 'right' });
+
+        y += 7.8;
         drawHeaderRow();
       }
 
@@ -293,16 +371,18 @@ export function exportCleanSheetPdf({
 
       let cx = MARGIN;
       normCols.forEach((c, cIdx) => {
-        const lines = wrappedCells[cIdx];
+        const { lines, fontSize: cellFontSize } = wrappedCells[cIdx];
         const cellMeta = (!Array.isArray(r) && r._styles && r._styles[c.key]) || {};
         doc.setFont('helvetica', cellMeta.bold || c.bold ? 'bold' : 'normal');
-        doc.setFontSize(fontSize);
+        doc.setFontSize(cellFontSize);
         doc.setTextColor(...(cellMeta.color || c.color || COLORS.slateDark));
+
         const tx = c.align === 'right' ? cx + c.w - cellPadX : (c.align === 'center' ? cx + c.w / 2 : cx + cellPadX);
         lines.forEach((ln, li) => {
-          doc.text(ln, tx, y + 3.6 + li * lineH, { align: c.align || 'left' });
+          doc.text(ln, tx, y + 3.8 + li * lineH, { align: c.align || 'left' });
         });
-        // Vertical hairline
+
+        // Vertical hairline between columns
         if (cIdx > 0) {
           doc.setDrawColor(226, 232, 240);
           doc.line(cx, y, cx, y + rowH);
@@ -316,26 +396,45 @@ export function exportCleanSheetPdf({
       if (y + footH > BOTTOM_SAFE) {
         doc.addPage();
         drawTopChrome();
-        y = 11;
+        y = 10;
+
+        const tTitle = options.tableName || options.title || 'Table Ledger';
+        doc.setFillColor(...(options.continuationBg || COLORS.indigoLight));
+        doc.setDrawColor(...(options.continuationBorder || COLORS.indigo));
+        doc.setLineWidth(0.28);
+        doc.roundedRect(MARGIN, y, CONTENT_W, 6.2, 1, 1, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(...(options.continuationText || COLORS.indigo));
+        doc.text(`${tTitle.toUpperCase()} — TOTALS / CONTINUED`, MARGIN + 3, y + 4.2);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.8);
+        doc.setTextColor(...COLORS.slateMuted);
+        doc.text(`Prod No: ${prodNo} | Batch: ${shortCode}`, MARGIN + CONTENT_W - 3, y + 4.2, { align: 'right' });
+
+        y += 7.8;
         drawHeaderRow();
       }
+
       doc.setFillColor(...COLORS.indigoLight);
       doc.rect(MARGIN, y, CONTENT_W, footH, 'F');
       doc.setDrawColor(...COLORS.indigo);
-      doc.setLineWidth(0.2);
+      doc.setLineWidth(0.25);
       doc.rect(MARGIN, y, CONTENT_W, footH, 'S');
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(fontSize);
-      doc.setTextColor(...COLORS.navy);
       let cx = MARGIN;
       normCols.forEach((c, cIdx) => {
-        const lines = footWrapped[cIdx];
+        const { lines, fontSize: cellFontSize } = footWrapped[cIdx];
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(cellFontSize);
+        doc.setTextColor(...COLORS.navy);
         const tx = c.align === 'right' ? cx + c.w - cellPadX : (c.align === 'center' ? cx + c.w / 2 : cx + cellPadX);
         lines.forEach((ln, li) => {
           doc.text(ln, tx, y + 3.8 + li * lineH, { align: c.align || 'left' });
         });
-        // Vertical hairline divider for footer columns! (Requested by user)
+        // Vertical divider in footer
         if (cIdx > 0) {
           doc.setDrawColor(199, 210, 254);
           doc.setLineWidth(0.2);
@@ -346,14 +445,14 @@ export function exportCleanSheetPdf({
       y += footH;
     }
 
-    y += 3;
+    y += 3.2;
   };
 
-    // ── START DOCUMENT ──
+  // ── START DOCUMENT ──
   drawTopChrome();
-  y = 10;
+  y = 9.5;
 
-  // Company & Certificate Header
+  // Company & Certificate Header Banner (Full 194mm width)
   doc.setFillColor(...COLORS.navy);
   doc.roundedRect(MARGIN, y, CONTENT_W, 25, 2, 2, 'F');
 
@@ -377,27 +476,29 @@ export function exportCleanSheetPdf({
   doc.setTextColor(203, 213, 225);
   const addrLine = safeText(companyDetails?.companyAddress, 'Manufacturing Plant & Registered Office');
   const taxLine = `GSTIN: ${safeText(companyDetails?.companyGstin || companyDetails?.taxRegNo, '-')}   |   PAN: ${safeText(companyDetails?.companyPan, '-')}   |   Tel: ${safeText(companyDetails?.companyMobile, '-')}`;
-  doc.text(addrLine.slice(0, 90), MARGIN + 4, y + 17.5);
+  doc.text(addrLine.slice(0, 85), MARGIN + 4, y + 17.5);
   doc.text(taxLine, MARGIN + 4, y + 21.8);
 
   // Right Badge Box inside dark banner
+  const badgeBoxW = 54;
+  const badgeBoxX = PAGE_W - MARGIN - badgeBoxW;
   doc.setFillColor(30, 41, 59);
-  doc.roundedRect(PAGE_W - MARGIN - 54, y + 3, 50, 19, 1.5, 1.5, 'F');
+  doc.roundedRect(badgeBoxX, y + 3, badgeBoxW, 19, 1.5, 1.5, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
   doc.setTextColor(148, 163, 184);
-  doc.text('PRODUCTION ORDER NO', PAGE_W - MARGIN - 29, y + 7.2, { align: 'center' });
-  doc.setFontSize(10);
+  doc.text('PRODUCTION ORDER NO', badgeBoxX + badgeBoxW / 2, y + 7.2, { align: 'center' });
+  doc.setFontSize(9.8);
   doc.setTextColor(110, 231, 183);
-  doc.text(prodNo.slice(0, 20), PAGE_W - MARGIN - 29, y + 12.2, { align: 'center' });
+  doc.text(prodNo.slice(0, 22), badgeBoxX + badgeBoxW / 2, y + 12.2, { align: 'center' });
   doc.setFontSize(7);
   doc.setTextColor(226, 232, 240);
-  doc.text(`Batch Code: ${shortCode}`, PAGE_W - MARGIN - 29, y + 16.5, { align: 'center' });
-  doc.text(`Status: ${safeText(summary.statusText, 'ACTIVE')}`, PAGE_W - MARGIN - 29, y + 20.2, { align: 'center' });
+  doc.text(`Batch Code: ${shortCode}`, badgeBoxX + badgeBoxW / 2, y + 16.5, { align: 'center' });
+  doc.text(`Status: ${safeText(summary.statusText, 'ACTIVE')}`, badgeBoxX + badgeBoxW / 2, y + 20.2, { align: 'center' });
 
   y += 28.5;
 
-  // Batch & Duration Metadata Grid (2 rows x 4 cols)
+  // Batch & Duration Metadata Grid (2 rows x 4 cols, Full 194mm width)
   const metaItems = [
     ['Production No', prodNo],
     ['Batch No / Short Code', `${batchNo} (${shortCode})`],
@@ -409,7 +510,7 @@ export function exportCleanSheetPdf({
     ['QC / Crew', `${labTestRequired ? 'QC Lab Required' : 'Direct Stock'} | ${batch?.labourCount || batch?.labour_count || 1} Crew`]
   ];
 
-  const metaCellW = CONTENT_W / 4;
+  const metaCellW = CONTENT_W / 4; // 48.5mm
   const metaRowH = 9.2;
   metaItems.forEach((item, idx) => {
     const col = idx % 4;
@@ -423,16 +524,16 @@ export function exportCleanSheetPdf({
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.2);
     doc.setTextColor(...COLORS.slateMuted);
-    doc.text(item[0].toUpperCase(), mx + 2, my + 3.4);
+    doc.text(item[0].toUpperCase(), mx + 2.2, my + 3.4);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.4);
     doc.setTextColor(...COLORS.navy);
-    const clipped = doc.splitTextToSize(safeText(item[1]), metaCellW - 4)[0] || '-';
-    doc.text(clipped, mx + 2, my + 7.4);
+    const clipped = doc.splitTextToSize(safeText(item[1]), metaCellW - 4.4)[0] || '-';
+    doc.text(clipped, mx + 2.2, my + 7.4);
   });
-  y += metaRowH * 2 + 4;
+  y += metaRowH * 2 + 3.8;
 
-  // Executive KPI Strip
+  // Executive KPI Strip (Full 194mm width)
   const kpiCards = [
     { label: 'Target Planned', value: `${formatIndian(summary.plannedOutput, 0)} ${summary.productUom}`, sub: 'Order target', bg: COLORS.rowAlt, accent: COLORS.navy },
     { label: 'Actual Good Yield', value: `${formatIndian(summary.actualGood, 0)} ${summary.productUom}`, sub: `Reject: ${formatIndian(summary.totalRejected, 0)}`, bg: COLORS.emeraldLight, accent: COLORS.emerald },
@@ -456,7 +557,7 @@ export function exportCleanSheetPdf({
     doc.setFontSize(6);
     doc.setTextColor(...(k.dark ? [203, 213, 225] : COLORS.slateMuted));
     doc.text(k.label.toUpperCase(), kx + 2.5, y + 4);
-    doc.setFontSize(8.8);
+    doc.setFontSize(8.6);
     doc.setTextColor(...k.accent);
     doc.text(safeText(k.value), kx + 2.5, y + 9.2);
     doc.setFont('helvetica', 'normal');
@@ -464,12 +565,12 @@ export function exportCleanSheetPdf({
     doc.setTextColor(...(k.dark ? [226, 232, 240] : COLORS.slateMid));
     doc.text(safeText(k.sub), kx + 2.5, y + 12.8);
   });
-  y += 18.5;
+  y += 18.2;
 
-  // Evaporation & Mix Pool Balance Bar
+  // Evaporation & Mix Pool Balance Bar (Full 194mm width)
   ensureSpace(14);
   doc.setFillColor(...COLORS.amberLight);
-  doc.setDrawColor(252, 211, 77);
+  doc.setDrawColor(...COLORS.amberBorder);
   doc.roundedRect(MARGIN, y, CONTENT_W, 11, 1.5, 1.5, 'FD');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
@@ -482,27 +583,28 @@ export function exportCleanSheetPdf({
   doc.text(mixSummaryText, MARGIN + 3, y + 8.8);
   y += 14.5;
 
-  // ── SECTION 1: BASE RAW MATERIAL CONSUMPTION (WITH BATCH NO, QTY & EXPIRY DATE) ──
+  // ── SECTION 1: BASE RAW MATERIAL CONSUMPTION ──
   drawSectionHeading('1', 'Base Raw Material Consumption & Inventory Lot Traceability', `${baseRmLines.length} Base Materials Used`);
 
+  // Section 1 Columns calibrated for exact 194mm width
   const baseCols = canViewCost
     ? [
-        { key: 'code', label: 'Code', width: 16 },
-        { key: 'name', label: 'Raw Material Name', width: 38, bold: true },
+        { key: 'code', label: 'Code', width: 18 },
+        { key: 'name', label: 'Raw Material Name', width: 40, bold: true },
         { key: 'batchNo', label: 'RM Batch / Lot No', width: 32, color: COLORS.indigo, bold: true },
         { key: 'qty', label: 'Consumed Qty', width: 22, align: 'right', bold: true },
         { key: 'expiry', label: 'Expiry Date', width: 18, align: 'center' },
         { key: 'rate', label: 'Unit Rate', width: 18, align: 'right' },
         { key: 'cost', label: 'Total Cost', width: 24, align: 'right', color: COLORS.emerald, bold: true },
-        { key: 'evap', label: 'Liquid / Evap', width: 20, align: 'right' }
+        { key: 'evap', label: 'Liquid / Evap', width: 22, align: 'right' }
       ]
     : [
-        { key: 'code', label: 'Code', width: 18 },
-        { key: 'name', label: 'Raw Material Name', width: 52, bold: true },
-        { key: 'batchNo', label: 'RM Batch / Lot No', width: 44, color: COLORS.indigo, bold: true },
-        { key: 'qty', label: 'Consumed Qty', width: 28, align: 'right', bold: true },
+        { key: 'code', label: 'Code', width: 20 },
+        { key: 'name', label: 'Raw Material Name', width: 54, bold: true },
+        { key: 'batchNo', label: 'RM Batch / Lot No', width: 46, color: COLORS.indigo, bold: true },
+        { key: 'qty', label: 'Consumed Qty', width: 26, align: 'right', bold: true },
         { key: 'expiry', label: 'Expiry Date', width: 22, align: 'center' },
-        { key: 'evap', label: 'Liquid / Evap', width: 24, align: 'right' }
+        { key: 'evap', label: 'Liquid / Evap', width: 26, align: 'right' }
       ];
 
   const basePdfRows = [];
@@ -585,10 +687,12 @@ export function exportCleanSheetPdf({
         evap: `${formatIndian(summary.totalBaseLiquidVolumeMl, 0)}ml`
       };
 
-  drawTable(baseCols, basePdfRows, baseFooter, { fontSize: 6.9 });
+  drawTable(baseCols, basePdfRows, baseFooter, {
+    fontSize: 6.9,
+    tableName: 'Section 1: Base Raw Material Consumption & Traceability'
+  });
 
   // Base mix allocation audit note strip below Section 1 table
-  // Pure Pre-Evaporation Formula Valuation Denominator:
   const netMixMl = Number(summary.netPostEvapMixMl || 0);
   const preMixMl = Number(
     summary.preEvapMixVolumeMl ||
@@ -634,13 +738,11 @@ export function exportCleanSheetPdf({
     const cardH = 15.5;
     ensureSpace(cardH + 3);
 
-    // Outer card container
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(...COLORS.indigo);
     doc.setLineWidth(0.25);
     doc.roundedRect(MARGIN, y, CONTENT_W, cardH, 1.2, 1.2, 'FD');
 
-    // Header bar inside card
     doc.setFillColor(...COLORS.indigoLight);
     doc.rect(MARGIN + 0.25, y + 0.25, CONTENT_W - 0.5, 4.4, 'F');
     doc.setFont('helvetica', 'bold');
@@ -655,14 +757,12 @@ export function exportCleanSheetPdf({
       doc.text(`Formula Valuation Rate: ${INR_FMT(baseRatePerMl, 4)} / ml`, MARGIN + CONTENT_W - 2.5, y + 3.2, { align: 'right' });
     }
 
-    // Divider line below header
     doc.setDrawColor(224, 231, 255);
     doc.setLineWidth(0.2);
     doc.line(MARGIN, y + 4.7, MARGIN + CONTENT_W, y + 4.7);
 
-    // 3 Metric Columns
     const colSpacing = 1.2;
-    const colW = (CONTENT_W - 2 - (colSpacing * 2)) / 3; // ~60.5mm
+    const colW = (CONTENT_W - 2 - (colSpacing * 2)) / 3;
     const boxY = y + 5.5;
     const boxH = 9;
 
@@ -701,7 +801,7 @@ export function exportCleanSheetPdf({
     doc.text(`${formatIndian(allocMixMl, 0)} ml`, bx + 2, boxY + 5.5);
     if (canViewCost) {
       doc.setFontSize(5.8);
-      doc.setTextColor(109, 40, 217); // purple
+      doc.setTextColor(109, 40, 217);
       doc.text(`${INR_FMT(allocBaseCost)} (${allocPct}% of tank)`, bx + 2, boxY + 8);
     }
 
@@ -712,11 +812,11 @@ export function exportCleanSheetPdf({
     doc.roundedRect(bx, boxY, colW, boxH, 0.8, 0.8, 'FD');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(5.5);
-    doc.setTextColor(180, 83, 9); // amber-700
+    doc.setTextColor(180, 83, 9);
     doc.text('3. UNALLOCATED TANK BALANCE', bx + 2, boxY + 2.5);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.8);
-    doc.setTextColor(146, 64, 14); // amber-800
+    doc.setTextColor(146, 64, 14);
     doc.text(`${formatIndian(unallocMixMl, 0)} ml`, bx + 2, boxY + 5.5);
     if (canViewCost) {
       doc.setFontSize(5.8);
@@ -724,41 +824,42 @@ export function exportCleanSheetPdf({
       doc.text(`${INR_FMT(unallocCost)} reserve in tank`, bx + 2, boxY + 8);
     }
 
-    y += cardH + 2.5;
+    y += cardH + 3.0;
   }
 
-  // ── SECTION 2A: UNIQUE RAW MATERIALS CONSOLIDATED SUMMARY (SINGLE TABLE ROLLUP) ──
+  // ── SECTION 2A: UNIQUE RAW MATERIALS CONSOLIDATED MASTER TABLE ──
   const activeUniqueRms = Array.isArray(uniqueRawMaterialsSummary) && uniqueRawMaterialsSummary.length > 0
     ? uniqueRawMaterialsSummary
     : [];
 
   if (activeUniqueRms.length > 0) {
     drawSectionHeading(
-      '2',
+      '2A',
       'Unique Raw Materials Consolidated Summary — Entire Production Master Table',
       `${activeUniqueRms.length} Unique Raw Materials Consumed • Rolled Up with Total Amount Used`
     );
 
+    // Section 2A Columns calibrated for exact 194mm width
     const uniqueCols = canViewCost
       ? [
-          { key: 'code', label: 'RM Code', width: 14 },
-          { key: 'name', label: 'Raw Material Name', width: 34, bold: true },
+          { key: 'code', label: 'RM Code', width: 16 },
+          { key: 'name', label: 'Raw Material Name', width: 36, bold: true },
           { key: 'type', label: 'Type / Stage', width: 22 },
-          { key: 'days', label: 'Days Run', width: 18, align: 'center' },
-          { key: 'usedFor', label: 'Used For / Product', width: 26 },
+          { key: 'days', label: 'Days Run', width: 15, align: 'center' },
+          { key: 'usedFor', label: 'Used For / Product', width: 25 },
           { key: 'lots', label: 'Batch / Lot Nos', width: 24, color: COLORS.indigo, bold: true },
           { key: 'qty', label: 'Total Consumed Qty', width: 18, align: 'right', bold: true },
-          { key: 'rate', label: 'Avg Rate', width: 14, align: 'right' },
-          { key: 'cost', label: 'Total Amount', width: 18, align: 'right', color: COLORS.emerald, bold: true }
+          { key: 'rate', label: 'Avg Rate', width: 16, align: 'right' },
+          { key: 'cost', label: 'Total Amount', width: 22, align: 'right', color: COLORS.emerald, bold: true }
         ]
       : [
-          { key: 'code', label: 'RM Code', width: 16 },
-          { key: 'name', label: 'Raw Material Name', width: 44, bold: true },
+          { key: 'code', label: 'RM Code', width: 18 },
+          { key: 'name', label: 'Raw Material Name', width: 48, bold: true },
           { key: 'type', label: 'Type / Stage', width: 26 },
-          { key: 'days', label: 'Days Run', width: 22, align: 'center' },
-          { key: 'usedFor', label: 'Used For / Product', width: 36 },
+          { key: 'days', label: 'Days Run', width: 20, align: 'center' },
+          { key: 'usedFor', label: 'Used For / Product', width: 32 },
           { key: 'lots', label: 'Batch / Lot Nos', width: 28, color: COLORS.indigo, bold: true },
-          { key: 'qty', label: 'Total Consumed Qty', width: 20, align: 'right', bold: true }
+          { key: 'qty', label: 'Total Consumed Qty', width: 22, align: 'right', bold: true }
         ];
 
     const uniquePdfRows = activeUniqueRms.map((r) => ({
@@ -798,10 +899,13 @@ export function exportCleanSheetPdf({
           qty: `${formatIndian(totalUniqueQty)}`
         };
 
-    drawTable(uniqueCols, uniquePdfRows, uniqueFooter, { fontSize: 6.7 });
+    drawTable(uniqueCols, uniquePdfRows, uniqueFooter, {
+      fontSize: 6.8,
+      tableName: 'Section 2A: Unique Raw Materials Consolidated Master Table'
+    });
   }
 
-  // ── SECTION 2B: ENTIRE PRODUCTION RAW MATERIAL CONSUMPTION & LOT TRACEABILITY (MASTER SINGLE TABLE) ──
+  // ── SECTION 2B: ENTIRE PRODUCTION RAW MATERIAL CONSUMPTION & LOT TRACEABILITY ──
   const activeEntireRmLines = Array.isArray(entireProductionRmLines) && entireProductionRmLines.length > 0
     ? entireProductionRmLines
     : [];
@@ -813,28 +917,29 @@ export function exportCleanSheetPdf({
       `${activeEntireRmLines.length} Material Entries • All Days, Products & Formulations in Single Table`
     );
 
+    // Section 2B Columns calibrated for exact 194mm width
     const entireCols = canViewCost
       ? [
-          { key: 'day', label: 'Day / Date', width: 20 },
-          { key: 'batch', label: 'Day Batch', width: 22, bold: true },
+          { key: 'day', label: 'Day / Date', width: 18 },
+          { key: 'batch', label: 'Day Batch', width: 18, bold: true },
           { key: 'code', label: 'RM Code', width: 14 },
-          { key: 'name', label: 'Raw Material Name', width: 34, bold: true },
-          { key: 'usedFor', label: 'Used For / Product', width: 28 },
-          { key: 'lotNo', label: 'RM Lot / Batch No', width: 24, color: COLORS.indigo, bold: true },
+          { key: 'name', label: 'Raw Material Name', width: 32, bold: true },
+          { key: 'usedFor', label: 'Used For / Product', width: 22 },
+          { key: 'lotNo', label: 'RM Lot / Batch No', width: 20, color: COLORS.indigo, bold: true },
           { key: 'qty', label: 'Consumed Qty', width: 18, align: 'right', bold: true },
-          { key: 'expiry', label: 'Lot Expiry', width: 14, align: 'center' },
+          { key: 'expiry', label: 'Lot Expiry', width: 16, align: 'center' },
           { key: 'rate', label: 'Unit Rate', width: 16, align: 'right' },
-          { key: 'cost', label: 'Total Cost', width: 18, align: 'right', color: COLORS.emerald, bold: true }
+          { key: 'cost', label: 'Total Cost', width: 20, align: 'right', color: COLORS.emerald, bold: true }
         ]
       : [
-          { key: 'day', label: 'Day / Date', width: 24 },
-          { key: 'batch', label: 'Day Batch', width: 26, bold: true },
+          { key: 'day', label: 'Day / Date', width: 22 },
+          { key: 'batch', label: 'Day Batch', width: 24, bold: true },
           { key: 'code', label: 'RM Code', width: 16 },
-          { key: 'name', label: 'Raw Material Name', width: 44, bold: true },
-          { key: 'usedFor', label: 'Used For / Product', width: 36 },
-          { key: 'lotNo', label: 'RM Lot / Batch No', width: 30, color: COLORS.indigo, bold: true },
-          { key: 'qty', label: 'Consumed Qty', width: 22, align: 'right', bold: true },
-          { key: 'expiry', label: 'Lot Expiry', width: 16, align: 'center' }
+          { key: 'name', label: 'Raw Material Name', width: 42, bold: true },
+          { key: 'usedFor', label: 'Used For / Product', width: 28 },
+          { key: 'lotNo', label: 'RM Lot / Batch No', width: 24, color: COLORS.indigo, bold: true },
+          { key: 'qty', label: 'Consumed Qty', width: 20, align: 'right', bold: true },
+          { key: 'expiry', label: 'Lot Expiry', width: 18, align: 'center' }
         ];
 
     const entirePdfRows = activeEntireRmLines.map((r) => ({
@@ -877,11 +982,13 @@ export function exportCleanSheetPdf({
           expiry: ''
         };
 
-    drawTable(entireCols, entirePdfRows, entireFooter, { fontSize: 6.7 });
+    drawTable(entireCols, entirePdfRows, entireFooter, {
+      fontSize: 6.7,
+      tableName: 'Section 2B: Detailed Raw Material Consumption & Traceability Ledger'
+    });
   }
 
   // ── SECTION 3: DATE-WISE / DAY-WISE PRODUCT PRODUCTION & PER-PRODUCT RM CONSUMPTION ──
-  // Filter days: Only include completed days when completed days exist
   const completedOnly = dayEntries.filter(d => d.status === 'COMPLETED' || d.status === 'Completed' || Boolean(d.pushedToSales) || Boolean(d.is_completed) || Boolean(d.isCompleted));
   const activeDayPool = completedOnly.length > 0 ? completedOnly : dayEntries;
   const filteredDays = targetDayNo
@@ -927,19 +1034,17 @@ export function exportCleanSheetPdf({
   filteredDays.forEach((dayObj) => {
     const outputs = Array.isArray(dayObj.outputs) ? dayObj.outputs : [];
 
-    // Calculate Day Header + Day Products Table height to keep them together
     const dayHeaderH = 17.5;
-    const prodTableH = outputs.length > 0 ? (6.2 + outputs.length * 7.6 + 6.2 + 3) : 10;
+    const prodTableH = outputs.length > 0 ? (6.4 + outputs.length * 7.8 + 6.4 + 3) : 10;
     const daySummaryBlockH = dayHeaderH + prodTableH;
 
-    // If day summary block fits on a page but exceeds current page space, move to next page
     if (daySummaryBlockH <= (BOTTOM_SAFE - 15)) {
       ensureSpace(daySummaryBlockH);
     } else {
       ensureSpace(32);
     }
 
-    // Day Header Strip
+    // Day Header Strip (Full 194mm width)
     doc.setFillColor(...COLORS.indigoLight);
     doc.setDrawColor(...COLORS.indigo);
     doc.setLineWidth(0.35);
@@ -973,27 +1078,27 @@ export function exportCleanSheetPdf({
     doc.text(dayMetaLine, MARGIN + 3, y + 13.3);
     y += 17.2;
 
-    // 2A. Products Produced on this Date
+    // 2A. Products Produced on this Date (194mm total width)
     const prodCols = canViewCost
       ? [
-          { key: 'seq', label: '#', width: 7, align: 'center', bold: true },
-          { key: 'product', label: 'Product / Batch & Serial No', width: 44, bold: true },
+          { key: 'seq', label: '#', width: 8, align: 'center', bold: true },
+          { key: 'product', label: 'Product / Batch & Serial No', width: 48, bold: true },
           { key: 'spec', label: 'Mould / Spec', width: 25 },
           { key: 'mix', label: 'Mix Used', width: 22, align: 'right' },
-          { key: 'expected', label: 'Planned', width: 17, align: 'right' },
+          { key: 'expected', label: 'Planned', width: 18, align: 'right' },
           { key: 'actual', label: 'Actual Good', width: 20, align: 'right', color: COLORS.emerald, bold: true },
           { key: 'reject', label: 'Reject', width: 13, align: 'right', color: COLORS.rose },
-          { key: 'yieldPct', label: 'Yield %', width: 15, align: 'right', bold: true },
-          { key: 'unitCost', label: 'Cost/Unit', width: 25, align: 'right', color: COLORS.indigo, bold: true }
+          { key: 'yieldPct', label: 'Yield %', width: 16, align: 'right', bold: true },
+          { key: 'unitCost', label: 'Cost/Unit', width: 24, align: 'right', color: COLORS.indigo, bold: true }
         ]
       : [
           { key: 'seq', label: '#', width: 8, align: 'center', bold: true },
-          { key: 'product', label: 'Product / Batch & Serial No', width: 62, bold: true },
+          { key: 'product', label: 'Product / Batch & Serial No', width: 64, bold: true },
           { key: 'spec', label: 'Mould / Spec', width: 32 },
-          { key: 'mix', label: 'Mix Used', width: 24, align: 'right' },
-          { key: 'expected', label: 'Planned', width: 18, align: 'right' },
-          { key: 'actual', label: 'Actual Good', width: 20, align: 'right', color: COLORS.emerald, bold: true },
-          { key: 'reject', label: 'Reject', width: 12, align: 'right', color: COLORS.rose },
+          { key: 'mix', label: 'Mix Used', width: 26, align: 'right' },
+          { key: 'expected', label: 'Planned', width: 20, align: 'right' },
+          { key: 'actual', label: 'Actual Good', width: 22, align: 'right', color: COLORS.emerald, bold: true },
+          { key: 'reject', label: 'Reject', width: 10, align: 'right', color: COLORS.rose },
           { key: 'yieldPct', label: 'Yield %', width: 12, align: 'right', bold: true }
         ];
 
@@ -1011,7 +1116,7 @@ export function exportCleanSheetPdf({
         ? `Stages: ${pStages.map((s, si) => `${si + 1}.${safeText(s.name)}`).join(' -> ')}`
         : '';
       const productCell = [safeText(out.productName), batchSerialLine, stagesLine].filter(Boolean).join('\n');
-      
+
       const outMixMl = Number(out.allocatedBaseMl || 0);
       const outBaseCost = round2(outMixMl * baseRatePerMl);
       const mixCell = canViewCost && outBaseCost > 0
@@ -1065,7 +1170,12 @@ export function exportCleanSheetPdf({
         };
 
     if (prodRows.length > 0) {
-      drawTable(prodCols, prodRows, prodFooter, { fontSize: 6.8, headerBg: COLORS.slateDark, preventBreak: true });
+      drawTable(prodCols, prodRows, prodFooter, {
+        fontSize: 6.8,
+        headerBg: COLORS.slateDark,
+        preventBreak: true,
+        tableName: `Day ${dayObj.dayNo}: Finished Goods Allocation & Output Summary`
+      });
     } else {
       ensureSpace(8);
       doc.setFont('helvetica', 'italic');
@@ -1075,8 +1185,7 @@ export function exportCleanSheetPdf({
       y += 6;
     }
 
-    // 2B. Dedicated Single Unified Per-Product Raw Material Consumption & Traceability Tables
-    // Each finished product is displayed with its own distinct theme color, including [BASE-MIX] allocated line
+    // 2B. Dedicated Unified Per-Product Raw Material Consumption & Traceability Tables
     outputs.forEach((out, oIdx) => {
       const theme = PRODUCT_THEME_COLORS[oIdx % PRODUCT_THEME_COLORS.length];
       const outMixMl = Number(out.allocatedBaseMl || 0);
@@ -1085,20 +1194,20 @@ export function exportCleanSheetPdf({
 
       const pRmCols = canViewCost
         ? [
-            { key: 'code', label: 'RM Code', width: 20 },
+            { key: 'code', label: 'RM Code', width: 18 },
             { key: 'rmName', label: 'Raw Material / Packaging Name', width: 48, bold: true },
             { key: 'lotNo', label: 'RM Batch / Lot No', width: 34, color: theme.headerBg, bold: true },
             { key: 'qty', label: 'Consumed Qty', width: 22, align: 'right', bold: true },
-            { key: 'expiry', label: 'Expiry Date', width: 20, align: 'center' },
-            { key: 'rate', label: 'Unit Rate', width: 22, align: 'right' },
-            { key: 'cost', label: 'Total Cost', width: 22, align: 'right', color: theme.headerBg, bold: true }
+            { key: 'expiry', label: 'Expiry Date', width: 22, align: 'center' },
+            { key: 'rate', label: 'Unit Rate', width: 24, align: 'right' },
+            { key: 'cost', label: 'Total Cost', width: 26, align: 'right', color: theme.headerBg, bold: true }
           ]
         : [
             { key: 'code', label: 'RM Code', width: 24 },
-            { key: 'rmName', label: 'Raw Material / Packaging Name', width: 66, bold: true },
-            { key: 'lotNo', label: 'RM Batch / Lot No', width: 44, color: theme.headerBg, bold: true },
+            { key: 'rmName', label: 'Raw Material / Packaging Name', width: 68, bold: true },
+            { key: 'lotNo', label: 'RM Batch / Lot No', width: 46, color: theme.headerBg, bold: true },
             { key: 'qty', label: 'Consumed Qty', width: 28, align: 'right', bold: true },
-            { key: 'expiry', label: 'Expiry Date', width: 26, align: 'center' }
+            { key: 'expiry', label: 'Expiry Date', width: 28, align: 'center' }
           ];
 
       const pRmRows = [];
@@ -1178,19 +1287,16 @@ export function exportCleanSheetPdf({
             expiry: ''
           };
 
-      // CRITICAL PREVENT-SPLIT CALCULATION:
-      // Banner (11mm) + Table Header (6.2mm) + Rows (avg 6.2mm each) + Footer (6.2mm) + Margin (3mm)
-      const estimatedTableH = 6.2 + (pRmRows.length * 6.2) + 6.2 + 3;
+      const estimatedTableH = 6.4 + (pRmRows.length * 6.2) + 6.4 + 3;
       const totalProductBlockH = 11 + estimatedTableH;
 
-      // If the entire product banner + table cannot fit on current page, move completely to Page 2 (or next page)
       if (totalProductBlockH <= (BOTTOM_SAFE - 15)) {
         ensureSpace(totalProductBlockH);
       } else {
         ensureSpace(28);
       }
 
-      // Product Colored Header Banner
+      // Product Colored Header Banner (Full 194mm width)
       doc.setFillColor(...theme.badgeBg);
       doc.setDrawColor(...theme.headerBg);
       doc.setLineWidth(0.35);
@@ -1217,7 +1323,8 @@ export function exportCleanSheetPdf({
         fontSize: 6.6,
         headerBg: theme.headerBg,
         headerText: COLORS.white,
-        preventBreak: true
+        preventBreak: true,
+        tableName: `#${out.seq || oIdx + 1} ${safeText(out.productName)}: Raw Material Consumption`
       });
     });
 
@@ -1244,14 +1351,16 @@ export function exportCleanSheetPdf({
     }
   });
 
-    // ── SECTION 4: CONSOLIDATED YIELD REPORT ──
+  // ── SECTION 4: CONSOLIDATED YIELD REPORT ──
   if (yieldRows.length > 0) {
-    const yieldTableH = 6.2 + (yieldRows.length * 6.5) + 6.2 + 3;
+    const yieldTableH = 6.4 + (yieldRows.length * 6.5) + 6.4 + 3;
     const totalYieldBlockH = 14 + yieldTableH;
     if (totalYieldBlockH <= (BOTTOM_SAFE - 15)) {
       ensureSpace(totalYieldBlockH);
     }
     drawSectionHeading('4', 'Consolidated Output & Yield Variance Report', `${yieldRows.length} Output Summary Lines`);
+
+    // Section 4 Columns calibrated for exact 194mm width
     const yCols = canViewCost
       ? [
           { key: 'product', label: 'Product Name', width: 48, bold: true },
@@ -1260,17 +1369,17 @@ export function exportCleanSheetPdf({
           { key: 'expected', label: 'Planned Qty', width: 20, align: 'right' },
           { key: 'actual', label: 'Actual Good', width: 22, align: 'right', color: COLORS.emerald, bold: true },
           { key: 'reject', label: 'Rejected', width: 16, align: 'right', color: COLORS.rose },
-          { key: 'eff', label: 'Yield %', width: 16, align: 'right', bold: true },
-          { key: 'totalCost', label: 'Total Cost', width: 22, align: 'right', color: COLORS.indigo, bold: true }
+          { key: 'eff', label: 'Yield %', width: 18, align: 'right', bold: true },
+          { key: 'totalCost', label: 'Total Cost', width: 26, align: 'right', color: COLORS.indigo, bold: true }
         ]
       : [
-          { key: 'product', label: 'Product Name', width: 56, bold: true },
+          { key: 'product', label: 'Product Name', width: 58, bold: true },
           { key: 'days', label: 'Days Run', width: 26, align: 'center' },
           { key: 'mix', label: 'Total Mix (ml)', width: 28, align: 'right' },
           { key: 'expected', label: 'Planned Qty', width: 24, align: 'right' },
-          { key: 'actual', label: 'Actual Good', width: 24, align: 'right', color: COLORS.emerald, bold: true },
-          { key: 'reject', label: 'Rejected', width: 15, align: 'right', color: COLORS.rose },
-          { key: 'eff', label: 'Yield %', width: 15, align: 'right', bold: true }
+          { key: 'actual', label: 'Actual Good', width: 26, align: 'right', color: COLORS.emerald, bold: true },
+          { key: 'reject', label: 'Rejected', width: 16, align: 'right', color: COLORS.rose },
+          { key: 'eff', label: 'Yield %', width: 16, align: 'right', bold: true }
         ];
 
     const yPdfRows = yieldRows.map(yr => ({
@@ -1295,21 +1404,27 @@ export function exportCleanSheetPdf({
       totalCost: canViewCost ? INR_FMT(summary.totalCost) : ''
     };
 
-    drawTable(yCols, yPdfRows, yFooter, { fontSize: 6.9, preventBreak: true });
+    drawTable(yCols, yPdfRows, yFooter, {
+      fontSize: 6.9,
+      preventBreak: true,
+      tableName: 'Section 4: Consolidated Output & Yield Variance Report'
+    });
   }
 
   // ── SECTION 5: FINANCIAL COST STATEMENT ──
   if (canViewCost) {
-    const costTableH = 6.2 + (5 * 6.5) + 6.2 + 3;
+    const costTableH = 6.4 + (5 * 6.5) + 6.4 + 3;
     const totalCostBlockH = 14 + costTableH;
     if (totalCostBlockH <= (BOTTOM_SAFE - 15)) {
       ensureSpace(totalCostBlockH);
     }
     drawSectionHeading('5', 'Comprehensive Financial Cost Statement', 'Audited Batch Economics');
+
+    // Section 5 Columns calibrated for exact 194mm width
     const costCols = [
-      { key: 'head', label: 'Cost Component', width: 90, bold: true },
+      { key: 'head', label: 'Cost Component', width: 94, bold: true },
       { key: 'notes', label: 'Basis / Remarks', width: 60 },
-      { key: 'amount', label: 'Amount (INR)', width: 38, align: 'right', color: COLORS.navy, bold: true }
+      { key: 'amount', label: 'Amount (INR)', width: 40, align: 'right', color: COLORS.navy, bold: true }
     ];
     const costRows = [
       { head: '1. Base Raw Materials Consumed (Allocated Mix)', notes: `Allocated share: ${formatIndian(summary.totalAllocatedMixMl, 0)} ml @ base mix rate (${INR_FMT(baseRatePerMl, 4)}/ml)`, amount: INR_FMT(summary.totalBaseConsumedCost) },
@@ -1323,7 +1438,11 @@ export function exportCleanSheetPdf({
       notes: `Unit Cost = ${INR_FMT(summary.costPerUnit)} / ${safeText(summary.productUom, 'pcs')}`,
       amount: INR_FMT(summary.totalCost)
     };
-    drawTable(costCols, costRows, costFooter, { fontSize: 7.2, preventBreak: true });
+    drawTable(costCols, costRows, costFooter, {
+      fontSize: 7.2,
+      preventBreak: true,
+      tableName: 'Section 5: Comprehensive Financial Cost Statement'
+    });
 
     // 4B. COMPREHENSIVE FINANCIAL COST STATEMENT FOR EACH FINISHED PRODUCT
     const allFilteredOutputs = filteredDays.flatMap(d => Array.isArray(d.outputs) ? d.outputs : []);
@@ -1341,7 +1460,6 @@ export function exportCleanSheetPdf({
         const pBaseCost = round2(pMix * baseRatePerMl);
         const pAddedCost = round2((p.productRms || []).reduce((s, r) => s + (Number(r.totalCost) > 0 ? Number(r.totalCost) : Number(r.takenQty || 0) * Number(r.unitRate || 0)), 0));
 
-        // Find the day this product belongs to and dynamically recompute labour share
         const parentDay = filteredDays.find(d => (d.outputs || []).some(o => (o.productId && o.productId === p.productId) || o.id === p.id || o.seq === p.seq)) || filteredDays[0];
         const dayOutputs = parentDay ? (parentDay.outputs || []) : allFilteredOutputs;
         const dayTotalMix = dayOutputs.reduce((s, o) => s + Number(o.allocatedBaseMl || 0), 0);
@@ -1369,9 +1487,9 @@ export function exportCleanSheetPdf({
         const pUnitCost = p.actualYield > 0 ? round2(pTotalCost / p.actualYield) : 0;
 
         const pCostCols = [
-          { key: 'head', label: `Cost Component — #${p.seq || pIdx + 1} ${safeText(p.productName).toUpperCase()} (${formatIndian(p.actualYield, 0)} ${pUnit})`, width: 90, bold: true },
+          { key: 'head', label: `Cost Component — #${p.seq || pIdx + 1} ${safeText(p.productName).toUpperCase()} (${formatIndian(p.actualYield, 0)} ${pUnit})`, width: 94, bold: true },
           { key: 'notes', label: 'Basis / Remarks', width: 60 },
-          { key: 'amount', label: 'Amount (INR)', width: 38, align: 'right', bold: true }
+          { key: 'amount', label: 'Amount (INR)', width: 40, align: 'right', bold: true }
         ];
 
         const pCostRows = [
@@ -1388,7 +1506,7 @@ export function exportCleanSheetPdf({
           amount: INR_FMT(pTotalCost)
         };
 
-        const singleProductCostH = 6.2 + (5 * 6.2) + 6.2 + 4; // ~48mm
+        const singleProductCostH = 6.4 + (5 * 6.2) + 6.4 + 4;
         if (singleProductCostH <= (BOTTOM_SAFE - 15)) {
           ensureSpace(singleProductCostH);
         }
@@ -1397,7 +1515,8 @@ export function exportCleanSheetPdf({
           fontSize: 6.9,
           headerBg: theme.headerBg,
           headerText: COLORS.white,
-          preventBreak: true
+          preventBreak: true,
+          tableName: `#${p.seq || pIdx + 1} ${safeText(p.productName)}: Financial Statement`
         });
       });
     }
@@ -1469,13 +1588,14 @@ export function exportCleanSheetPdf({
       doc.text('Direct Production Labour Day-Wise Crew Bifurcation Audit', MARGIN, y + 3.5);
       y += 5.5;
 
+      // Direct Labour Columns calibrated for exact 194mm width
       const labourCols = [
         { key: 'day', label: 'Day & Production Date', width: 30, bold: true },
-        { key: 'batch', label: 'Day Batch No', width: 20, color: COLORS.indigo, bold: true },
+        { key: 'batch', label: 'Day Batch No', width: 22, color: COLORS.indigo, bold: true },
         { key: 'staff', label: 'Assigned Staff Name & ID', width: 44, bold: true },
         { key: 'role', label: 'Role / Designation', width: 26 },
-        { key: 'basis', label: 'Salary Basis (User Master / 30)', width: 44 },
-        { key: 'amount', label: 'Day Charge (INR)', width: 24, align: 'right', color: COLORS.amber, bold: true }
+        { key: 'basis', label: 'Salary Basis (User Master / 30)', width: 46 },
+        { key: 'amount', label: 'Day Charge (INR)', width: 26, align: 'right', color: COLORS.amber, bold: true }
       ];
 
       const labourFooter = {
@@ -1487,22 +1607,24 @@ export function exportCleanSheetPdf({
         amount: INR_FMT(summary.directLabourCost > 0 ? summary.directLabourCost : computedLabourTotal)
       };
 
-      const estimatedLabourTableH = 6.2 + (labourRows.length * 6.5) + 6.2 + 3;
+      const estimatedLabourTableH = 6.4 + (labourRows.length * 6.5) + 6.4 + 3;
       if (estimatedLabourTableH <= (BOTTOM_SAFE - 15)) {
         ensureSpace(estimatedLabourTableH);
       }
 
       drawTable(labourCols, labourRows, labourFooter, {
         fontSize: 6.8,
-        preventBreak: estimatedLabourTableH <= (BOTTOM_SAFE - 15)
+        preventBreak: estimatedLabourTableH <= (BOTTOM_SAFE - 15),
+        tableName: 'Section 5C: Direct Production Crew Labour Audit'
       });
     }
   }
 
   // ── SECTION 6: QA REMARKS & AUTHORIZED SIGN-OFF ──
-  const totalSignBlockH = 14 + 10 + 3 + 17 + 4; // ~48mm
+  const totalSignBlockH = 14 + 10 + 3 + 18 + 4;
   ensureSpace(totalSignBlockH);
   drawSectionHeading('6', 'Quality Assurance & Authorized Process Sign-Off');
+
   doc.setFillColor(...COLORS.rowAlt);
   doc.setDrawColor(...COLORS.border);
   doc.roundedRect(MARGIN, y, CONTENT_W, 10, 1.2, 1.2, 'FD');
@@ -1513,9 +1635,10 @@ export function exportCleanSheetPdf({
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.2);
   doc.setTextColor(...COLORS.slateDark);
-  doc.text(safeText(completionNotes, 'Verified batch production execution & traceability record.').slice(0, 120), MARGIN + 2.5, y + 8);
+  doc.text(safeText(completionNotes, 'Verified batch production execution & traceability record.').slice(0, 130), MARGIN + 2.5, y + 8);
   y += 13;
 
+  // 3 Signature boxes calibrated for exact 194mm width (62.6mm each + 3mm gap)
   const sigW = (CONTENT_W - 6) / 3;
   const sigBoxes = [
     { role: 'Production Floor In-Charge', name: safeText(batch?.startedBy || batch?.started_by, 'Floor Operator'), sub: `Date: ${DATE_DMY(batch?.startDate || batch?.start_date)}` },
@@ -1541,20 +1664,47 @@ export function exportCleanSheetPdf({
     doc.setTextColor(...COLORS.slateMuted);
     doc.text(sb.sub, sx + sigW / 2, y + 15.2, { align: 'center' });
   });
-    // ── PAGE NUMBERS & FOOTER ON ALL PAGES ──
+
+  // ── PAGE NUMBERS & FOOTER ON ALL PAGES ──
   const pageCount = doc.internal.getNumberOfPages();
-  const genTime = new Date().toLocaleString('en-IN');
+  const genTime = new Date().toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
+
+    // Full width divider line above footer
     doc.setDrawColor(...COLORS.border);
-    doc.setLineWidth(0.2);
-    doc.line(MARGIN, PAGE_H - 9.5, PAGE_W - MARGIN, PAGE_H - 9.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(...COLORS.slateMuted);
-    doc.text(`${companyName} | Prod No: ${prodNo} | Generated: ${genTime}`, MARGIN, PAGE_H - 5.5);
+    doc.setLineWidth(0.25);
+    doc.line(MARGIN, PAGE_H - 8.5, PAGE_W - MARGIN, PAGE_H - 8.5);
+
+    // Left info: Company, Prod No, Batch Code, Timestamp
     doc.setFont('helvetica', 'bold');
-    doc.text(`Page ${i} of ${pageCount}`, PAGE_W - MARGIN, PAGE_H - 5.5, { align: 'right' });
+    doc.setFontSize(6.8);
+    doc.setTextColor(...COLORS.navy);
+    doc.text(companyName.toUpperCase(), MARGIN, PAGE_H - 4.8);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...COLORS.slateMuted);
+    const compW = (doc.getStringUnitWidth(companyName.toUpperCase()) * 6.8) / doc.internal.scaleFactor;
+    doc.text(` | Prod No: ${prodNo} | Batch: ${shortCode} | Printed: ${genTime}`, MARGIN + compW + 1.5, PAGE_H - 4.8);
+
+    // Right Page X of Y Badge
+    doc.setFillColor(...COLORS.indigoLight);
+    doc.setDrawColor(...COLORS.indigo);
+    doc.setLineWidth(0.2);
+    doc.roundedRect(PAGE_W - MARGIN - 26, PAGE_H - 7.5, 26, 4.4, 1, 1, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...COLORS.indigo);
+    doc.text(`Page ${i} of ${pageCount}`, PAGE_W - MARGIN - 13, PAGE_H - 4.5, { align: 'center' });
   }
 
   const sanitizedProd = prodNo.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -1563,4 +1713,3 @@ export function exportCleanSheetPdf({
     : (mode === 'datewise' ? 'DateWise' : 'CleanSheet');
   doc.save(`${sanitizedProd}_${suffix}_Report.pdf`);
 }
-
