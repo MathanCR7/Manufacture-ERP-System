@@ -9216,7 +9216,7 @@ export default function ProductionFloorCockpitModal({
                                 }
                               }}
                               placeholder="8.50"
-                              className="h-8 font-mono text-xs bg-white dark:bg-slate-900"
+                              className="h-8 font-mono font-bold text-xs bg-white dark:bg-slate-900"
                             />
                           </div>
                         </div>
@@ -9224,7 +9224,7 @@ export default function ProductionFloorCockpitModal({
                         {/* Optional EB Meter Input */}
                         <div className="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
                           <div>
-                            <label className="text-[9px] text-slate-400 uppercase block">Start Reading (kWh)</label>
+                            <label className="text-[9px] text-slate-400 uppercase block mb-0.5">Start Reading (kWh)</label>
                             <Input
                               type="number"
                               min="0"
@@ -9240,23 +9240,7 @@ export default function ProductionFloorCockpitModal({
                             />
                           </div>
                           <div>
-                            <label className="text-[9px] text-slate-400 uppercase block">End Reading (kWh)</label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="any"
-                              disabled={isCompleted || isViewMode}
-                              value={ebStartReading}
-                              onChange={(e) => {
-                                setEbStartReading(e.target.value);
-                                if (ebEndReading) handleEbCalc(e.target.value, ebEndReading, ebRatePerUnit);
-                              }}
-                              placeholder="0"
-                              className="h-7 text-[11px] font-mono bg-white dark:bg-slate-900"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[9px] text-slate-400 uppercase block">End Reading (kWh)</label>
+                            <label className="text-[9px] text-slate-400 uppercase block mb-0.5">End Reading (kWh)</label>
                             <Input
                               type="number"
                               min="0"
