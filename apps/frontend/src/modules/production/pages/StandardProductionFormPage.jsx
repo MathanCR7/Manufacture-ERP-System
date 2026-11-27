@@ -19,7 +19,7 @@ import ProductionLabourPicker from '../components/ProductionLabourPicker';
 import ProductionItemSearchModal from '../components/ProductionItemSearchModal';
 import { getProductionMasters, peekProductionMasters } from '../services/productionMasterCache';
 import { getProductionDraft, saveProductionDraft, flushProductionDraft, clearProductionDraft } from '../services/productionDraftStore';
-import { formatCleanUom } from '../utils/productionCalculation';
+import { formatCleanUom, resolveCategoryName, resolveSubcategoryName } from '../utils/productionCalculation';
 import { formatDateToDDMMYY } from '../utils/batchNumberUtil';
 import Swal from 'sweetalert2';
 
@@ -258,8 +258,8 @@ export default function StandardProductionFormPage() {
     const demandedQty = Number(item.shortfallQty > 0 ? item.shortfallQty : (item.quantity || 100));
     const prodName = matchedMaster.name || item.productName || item.name || 'End Product';
     const prodCode = matchedMaster.code || item.productCode || item.code || 'FG-ITEM';
-    const prodCat = matchedMaster.category?.name || matchedMaster.categoryName || item.product?.category?.name || '';
-    const prodSubCat = matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || item.product?.subcategory?.name || matchedMaster.specifications?.group || '';
+    const prodCat = resolveCategoryName(matchedMaster) || resolveCategoryName(item.product) || '';
+    const prodSubCat = resolveSubcategoryName(matchedMaster) || resolveSubcategoryName(item.product) || '';
     const prodUnit = formatCleanUom(
       (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
       (typeof item.product?.unit === 'object' ? (item.product.unit?.abbreviation || item.product.unit?.name) : null) ||
@@ -353,8 +353,8 @@ export default function StandardProductionFormPage() {
         const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
         const prodName = matchedMaster.name || it.productName || it.name || 'End Product';
         const prodCode = matchedMaster.code || it.productCode || it.code || 'FG-ITEM';
-        const prodCat = matchedMaster.category?.name || matchedMaster.categoryName || it.product?.category?.name || '';
-        const prodSubCat = matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || it.product?.subcategory?.name || matchedMaster.specifications?.group || '';
+        const prodCat = resolveCategoryName(matchedMaster) || resolveCategoryName(it.product) || '';
+        const prodSubCat = resolveSubcategoryName(matchedMaster) || resolveSubcategoryName(it.product) || '';
         const prodUnit = formatCleanUom(
           (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
           (typeof it.product?.unit === 'object' ? (it.product.unit?.abbreviation || it.product.unit?.name) : null) ||
@@ -1865,8 +1865,8 @@ export default function StandardProductionFormPage() {
                       'pcs',
                       matchedMaster || it.product || it
                     );
-                    const category = matchedMaster.category?.name || it.product?.category?.name || it.category || '';
-                    const subCategory = matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || it.product?.subcategory?.name || it.subCategory || matchedMaster.specifications?.group || '';
+                    const category = resolveCategoryName(matchedMaster) || resolveCategoryName(it.product) || resolveCategoryName(it) || '';
+                    const subCategory = resolveSubcategoryName(matchedMaster) || resolveSubcategoryName(it.product) || resolveSubcategoryName(it) || '';
                     const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? it.product?.currentStock ?? 0);
                     const isSurplus = currentStock >= demandedQty && demandedQty > 0;
                     const shortfallQty = Math.max(0, demandedQty - currentStock);

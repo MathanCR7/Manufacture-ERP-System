@@ -1965,7 +1965,15 @@ class StandardProductionController {
             include: {
               customer: true,
               items: {
-                include: { product: true }
+                include: {
+                  product: {
+                    include: {
+                      unit: true,
+                      category: true,
+                      subcategory: true
+                    }
+                  }
+                }
               }
             }
           });
@@ -1985,15 +1993,27 @@ class StandardProductionController {
       }
 
       if (batchItems.length === 0 && salesOrder && Array.isArray(salesOrder.items) && salesOrder.items.length > 0) {
-        batchItems = salesOrder.items.map((soIt, idx) => ({
-          id: soIt.id || `so-it-${idx}`,
-          product_id: soIt.productId || soIt.product?.id,
-          planned_qty: Number(soIt.demandedQty ?? soIt.orderedQuantity ?? soIt.quantity ?? 0),
-          factor: 1,
-          product_name: soIt.product?.name || soIt.productName || 'Finished Product',
-          product_code: soIt.product?.code || soIt.productCode || 'FP',
-          product_unit: soIt.product?.unit?.abbreviation || soIt.product?.unit?.name || soIt.product?.unitId || soIt.uomName || 'pcs'
-        }));
+        batchItems = salesOrder.items.map((soIt, idx) => {
+          const prod = soIt.product || {};
+          const rawUnit = prod.unit?.abbreviation || prod.unit?.name || soIt.uomName || '';
+          const cleanUom = (!rawUnit || /^[0-9a-fA-F-]{32,36}$/.test(rawUnit))
+            ? (String(prod.name || '').toLowerCase().includes('gallon') || String(prod.name || '').toLowerCase().includes('tub') || String(prod.name || '').toLowerCase().includes('liter') || String(prod.code || '').toLowerCase().startsWith('bg') ? 'Ltr' : 'pcs')
+            : rawUnit;
+          return {
+            id: soIt.id || `so-it-${idx}`,
+            product_id: soIt.productId || prod.id,
+            planned_qty: Number(soIt.demandedQty ?? soIt.orderedQuantity ?? soIt.quantity ?? 0),
+            factor: 1,
+            product_name: prod.name || prod.productName || soIt.productName || 'Finished Product',
+            product_code: prod.code || soIt.productCode || 'FP',
+            product_unit: cleanUom,
+            category: prod.category?.name || '',
+            categoryName: prod.category?.name || '',
+            subcategory: prod.subcategory?.name || '',
+            subCategory: prod.subcategory?.name || '',
+            subCategoryName: prod.subcategory?.name || ''
+          };
+        });
       }
 
       const activeDayNo = Math.max(1, Number(batch.active_day_no || 1));
@@ -2156,27 +2176,39 @@ class StandardProductionController {
             product_serial_no: ''
           }));
         } else if (salesOrder && Array.isArray(salesOrder.items) && salesOrder.items.length > 0) {
-          allocations = salesOrder.items.map((soIt, idx) => ({
-            seq: idx + 1,
-            product_id: soIt.productId,
-            product_name: soIt.product?.name || 'Finished Product',
-            product_code: soIt.product?.code || 'FP',
-            product_unit: soIt.product?.unitId || 'pcs',
-            use_mould: true,
-            bulk_uom: 'Liter',
-            mould_id: null,
-            mould_code: '',
-            mould_name: '',
-            capacity_ml: 0,
-            cavities: 0,
-            trays: 0,
-            waste_mode: 'PERCENT',
-            waste_value: 0,
-            allocated_base_ml: 0,
-            product_rms: [],
-            product_batch_no: '',
-            product_serial_no: ''
-          }));
+          allocations = salesOrder.items.map((soIt, idx) => {
+            const prod = soIt.product || {};
+            const rawUnit = prod.unit?.abbreviation || prod.unit?.name || soIt.uomName || '';
+            const cleanUom = (!rawUnit || /^[0-9a-fA-F-]{32,36}$/.test(rawUnit))
+              ? (String(prod.name || '').toLowerCase().includes('gallon') || String(prod.name || '').toLowerCase().includes('tub') || String(prod.name || '').toLowerCase().includes('liter') || String(prod.code || '').toLowerCase().startsWith('bg') ? 'Ltr' : 'pcs')
+              : rawUnit;
+            return {
+              seq: idx + 1,
+              product_id: soIt.productId,
+              product_name: prod.name || prod.productName || 'Finished Product',
+              product_code: prod.code || 'FP',
+              product_unit: cleanUom,
+              category: prod.category?.name || '',
+              categoryName: prod.category?.name || '',
+              subcategory: prod.subcategory?.name || '',
+              subCategory: prod.subcategory?.name || '',
+              subCategoryName: prod.subcategory?.name || '',
+              use_mould: true,
+              bulk_uom: 'Liter',
+              mould_id: null,
+              mould_code: '',
+              mould_name: '',
+              capacity_ml: 0,
+              cavities: 0,
+              trays: 0,
+              waste_mode: 'PERCENT',
+              waste_value: 0,
+              allocated_base_ml: 0,
+              product_rms: [],
+              product_batch_no: '',
+              product_serial_no: ''
+            };
+          });
         } else if (batch.product_id) {
           allocations = [{
             seq: 1,
@@ -2827,6 +2859,8 @@ class StandardProductionController {
       const formatted = products.map(p => {
         const unitAbbr = p.unit?.abbreviation || p.unit?.name || 'pcs';
         const unitFullName = p.unit?.name || 'Pieces';
+        const catName = p.category?.name || 'Standard';
+        const subcatName = (p.subcategory?.name && p.subcategory?.name !== '-') ? p.subcategory.name : '';
 
         return {
           id: p.id,
@@ -2834,11 +2868,14 @@ class StandardProductionController {
           systemCode: p.code,
           name: p.productName || p.name,
           categoryId: p.categoryId,
-          category: p.category?.name || 'Standard',
+          category: catName,
+          categoryName: catName,
           subcategoryId: p.subcategoryId,
-          subcategory: p.subcategory?.name || '-',
+          subcategory: subcatName,
+          subCategory: subcatName,
+          subCategoryName: subcatName,
           baseId: p.baseId,
-          baseCategory: p.category?.name || 'Ice Cream',
+          baseCategory: catName,
           unit: unitAbbr,
           unitName: unitFullName,
           unitId: p.unitId,

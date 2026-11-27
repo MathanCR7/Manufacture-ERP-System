@@ -23,6 +23,8 @@ import {
   calculateAllocations,
   computeMaxTrays,
   formatCleanUom,
+  resolveCategoryName,
+  resolveSubcategoryName,
   isPackagingMaterial
 } from '../utils/productionCalculation';
 import {
@@ -1250,7 +1252,7 @@ export default function ProductionFloorCockpitModal({
         setAllocations(serverAllocs.map((a, idx) => {
           const matched = savedMAllocs.find(s => s.seq === a.seq || s.productId === (a.product_id || a.productId)) || savedMAllocs[idx] || {};
           const matchedProd = prods.find(p => p.id === (a.product_id || a.productId));
-          const prodUom = a.product_unit || a.productUom || matched.productUom || formatCleanUom(matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd);
+          const prodUom = formatCleanUom(a.product_unit || a.productUom || matched.productUom || matchedProd?.unit || matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd || a);
           const rawPrms = Array.isArray(a.productRms) ? a.productRms : (Array.isArray(matched.productRms) ? matched.productRms : []);
           let productRms = rawPrms.map(prm => {
             const m = liveRmCatalog.find(rc => 
@@ -1461,12 +1463,14 @@ export default function ProductionFloorCockpitModal({
         if (savedMAllocs.length > 0) {
           setAllocations(savedMAllocs.map((s, idx) => {
             const matchedProd = prods.find(p => p.id === (s.productId || s.product_id));
-            const prodUom = s.productUom || s.product_unit || formatCleanUom(matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd);
+            const prodUom = formatCleanUom(s.productUom || s.product_unit || matchedProd?.unit || matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd || s);
             return {
               seq: s.seq || (idx + 1),
               productId: s.productId || s.product_id,
               productName: s.productName || s.product_name || matchedProd?.name || 'Finished Product',
               productCode: s.productCode || s.product_code || matchedProd?.code || 'FP',
+              category: resolveCategoryName(matchedProd) || resolveCategoryName(s) || '',
+              subCategory: resolveSubcategoryName(matchedProd) || resolveSubcategoryName(s) || '',
               productUom: prodUom,
               useMould: s.useMould !== undefined ? Boolean(s.useMould) : true,
               bulkUom: s.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom),
@@ -1489,12 +1493,15 @@ export default function ProductionFloorCockpitModal({
           }));
         } else if (batchProds.length > 0) {
           setAllocations(batchProds.map((p, idx) => {
-            const prodUom = formatCleanUom(p.consumptionUnit || p.unit || p.uom, 'pcs', p);
+            const matchedProd = prods.find(m => m.id === (p.productId || p.id)) || p;
+            const prodUom = formatCleanUom(p.consumptionUnit || p.unit || p.uom || matchedProd?.unit, 'pcs', matchedProd);
             return {
               seq: idx + 1,
               productId: p.productId || p.id,
-              productName: p.name || p.productName || 'Finished Product',
-              productCode: p.code || p.productCode || 'FP',
+              productName: p.name || p.productName || matchedProd.name || 'Finished Product',
+              productCode: p.code || p.productCode || matchedProd.code || 'FP',
+              category: resolveCategoryName(matchedProd) || resolveCategoryName(p) || '',
+              subCategory: resolveSubcategoryName(matchedProd) || resolveSubcategoryName(p) || '',
               productUom: prodUom,
               useMould: true,
               bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
@@ -4280,8 +4287,8 @@ export default function ProductionFloorCockpitModal({
             'pcs',
             matchedMaster || p
           ),
-          category: matchedMaster.category?.name || matchedMaster.categoryName || p.category?.name || p.categoryName || matchedMaster.specifications?.group || '',
-          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || p.subcategory?.name || p.subCategoryName || matchedMaster.specifications?.category || '',
+          category: resolveCategoryName(p) || resolveCategoryName(matchedMaster) || '',
+          subCategory: resolveSubcategoryName(p) || resolveSubcategoryName(matchedMaster) || '',
           plannedQty: Number(p.plannedQty || p.demandedQty || p.quantity || 0),
           source: 'BATCH_ITEM'
         });
@@ -4314,8 +4321,8 @@ export default function ProductionFloorCockpitModal({
             'pcs',
             matchedMaster || bi
           ),
-          category: matchedMaster.category?.name || matchedMaster.categoryName || bi.category?.name || bi.categoryName || matchedMaster.specifications?.group || '',
-          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || bi.subcategory?.name || bi.subCategoryName || matchedMaster.specifications?.category || '',
+          category: resolveCategoryName(bi) || resolveCategoryName(matchedMaster) || '',
+          subCategory: resolveSubcategoryName(bi) || resolveSubcategoryName(matchedMaster) || '',
           plannedQty: Number(bi.plannedQty || bi.planned_qty || bi.quantity || 0),
           source: 'BATCH_DB_ITEM'
         });
@@ -4348,8 +4355,8 @@ export default function ProductionFloorCockpitModal({
             'pcs',
             matchedMaster || sa
           ),
-          category: matchedMaster.category?.name || matchedMaster.categoryName || sa.category?.name || sa.categoryName || matchedMaster.specifications?.group || '',
-          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || sa.subcategory?.name || sa.subCategoryName || matchedMaster.specifications?.category || '',
+          category: resolveCategoryName(sa) || resolveCategoryName(matchedMaster) || '',
+          subCategory: resolveSubcategoryName(sa) || resolveSubcategoryName(matchedMaster) || '',
           plannedQty: Number(sa.plannedQty || sa.planned_qty || 0),
           source: 'MOULD_ALLOC'
         });
@@ -4383,8 +4390,8 @@ export default function ProductionFloorCockpitModal({
             'pcs',
             matchedMaster || it.product || it
           ),
-          category: matchedMaster.category?.name || matchedMaster.categoryName || it.product?.category?.name || it.product?.category || matchedMaster.specifications?.group || '',
-          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || it.product?.subcategory?.name || it.product?.subCategory || matchedMaster.specifications?.category || '',
+          category: resolveCategoryName(it.product) || resolveCategoryName(it) || resolveCategoryName(matchedMaster) || '',
+          subCategory: resolveSubcategoryName(it.product) || resolveSubcategoryName(it) || resolveSubcategoryName(matchedMaster) || '',
           plannedQty: Number(it.demandedQty ?? it.orderedQuantity ?? it.quantity ?? 0),
           shortfallQty: Number(it.shortfallQty || 0),
           source: 'SALES_ORDER'
@@ -4413,8 +4420,8 @@ export default function ProductionFloorCockpitModal({
           'pcs',
           matchedMaster || batch
         ),
-        category: matchedMaster.category?.name || matchedMaster.categoryName || matchedMaster.specifications?.group || '',
-        subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || matchedMaster.specifications?.category || '',
+        category: resolveCategoryName(batch?.product) || resolveCategoryName(matchedMaster) || '',
+        subCategory: resolveSubcategoryName(batch?.product) || resolveSubcategoryName(matchedMaster) || '',
         plannedQty: Number(batch?.quantity || batch?.plannedQty || 0),
         source: 'TARGET_PRODUCT'
       });
@@ -4442,8 +4449,8 @@ export default function ProductionFloorCockpitModal({
       'pcs',
       matchedMaster || item
     );
-    const prodCat = item.category || matchedMaster.category?.name || matchedMaster.categoryName || '';
-    const prodSubCat = item.subCategory || matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || '';
+    const prodCat = resolveCategoryName(item) || resolveCategoryName(matchedMaster) || '';
+    const prodSubCat = resolveSubcategoryName(item) || resolveSubcategoryName(matchedMaster) || '';
 
     setAllocations(prev => [
       ...prev,
@@ -4497,8 +4504,8 @@ export default function ProductionFloorCockpitModal({
           'pcs',
           matchedMaster || p
         );
-        const prodCat = p.category || matchedMaster.category?.name || matchedMaster.categoryName || '';
-        const prodSubCat = p.subCategory || matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || '';
+        const prodCat = resolveCategoryName(p) || resolveCategoryName(matchedMaster) || '';
+        const prodSubCat = resolveSubcategoryName(p) || resolveSubcategoryName(matchedMaster) || '';
         return {
           seq: prev.length + idx + 1,
           productId: pId,
@@ -7342,12 +7349,12 @@ export default function ProductionFloorCockpitModal({
 
                                 const matchedMaster = availableProducts.find(m => m.id === pId) || {};
                                 const uom = formatCleanUom(
-                                  p.unit || p.productUom || (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) || matchedMaster.consumptionUnit || matchedMaster.uom,
+                                  p.unit || p.productUom || matchedMaster.unit || matchedMaster.consumptionUnit || matchedMaster.uom,
                                   'pcs',
                                   matchedMaster || p
                                 );
-                                const category = p.category || matchedMaster.category?.name || matchedMaster.categoryName || '';
-                                const subCategory = p.subCategory || matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || matchedMaster.specifications?.group || '';
+                                const category = resolveCategoryName(p) || resolveCategoryName(matchedMaster) || '';
+                                const subCategory = resolveSubcategoryName(p) || resolveSubcategoryName(matchedMaster) || '';
                                 const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? 0);
                                 const isSurplus = currentStock >= demandedQty && demandedQty > 0;
                                 const shortfallQty = Math.max(0, demandedQty - currentStock);
@@ -7554,11 +7561,17 @@ export default function ProductionFloorCockpitModal({
                                 <span className="font-mono text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
                                   {alloc.productCode || 'FP'}
                                 </span>
-                                {(alloc.category || alloc.subCategory || productMatch?.category?.name || productMatch?.subcategory?.name) && (
-                                  <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
-                                    {[alloc.category || productMatch?.category?.name, alloc.subCategory || productMatch?.subcategory?.name].filter(Boolean).join(' • ')}
-                                  </span>
-                                )}
+                                {(() => {
+                                  const allocCat = resolveCategoryName(alloc) || resolveCategoryName(productMatch);
+                                  const allocSubCat = resolveSubcategoryName(alloc) || resolveSubcategoryName(productMatch);
+                                  const allocBadge = [allocCat, allocSubCat].filter(Boolean).join(' • ');
+                                  if (!allocBadge) return null;
+                                  return (
+                                    <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
+                                      {allocBadge}
+                                    </span>
+                                  );
+                                })()}
                                 <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
                                   {prodUom}
                                 </span>
@@ -8515,7 +8528,14 @@ export default function ProductionFloorCockpitModal({
                               const plannedQty = Number(p.plannedQty || 0);
                               const isSurplus = currentStock >= plannedQty && plannedQty > 0;
                               const shortfallQty = Math.max(0, plannedQty - currentStock);
-                              const uom = p.unit || p.productUom || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster);
+                              const uom = formatCleanUom(
+                                p.unit || p.productUom || matchedMaster.unit || matchedMaster.consumptionUnit || matchedMaster.uom,
+                                'pcs',
+                                matchedMaster || p
+                              );
+                              const cat = resolveCategoryName(p) || resolveCategoryName(matchedMaster);
+                              const subcat = resolveSubcategoryName(p) || resolveSubcategoryName(matchedMaster);
+                              const catBadge = [cat, subcat].filter(Boolean).join(' • ');
 
                               return (
                                 <div
@@ -8527,9 +8547,16 @@ export default function ProductionFloorCockpitModal({
                                       <div className="font-extrabold text-slate-900 dark:text-white text-xs leading-snug">
                                         {p.name || p.productName || 'Finished Product'}
                                       </div>
-                                      <span className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                        {p.code || p.productCode || 'FP'}
-                                      </span>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {catBadge && (
+                                          <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-purple-50 dark:bg-purple-950/50 text-[#8b47d7] dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 max-w-[130px] truncate" title={catBadge}>
+                                            {catBadge}
+                                          </span>
+                                        )}
+                                        <span className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                          {p.code || p.productCode || 'FP'}
+                                        </span>
+                                      </div>
                                     </div>
 
                                     <div className="flex items-center gap-2 mt-2 text-[10.5px] text-slate-600 dark:text-slate-400 font-mono">
@@ -8620,6 +8647,9 @@ export default function ProductionFloorCockpitModal({
                               const allocMatch = allocations.find(a => String(a.productId || a.product_id) === String(qId));
                               const isAllocated = Boolean(allocMatch);
                               const qpUom = formatCleanUom(qp.unit, 'pcs', qp);
+                              const qpCat = resolveCategoryName(qp);
+                              const qpSub = resolveSubcategoryName(qp);
+                              const qpBadge = [qpCat, qpSub].filter(Boolean).join(' • ');
                               return (
                                 <span
                                   key={qIdx}
@@ -8633,12 +8663,12 @@ export default function ProductionFloorCockpitModal({
                                 >
                                   {isAllocated ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Plus className="w-2.5 h-2.5 text-amber-600" />}
                                   <span>{qp.name || qp.productName}</span>
-                                  {(qp.category || qp.subCategory) && (
-                                    <span className="opacity-70 text-[8.5px] font-sans font-normal">
-                                      ({[qp.category, qp.subCategory].filter(Boolean).join('/')})
+                                  {qpBadge && (
+                                    <span className="opacity-75 text-[8.5px] font-sans font-normal">
+                                      ({qpBadge})
                                     </span>
                                   )}
-                                  <span className="opacity-75">({qp.plannedQty} {qpUom})</span>
+                                  <span className="opacity-80">({qp.plannedQty} {qpUom})</span>
                                 </span>
                               );
                             })}
@@ -8856,11 +8886,17 @@ export default function ProductionFloorCockpitModal({
                                       <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700">
                                         {item.productCode || 'FP'}
                                       </span>
-                                      {(item.category || item.subCategory) && (
-                                        <span className="px-1 py-0.2 rounded text-[8px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                          {[item.category, item.subCategory].filter(Boolean).join(' • ')}
-                                        </span>
-                                      )}
+                                      {(() => {
+                                        const sideCat = resolveCategoryName(item);
+                                        const sideSub = resolveSubcategoryName(item);
+                                        const sideBadge = [sideCat, sideSub].filter(Boolean).join(' • ');
+                                        if (!sideBadge) return null;
+                                        return (
+                                          <span className="px-1 py-0.2 rounded text-[8px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                            {sideBadge}
+                                          </span>
+                                        );
+                                      })()}
                                       <span>•</span>
                                       <span>{isM ? (item.mouldCode || 'No Mould') : `Bulk ${item.bulkUom || 'Liter'}`}</span>
                                       {hasMissingLots && (
@@ -9675,7 +9711,7 @@ export default function ProductionFloorCockpitModal({
                         {liveAllocationsResult.allocations.map((a, aIdx) => {
                           const origAlloc = allocations[aIdx] || {};
                           const productMatch = availableProducts.find(p => p.id === a.productId);
-                          const prodUom = a.productUom || a.uom || formatCleanUom(productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch);
+                          const prodUom = formatCleanUom(a.productUom || a.uom || productMatch?.unit || productMatch?.consumptionUnit || productMatch?.uom, 'pcs', productMatch || a);
                           const isM = a.useMould !== false;
                           const bUom = a.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom);
                           const rowBatchNo = origAlloc.productBatchNo || buildProductBatchNo(dayBatchCode, a.productName, dayProductionDate);
@@ -9716,7 +9752,20 @@ export default function ProductionFloorCockpitModal({
                             <tr key={`step5-row-${a.seq || aIdx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 text-[10.5px]">
                               <td className="py-1 px-2 font-mono text-slate-500">#{a.seq}</td>
                               <td className="py-1 px-2 font-bold text-slate-900 dark:text-white">
-                                <div>{a.productName}</div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span>{a.productName}</span>
+                                  {(() => {
+                                    const cat = resolveCategoryName(a) || resolveCategoryName(productMatch);
+                                    const sub = resolveSubcategoryName(a) || resolveSubcategoryName(productMatch);
+                                    const badge = [cat, sub].filter(Boolean).join(' • ');
+                                    if (!badge) return null;
+                                    return (
+                                      <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-purple-50 dark:bg-purple-950 text-[#8b47d7] dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                        {badge}
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
                                 <div className="font-mono text-[9px] text-slate-400">{a.productCode} • {isM ? `Mould: ${a.mouldCode || 'Standard'}` : `Bulk: ${bUom}`}</div>
                                 {(() => {
                                   const pStages = (productStagesMap && (productStagesMap[a.productId] || productStagesMap[a.seq])) || a.stages;

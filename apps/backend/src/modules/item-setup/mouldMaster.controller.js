@@ -186,16 +186,16 @@ async function seedDefaultMoulds() {
       await prisma.$executeRawUnsafe(`
         INSERT INTO "production_moulds" (
           "mould_code", "mould_name", "mould_category", "model_number",
-          "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+          "capacity_ml", "cavity_count",
           "tray_length_mm", "tray_width_mm", "tray_height_mm",
           "dimension_text", "material", "machine_type",
           "specification_status", "supplier_name", "status", "total_sets_in_plant", "linked_raw_materials"
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb
         )
         ON CONFLICT ("mould_code") DO NOTHING;
       `, m.mould_code, m.mould_name, m.mould_category, m.model_number,
-         m.capacity_ml, m.cavity_count, m.total_nominal_capacity_ml,
+         m.capacity_ml, m.cavity_count,
          m.tray_length_mm, m.tray_width_mm, m.tray_height_mm,
          m.dimension_text, m.material, m.machine_type,
          m.specification_status, m.supplier_name, m.status, m.total_sets_in_plant,
@@ -448,13 +448,13 @@ class MouldMasterController {
       const insertSql = `
         INSERT INTO "production_moulds" (
           "mould_code", "mould_name", "mould_category", "model_number",
-          "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+          "capacity_ml", "cavity_count",
           "tray_length_mm", "tray_width_mm", "tray_height_mm",
           "cavity_length_mm", "cavity_width_mm", "cavity_depth_mm",
           "dimension_text", "material", "machine_type",
           "specification_status", "supplier_name", "status", "total_sets_in_plant", "notes", "linked_raw_materials"
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb
         )
         RETURNING 
           "id", "mould_code" AS "mouldCode", "mould_name" AS "mouldName",
@@ -467,7 +467,7 @@ class MouldMasterController {
       const result = await prisma.$queryRawUnsafe(
         insertSql,
         code, name, category, modelNumber,
-        capacityMl, cavityCount, totalNominal,
+        capacityMl, cavityCount,
         trayLengthMm, trayWidthMm, trayHeightMm,
         cavityLengthMm, cavityWidthMm, cavityDepthMm,
         dimensionText, material, machineType,

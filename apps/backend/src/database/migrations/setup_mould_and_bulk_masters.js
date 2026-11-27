@@ -67,13 +67,13 @@ async function setupMouldAndBulkMasters() {
     await prisma.$executeRawUnsafe(`
       INSERT INTO "production_moulds" (
         "mould_code", "mould_name", "mould_category", "model_number",
-        "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+        "capacity_ml", "cavity_count",
         "tray_length_mm", "tray_width_mm", "tray_height_mm",
         "material", "machine_type", "specification_status", "status"
       )
       SELECT 
         "mould_code", "mould_name", "mould_category", "model_number",
-        COALESCE("capacity_ml", 50), COALESCE("cavity_count", 42), "total_nominal_capacity_ml",
+        COALESCE("capacity_ml", 50), COALESCE("cavity_count", 42),
         "tray_length_mm", "tray_width_mm", "tray_height_mm",
         "material", "machine_type", "specification_status", "status"
       FROM "ice_cream_mould"
@@ -225,18 +225,17 @@ async function setupMouldAndBulkMasters() {
     await prisma.$executeRawUnsafe(`
       INSERT INTO "production_moulds" (
         "mould_code", "mould_name", "mould_category", "model_number",
-        "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+        "capacity_ml", "cavity_count",
         "tray_length_mm", "tray_width_mm", "tray_height_mm",
         "dimension_text", "material", "machine_type",
         "specification_status", "supplier_name", "status", "total_sets_in_plant", "notes", "linked_raw_materials"
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb
       )
       ON CONFLICT ("mould_code") DO UPDATE SET
         "mould_name" = EXCLUDED."mould_name",
         "capacity_ml" = EXCLUDED."capacity_ml",
         "cavity_count" = EXCLUDED."cavity_count",
-        "total_nominal_capacity_ml" = EXCLUDED."total_nominal_capacity_ml",
         "dimension_text" = EXCLUDED."dimension_text",
         "total_sets_in_plant" = COALESCE("production_moulds"."total_sets_in_plant", EXCLUDED."total_sets_in_plant"),
         "notes" = COALESCE("production_moulds"."notes", EXCLUDED."notes"),
@@ -247,7 +246,7 @@ async function setupMouldAndBulkMasters() {
         END,
         "updated_at" = CURRENT_TIMESTAMP;
     `, m.mould_code, m.mould_name, m.mould_category, m.model_number,
-       m.capacity_ml, m.cavity_count, m.total_nominal_capacity_ml,
+       m.capacity_ml, m.cavity_count,
        m.tray_length_mm, m.tray_width_mm, m.tray_height_mm,
        m.dimension_text, m.material, m.machine_type,
        m.specification_status, m.supplier_name, m.status, m.total_sets_in_plant, m.notes, jsonStr);

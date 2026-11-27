@@ -616,3 +616,49 @@ export function formatCleanUom(uom, defaultUom = 'pcs', itemContext = null) {
   return raw;
 }
 
+/**
+ * Universal Category Resolver
+ * Safely extracts human-readable category name from string or object metadata
+ * 
+ * @param {object|string} item
+ * @returns {string} Clean category name
+ */
+export function resolveCategoryName(item) {
+  if (!item) return '';
+  if (typeof item === 'string') return item.trim();
+  if (typeof item.category === 'string' && item.category.trim()) return item.category.trim();
+  if (item.category && typeof item.category.name === 'string' && item.category.name.trim()) return item.category.name.trim();
+  if (typeof item.categoryName === 'string' && item.categoryName.trim()) return item.categoryName.trim();
+  if (typeof item.baseCategory === 'string' && item.baseCategory.trim()) return item.baseCategory.trim();
+  if (item.product && typeof item.product === 'object') {
+    const fromProd = resolveCategoryName(item.product);
+    if (fromProd) return fromProd;
+  }
+  if (item.specifications && typeof item.specifications.group === 'string' && item.specifications.group.trim()) return item.specifications.group.trim();
+  return '';
+}
+
+/**
+ * Universal Subcategory Resolver
+ * Safely extracts human-readable subcategory name from string or object metadata
+ * 
+ * @param {object|string} item
+ * @returns {string} Clean subcategory name
+ */
+export function resolveSubcategoryName(item) {
+  if (!item) return '';
+  if (typeof item === 'string') return (item.trim() !== '-' ? item.trim() : '');
+  if (typeof item.subcategory === 'string' && item.subcategory.trim() && item.subcategory.trim() !== '-') return item.subcategory.trim();
+  if (typeof item.subCategory === 'string' && item.subCategory.trim() && item.subCategory.trim() !== '-') return item.subCategory.trim();
+  if (item.subcategory && typeof item.subcategory.name === 'string' && item.subcategory.name.trim() && item.subcategory.name.trim() !== '-') return item.subcategory.name.trim();
+  if (item.subCategory && typeof item.subCategory.name === 'string' && item.subCategory.name.trim() && item.subCategory.name.trim() !== '-') return item.subCategory.name.trim();
+  if (typeof item.subCategoryName === 'string' && item.subCategoryName.trim() && item.subCategoryName.trim() !== '-') return item.subCategoryName.trim();
+  if (typeof item.subcategoryName === 'string' && item.subcategoryName.trim() && item.subcategoryName.trim() !== '-') return item.subcategoryName.trim();
+  if (item.product && typeof item.product === 'object') {
+    const fromProd = resolveSubcategoryName(item.product);
+    if (fromProd) return fromProd;
+  }
+  if (item.specifications && typeof item.specifications.category === 'string' && item.specifications.category.trim()) return item.specifications.category.trim();
+  return '';
+}
+

@@ -64,17 +64,17 @@ GRANT ALL PRIVILEGES ON TABLE "production_moulds" TO leonex_web_user, erp_user, 
 GRANT ALL PRIVILEGES ON TABLE "bulk_storage_units" TO leonex_web_user, erp_user, PUBLIC;
 
 -- 4. Seed the 4 Exact Verified Moulds
--- SG-2006 Egypt Small (18ml, 42 cavities, 756ml nominal)
+-- SG-2006 Egypt Small (18ml, 42 cavities)
 INSERT INTO "production_moulds" (
   "mould_code", "mould_name", "mould_category", "model_number",
-  "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+  "capacity_ml", "cavity_count",
   "tray_length_mm", "tray_width_mm", "tray_height_mm",
   "dimension_text", "material", "machine_type",
   "specification_status", "supplier_id", "supplier_name", "status", "total_sets_in_plant", "notes",
   "linked_raw_materials"
 ) VALUES (
   'SG-2006', 'Egypt Small (SG 2006)', '2000 Series', 'SG-2006',
-  18, 42, 756,
+  18, 42,
   325, 245, 160,
   '5N Mould / Delivery 210 NOS', 'Stainless Steel 304', 'Brine tank line',
   'VERIFIED', 'SUP-SATNAM-01', 'Satnam Group', 'ACTIVE', 10, 'Standard 2000 series verified specification mould for small stick format.',
@@ -102,7 +102,6 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   "mould_category" = EXCLUDED."mould_category",
   "capacity_ml" = EXCLUDED."capacity_ml",
   "cavity_count" = EXCLUDED."cavity_count",
-  "total_nominal_capacity_ml" = EXCLUDED."total_nominal_capacity_ml",
   "dimension_text" = EXCLUDED."dimension_text",
   "specification_status" = 'VERIFIED',
   "status" = 'ACTIVE',
@@ -113,17 +112,17 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   END,
   "updated_at" = CURRENT_TIMESTAMP;
 
--- SG-3006 Flat Stick (40ml, 50 cavities, 2000ml nominal)
+-- SG-3006 Flat Stick (40ml, 50 cavities)
 INSERT INTO "production_moulds" (
   "mould_code", "mould_name", "mould_category", "model_number",
-  "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+  "capacity_ml", "cavity_count",
   "tray_length_mm", "tray_width_mm", "tray_height_mm",
   "dimension_text", "material", "machine_type",
   "specification_status", "supplier_id", "supplier_name", "status", "total_sets_in_plant", "notes",
   "linked_raw_materials"
 ) VALUES (
   'SG-3006', 'Flat Stick (SG 3006)', '3000 Series', 'SG-3006',
-  40, 50, 2000,
+  40, 50,
   325, 260, 160,
   '10N Mould / Delivery 500 NOS', 'Stainless Steel 304', 'Brine tank line',
   'VERIFIED', 'SUP-SATNAM-01', 'Satnam Group', 'ACTIVE', 10, 'Standard 3000 series flat stick production mould.',
@@ -151,7 +150,6 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   "mould_category" = EXCLUDED."mould_category",
   "capacity_ml" = EXCLUDED."capacity_ml",
   "cavity_count" = EXCLUDED."cavity_count",
-  "total_nominal_capacity_ml" = EXCLUDED."total_nominal_capacity_ml",
   "dimension_text" = EXCLUDED."dimension_text",
   "specification_status" = 'VERIFIED',
   "status" = 'ACTIVE',
@@ -162,17 +160,17 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   END,
   "updated_at" = CURRENT_TIMESTAMP;
 
--- SG-8112 Kulfi Small (50ml, 42 cavities, 2100ml nominal)
+-- SG-8112 Kulfi Small (50ml, 42 cavities)
 INSERT INTO "production_moulds" (
   "mould_code", "mould_name", "mould_category", "model_number",
-  "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+  "capacity_ml", "cavity_count",
   "tray_length_mm", "tray_width_mm", "tray_height_mm",
   "dimension_text", "material", "machine_type",
   "specification_status", "supplier_id", "supplier_name", "status", "total_sets_in_plant", "notes",
   "linked_raw_materials"
 ) VALUES (
   'SG-8112', 'Kulfi Small (SG 8112)', '8000 Series', 'SG-8112',
-  50, 42, 2100,
+  50, 42,
   325, 245, 160,
   '20N Mould / Delivery 840 NOS', 'Stainless Steel 304', 'Brine tank line',
   'VERIFIED', 'SUP-SATNAM-01', 'Satnam Group', 'ACTIVE', 10, 'Traditional Kulfi small mould for 50ml standard stick kulfi.',
@@ -200,7 +198,6 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   "mould_category" = EXCLUDED."mould_category",
   "capacity_ml" = EXCLUDED."capacity_ml",
   "cavity_count" = EXCLUDED."cavity_count",
-  "total_nominal_capacity_ml" = EXCLUDED."total_nominal_capacity_ml",
   "dimension_text" = EXCLUDED."dimension_text",
   "specification_status" = 'VERIFIED',
   "status" = 'ACTIVE',
@@ -211,17 +208,17 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   END,
   "updated_at" = CURRENT_TIMESTAMP;
 
--- SG-8115 Kulfi Large (70ml, 42 cavities, 2940ml nominal)
+-- SG-8115 Kulfi Large (70ml, 42 cavities)
 INSERT INTO "production_moulds" (
   "mould_code", "mould_name", "mould_category", "model_number",
-  "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+  "capacity_ml", "cavity_count",
   "tray_length_mm", "tray_width_mm", "tray_height_mm",
   "dimension_text", "material", "machine_type",
   "specification_status", "supplier_id", "supplier_name", "status", "total_sets_in_plant", "notes",
   "linked_raw_materials"
 ) VALUES (
   'SG-8115', 'Kulfi Large (SG 8115)', '8000 Series', 'SG-8115',
-  70, 42, 2940,
+  70, 42,
   325, 245, 160,
   '10N Mould / Delivery 420 NOS', 'Stainless Steel 304', 'Brine tank line',
   'VERIFIED', 'SUP-SATNAM-01', 'Satnam Group', 'ACTIVE', 10, 'Standard 70ml Kulfi large production mould.',
@@ -249,7 +246,6 @@ ON CONFLICT ("mould_code") DO UPDATE SET
   "mould_category" = EXCLUDED."mould_category",
   "capacity_ml" = EXCLUDED."capacity_ml",
   "cavity_count" = EXCLUDED."cavity_count",
-  "total_nominal_capacity_ml" = EXCLUDED."total_nominal_capacity_ml",
   "dimension_text" = EXCLUDED."dimension_text",
   "specification_status" = 'VERIFIED',
   "status" = 'ACTIVE',

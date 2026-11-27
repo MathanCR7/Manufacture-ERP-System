@@ -564,7 +564,7 @@ export default function ProductionCleanReportView({
         productId: a.productId || a.product_id,
         productName: a.productName || a.product_name || 'Finished Product',
         productCode: a.productCode || a.product_code || 'FP',
-        uom: a.productUom || a.product_unit || 'pcs',
+        uom: formatCleanUom(a.productUom || a.product_unit, 'pcs', a),
         useMould: a.useMould !== undefined ? Boolean(a.useMould) : Boolean(a.mouldCode || a.mould_code),
         mouldCode: a.mouldCode || a.mould_code || '',
         mouldName: a.mouldName || a.mould_name || '',
