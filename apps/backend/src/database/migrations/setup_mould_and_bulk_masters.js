@@ -4,7 +4,43 @@ const prisma = new PrismaClient();
 async function setupMouldAndBulkMasters() {
   console.log('Running setup for Mould and Bulk Storage Unit Masters...');
 
-  // 1. Ensure bulk_storage_units table exists
+  // 1. Ensure production_moulds table exists
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "production_moulds" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "mould_code" VARCHAR(50) UNIQUE NOT NULL,
+      "mould_name" VARCHAR(150) NOT NULL,
+      "mould_category" VARCHAR(50) NOT NULL DEFAULT '2000 Series',
+      "model_number" VARCHAR(50),
+      "capacity_ml" NUMERIC(12, 2) NOT NULL DEFAULT 50,
+      "cavity_count" INT NOT NULL DEFAULT 42,
+      "total_nominal_capacity_ml" NUMERIC(12, 2),
+      "tray_length_mm" NUMERIC(10, 2),
+      "tray_width_mm" NUMERIC(10, 2),
+      "tray_height_mm" NUMERIC(10, 2),
+      "cavity_length_mm" NUMERIC(10, 2),
+      "cavity_width_mm" NUMERIC(10, 2),
+      "cavity_depth_mm" NUMERIC(10, 2),
+      "dimension_text" VARCHAR(100),
+      "material" VARCHAR(100) DEFAULT 'SS 304 Food Grade',
+      "machine_type" VARCHAR(100) DEFAULT 'Brine Tank Line 1',
+      "specification_status" VARCHAR(30) NOT NULL DEFAULT 'VERIFIED',
+      "supplier_id" UUID,
+      "supplier_name" VARCHAR(150) DEFAULT 'Satnam Group',
+      "status" VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+      "total_sets_in_plant" INT DEFAULT 10,
+      "notes" TEXT,
+      "linked_raw_materials" JSONB DEFAULT '[]'::jsonb,
+      "created_at" TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+    ALTER TABLE "production_moulds" ADD COLUMN IF NOT EXISTS "total_sets_in_plant" INT DEFAULT 10;
+    ALTER TABLE "production_moulds" ADD COLUMN IF NOT EXISTS "notes" TEXT;
+    ALTER TABLE "production_moulds" ADD COLUMN IF NOT EXISTS "linked_raw_materials" JSONB DEFAULT '[]'::jsonb;
+  `);
+  console.log('production_moulds table verified/created.');
+
+  // 2. Ensure bulk_storage_units table exists
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "bulk_storage_units" (
       "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -22,15 +58,33 @@ async function setupMouldAndBulkMasters() {
       "created_at" TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       "updated_at" TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+    ALTER TABLE "bulk_storage_units" ADD COLUMN IF NOT EXISTS "linked_raw_materials" JSONB DEFAULT '[]'::jsonb;
   `);
   console.log('bulk_storage_units table verified/created.');
 
-  // 2. Ensure linked_raw_materials column exists on production_moulds and ice_cream_moulds
-  await prisma.$executeRawUnsafe(`ALTER TABLE "production_moulds" ADD COLUMN IF NOT EXISTS "linked_raw_materials" JSONB DEFAULT '[]'::jsonb;`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE "ice_cream_moulds" ADD COLUMN IF NOT EXISTS "linked_raw_materials" JSONB DEFAULT '[]'::jsonb;`);
-  console.log('linked_raw_materials columns verified on mould tables.');
+  // 3. Copy any moulds from ice_cream_mould if exists and production_moulds has fewer moulds
+  try {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO "production_moulds" (
+        "mould_code", "mould_name", "mould_category", "model_number",
+        "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
+        "tray_length_mm", "tray_width_mm", "tray_height_mm",
+        "material", "machine_type", "specification_status", "status"
+      )
+      SELECT 
+        "mould_code", "mould_name", "mould_category", "model_number",
+        COALESCE("capacity_ml", 50), COALESCE("cavity_count", 42), "total_nominal_capacity_ml",
+        "tray_length_mm", "tray_width_mm", "tray_height_mm",
+        "material", "machine_type", "specification_status", "status"
+      FROM "ice_cream_mould"
+      ON CONFLICT ("mould_code") DO NOTHING;
+    `);
+    console.log('Synced records from ice_cream_mould table.');
+  } catch (err) {
+    // ice_cream_mould might not exist
+  }
 
-  // 3. Find IDs of stick & roll raw materials for linking
+  // 4. Find IDs of stick & roll raw materials for linking
   const rawMaterials = await prisma.rawMaterial.findMany({
     where: {
       OR: [
@@ -39,7 +93,7 @@ async function setupMouldAndBulkMasters() {
         { name: { contains: 'ROLL', mode: 'insensitive' } }
       ]
     }
-  });
+  }).catch(() => []);
 
   const getRm = (code, fallbackName, fallbackUom = 'pcs') => {
     const found = rawMaterials.find(r => r.code === code) || rawMaterials.find(r => r.name.toLowerCase().includes(fallbackName.toLowerCase()));
@@ -66,7 +120,7 @@ async function setupMouldAndBulkMasters() {
   const rmGallonBox = getRm('RM-00121', 'GALLON BOX 4LTR', 'box');
   const rmPet5L = getRm('RM-00138', 'PET 5LTR CAN', 'pcs');
 
-  // 4. Reference moulds with linked RMs
+  // 5. Reference moulds with linked RMs
   const referenceMoulds = [
     {
       mould_code: 'SG-2006',
@@ -80,14 +134,16 @@ async function setupMouldAndBulkMasters() {
       tray_width_mm: 245,
       tray_height_mm: 160,
       dimension_text: '5N Mould / Delivery 210 NOS',
-      material: 'Stainless Steel 304',
-      machine_type: 'Brine tank line',
+      material: 'SS 304 Food Grade',
+      machine_type: 'Brine Tank Line 1',
       specification_status: 'VERIFIED',
       supplier_name: 'Satnam Group',
       status: 'ACTIVE',
+      total_sets_in_plant: 10,
+      notes: 'Standard 2000 series verified specification mould for small stick format.',
       linked_raw_materials: [
-        { ...rmStick65, quantityPerUnit: 1, role: 'STICK' },
-        { ...rmRoll130, quantityPerUnit: 0.001, role: 'WRAPPER' }
+        { ...rmStick65, quantityPerUnit: 1, role: 'Wooden Stick' },
+        { ...rmRoll130, quantityPerUnit: 0.001, role: 'Wrapper' }
       ]
     },
     {
@@ -102,14 +158,16 @@ async function setupMouldAndBulkMasters() {
       tray_width_mm: 260,
       tray_height_mm: 160,
       dimension_text: '10N Mould / Delivery 500 NOS',
-      material: 'Stainless Steel 304',
-      machine_type: 'Brine tank line',
+      material: 'SS 304 Food Grade',
+      machine_type: 'Brine Tank Line 1',
       specification_status: 'VERIFIED',
       supplier_name: 'Satnam Group',
       status: 'ACTIVE',
+      total_sets_in_plant: 10,
+      notes: 'Standard 3000 series flat stick production mould.',
       linked_raw_materials: [
-        { ...rmStick144, quantityPerUnit: 1, role: 'STICK' },
-        { ...rmRoll170, quantityPerUnit: 0.001, role: 'WRAPPER' }
+        { ...rmStick144, quantityPerUnit: 1, role: 'Wooden Stick' },
+        { ...rmRoll170, quantityPerUnit: 0.001, role: 'Wrapper' }
       ]
     },
     {
@@ -124,14 +182,16 @@ async function setupMouldAndBulkMasters() {
       tray_width_mm: 245,
       tray_height_mm: 160,
       dimension_text: '20N Mould / Delivery 840 NOS',
-      material: 'Stainless Steel 304',
-      machine_type: 'Brine tank line',
+      material: 'SS 304 Food Grade',
+      machine_type: 'Brine Tank Line 1',
       specification_status: 'VERIFIED',
       supplier_name: 'Satnam Group',
       status: 'ACTIVE',
+      total_sets_in_plant: 10,
+      notes: 'Traditional Kulfi small mould for 50ml standard stick kulfi.',
       linked_raw_materials: [
-        { ...rmStick144, quantityPerUnit: 1, role: 'STICK' },
-        { ...rmRoll170, quantityPerUnit: 0.001, role: 'WRAPPER' }
+        { ...rmStick144, quantityPerUnit: 1, role: 'Wooden Stick' },
+        { ...rmRoll170, quantityPerUnit: 0.001, role: 'Wrapper' }
       ]
     },
     {
@@ -146,14 +206,16 @@ async function setupMouldAndBulkMasters() {
       tray_width_mm: 245,
       tray_height_mm: 160,
       dimension_text: '10N Mould / Delivery 420 NOS',
-      material: 'Stainless Steel 304',
-      machine_type: 'Brine tank line',
+      material: 'SS 304 Food Grade',
+      machine_type: 'Brine Tank Line 1',
       specification_status: 'VERIFIED',
       supplier_name: 'Satnam Group',
       status: 'ACTIVE',
+      total_sets_in_plant: 10,
+      notes: 'Standard 70ml Kulfi large production mould.',
       linked_raw_materials: [
-        { ...rmStick144, quantityPerUnit: 1, role: 'STICK' },
-        { ...rmRoll170, quantityPerUnit: 0.001, role: 'WRAPPER' }
+        { ...rmStick144, quantityPerUnit: 1, role: 'Wooden Stick' },
+        { ...rmRoll170, quantityPerUnit: 0.001, role: 'Wrapper' }
       ]
     }
   ];
@@ -163,18 +225,21 @@ async function setupMouldAndBulkMasters() {
     await prisma.$executeRawUnsafe(`
       INSERT INTO "production_moulds" (
         "mould_code", "mould_name", "mould_category", "model_number",
-        "capacity_ml", "cavity_count",
+        "capacity_ml", "cavity_count", "total_nominal_capacity_ml",
         "tray_length_mm", "tray_width_mm", "tray_height_mm",
         "dimension_text", "material", "machine_type",
-        "specification_status", "supplier_name", "status", "linked_raw_materials"
+        "specification_status", "supplier_name", "status", "total_sets_in_plant", "notes", "linked_raw_materials"
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb
       )
       ON CONFLICT ("mould_code") DO UPDATE SET
         "mould_name" = EXCLUDED."mould_name",
         "capacity_ml" = EXCLUDED."capacity_ml",
         "cavity_count" = EXCLUDED."cavity_count",
+        "total_nominal_capacity_ml" = EXCLUDED."total_nominal_capacity_ml",
         "dimension_text" = EXCLUDED."dimension_text",
+        "total_sets_in_plant" = COALESCE("production_moulds"."total_sets_in_plant", EXCLUDED."total_sets_in_plant"),
+        "notes" = COALESCE("production_moulds"."notes", EXCLUDED."notes"),
         "linked_raw_materials" = CASE 
           WHEN "production_moulds"."linked_raw_materials" IS NULL OR "production_moulds"."linked_raw_materials" = '[]'::jsonb 
           THEN EXCLUDED."linked_raw_materials" 
@@ -182,14 +247,14 @@ async function setupMouldAndBulkMasters() {
         END,
         "updated_at" = CURRENT_TIMESTAMP;
     `, m.mould_code, m.mould_name, m.mould_category, m.model_number,
-       m.capacity_ml, m.cavity_count,
+       m.capacity_ml, m.cavity_count, m.total_nominal_capacity_ml,
        m.tray_length_mm, m.tray_width_mm, m.tray_height_mm,
        m.dimension_text, m.material, m.machine_type,
-       m.specification_status, m.supplier_name, m.status, jsonStr);
+       m.specification_status, m.supplier_name, m.status, m.total_sets_in_plant, m.notes, jsonStr);
   }
   console.log('Reference moulds seeded into production_moulds.');
 
-  // 5. Reference bulk storage units with linked RMs
+  // 6. Reference bulk storage units with linked RMs
   const referenceBulkUnits = [
     {
       unit_code: 'BLK-1000ML',
@@ -203,7 +268,7 @@ async function setupMouldAndBulkMasters() {
       description: 'Standard 1 Litre Ice Cream Container / Tub',
       status: 'ACTIVE',
       linked_raw_materials: [
-        { rawMaterialId: null, rmCode: 'PKG-TUB-1L', rmName: '1L Ice Cream Tub & Lid', uom: 'pcs', quantityPerUnit: 1, role: 'CONTAINER' }
+        { rawMaterialId: null, rmCode: 'PKG-TUB-1L', rmName: '1L Ice Cream Tub & Lid', uom: 'pcs', quantityPerUnit: 1, role: 'Container Body / Tub' }
       ]
     },
     {
@@ -218,8 +283,8 @@ async function setupMouldAndBulkMasters() {
       description: 'Standard 2 Litre / Half Gallon Bulk Container',
       status: 'ACTIVE',
       linked_raw_materials: [
-        { ...rmGallonBox, quantityPerUnit: 0.5, role: 'PACKAGING' },
-        { rawMaterialId: null, rmCode: 'PKG-GAL-2L', rmName: '2L Gallon Tub with Handle', uom: 'pcs', quantityPerUnit: 1, role: 'CONTAINER' }
+        { ...rmGallonBox, quantityPerUnit: 0.5, role: 'Gallon Box' },
+        { rawMaterialId: null, rmCode: 'PKG-GAL-2L', rmName: '2L Gallon Tub with Handle', uom: 'pcs', quantityPerUnit: 1, role: 'Container Body / Tub' }
       ]
     },
     {
@@ -234,7 +299,7 @@ async function setupMouldAndBulkMasters() {
       description: '5 Litres Bulk Catering / Parlour Tub',
       status: 'ACTIVE',
       linked_raw_materials: [
-        { ...rmPet5L, quantityPerUnit: 1, role: 'CONTAINER' }
+        { ...rmPet5L, quantityPerUnit: 1, role: 'Container Body / Tub' }
       ]
     },
     {
@@ -249,7 +314,7 @@ async function setupMouldAndBulkMasters() {
       description: '20 Litres Commercial Ice Cream Can for Dispensing & Parlours',
       status: 'ACTIVE',
       linked_raw_materials: [
-        { rawMaterialId: null, rmCode: 'PKG-CAN-20L', rmName: '20L Commercial Ice Cream Can', uom: 'pcs', quantityPerUnit: 1, role: 'CONTAINER' }
+        { rawMaterialId: null, rmCode: 'PKG-CAN-20L', rmName: '20L Stainless Steel Canister', uom: 'pcs', quantityPerUnit: 1, role: 'Can Body' }
       ]
     }
   ];

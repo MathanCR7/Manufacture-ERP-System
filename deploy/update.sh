@@ -63,6 +63,8 @@ sudo -u postgres psql -d erp_manufacture -c "
   ALTER TABLE \"User\" ADD COLUMN IF NOT EXISTS \"has_app_access\" BOOLEAN DEFAULT true;
   ALTER TABLE \"User\" OWNER TO leonex_web_user;
   ALTER TABLE production_batches OWNER TO leonex_web_user;
+  ALTER TABLE IF EXISTS production_moulds OWNER TO leonex_web_user;
+  ALTER TABLE IF EXISTS bulk_storage_units OWNER TO leonex_web_user;
   GRANT erp_user TO leonex_web_user;
   GRANT ALL PRIVILEGES ON SCHEMA public TO leonex_web_user, erp_user, PUBLIC;
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO leonex_web_user, erp_user, PUBLIC;
@@ -92,6 +94,7 @@ node src/database/migrations/ensure_production_batches_redesign_schema.js || tru
 node src/database/migrations/ensure_user_employee_master_schema.js || true
 node src/database/migrations/safe_prisma_sync.js
 node src/database/migrations/run_standard_production_migration.js || true
+node src/database/migrations/setup_mould_and_bulk_masters.js || true
 echo "🔄 [3/5] Reloading PM2 Backend Server..."
 if pm2 describe erp-backend > /dev/null 2>&1; then
     pm2 reload erp-backend --update-env
