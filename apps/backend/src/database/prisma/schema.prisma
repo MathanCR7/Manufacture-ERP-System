@@ -2710,3 +2710,52 @@ model ProductStockAdjustment {
   @@index([type])
   @@map("product_stock_adjustments")
 }
+
+model ProductionMould {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mouldCode               String    @unique @map("mould_code") @db.VarChar(50)
+  mouldName               String    @map("mould_name") @db.VarChar(150)
+  mouldCategory           String    @default("STICK") @map("mould_category") @db.VarChar(50)
+  modelNumber             String?   @map("model_number") @db.VarChar(50)
+  capacityMl              Decimal   @default(0) @map("capacity_ml") @db.Decimal(12, 2)
+  cavityCount             Int       @default(1) @map("cavity_count")
+  totalNominalCapacityMl  Decimal?  @map("total_nominal_capacity_ml") @db.Decimal(12, 2)
+  trayLengthMm            Decimal?  @map("tray_length_mm") @db.Decimal(10, 2)
+  trayWidthMm             Decimal?  @map("tray_width_mm") @db.Decimal(10, 2)
+  trayHeightMm            Decimal?  @map("tray_height_mm") @db.Decimal(10, 2)
+  cavityLengthMm          Decimal?  @map("cavity_length_mm") @db.Decimal(10, 2)
+  cavityWidthMm           Decimal?  @map("cavity_width_mm") @db.Decimal(10, 2)
+  cavityDepthMm           Decimal?  @map("cavity_depth_mm") @db.Decimal(10, 2)
+  dimensionText           String?   @map("dimension_text") @db.VarChar(255)
+  material                String?   @default("Stainless Steel 304") @db.VarChar(100)
+  machineType             String?   @default("Brine tank line") @map("machine_type") @db.VarChar(100)
+  dimensionSource         String?   @default("Custom") @map("dimension_source") @db.VarChar(150)
+  specificationStatus     String    @default("VERIFIED") @map("specification_status") @db.VarChar(50)
+  supplierId              String?   @map("supplier_id") @db.VarChar(50)
+  supplierName            String?   @default("Satnam Group") @map("supplier_name") @db.VarChar(150)
+  status                  String    @default("ACTIVE") @db.VarChar(20)
+  linkedRawMaterials      Json?     @default("[]") @map("linked_raw_materials")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("production_moulds")
+}
+
+model BulkStorageUnit {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  unitCode              String    @unique @map("unit_code") @db.VarChar(50)
+  unitName              String    @map("unit_name") @db.VarChar(150)
+  unitType              String    @default("Tub") @map("unit_type") @db.VarChar(50)
+  capacityMl            Decimal   @default(1000) @map("capacity_ml") @db.Decimal(12, 2)
+  nominalVolumeLtr      Decimal   @default(1.000) @map("nominal_volume_ltr") @db.Decimal(10, 3)
+  tareWeightKg          Decimal?  @default(0) @map("tare_weight_kg") @db.Decimal(10, 3)
+  material              String?   @default("Food Grade Plastic PP") @db.VarChar(100)
+  standardWastePercent  Decimal?  @default(0.5) @map("standard_waste_percent") @db.Decimal(5, 2)
+  description           String?   @db.Text
+  status                String    @default("ACTIVE") @db.VarChar(20)
+  linkedRawMaterials    Json?     @default("[]") @map("linked_raw_materials")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("bulk_storage_units")
+}

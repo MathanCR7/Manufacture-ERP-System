@@ -536,6 +536,16 @@ export function computeMaxTrays(param1, param2, param3) {
  * @param {object} [itemContext=null] - Item metadata (product or RM) for contextual inference
  * @returns {string} Clean, human-readable UOM abbreviation
  */
+export const KNOWN_UOM_UUIDS = {
+  'fa6ef02e-a4e0-4e81-a90b-3763f8c11522': 'pcs',
+  '2dd87ba9-bce6-4776-a152-42bb57a0cda7': 'Ltr',
+  '4604e628-1255-4ee3-8550-d1a8a2a623e1': 'Ltr',
+  '07fc030d-ade2-4810-b23b-797359c227f6': 'kg',
+  '100b598f-ca0b-428f-8101-94fdfef318f5': 'pcs',
+  'f6a4eaa6-b8a9-4b8e-a880-7cb941e012ef': 'g',
+  '1b08c3ac-8df8-4b4b-87d4-43c439fc303d': 'ml'
+};
+
 export function formatCleanUom(uom, defaultUom = 'pcs', itemContext = null) {
   // If object with abbreviation or name passed
   if (uom && typeof uom === 'object') {
@@ -548,6 +558,13 @@ export function formatCleanUom(uom, defaultUom = 'pcs', itemContext = null) {
   }
 
   const raw = String(uom || '').trim();
+  const lower = raw.toLowerCase();
+
+  // Direct lookup of known UOM database UUIDs
+  if (KNOWN_UOM_UUIDS[lower]) {
+    return KNOWN_UOM_UUIDS[lower];
+  }
+
   const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(raw) ||
                  /^[0-9a-fA-F-]{32,36}$/.test(raw);
 
@@ -584,14 +601,17 @@ export function formatCleanUom(uom, defaultUom = 'pcs', itemContext = null) {
   }
 
   // Normalization of common unit variations
-  const lower = raw.toLowerCase();
   if (lower === 'pieces' || lower === 'piece' || lower === 'nos' || lower === 'no' || lower === 'unit' || lower === 'units') return 'pcs';
-  if (lower === 'litres' || lower === 'litre' || lower === 'liters' || lower === 'liter' || lower === 'l' || lower === 'ltr') return 'liter';
+  if (lower === 'litres' || lower === 'litre' || lower === 'liters' || lower === 'liter' || lower === 'l' || lower === 'ltr') return 'Ltr';
   if (lower === 'kilograms' || lower === 'kilogram' || lower === 'kgs' || lower === 'kg') return 'kg';
   if (lower === 'grams' || lower === 'gram' || lower === 'grm' || lower === 'g') return 'g';
   if (lower === 'milliliters' || lower === 'millilitres' || lower === 'milliliter' || lower === 'millilitre' || lower === 'ml') return 'ml';
   if (lower === 'boxes' || lower === 'box') return 'box';
   if (lower === 'rolls' || lower === 'roll') return 'rolls';
+
+  if (/^[0-9a-fA-F-]{32,36}$/.test(raw)) {
+    return 'pcs';
+  }
 
   return raw;
 }

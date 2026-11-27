@@ -866,7 +866,9 @@ const MENU_GROUPS = [
       { name: '🌾 Raw Material', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🚫 Non Inventory', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🗂️ Product Category', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
+      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🧊 Mould Master', path: '/setup/mould-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'] },
+      { name: '🛢️ Bulk Storage Unit', path: '/setup/bulk-storage-unit', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'] }
     ]
   },
   {

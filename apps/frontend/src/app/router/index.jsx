@@ -54,6 +54,8 @@ const ProductCategoryListPage = lazy(() => import('@/modules/item-setup/pages/Pr
 const ProductListPage = lazy(() => import('@/modules/item-setup/pages/ProductListPage'));
 const TaxSettingsPage = lazy(() => import('@/modules/item-setup/pages/TaxSettingsPage'));
 const ExpenseMasterListPage = lazy(() => import('@/modules/item-setup/pages/ExpenseMasterListPage'));
+const MouldMasterListPage = lazy(() => import('@/modules/item-setup/pages/MouldMasterListPage'));
+const BulkStorageUnitMasterListPage = lazy(() => import('@/modules/item-setup/pages/BulkStorageUnitMasterListPage'));
 
 const AuditLogListPage = lazy(() => import('@/modules/admin/pages/AuditLogListPage'));
 const NotificationAuditPanel = lazy(() => import('@/modules/admin/pages/NotificationAuditPanel'));
@@ -361,6 +363,8 @@ const AppRouter = () => {
               <Route path="/setup/product" element={<ProductListPage />} />
               <Route path="/setup/tax" element={<TaxSettingsPage />} />
               <Route path="/setup/expense-master" element={<ExpenseMasterListPage />} />
+              <Route path="/setup/mould-master" element={<MouldMasterListPage />} />
+              <Route path="/setup/bulk-storage-unit" element={<BulkStorageUnitMasterListPage />} />
             </Route>
             
             {/* Purchase Orders (View) */}

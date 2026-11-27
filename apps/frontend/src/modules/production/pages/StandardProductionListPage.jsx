@@ -939,42 +939,42 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 5 & 6. Grand Total & Cost/Unit */}
-                  {canViewCosting ? (
-                    <>
-                      <th className="py-2 px-2 w-[105px] text-right whitespace-nowrap">
-                        <button
-                          onClick={handleToggleSortCost}
-                          className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
-                          title="Sort by Grand Total Cost"
-                        >
-                          <span>Grand Total</span>
-                          {sortBy === 'cost_desc' ? (
-                            <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                          ) : sortBy === 'cost_asc' ? (
-                            <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="py-2 px-2 w-[95px] text-right whitespace-nowrap">
-                        <button
-                          onClick={handleToggleSortCostUnit}
-                          className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
-                          title="Sort by Unit Cost"
-                        >
-                          <span>Cost/Unit</span>
-                          {sortBy === 'cost_unit_desc' ? (
-                            <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                          ) : sortBy === 'cost_unit_asc' ? (
-                            <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                          )}
-                        </button>
-                      </th>
-                    </>
-                  ) : null}
+                  {canViewCosting && (
+                    <th className="py-2 px-2 w-[105px] text-right whitespace-nowrap">
+                      <button
+                        onClick={handleToggleSortCost}
+                        className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
+                        title="Sort by Grand Total Cost"
+                      >
+                        <span>Grand Total</span>
+                        {sortBy === 'cost_desc' ? (
+                          <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : sortBy === 'cost_asc' ? (
+                          <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        )}
+                      </button>
+                    </th>
+                  )}
+                  {canViewCosting && (
+                    <th className="py-2 px-2 w-[95px] text-right whitespace-nowrap">
+                      <button
+                        onClick={handleToggleSortCostUnit}
+                        className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
+                        title="Sort by Unit Cost"
+                      >
+                        <span>Cost/Unit</span>
+                        {sortBy === 'cost_unit_desc' ? (
+                          <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : sortBy === 'cost_unit_asc' ? (
+                          <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        )}
+                      </button>
+                    </th>
+                  )}
 
                   {/* 7. Operations */}
                   <th className="py-2 px-3 text-right whitespace-nowrap">Operations</th>
@@ -1113,16 +1113,16 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 5 & 6. Grand Total & Cost/Unit */}
-                        {canViewCosting ? (
-                          <>
-                            <td className="py-1.5 px-2 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap text-xs">
-                              ₹{formatCurrency(b.totalCost)}
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap text-xs">
-                              ₹{formatCurrency(unitCost)}
-                            </td>
-                          </>
-                        ) : null}
+                        {canViewCosting && (
+                          <td className="py-1.5 px-2 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap text-xs">
+                            ₹{formatCurrency(b.totalCost)}
+                          </td>
+                        )}
+                        {canViewCosting && (
+                          <td className="py-1.5 px-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap text-xs">
+                            ₹{formatCurrency(unitCost)}
+                          </td>
+                        )}
 
                         {/* 7. Operations (Stylish Capsule Buttons with Perfect Padding) */}
                         <td className="py-2 px-3 text-right whitespace-nowrap">

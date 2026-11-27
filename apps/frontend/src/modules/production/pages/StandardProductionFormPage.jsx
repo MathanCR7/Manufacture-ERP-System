@@ -258,12 +258,26 @@ export default function StandardProductionFormPage() {
     const demandedQty = Number(item.shortfallQty > 0 ? item.shortfallQty : (item.quantity || 100));
     const prodName = matchedMaster.name || item.productName || item.name || 'End Product';
     const prodCode = matchedMaster.code || item.productCode || item.code || 'FG-ITEM';
-    const prodUnit = formatCleanUom(matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || item.uomName || matchedMaster.unit, 'pcs', matchedMaster);
+    const prodCat = matchedMaster.category?.name || matchedMaster.categoryName || item.product?.category?.name || '';
+    const prodSubCat = matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || item.product?.subcategory?.name || matchedMaster.specifications?.group || '';
+    const prodUnit = formatCleanUom(
+      (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
+      (typeof item.product?.unit === 'object' ? (item.product.unit?.abbreviation || item.product.unit?.name) : null) ||
+      item.uomName ||
+      item.unit ||
+      item.product?.unitId ||
+      matchedMaster.consumptionUnit ||
+      matchedMaster.uom,
+      'pcs',
+      matchedMaster || item.product || item
+    );
 
     const newProd = {
       productId: pId,
       name: prodName,
       code: prodCode,
+      category: prodCat,
+      subCategory: prodSubCat,
       series: matchedMaster.specifications?.series || matchedMaster.series || 'REGULAR',
       group: matchedMaster.specifications?.group || matchedMaster.group || 'GENERAL',
       factor: Number(matchedMaster.specifications?.factor || matchedMaster.factor || 1),
@@ -339,7 +353,19 @@ export default function StandardProductionFormPage() {
         const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
         const prodName = matchedMaster.name || it.productName || it.name || 'End Product';
         const prodCode = matchedMaster.code || it.productCode || it.code || 'FG-ITEM';
-        const prodUnit = formatCleanUom(matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || it.uomName || matchedMaster.unit, 'pcs', matchedMaster);
+        const prodCat = matchedMaster.category?.name || matchedMaster.categoryName || it.product?.category?.name || '';
+        const prodSubCat = matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || it.product?.subcategory?.name || matchedMaster.specifications?.group || '';
+        const prodUnit = formatCleanUom(
+          (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
+          (typeof it.product?.unit === 'object' ? (it.product.unit?.abbreviation || it.product.unit?.name) : null) ||
+          it.uomName ||
+          it.unit ||
+          it.product?.unitId ||
+          matchedMaster.consumptionUnit ||
+          matchedMaster.uom,
+          'pcs',
+          matchedMaster || it.product || it
+        );
 
         if (!firstBaseId && matchedMaster.baseId) {
           firstBaseId = matchedMaster.baseId;
@@ -349,6 +375,8 @@ export default function StandardProductionFormPage() {
           productId: pId,
           name: prodName,
           code: prodCode,
+          category: prodCat,
+          subCategory: prodSubCat,
           series: matchedMaster.specifications?.series || matchedMaster.series || 'REGULAR',
           group: matchedMaster.specifications?.group || matchedMaster.group || 'GENERAL',
           factor: Number(matchedMaster.specifications?.factor || matchedMaster.factor || 1),
@@ -1823,9 +1851,22 @@ export default function StandardProductionFormPage() {
                     const prodName = it.product?.name || it.productName || it.name || 'End Product';
                     const prodCode = it.product?.code || it.productCode || it.code || 'ITEM';
                     const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
-                    const uom = it.uomName || it.product?.unit?.abbreviation || 'pcs';
 
                     const matchedMaster = products.find(p => p.id === pId) || it.product || {};
+                    const uom = formatCleanUom(
+                      (typeof it.product?.unit === 'object' ? (it.product.unit?.abbreviation || it.product.unit?.name) : null) ||
+                      it.uomName ||
+                      it.product?.unitId ||
+                      it.product?.unit ||
+                      it.unit ||
+                      (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
+                      matchedMaster.consumptionUnit ||
+                      matchedMaster.uom,
+                      'pcs',
+                      matchedMaster || it.product || it
+                    );
+                    const category = matchedMaster.category?.name || it.product?.category?.name || it.category || '';
+                    const subCategory = matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || it.product?.subcategory?.name || it.subCategory || matchedMaster.specifications?.group || '';
                     const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? it.product?.currentStock ?? 0);
                     const isSurplus = currentStock >= demandedQty && demandedQty > 0;
                     const shortfallQty = Math.max(0, demandedQty - currentStock);
@@ -1849,6 +1890,11 @@ export default function StandardProductionFormPage() {
                             <span className="text-[10px] text-slate-400 font-mono">
                               ({prodCode})
                             </span>
+                            {(category || subCategory) && (
+                              <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                {[category, subCategory].filter(Boolean).join(' • ')}
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5 flex-wrap">

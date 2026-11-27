@@ -35,6 +35,7 @@ import ProductionItemSearchModal from './ProductionItemSearchModal';
 import ProductionCleanReportView from './ProductionCleanReportView';
 import StandardFactoryStagesPalette from './StandardFactoryStagesPalette';
 import ProductionLotAllocationModal from './ProductionLotAllocationModal';
+import SearchSelect from '@/components/ui/SearchSelect';
 import { getProductionDraft } from '../services/productionDraftStore';
 
 const formatDateDMY = (dateVal) => {
@@ -561,6 +562,7 @@ export default function ProductionFloorCockpitModal({
   const [allocUnitMap, setAllocUnitMap] = useState({}); // { [allocIndex]: 'ml' | 'L' }
   const [mouldCatalog, setMouldCatalog] = useState([]);
   const [mouldCategories, setMouldCategories] = useState([]);
+  const [bulkStorageMasterList, setBulkStorageMasterList] = useState([]);
   const [linkedSalesOrder, setLinkedSalesOrder] = useState(null);
   const [isSalesDemandExpanded, setIsSalesDemandExpanded] = useState(true);
   const [showAllocatedInQueue, setShowAllocatedInQueue] = useState(false);
@@ -744,14 +746,15 @@ export default function ProductionFloorCockpitModal({
     try {
       setLoading(true);
       const targetDayNo = overrideDayNo !== undefined ? overrideDayNo : selectedDayNoRef.current;
-      const [detailRes, mouldsRes, productsRes, rmCatalogRes, usersRes] = await Promise.all([
+      const [detailRes, mouldsRes, productsRes, rmCatalogRes, usersRes, bulkUnitsRes] = await Promise.all([
         api.get(`/production/standard/${batchId}`, {
           params: targetDayNo ? { dayNo: targetDayNo } : undefined
         }).catch(() => api.get(`/production/batches-redesign/${batchId}`)),
-        api.get('/production/standard/moulds?all=1').catch(() => api.get('/production/moulds')),
+        api.get('/item-setup/mould-master?all=1').catch(() => api.get('/production/standard/moulds?all=1')).catch(() => api.get('/production/moulds')),
         api.get('/production/standard/products-catalog').catch(() => api.get('/products?limit=100')),
         api.get('/production/standard/raw-materials-catalog').catch(() => ({ data: { data: [] } })),
-        api.get('/users').catch(() => ({ data: [] }))
+        api.get('/users').catch(() => ({ data: [] })),
+        api.get('/item-setup/bulk-storage-unit?all=1').catch(() => ({ data: [] }))
       ]);
 
       const rawUsers = Array.isArray(usersRes?.data?.data) ? usersRes.data.data : (Array.isArray(usersRes?.data) ? usersRes.data : []);
@@ -831,10 +834,14 @@ export default function ProductionFloorCockpitModal({
       }
 
       // Moulds
-      const moulds = mouldsRes.data.moulds || mouldsRes.data.data || [];
+      const moulds = mouldsRes.data.moulds || (Array.isArray(mouldsRes.data) ? mouldsRes.data : (mouldsRes.data?.data || []));
       setMouldCatalog(moulds);
-      const cats = mouldsRes.data.categories || Array.from(new Set(moulds.map(m => m.mould_category || 'Other')));
+      const cats = mouldsRes.data.categories || Array.from(new Set(moulds.map(m => m.mould_category || m.mouldCategory || 'Other')));
       setMouldCategories(cats);
+
+      // Bulk Storage Units
+      const bulkUnits = Array.isArray(bulkUnitsRes?.data) ? bulkUnitsRes.data : [];
+      setBulkStorageMasterList(bulkUnits);
 
       // Products
       const prods = Array.isArray(productsRes.data?.data) ? productsRes.data.data : (Array.isArray(productsRes.data) ? productsRes.data : []);
@@ -3915,7 +3922,37 @@ export default function ProductionFloorCockpitModal({
       if (field === 'bulkUom') {
         const isGallon = String(value || '').toLowerCase().includes('gallon');
         if (target.useMould === false) {
-          if (isGallon) {
+          // Check bulkStorageMasterList for matching dynamic unit from DB
+          const matchedUnit = bulkStorageMasterList.find(u => 
+            u.unitName === value || u.unitType === value || u.unitCode === value
+          );
+
+          if (matchedUnit) {
+            target.capacityMl = Number(matchedUnit.capacityMl || 1000);
+            target.wasteValue = Number(matchedUnit.standardWastePercent ?? 0.5);
+            const dynamicRms = Array.isArray(matchedUnit.linkedRawMaterials) 
+              ? matchedUnit.linkedRawMaterials 
+              : (typeof matchedUnit.linkedRawMaterials === 'string' ? JSON.parse(matchedUnit.linkedRawMaterials || '[]') : []);
+
+            // Remove existing packaging items
+            target.productRms = (target.productRms || []).filter(p => !isPackagingMaterial(p));
+            if (dynamicRms.length > 0) {
+              const gYield = Math.max(1, Math.floor(Number(target.actualYield || 1)));
+              dynamicRms.forEach(drm => {
+                const master = findMaster({ rmId: drm.rawMaterialId, rmCode: drm.code, rmName: drm.name });
+                target.productRms.push(createPackagingItem({
+                  id: drm.rawMaterialId,
+                  code: drm.code,
+                  name: drm.name,
+                  uom: drm.uom || 'pcs'
+                }, gYield * Number(drm.qtyPerUnit || 1), null, master));
+              });
+            } else if (isGallon) {
+              const gallonMaster = findMaster({ rmId: GALLON_BOX_DEFINITION.id, rmCode: GALLON_BOX_DEFINITION.code, rmName: GALLON_BOX_DEFINITION.name });
+              const gYield = Math.max(1, Math.floor(Number(target.actualYield || 1)));
+              target.productRms.push(createPackagingItem(GALLON_BOX_DEFINITION, gYield, null, gallonMaster));
+            }
+          } else if (isGallon) {
             // Automatically add GALLON BOX 4LTR if not present
             const hasGallonBox = (target.productRms || []).some(p => p.rmCode === 'RM-00121' || (p.rmName && p.rmName.toUpperCase().includes('GALLON BOX')));
             if (!hasGallonBox) {
@@ -4040,22 +4077,40 @@ export default function ProductionFloorCockpitModal({
       };
       const packagingPieces = computeAllocPiecesYield(allocWithMould);
 
-      const pkg = getPackagingForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
-      const stickDef = pkg?.stick;
-      const coverDef = pkg?.cover;
-
       // Preserve all user-added non-packaging materials (flavours, essences, colors)
       const nonPkgPrms = (currentAlloc.productRms || []).filter(p => !isPackagingMaterial(p));
       const updatedPrms = [...nonPkgPrms];
 
-      // Automatically add Wooden Stick and Packing Cover ONLY on mould spec selection (matched to real FEFO warehouse stock)
-      if (stickDef) {
-        const stickMaster = findMaster({ rmId: stickDef.id, rmCode: stickDef.code, rmName: stickDef.name });
-        updatedPrms.push(createPackagingItem(stickDef, packagingPieces, null, stickMaster));
-      }
-      if (coverDef) {
-        const coverMaster = findMaster({ rmId: coverDef.id, rmCode: coverDef.code, rmName: coverDef.name });
-        updatedPrms.push(createPackagingItem(coverDef, packagingPieces, null, coverMaster));
+      // Check for dynamic linked raw materials from Mould Master in DB
+      const dynamicRms = Array.isArray(selectedMould.linkedRawMaterials)
+        ? selectedMould.linkedRawMaterials
+        : (typeof selectedMould.linkedRawMaterials === 'string' ? JSON.parse(selectedMould.linkedRawMaterials || '[]') : []);
+
+      if (dynamicRms.length > 0) {
+        dynamicRms.forEach(drm => {
+          const stickMaster = findMaster({ rmId: drm.rawMaterialId, rmCode: drm.code, rmName: drm.name });
+          const reqQty = packagingPieces * Number(drm.qtyPerUnit || 1);
+          updatedPrms.push(createPackagingItem({
+            id: drm.rawMaterialId,
+            code: drm.code,
+            name: drm.name,
+            uom: drm.uom || 'pcs'
+          }, reqQty, null, stickMaster));
+        });
+      } else {
+        const pkg = getPackagingForMould(selectedMould.mould_code, selectedMould.mould_name, selectedMould.model_number);
+        const stickDef = pkg?.stick;
+        const coverDef = pkg?.cover;
+
+        // Automatically add Wooden Stick and Packing Cover ONLY on mould spec selection (matched to real FEFO warehouse stock)
+        if (stickDef) {
+          const stickMaster = findMaster({ rmId: stickDef.id, rmCode: stickDef.code, rmName: stickDef.name });
+          updatedPrms.push(createPackagingItem(stickDef, packagingPieces, null, stickMaster));
+        }
+        if (coverDef) {
+          const coverMaster = findMaster({ rmId: coverDef.id, rmCode: coverDef.code, rmName: coverDef.name });
+          updatedPrms.push(createPackagingItem(coverDef, packagingPieces, null, coverMaster));
+        }
       }
 
       copy[targetAllocIndex] = {
@@ -4214,7 +4269,19 @@ export default function ProductionFloorCockpitModal({
           id: pId,
           name: p.name || p.productName || matchedMaster.name || 'Finished Product',
           code: p.code || p.productCode || matchedMaster.code || 'FP',
-          unit: p.unit || p.productUnit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          unit: formatCleanUom(
+            (typeof p.unit === 'object' ? (p.unit?.abbreviation || p.unit?.name) : null) ||
+            p.productUnit ||
+            p.unit ||
+            matchedMaster.unit?.abbreviation ||
+            matchedMaster.unit?.name ||
+            matchedMaster.consumptionUnit ||
+            matchedMaster.uom,
+            'pcs',
+            matchedMaster || p
+          ),
+          category: matchedMaster.category?.name || matchedMaster.categoryName || p.category?.name || p.categoryName || matchedMaster.specifications?.group || '',
+          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || p.subcategory?.name || p.subCategoryName || matchedMaster.specifications?.category || '',
           plannedQty: Number(p.plannedQty || p.demandedQty || p.quantity || 0),
           source: 'BATCH_ITEM'
         });
@@ -4236,7 +4303,19 @@ export default function ProductionFloorCockpitModal({
           id: pId,
           name: bi.productName || bi.product_name || matchedMaster.name || 'Finished Product',
           code: bi.productCode || bi.product_code || matchedMaster.code || 'FP',
-          unit: bi.productUnit || bi.product_unit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          unit: formatCleanUom(
+            (typeof bi.productUnit === 'object' ? (bi.productUnit?.abbreviation || bi.productUnit?.name) : null) ||
+            bi.product_unit ||
+            bi.productUnit ||
+            matchedMaster.unit?.abbreviation ||
+            matchedMaster.unit?.name ||
+            matchedMaster.consumptionUnit ||
+            matchedMaster.uom,
+            'pcs',
+            matchedMaster || bi
+          ),
+          category: matchedMaster.category?.name || matchedMaster.categoryName || bi.category?.name || bi.categoryName || matchedMaster.specifications?.group || '',
+          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || bi.subcategory?.name || bi.subCategoryName || matchedMaster.specifications?.category || '',
           plannedQty: Number(bi.plannedQty || bi.planned_qty || bi.quantity || 0),
           source: 'BATCH_DB_ITEM'
         });
@@ -4258,7 +4337,19 @@ export default function ProductionFloorCockpitModal({
           id: pId,
           name: sa.productName || sa.product_name || matchedMaster.name || 'Finished Product',
           code: sa.productCode || sa.product_code || matchedMaster.code || 'FP',
-          unit: sa.productUom || sa.product_unit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          unit: formatCleanUom(
+            (typeof sa.productUom === 'object' ? (sa.productUom?.abbreviation || sa.productUom?.name) : null) ||
+            sa.product_unit ||
+            sa.productUom ||
+            matchedMaster.unit?.abbreviation ||
+            matchedMaster.unit?.name ||
+            matchedMaster.consumptionUnit ||
+            matchedMaster.uom,
+            'pcs',
+            matchedMaster || sa
+          ),
+          category: matchedMaster.category?.name || matchedMaster.categoryName || sa.category?.name || sa.categoryName || matchedMaster.specifications?.group || '',
+          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || sa.subcategory?.name || sa.subCategoryName || matchedMaster.specifications?.category || '',
           plannedQty: Number(sa.plannedQty || sa.planned_qty || 0),
           source: 'MOULD_ALLOC'
         });
@@ -4280,7 +4371,20 @@ export default function ProductionFloorCockpitModal({
           id: pId,
           name: it.product?.name || it.productName || matchedMaster.name || 'Finished Product',
           code: it.product?.code || it.productCode || matchedMaster.code || 'FP',
-          unit: it.product?.unit?.abbreviation || it.product?.unit?.name || it.product?.unitId || it.uomName || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          unit: formatCleanUom(
+            (typeof it.product?.unit === 'object' ? (it.product.unit?.abbreviation || it.product.unit?.name) : null) ||
+            it.uomName ||
+            it.unit ||
+            it.product?.unitId ||
+            matchedMaster.unit?.abbreviation ||
+            matchedMaster.unit?.name ||
+            matchedMaster.consumptionUnit ||
+            matchedMaster.uom,
+            'pcs',
+            matchedMaster || it.product || it
+          ),
+          category: matchedMaster.category?.name || matchedMaster.categoryName || it.product?.category?.name || it.product?.category || matchedMaster.specifications?.group || '',
+          subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || it.product?.subcategory?.name || it.product?.subCategory || matchedMaster.specifications?.category || '',
           plannedQty: Number(it.demandedQty ?? it.orderedQuantity ?? it.quantity ?? 0),
           shortfallQty: Number(it.shortfallQty || 0),
           source: 'SALES_ORDER'
@@ -4298,7 +4402,19 @@ export default function ProductionFloorCockpitModal({
         id: singlePId,
         name: batch?.product_name || batch?.productName || batch?.product?.name || matchedMaster.name || 'Finished Product',
         code: batch?.product_code || batch?.productCode || batch?.product?.code || matchedMaster.code || 'FP',
-        unit: batch?.product_unit || batch?.productUnit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+        unit: formatCleanUom(
+          (typeof batch?.product_unit === 'object' ? (batch.product_unit?.abbreviation || batch.product_unit?.name) : null) ||
+          batch?.product_unit ||
+          batch?.productUnit ||
+          matchedMaster.unit?.abbreviation ||
+          matchedMaster.unit?.name ||
+          matchedMaster.consumptionUnit ||
+          matchedMaster.uom,
+          'pcs',
+          matchedMaster || batch
+        ),
+        category: matchedMaster.category?.name || matchedMaster.categoryName || matchedMaster.specifications?.group || '',
+        subCategory: matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || matchedMaster.specifications?.category || '',
         plannedQty: Number(batch?.quantity || batch?.plannedQty || 0),
         source: 'TARGET_PRODUCT'
       });
@@ -4317,7 +4433,17 @@ export default function ProductionFloorCockpitModal({
     const matchedMaster = availableProducts.find(p => p.id === pId) || {};
     const prodName = item.name || item.productName || matchedMaster.name || 'Finished Product';
     const prodCode = item.code || item.productCode || matchedMaster.code || 'FP';
-    const prodUom = formatCleanUom(item.unit || item.productUom || matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || matchedMaster.uom, 'pcs', matchedMaster);
+    const prodUom = formatCleanUom(
+      item.unit ||
+      item.productUom ||
+      (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
+      matchedMaster.consumptionUnit ||
+      matchedMaster.uom,
+      'pcs',
+      matchedMaster || item
+    );
+    const prodCat = item.category || matchedMaster.category?.name || matchedMaster.categoryName || '';
+    const prodSubCat = item.subCategory || matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || '';
 
     setAllocations(prev => [
       ...prev,
@@ -4327,6 +4453,8 @@ export default function ProductionFloorCockpitModal({
         productName: prodName,
         productCode: prodCode,
         productUom: prodUom,
+        category: prodCat,
+        subCategory: prodSubCat,
         useMould: true,
         bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
         allocatedBaseMl: 0,
@@ -4360,13 +4488,25 @@ export default function ProductionFloorCockpitModal({
         const matchedMaster = availableProducts.find(m => m.id === pId) || {};
         const prodName = p.name || p.productName || matchedMaster.name || 'Finished Product';
         const prodCode = p.code || p.productCode || matchedMaster.code || 'FP';
-        const prodUom = formatCleanUom(p.unit || p.productUom || matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || matchedMaster.uom, 'pcs', matchedMaster);
+        const prodUom = formatCleanUom(
+          p.unit ||
+          p.productUom ||
+          (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) ||
+          matchedMaster.consumptionUnit ||
+          matchedMaster.uom,
+          'pcs',
+          matchedMaster || p
+        );
+        const prodCat = p.category || matchedMaster.category?.name || matchedMaster.categoryName || '';
+        const prodSubCat = p.subCategory || matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || '';
         return {
           seq: prev.length + idx + 1,
           productId: pId,
           productName: prodName,
           productCode: prodCode,
           productUom: prodUom,
+          category: prodCat,
+          subCategory: prodSubCat,
           useMould: true,
           bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
           allocatedBaseMl: 0,
@@ -7199,9 +7339,15 @@ export default function ProductionFloorCockpitModal({
                                 const prodName = p.name || p.productName || 'End Product';
                                 const prodCode = p.code || p.productCode || 'ITEM';
                                 const demandedQty = Number(p.plannedQty || 0);
-                                const uom = p.unit || p.productUom || 'pcs';
 
                                 const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+                                const uom = formatCleanUom(
+                                  p.unit || p.productUom || (typeof matchedMaster.unit === 'object' ? (matchedMaster.unit?.abbreviation || matchedMaster.unit?.name) : null) || matchedMaster.consumptionUnit || matchedMaster.uom,
+                                  'pcs',
+                                  matchedMaster || p
+                                );
+                                const category = p.category || matchedMaster.category?.name || matchedMaster.categoryName || '';
+                                const subCategory = p.subCategory || matchedMaster.subcategory?.name || matchedMaster.subCategory?.name || matchedMaster.subCategoryName || matchedMaster.specifications?.group || '';
                                 const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? 0);
                                 const isSurplus = currentStock >= demandedQty && demandedQty > 0;
                                 const shortfallQty = Math.max(0, demandedQty - currentStock);
@@ -7223,6 +7369,11 @@ export default function ProductionFloorCockpitModal({
                                       </div>
                                       <div className="flex items-center gap-1.5 text-[9.5px] text-slate-500 font-mono mt-0.5 flex-wrap">
                                         <span>{prodCode}</span>
+                                        {(category || subCategory) && (
+                                          <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                            {[category, subCategory].filter(Boolean).join(' • ')}
+                                          </span>
+                                        )}
                                         <span>•</span>
                                         <span className="font-bold text-amber-700 dark:text-amber-400">
                                           Planned: {demandedQty} {uom}
@@ -7403,6 +7554,11 @@ export default function ProductionFloorCockpitModal({
                                 <span className="font-mono text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700 shrink-0">
                                   {alloc.productCode || 'FP'}
                                 </span>
+                                {(alloc.category || alloc.subCategory || productMatch?.category?.name || productMatch?.subcategory?.name) && (
+                                  <span className="px-1.5 py-0.2 rounded text-[8.5px] font-sans font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0">
+                                    {[alloc.category || productMatch?.category?.name, alloc.subCategory || productMatch?.subcategory?.name].filter(Boolean).join(' • ')}
+                                  </span>
+                                )}
                                 <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950 dark:text-purple-300 dark:border-purple-800 shrink-0">
                                   {prodUom}
                                 </span>
@@ -8145,17 +8301,30 @@ export default function ProductionFloorCockpitModal({
                               <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 text-xs items-center">
                                 <div>
                                   <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Bulk Storage Unit</label>
-                                  <select
-                                    value={bulkUom}
+                                  <SearchSelect
+                                    size="sm"
                                     disabled={isViewMode}
-                                    onChange={(e) => handleUpdateAllocation(idx, 'bulkUom', e.target.value)}
-                                    className={`w-full h-6 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-1 text-xs font-bold outline-none ${isViewMode ? 'cursor-not-allowed bg-slate-100 dark:bg-slate-800' : 'cursor-pointer'}`}
-                                  >
-                                    <option value="Liter">Liter (1,000 ml)</option>
-                                    <option value="Gallon">Gallon (2,000 ml)</option>
-                                    <option value="Tub (5L)">Tub (5 Litres)</option>
-                                    <option value="Can (20L)">Can (20 Litres)</option>
-                                  </select>
+                                    value={bulkUom}
+                                    onChange={(val) => handleUpdateAllocation(idx, 'bulkUom', val)}
+                                    options={
+                                      bulkStorageMasterList.length > 0
+                                        ? bulkStorageMasterList.map(u => ({
+                                            value: u.unitName || u.unitType,
+                                            label: `${u.unitName} (${Number(u.capacityMl || 0).toLocaleString()} ml)`,
+                                            code: u.unitCode,
+                                            category: u.unitType
+                                          }))
+                                        : [
+                                            { value: 'Liter', label: 'Liter (1,000 ml)', code: 'BLK-01', category: 'Liter' },
+                                            { value: 'Gallon', label: 'Gallon (2,000 ml)', code: 'BLK-02', category: 'Gallon' },
+                                            { value: 'Tub (5L)', label: 'Tub (5 Litres)', code: 'BLK-03', category: 'Tub' },
+                                            { value: 'Can (20L)', label: 'Can (20 Litres)', code: 'BLK-04', category: 'Can' }
+                                          ]
+                                    }
+                                    placeholder="Select Bulk Unit..."
+                                    searchPlaceholder="Search storage units..."
+                                    triggerClassName="h-6 text-xs font-bold px-1.5 rounded"
+                                  />
                                 </div>
 
                                 <div>
@@ -8450,6 +8619,7 @@ export default function ProductionFloorCockpitModal({
                               const qId = qp.productId || qp.id;
                               const allocMatch = allocations.find(a => String(a.productId || a.product_id) === String(qId));
                               const isAllocated = Boolean(allocMatch);
+                              const qpUom = formatCleanUom(qp.unit, 'pcs', qp);
                               return (
                                 <span
                                   key={qIdx}
@@ -8463,7 +8633,12 @@ export default function ProductionFloorCockpitModal({
                                 >
                                   {isAllocated ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Plus className="w-2.5 h-2.5 text-amber-600" />}
                                   <span>{qp.name || qp.productName}</span>
-                                  <span className="opacity-75">({qp.plannedQty} {qp.unit})</span>
+                                  {(qp.category || qp.subCategory) && (
+                                    <span className="opacity-70 text-[8.5px] font-sans font-normal">
+                                      ({[qp.category, qp.subCategory].filter(Boolean).join('/')})
+                                    </span>
+                                  )}
+                                  <span className="opacity-75">({qp.plannedQty} {qpUom})</span>
                                 </span>
                               );
                             })}
@@ -8681,6 +8856,11 @@ export default function ProductionFloorCockpitModal({
                                       <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700">
                                         {item.productCode || 'FP'}
                                       </span>
+                                      {(item.category || item.subCategory) && (
+                                        <span className="px-1 py-0.2 rounded text-[8px] font-sans font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                          {[item.category, item.subCategory].filter(Boolean).join(' • ')}
+                                        </span>
+                                      )}
                                       <span>•</span>
                                       <span>{isM ? (item.mouldCode || 'No Mould') : `Bulk ${item.bulkUom || 'Liter'}`}</span>
                                       {hasMissingLots && (
@@ -9009,6 +9189,22 @@ export default function ProductionFloorCockpitModal({
                         <div className="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
                           <div>
                             <label className="text-[9px] text-slate-400 uppercase block">Start Reading (kWh)</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              disabled={isCompleted || isViewMode}
+                              value={ebStartReading}
+                              onChange={(e) => {
+                                setEbStartReading(e.target.value);
+                                if (ebEndReading) handleEbCalc(e.target.value, ebEndReading, ebRatePerUnit);
+                              }}
+                              placeholder="0"
+                              className="h-7 text-[11px] font-mono bg-white dark:bg-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] text-slate-400 uppercase block">End Reading (kWh)</label>
                             <Input
                               type="number"
                               min="0"

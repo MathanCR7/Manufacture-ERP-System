@@ -49,10 +49,13 @@ class IceCreamMouldController {
             "total_nominal_capacity_ml"::FLOAT AS "totalNominalCapacityMl",
             "tray_length_mm"::FLOAT AS "lengthMm", "tray_width_mm"::FLOAT AS "widthMm", "tray_height_mm"::FLOAT AS "heightMm",
             "cavity_length_mm"::FLOAT AS "cavityLengthMm", "cavity_width_mm"::FLOAT AS "cavityWidthMm", "cavity_depth_mm"::FLOAT AS "cavityDepthMm",
+            "dimension_text" AS "dimensionText",
             "material", "machine_type" AS "machineType", "dimension_source" AS "dimensionSource",
             "specification_status" AS "specificationStatus", "supplier_id" AS "supplierId", 
-            "supplier_name" AS "supplierName", "status", "created_at" AS "createdAt"
-          FROM ice_cream_mould
+            "supplier_name" AS "supplierName", "status",
+            COALESCE("linked_raw_materials", '[]'::jsonb) AS "linkedRawMaterials",
+            "created_at" AS "createdAt"
+          FROM production_moulds
           ${whereClause}
           ORDER BY 
             CASE WHEN "specification_status" = 'VERIFIED' THEN 1 ELSE 2 END,
@@ -62,7 +65,7 @@ class IceCreamMouldController {
         `;
         rows = await prisma.$queryRawUnsafe(sql, ...params);
       } catch (viewErr) {
-        // Fallback to production_moulds
+        // Fallback to ice_cream_mould
         const fallbackSql = `
           SELECT 
             "id", "mould_code" AS "mouldCode", "mould_name" AS "mouldName", 
@@ -71,8 +74,10 @@ class IceCreamMouldController {
             "total_nominal_capacity_ml"::FLOAT AS "totalNominalCapacityMl",
             "tray_length_mm"::FLOAT AS "lengthMm", "tray_width_mm"::FLOAT AS "widthMm", "tray_height_mm"::FLOAT AS "heightMm",
             "material", "machine_type" AS "machineType",
-            "specification_status" AS "specificationStatus", "status", "created_at" AS "createdAt"
-          FROM production_moulds
+            "specification_status" AS "specificationStatus", "status",
+            COALESCE("linked_raw_materials", '[]'::jsonb) AS "linkedRawMaterials",
+            "created_at" AS "createdAt"
+          FROM ice_cream_mould
           ${whereClause}
           ORDER BY "mould_category" ASC, "capacity_ml" ASC, "mould_code" ASC
         `;

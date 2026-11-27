@@ -36,7 +36,9 @@ export default function ProductionMouldPickerModal({
     const fetchMoulds = async () => {
       try {
         setLoading(true);
-        const res = await api.get('/production/standard/moulds?all=1').catch(() => api.get('/production/moulds?all=1'));
+        const res = await api.get('/item-setup/mould-master?all=1')
+          .catch(() => api.get('/production/standard/moulds?all=1'))
+          .catch(() => api.get('/production/moulds?all=1'));
         const list = res.data?.moulds || (Array.isArray(res.data) ? res.data : (res.data?.data || []));
         setMoulds(list);
       } catch (err) {
@@ -247,7 +249,8 @@ export default function ProductionMouldPickerModal({
                       cavityCount: cav,
                       total_nominal_capacity_ml: totalNominal,
                       dimension_text: deliveryText,
-                      dimensionText: deliveryText
+                      dimensionText: deliveryText,
+                      linkedRawMaterials: m.linkedRawMaterials || m.linked_raw_materials || []
                     })}
                     className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                       isSelected
@@ -315,8 +318,35 @@ export default function ProductionMouldPickerModal({
                       </div>
                     </div>
 
-                    {/* Stick & Packaging Cover Specification Master */}
+                    {/* Stick & Packaging Cover Specification Master (Database Driven) */}
                     {(() => {
+                      const dynamicRms = Array.isArray(m.linkedRawMaterials) 
+                        ? m.linkedRawMaterials 
+                        : (typeof m.linkedRawMaterials === 'string' ? JSON.parse(m.linkedRawMaterials || '[]') : []);
+
+                      if (dynamicRms.length > 0) {
+                        return (
+                          <div className="my-2 p-2 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 space-y-1 text-xs">
+                            {dynamicRms.map((rm, rIdx) => (
+                              <div key={rIdx} className="flex items-center justify-between text-[11px]">
+                                <span className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                                  {rm.role?.toLowerCase().includes('stick') ? (
+                                    <Sparkles className="w-3 h-3 text-amber-500" />
+                                  ) : (
+                                    <Box className="w-3 h-3 text-indigo-500" />
+                                  )}
+                                  {rm.role || 'Linked Material'}:
+                                </span>
+                                <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 truncate max-w-[170px]" title={rm.name}>
+                                  {rm.name} {rm.code ? `(${rm.code})` : ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+
+                      // Fallback for older legacy records
                       const codeUpper = (code || '').toUpperCase();
                       const nameUpper = (name || '').toUpperCase();
                       let stickName = 'STICK 144 MM';
