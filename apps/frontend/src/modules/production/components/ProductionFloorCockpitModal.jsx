@@ -747,6 +747,7 @@ export default function ProductionFloorCockpitModal({
     if (!batchId) return;
     try {
       setLoading(true);
+      setLinkedSalesOrder(null);
       const targetDayNo = overrideDayNo !== undefined ? overrideDayNo : selectedDayNoRef.current;
       const [detailRes, mouldsRes, productsRes, rmCatalogRes, usersRes, bulkUnitsRes] = await Promise.all([
         api.get(`/production/standard/${batchId}`, {
@@ -802,20 +803,30 @@ export default function ProductionFloorCockpitModal({
       } else {
         const orderIdToFetch = b.order_id || b.orderId || b.salesOrderId || b.sales_order_id;
         if (orderIdToFetch) {
-          api.get(`/orders/${orderIdToFetch}`)
-            .then(res => setLinkedSalesOrder(res.data))
-            .catch(() => {});
-        } else if (b.note && b.note.includes('Sales Order #')) {
+          try {
+            const soRes = await api.get(`/orders/${orderIdToFetch}`);
+            if (soRes?.data) setLinkedSalesOrder(soRes.data);
+            else setLinkedSalesOrder(null);
+          } catch (_) {
+            setLinkedSalesOrder(null);
+          }
+        } else if (b.note && typeof b.note === 'string' && b.note.includes('Sales Order #')) {
           const match = b.note.match(/Sales Order #([^\s()]+)/);
           if (match && match[1]) {
-            api.get('/orders')
-              .then(res => {
-                const list = Array.isArray(res.data) ? res.data : [];
-                const found = list.find(o => (o.docNo === match[1] || o.referenceNo === match[1]));
-                if (found) setLinkedSalesOrder(found);
-              })
-              .catch(() => {});
+            try {
+              const ordersRes = await api.get('/orders');
+              const list = Array.isArray(ordersRes.data) ? ordersRes.data : [];
+              const found = list.find(o => (o.docNo === match[1] || o.referenceNo === match[1]));
+              if (found) setLinkedSalesOrder(found);
+              else setLinkedSalesOrder(null);
+            } catch (_) {
+              setLinkedSalesOrder(null);
+            }
+          } else {
+            setLinkedSalesOrder(null);
           }
+        } else {
+          setLinkedSalesOrder(null);
         }
       }
       const fetchedDays = Array.isArray(detailRes.data.days) ? detailRes.data.days : [];
@@ -4256,114 +4267,31 @@ export default function ProductionFloorCockpitModal({
     }
   };
 
-  // Extract all planned / queued end products for this batch (from products, selectedProducts, batchItems, mould_allocations, salesOrder, or batch.product_id)
+  // ── Determine if batch is linked to a sales order ──
+  const hasLinkedSalesOrder = useMemo(() => {
+    return Boolean(
+      linkedSalesOrder ||
+      batch?.salesOrder ||
+      batch?.order ||
+      batch?.order_id ||
+      batch?.orderId ||
+      batch?.salesOrderId ||
+      batch?.sales_order_id ||
+      (batch?.note && typeof batch.note === 'string' && batch.note.includes('Sales Order #'))
+    );
+  }, [linkedSalesOrder, batch]);
+
+  // Extract all planned / demanded end products for this batch (ONLY when standard production is selected from a sales order)
   const queuedBatchProducts = useMemo(() => {
+    // Normal standard production (not selected from a sales order) does NOT have queued sales demand items
+    if (!hasLinkedSalesOrder) {
+      return [];
+    }
+
     const list = [];
     const seenIds = new Set();
 
-    // 1. Batch products or selectedProducts
-    const rawProds = Array.isArray(batch?.products) && batch.products.length > 0
-      ? batch.products
-      : (Array.isArray(batch?.selectedProducts) && batch.selectedProducts.length > 0 ? batch.selectedProducts : []);
-
-    rawProds.forEach(p => {
-      const pId = p.productId || p.id;
-      if (pId && !seenIds.has(String(pId))) {
-        seenIds.add(String(pId));
-        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
-        list.push({
-          productId: pId,
-          id: pId,
-          name: p.name || p.productName || matchedMaster.name || 'Finished Product',
-          code: p.code || p.productCode || matchedMaster.code || 'FP',
-          unit: formatCleanUom(
-            (typeof p.unit === 'object' ? (p.unit?.abbreviation || p.unit?.name) : null) ||
-            p.productUnit ||
-            p.unit ||
-            matchedMaster.unit?.abbreviation ||
-            matchedMaster.unit?.name ||
-            matchedMaster.consumptionUnit ||
-            matchedMaster.uom,
-            'pcs',
-            matchedMaster || p
-          ),
-          category: resolveCategoryName(p) || resolveCategoryName(matchedMaster) || '',
-          subCategory: resolveSubcategoryName(p) || resolveSubcategoryName(matchedMaster) || '',
-          plannedQty: Number(p.plannedQty || p.demandedQty || p.quantity || 0),
-          source: 'BATCH_ITEM'
-        });
-      }
-    });
-
-    // 2. Batch items / batchItems from DB
-    const dbItems = Array.isArray(batch?.items) && batch.items.length > 0
-      ? batch.items
-      : (Array.isArray(batch?.batchItems) && batch.batchItems.length > 0 ? batch.batchItems : []);
-
-    dbItems.forEach(bi => {
-      const pId = bi.productId || bi.product_id || bi.id;
-      if (pId && !seenIds.has(String(pId))) {
-        seenIds.add(String(pId));
-        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
-        list.push({
-          productId: pId,
-          id: pId,
-          name: bi.productName || bi.product_name || matchedMaster.name || 'Finished Product',
-          code: bi.productCode || bi.product_code || matchedMaster.code || 'FP',
-          unit: formatCleanUom(
-            (typeof bi.productUnit === 'object' ? (bi.productUnit?.abbreviation || bi.productUnit?.name) : null) ||
-            bi.product_unit ||
-            bi.productUnit ||
-            matchedMaster.unit?.abbreviation ||
-            matchedMaster.unit?.name ||
-            matchedMaster.consumptionUnit ||
-            matchedMaster.uom,
-            'pcs',
-            matchedMaster || bi
-          ),
-          category: resolveCategoryName(bi) || resolveCategoryName(matchedMaster) || '',
-          subCategory: resolveSubcategoryName(bi) || resolveSubcategoryName(matchedMaster) || '',
-          plannedQty: Number(bi.plannedQty || bi.planned_qty || bi.quantity || 0),
-          source: 'BATCH_DB_ITEM'
-        });
-      }
-    });
-
-    // 3. Saved mould allocations (if any exist on batch)
-    const savedAllocs = Array.isArray(batch?.mould_allocations) && batch.mould_allocations.length > 0
-      ? batch.mould_allocations
-      : (Array.isArray(batch?.allocations) && batch.allocations.length > 0 ? batch.allocations : []);
-
-    savedAllocs.forEach(sa => {
-      const pId = sa.productId || sa.product_id;
-      if (pId && !seenIds.has(String(pId))) {
-        seenIds.add(String(pId));
-        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
-        list.push({
-          productId: pId,
-          id: pId,
-          name: sa.productName || sa.product_name || matchedMaster.name || 'Finished Product',
-          code: sa.productCode || sa.product_code || matchedMaster.code || 'FP',
-          unit: formatCleanUom(
-            (typeof sa.productUom === 'object' ? (sa.productUom?.abbreviation || sa.productUom?.name) : null) ||
-            sa.product_unit ||
-            sa.productUom ||
-            matchedMaster.unit?.abbreviation ||
-            matchedMaster.unit?.name ||
-            matchedMaster.consumptionUnit ||
-            matchedMaster.uom,
-            'pcs',
-            matchedMaster || sa
-          ),
-          category: resolveCategoryName(sa) || resolveCategoryName(matchedMaster) || '',
-          subCategory: resolveSubcategoryName(sa) || resolveSubcategoryName(matchedMaster) || '',
-          plannedQty: Number(sa.plannedQty || sa.planned_qty || 0),
-          source: 'MOULD_ALLOC'
-        });
-      }
-    });
-
-    // 4. Linked sales order items
+    // Extract demanded products strictly from the linked sales order for this respective production batch
     const soItems = Array.isArray(linkedSalesOrder?.items) && linkedSalesOrder.items.length > 0
       ? linkedSalesOrder.items
       : (Array.isArray(batch?.salesOrder?.items) ? batch.salesOrder.items : (Array.isArray(batch?.order?.items) ? batch.order.items : []));
@@ -4399,36 +4327,8 @@ export default function ProductionFloorCockpitModal({
       }
     });
 
-    // 5. Batch product_id / batch.product (target planned output)
-    const singlePId = batch?.product_id || batch?.productId || batch?.product?.id;
-    if (singlePId && !seenIds.has(String(singlePId))) {
-      seenIds.add(String(singlePId));
-      const matchedMaster = availableProducts.find(m => m.id === singlePId) || batch?.product || {};
-      list.push({
-        productId: singlePId,
-        id: singlePId,
-        name: batch?.product_name || batch?.productName || batch?.product?.name || matchedMaster.name || 'Finished Product',
-        code: batch?.product_code || batch?.productCode || batch?.product?.code || matchedMaster.code || 'FP',
-        unit: formatCleanUom(
-          (typeof batch?.product_unit === 'object' ? (batch.product_unit?.abbreviation || batch.product_unit?.name) : null) ||
-          batch?.product_unit ||
-          batch?.productUnit ||
-          matchedMaster.unit?.abbreviation ||
-          matchedMaster.unit?.name ||
-          matchedMaster.consumptionUnit ||
-          matchedMaster.uom,
-          'pcs',
-          matchedMaster || batch
-        ),
-        category: resolveCategoryName(batch?.product) || resolveCategoryName(matchedMaster) || '',
-        subCategory: resolveSubcategoryName(batch?.product) || resolveSubcategoryName(matchedMaster) || '',
-        plannedQty: Number(batch?.quantity || batch?.plannedQty || 0),
-        source: 'TARGET_PRODUCT'
-      });
-    }
-
     return list;
-  }, [batch, linkedSalesOrder, availableProducts]);
+  }, [hasLinkedSalesOrder, linkedSalesOrder, batch, availableProducts]);
 
   const handleAddQueuedProductToAllocations = (item) => {
     const pId = item.productId || item.id;
@@ -7254,8 +7154,8 @@ export default function ProductionFloorCockpitModal({
                   </div>
                 </Card>
 
-                {/* ── QUEUED END PRODUCTS DRAWER (STEP 3) ── */}
-                {queuedBatchProducts && queuedBatchProducts.length > 0 && (() => {
+                {/* ── QUEUED END PRODUCTS DRAWER (STEP 3 - ONLY FOR SALES ORDER LINKED BATCHES) ── */}
+                {hasLinkedSalesOrder && queuedBatchProducts && queuedBatchProducts.length > 0 && (() => {
                   const unallocatedQueuedProducts = queuedBatchProducts.filter(p => {
                     const pId = p.productId || p.id;
                     return !allocations.some(a => String(a.productId || a.product_id) === String(pId));
@@ -7271,12 +7171,12 @@ export default function ProductionFloorCockpitModal({
                       <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-amber-200/90 dark:border-amber-800/80">
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-3xs shrink-0">
-                            {linkedSalesOrder ? <ShoppingCart className="w-3.5 h-3.5" /> : <Boxes className="w-3.5 h-3.5" />}
+                            <ShoppingCart className="w-3.5 h-3.5" />
                           </div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-extrabold text-xs text-amber-950 dark:text-amber-200 uppercase tracking-tight">
-                                {linkedSalesOrder ? 'SO Demand End Products' : 'Queued End Products For This Batch'}
+                                SO Demand End Products
                               </span>
                               <span className="px-2 py-0.5 rounded-full text-[9.5px] bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-mono font-black">
                                 {unallocatedQueuedProducts.length} Pending • {allocatedQueuedProducts.length} Assigned • {queuedBatchProducts.length} Total
@@ -7285,7 +7185,7 @@ export default function ProductionFloorCockpitModal({
                             <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold truncate max-w-sm">
                               {linkedSalesOrder 
                                 ? `SO #${linkedSalesOrder.docNo || linkedSalesOrder.referenceNo || 'SO'} • ${linkedSalesOrder.customer?.name || linkedSalesOrder.customerName || 'Customer'}`
-                                : `Standard Production • Planned Batch Output (${formatIndian(batch?.quantity || 0)} pcs)`}
+                                : (batch?.salesOrder ? `SO #${batch.salesOrder.docNo || batch.salesOrder.referenceNo || 'SO'}` : 'Sales Order Demand')}
                             </p>
                           </div>
                         </div>
@@ -8467,27 +8367,25 @@ export default function ProductionFloorCockpitModal({
                   };
 
                   if (allocations.length === 0) {
-                    if (queuedBatchProducts && queuedBatchProducts.length > 0) {
+                    if (hasLinkedSalesOrder && queuedBatchProducts && queuedBatchProducts.length > 0) {
                       return (
                         <div className="p-6 bg-gradient-to-b from-purple-50/60 via-white to-slate-50 dark:from-purple-950/25 dark:via-slate-900 dark:to-slate-950 border-2 border-purple-200/90 dark:border-purple-800/70 rounded-2xl space-y-4 shadow-sm">
                           <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-purple-100 dark:border-purple-900/40">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#8b47d7] to-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
-                                <Boxes className="w-5 h-5" />
+                                <ShoppingCart className="w-5 h-5" />
                               </div>
                               <div>
                                 <div className="flex items-center gap-2">
                                   <h4 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-tight">
-                                    Queued End Products For This Batch
+                                    {linkedSalesOrder ? `SO Demand End Products (SO #${linkedSalesOrder.docNo || linkedSalesOrder.referenceNo})` : 'SO Demand End Products'}
                                   </h4>
                                   <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-100 dark:bg-purple-900/60 text-[#8b47d7] dark:text-purple-300 font-mono font-bold">
-                                    {queuedBatchProducts.length} Items Planned • {formatIndian(queuedBatchProducts.reduce((s, p) => s + (p.plannedQty || 0), 0))} Pcs Total
+                                    {queuedBatchProducts.length} Items Demanded • {formatIndian(queuedBatchProducts.reduce((s, p) => s + (p.plannedQty || 0), 0))} Pcs Total
                                   </span>
                                 </div>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                  {previousDaysAllocatedMl > 0
-                                    ? `Day ${activeDayNo} ready with ${formatIndian(availableMixMl, 2)} ml unallocated mix. Select from the planned batch products below to configure mould pouring.`
-                                    : 'These finished products are scheduled for production in this batch. Click "+ Add to Allocations" or "+ Add All" to begin mould allocations.'}
+                                  These finished products are demanded by the linked Sales Order. Click "+ Add to Allocations" or "+ Add All" to configure mould pouring in Step 3.
                                 </p>
                               </div>
                             </div>
@@ -8634,13 +8532,13 @@ export default function ProductionFloorCockpitModal({
 
                   return (
                     <div className="space-y-2">
-                      {/* Compact Queued End Products Strip (Visible when allocations exist) */}
-                      {queuedBatchProducts && queuedBatchProducts.length > 0 && (
+                      {/* Compact Queued End Products Strip (Visible ONLY when linked to Sales Order and allocations exist) */}
+                      {hasLinkedSalesOrder && queuedBatchProducts && queuedBatchProducts.length > 0 && (
                         <div className="px-3 py-2 rounded-xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-800/50 flex items-center justify-between flex-wrap gap-2 text-xs">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-[11px] text-purple-950 dark:text-purple-200 flex items-center gap-1">
-                              <Boxes className="w-3.5 h-3.5 text-[#8b47d7]" />
-                              <span>Queued For Batch:</span>
+                              <ShoppingCart className="w-3.5 h-3.5 text-[#8b47d7]" />
+                              <span>SO Demand Queued:</span>
                             </span>
                             {queuedBatchProducts.map((qp, qIdx) => {
                               const qId = qp.productId || qp.id;
