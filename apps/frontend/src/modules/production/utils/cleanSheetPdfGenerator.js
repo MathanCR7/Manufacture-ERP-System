@@ -67,6 +67,7 @@ export function exportCleanSheetPdf({
   summary = {},
   baseRmLines = [],
   entireProductionRmLines = [],
+  uniqueRawMaterialsSummary = [],
   dayEntries = [],
   yieldRows = [],
   timelineStages = [],
@@ -726,15 +727,89 @@ export function exportCleanSheetPdf({
     y += cardH + 2.5;
   }
 
-  // ── SECTION 2: ENTIRE PRODUCTION RAW MATERIAL CONSUMPTION & LOT TRACEABILITY (MASTER SINGLE TABLE) ──
+  // ── SECTION 2A: UNIQUE RAW MATERIALS CONSOLIDATED SUMMARY (SINGLE TABLE ROLLUP) ──
+  const activeUniqueRms = Array.isArray(uniqueRawMaterialsSummary) && uniqueRawMaterialsSummary.length > 0
+    ? uniqueRawMaterialsSummary
+    : [];
+
+  if (activeUniqueRms.length > 0) {
+    drawSectionHeading(
+      '2',
+      'Unique Raw Materials Consolidated Summary — Entire Production Master Table',
+      `${activeUniqueRms.length} Unique Raw Materials Consumed • Rolled Up with Total Amount Used`
+    );
+
+    const uniqueCols = canViewCost
+      ? [
+          { key: 'code', label: 'RM Code', width: 14 },
+          { key: 'name', label: 'Raw Material Name', width: 34, bold: true },
+          { key: 'type', label: 'Type / Stage', width: 22 },
+          { key: 'days', label: 'Days Run', width: 18, align: 'center' },
+          { key: 'usedFor', label: 'Used For / Product', width: 26 },
+          { key: 'lots', label: 'Batch / Lot Nos', width: 24, color: COLORS.indigo, bold: true },
+          { key: 'qty', label: 'Total Consumed Qty', width: 18, align: 'right', bold: true },
+          { key: 'rate', label: 'Avg Rate', width: 14, align: 'right' },
+          { key: 'cost', label: 'Total Amount', width: 18, align: 'right', color: COLORS.emerald, bold: true }
+        ]
+      : [
+          { key: 'code', label: 'RM Code', width: 16 },
+          { key: 'name', label: 'Raw Material Name', width: 44, bold: true },
+          { key: 'type', label: 'Type / Stage', width: 26 },
+          { key: 'days', label: 'Days Run', width: 22, align: 'center' },
+          { key: 'usedFor', label: 'Used For / Product', width: 36 },
+          { key: 'lots', label: 'Batch / Lot Nos', width: 28, color: COLORS.indigo, bold: true },
+          { key: 'qty', label: 'Total Consumed Qty', width: 20, align: 'right', bold: true }
+        ];
+
+    const uniquePdfRows = activeUniqueRms.map((r) => ({
+      code: safeText(r.rawMaterialCode, 'RM'),
+      name: safeText(r.rawMaterialName),
+      type: safeText(r.categoryLabel),
+      days: safeText(r.daysText),
+      usedFor: safeText(r.usedForText),
+      lots: safeText(r.lotsText, 'BATCH-DIRECT'),
+      qty: `${formatIndian(r.totalConsumedQty)} ${r.uom}`,
+      rate: INR_FMT(r.avgRate),
+      cost: INR_FMT(r.totalCost)
+    }));
+
+    const totalUniqueCost = round2(activeUniqueRms.reduce((s, r) => s + Number(r.totalCost || 0), 0));
+    const totalUniqueQty = round2(activeUniqueRms.reduce((s, r) => s + Number(r.totalConsumedQty || 0), 0));
+
+    const uniqueFooter = canViewCost
+      ? {
+          code: 'TOTAL',
+          name: `${activeUniqueRms.length} Unique Raw Materials`,
+          type: '',
+          days: '',
+          usedFor: '',
+          lots: 'Grand Total:',
+          qty: `${formatIndian(totalUniqueQty)}`,
+          rate: '',
+          cost: INR_FMT(totalUniqueCost)
+        }
+      : {
+          code: 'TOTAL',
+          name: `${activeUniqueRms.length} Unique Raw Materials`,
+          type: '',
+          days: '',
+          usedFor: '',
+          lots: 'Grand Total:',
+          qty: `${formatIndian(totalUniqueQty)}`
+        };
+
+    drawTable(uniqueCols, uniquePdfRows, uniqueFooter, { fontSize: 6.7 });
+  }
+
+  // ── SECTION 2B: ENTIRE PRODUCTION RAW MATERIAL CONSUMPTION & LOT TRACEABILITY (MASTER SINGLE TABLE) ──
   const activeEntireRmLines = Array.isArray(entireProductionRmLines) && entireProductionRmLines.length > 0
     ? entireProductionRmLines
     : [];
 
   if (activeEntireRmLines.length > 0) {
     drawSectionHeading(
-      '2',
-      'Entire Raw Material Consumption & Lot Traceability — Master Ledger',
+      '2B',
+      'Entire Raw Material Consumption & Lot Traceability — Detailed Ledger',
       `${activeEntireRmLines.length} Material Entries • All Days, Products & Formulations in Single Table`
     );
 

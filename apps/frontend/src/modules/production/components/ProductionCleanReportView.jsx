@@ -202,6 +202,7 @@ export default function ProductionCleanReportView({
   const [entireRmSearch, setEntireRmSearch] = useState('');
   const [entireRmCategoryFilter, setEntireRmCategoryFilter] = useState('ALL');
   const [entireRmDayFilter, setEntireRmDayFilter] = useState('ALL');
+  const [rmTableViewMode, setRmTableViewMode] = useState('UNIQUE');
 
   // Live company settings
   const [fetchedCompany, setFetchedCompany] = useState(null);
@@ -953,6 +954,132 @@ export default function ProductionCleanReportView({
     });
   }, [entireProductionRmLines, entireRmCategoryFilter, entireRmDayFilter, entireRmSearch]);
 
+  // ── 21 UNIQUE RAW MATERIALS CONSOLIDATED SUMMARY (SINGLE TABLE ROLLUP) ──
+  const uniqueRawMaterialsSummary = useMemo(() => {
+    const map = new Map();
+
+    entireProductionRmLines.forEach(row => {
+      const key = row.rawMaterialId
+        ? `${row.rawMaterialId}__${row.uom || ''}`
+        : `${row.rawMaterialCode || 'RM'}__${row.rawMaterialName}__${row.uom || ''}`;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          rawMaterialId: row.rawMaterialId,
+          rawMaterialCode: row.rawMaterialCode || 'RM',
+          rawMaterialName: row.rawMaterialName,
+          uom: row.uom || 'pcs',
+          sourceTypes: new Set(),
+          sourceCategories: new Set(),
+          dayNumbers: new Set(),
+          dayLabels: new Set(),
+          dayBatchCodes: new Set(),
+          lotBatchNumbers: new Set(),
+          usedForItems: new Set(),
+          productNames: new Set(),
+          purposes: new Set(),
+          totalConsumedQty: 0,
+          totalCost: 0,
+          entriesCount: 0,
+          expiryDates: [],
+          unitRates: []
+        });
+      }
+
+      const item = map.get(key);
+      if (row.sourceType) item.sourceTypes.add(row.sourceType);
+      if (row.sourceCategory) item.sourceCategories.add(row.sourceCategory);
+      if (row.dayNo) item.dayNumbers.add(row.dayNo);
+      if (row.dayLabel) item.dayLabels.add(row.dayLabel);
+      if (row.dayBatchCode && row.dayBatchCode !== '—') item.dayBatchCodes.add(row.dayBatchCode);
+      if (row.lotBatchNo && row.lotBatchNo !== '—') item.lotBatchNumbers.add(row.lotBatchNo);
+      if (row.usedFor) item.usedForItems.add(row.usedFor);
+      if (row.productName) item.productNames.add(row.productName);
+      if (row.purpose) item.purposes.add(row.purpose);
+      item.totalConsumedQty = round2(item.totalConsumedQty + Number(row.consumedQty || 0));
+      item.totalCost = round2(item.totalCost + Number(row.totalCost || 0));
+      item.entriesCount += 1;
+      if (row.expiryDate) item.expiryDates.push(row.expiryDate);
+      if (Number(row.unitRate || 0) > 0) item.unitRates.push(Number(row.unitRate));
+    });
+
+    return Array.from(map.values()).map((item, idx) => {
+      let categoryLabel = 'Base Tank Mix';
+      let categoryBadgeCls = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-200';
+      if (item.sourceTypes.has('BASE') && item.sourceTypes.has('PRODUCT_RM')) {
+        categoryLabel = 'Multi-Stage (Base & Products)';
+        categoryBadgeCls = 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 border-amber-200';
+      } else if (item.sourceTypes.has('PRODUCT_RM')) {
+        const isPackaging = Array.from(item.sourceCategories).some(c => c.toLowerCase().includes('packaging') || c.toLowerCase().includes('assembly'));
+        categoryLabel = isPackaging ? 'Packaging & Assembly' : 'Product Additive / Flavor';
+        categoryBadgeCls = isPackaging
+          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-200'
+          : 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border-purple-200';
+      }
+
+      let earliestExpiry = null;
+      if (item.expiryDates.length > 0) {
+        const sorted = item.expiryDates
+          .map(d => new Date(d))
+          .filter(d => !isNaN(d.getTime()))
+          .sort((a, b) => a.getTime() - b.getTime());
+        if (sorted.length > 0) earliestExpiry = sorted[0].toISOString();
+      }
+
+      const avgRate = item.totalConsumedQty > 0
+        ? round2(item.totalCost / item.totalConsumedQty)
+        : (item.unitRates[0] || 0);
+
+      const daysText = Array.from(item.dayNumbers)
+        .sort((a, b) => a - b)
+        .map(n => `Day ${n}`)
+        .join(', ') || 'Day 1';
+
+      const batchCodesText = Array.from(item.dayBatchCodes).join(', ') || '—';
+      const lotsText = Array.from(item.lotBatchNumbers).join(', ') || 'BATCH-DIRECT';
+      const usedForText = Array.from(item.usedForItems).join(', ') || 'Base Formulation';
+
+      return {
+        seq: idx + 1,
+        ...item,
+        categoryLabel,
+        categoryBadgeCls,
+        earliestExpiry,
+        avgRate,
+        daysText,
+        batchCodesText,
+        lotsText,
+        usedForText
+      };
+    });
+  }, [entireProductionRmLines]);
+
+  // Filtered view for 21 Unique Raw Materials Table
+  const filteredUniqueRmLines = useMemo(() => {
+    return uniqueRawMaterialsSummary.filter(row => {
+      if (entireRmCategoryFilter !== 'ALL') {
+        if (entireRmCategoryFilter === 'BASE' && !row.sourceTypes.has('BASE')) return false;
+        if (entireRmCategoryFilter === 'PRODUCT_RM' && !row.sourceTypes.has('PRODUCT_RM')) return false;
+      }
+      if (entireRmDayFilter !== 'ALL') {
+        if (!row.dayNumbers.has(Number(entireRmDayFilter))) return false;
+      }
+      if (entireRmSearch.trim()) {
+        const q = entireRmSearch.toLowerCase().trim();
+        const match =
+          (row.rawMaterialName && row.rawMaterialName.toLowerCase().includes(q)) ||
+          (row.rawMaterialCode && row.rawMaterialCode.toLowerCase().includes(q)) ||
+          (row.lotsText && row.lotsText.toLowerCase().includes(q)) ||
+          (row.batchCodesText && row.batchCodesText.toLowerCase().includes(q)) ||
+          (row.usedForText && row.usedForText.toLowerCase().includes(q)) ||
+          (row.daysText && row.daysText.toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [uniqueRawMaterialsSummary, entireRmCategoryFilter, entireRmDayFilter, entireRmSearch]);
+
   // Duration calculation (number of production days, date span & total factory stage hours)
   const dayCount = Math.max(1, normalizedDays.length);
   const firstDate = normalizedDays[0]?.productionDate || batch?.startDate || batch?.start_date;
@@ -1013,6 +1140,7 @@ export default function ProductionCleanReportView({
       },
       baseRmLines,
       entireProductionRmLines,
+      uniqueRawMaterialsSummary,
       dayEntries: normalizedDays,
       yieldRows: consolidatedYieldRows,
       timelineStages,
@@ -1588,9 +1716,46 @@ export default function ProductionCleanReportView({
                 Entire Raw Material Consumption &amp; Lot Traceability — Master Production Ledger
               </h3>
             </div>
-            <span className="text-xs text-slate-500 font-mono">
-              {entireProductionRmLines.length} Total Material Entries • All Days, Products &amp; Formulations in Single Master Table
-            </span>
+
+            {/* View Mode Switcher: 21 Unique Raw Materials vs All 46 Detailed Lot Entries vs Both */}
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-xs shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setRmTableViewMode('UNIQUE')}
+                className={`px-3 py-1 rounded-md font-bold transition-all flex items-center gap-1.5 ${
+                  rmTableViewMode === 'UNIQUE'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                <span>21 Unique Raw Materials ({uniqueRawMaterialsSummary.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRmTableViewMode('DETAILED')}
+                className={`px-3 py-1 rounded-md font-bold transition-all flex items-center gap-1.5 ${
+                  rmTableViewMode === 'DETAILED'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>All 46 Detailed Lot Entries ({entireProductionRmLines.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRmTableViewMode('BOTH')}
+                className={`px-3 py-1 rounded-md font-bold transition-all flex items-center gap-1.5 ${
+                  rmTableViewMode === 'BOTH'
+                    ? 'bg-slate-900 text-white dark:bg-slate-200 dark:text-slate-900 shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Show Both Tables</span>
+              </button>
+            </div>
           </div>
 
           {/* Quick Filters Strip: Search, Category Tabs & Day Selector */}
@@ -1621,9 +1786,9 @@ export default function ProductionCleanReportView({
               {/* Category Filter */}
               <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-200 dark:bg-slate-700 font-mono text-[11px]">
                 {[
-                  { id: 'ALL', label: `All (${entireProductionRmLines.length})` },
-                  { id: 'BASE', label: `Base Mix (${entireProductionRmLines.filter(r => r.sourceType === 'BASE').length})` },
-                  { id: 'PRODUCT_RM', label: `Added RMs (${entireProductionRmLines.filter(r => r.sourceType === 'PRODUCT_RM').length})` }
+                  { id: 'ALL', label: `All (${uniqueRawMaterialsSummary.length} RMs / ${entireProductionRmLines.length} Lots)` },
+                  { id: 'BASE', label: `Base Mix (${uniqueRawMaterialsSummary.filter(r => r.sourceTypes.has('BASE')).length})` },
+                  { id: 'PRODUCT_RM', label: `Added RMs (${uniqueRawMaterialsSummary.filter(r => r.sourceTypes.has('PRODUCT_RM')).length})` }
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -1673,130 +1838,276 @@ export default function ProductionCleanReportView({
             </div>
           </div>
 
-          {/* Unified Master Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 text-[11px]">
-                  <th className="py-2.5 px-3 w-10 text-center">#</th>
-                  <th className="py-2.5 px-3">Day &amp; Date</th>
-                  <th className="py-2.5 px-3 font-mono">Day / Batch No</th>
-                  <th className="py-2.5 px-3">RM Code</th>
-                  <th className="py-2.5 px-3 font-sans">Raw Material Name</th>
-                  <th className="py-2.5 px-3 font-sans">Used For / Target Product</th>
-                  <th className="py-2.5 px-3 font-mono">RM Lot / Batch No</th>
-                  <th className="py-2.5 px-3 text-right">Consumed Qty</th>
-                  <th className="py-2.5 px-3 text-center">Lot Expiry</th>
-                  <th className="py-2.5 px-3 text-center font-sans">Material Type</th>
-                  {canViewCost && <th className="py-2.5 px-3 text-right">Unit Rate</th>}
-                  {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono text-[11.5px]">
-                {filteredEntireRmLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={canViewCost ? 12 : 10} className="py-6 px-3 text-center font-sans text-slate-400">
-                      No raw materials match the selected filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredEntireRmLines.map((row, rIdx) => {
-                    const expInfo = getExpiryBadge(row.expiryDate);
-                    return (
-                      <tr
-                        key={row.id || `entire-rm-${rIdx}`}
-                        className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
-                          row.sourceType === 'BASE' ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
-                        }`}
-                      >
-                        <td className="py-2 px-3 text-center text-slate-400 font-bold">{rIdx + 1}</td>
-                        <td className="py-2 px-3 font-sans">
-                          <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-indigo-500" />
-                            <span>{row.dayLabel}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 font-mono">
-                            {formatDateDMY(row.productionDate)}
-                          </div>
+          {/* ══════════════════════════════════════════════════════════════════════════════ */}
+          {/* ── TABLE 1: 21 UNIQUE RAW MATERIALS CONSOLIDATED MASTER TABLE (TOTAL AMOUNT) ── */}
+          {/* ══════════════════════════════════════════════════════════════════════════════ */}
+          {(rmTableViewMode === 'UNIQUE' || rmTableViewMode === 'BOTH') && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="font-sans font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wide">
+                  <Boxes className="w-4 h-4 text-emerald-600" />
+                  <span>21 Unique Raw Materials Consolidated Summary ({filteredUniqueRmLines.length} Materials)</span>
+                </span>
+                <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                  Rollup across all days, outputs &amp; formulation stages
+                </span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200 font-bold border-b border-emerald-200 dark:border-emerald-800 text-[11px]">
+                      <th className="py-2.5 px-3 w-10 text-center">#</th>
+                      <th className="py-2.5 px-3">RM Code</th>
+                      <th className="py-2.5 px-3 font-sans">Raw Material Description</th>
+                      <th className="py-2.5 px-3 text-center font-sans">Material Type</th>
+                      <th className="py-2.5 px-3">Used In (Days)</th>
+                      <th className="py-2.5 px-3 font-sans">Target Products / Usage Stages</th>
+                      <th className="py-2.5 px-3 font-mono">Traced Batch / Lot Numbers</th>
+                      <th className="py-2.5 px-3 text-right">Total Consumed Qty</th>
+                      <th className="py-2.5 px-3 text-center">Earliest Expiry</th>
+                      <th className="py-2.5 px-3 text-center">Entries</th>
+                      {canViewCost && <th className="py-2.5 px-3 text-right">Avg Unit Rate</th>}
+                      {canViewCost && <th className="py-2.5 px-3 text-right font-black">Total Amount Used</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono text-[11.5px]">
+                    {filteredUniqueRmLines.length === 0 ? (
+                      <tr>
+                        <td colSpan={canViewCost ? 12 : 10} className="py-6 px-3 text-center font-sans text-slate-400">
+                          No unique raw materials match the selected filters.
                         </td>
-                        <td className="py-2 px-3 font-bold text-slate-800 dark:text-slate-200">
-                          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[10.5px]">
-                            {row.dayBatchCode || '—'}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-slate-600 dark:text-slate-400 font-bold">
-                          {row.rawMaterialCode}
-                        </td>
-                        <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
-                          {row.rawMaterialName}
-                        </td>
-                        <td className="py-2 px-3 font-sans">
-                          <div className="font-bold text-slate-800 dark:text-slate-100 text-[11px]">
-                            {row.usedFor}
-                          </div>
-                          {row.usedForSub && (
-                            <div className="text-[9.5px] text-slate-500 font-mono">
-                              {row.usedForSub}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 font-black text-indigo-600 dark:text-indigo-400 text-[11px]">
-                          {row.lotBatchNo}
-                        </td>
-                        <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
-                          {formatIndian(row.consumedQty, 2)} {row.uom}
-                        </td>
-                        <td className={`py-2 px-3 text-center ${expInfo.cls}`}>
-                          {expInfo.label}
-                        </td>
-                        <td className="py-2 px-3 text-center font-sans">
-                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${row.categoryBadgeCls}`}>
-                            {row.sourceCategory}
-                          </span>
-                        </td>
-                        {canViewCost && (
-                          <td className="py-2 px-3 text-right text-slate-600 dark:text-slate-400">
-                            ₹{formatIndian(row.unitRate, 2)} / {row.uom}
-                          </td>
-                        )}
-                        {canViewCost && (
-                          <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
-                            ₹{formatIndian(row.totalCost, 2)}
-                          </td>
-                        )}
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-              <tfoot className="bg-slate-50 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
-                <tr className="divide-x divide-slate-200 dark:divide-slate-700">
-                  <td colSpan={7} className="py-2.5 px-3 font-sans uppercase">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-xs">
-                        TOTAL: {filteredEntireRmLines.length} Material Entries ({new Set(filteredEntireRmLines.map(r => r.rawMaterialName)).size} Unique Raw Materials)
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-normal">
-                        Base RMs: {filteredEntireRmLines.filter(r => r.sourceType === 'BASE').length} • Added RMs: {filteredEntireRmLines.filter(r => r.sourceType === 'PRODUCT_RM').length}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
-                    {formatIndian(filteredEntireRmLines.reduce((s, r) => s + Number(r.consumedQty || 0), 0), 2)}
-                  </td>
-                  <td colSpan={2} className="py-2.5 px-3 text-center text-slate-400 font-sans text-[10.5px]">
-                    {filteredEntireRmLines.length} Lots Traced
-                  </td>
-                  {canViewCost && <td className="py-2.5 px-3 text-right font-sans uppercase text-[10px] text-slate-500">Grand Total RM Cost:</td>}
-                  {canViewCost && (
-                    <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black text-xs">
-                      ₹{formatIndian(filteredEntireRmLines.reduce((s, r) => s + Number(r.totalCost || 0), 0), 2)}
-                    </td>
-                  )}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                    ) : (
+                      filteredUniqueRmLines.map((row, rIdx) => {
+                        const expInfo = getExpiryBadge(row.earliestExpiry);
+                        return (
+                          <tr
+                            key={row.key || `unique-rm-${rIdx}`}
+                            className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors"
+                          >
+                            <td className="py-2 px-3 text-center text-slate-400 font-bold">{rIdx + 1}</td>
+                            <td className="py-2 px-3 text-slate-700 dark:text-slate-300 font-bold">
+                              {row.rawMaterialCode}
+                            </td>
+                            <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
+                              {row.rawMaterialName}
+                            </td>
+                            <td className="py-2 px-3 text-center font-sans">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${row.categoryBadgeCls}`}>
+                                {row.categoryLabel}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 font-sans font-bold text-slate-800 dark:text-slate-200">
+                              <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[10.5px]">
+                                {row.daysText}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 font-sans">
+                              <div className="font-semibold text-slate-800 dark:text-slate-200 text-[11px] max-w-xs truncate" title={row.usedForText}>
+                                {row.usedForText}
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 font-black text-indigo-600 dark:text-indigo-400 text-[11px] max-w-xs truncate" title={row.lotsText}>
+                              {row.lotsText}
+                            </td>
+                            <td className="py-2 px-3 text-right font-black text-slate-900 dark:text-white">
+                              {formatIndian(row.totalConsumedQty, 2)} {row.uom}
+                            </td>
+                            <td className={`py-2 px-3 text-center ${expInfo.cls}`}>
+                              {expInfo.label}
+                            </td>
+                            <td className="py-2 px-3 text-center font-sans">
+                              <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                {row.entriesCount}
+                              </span>
+                            </td>
+                            {canViewCost && (
+                              <td className="py-2 px-3 text-right text-slate-600 dark:text-slate-400">
+                                ₹{formatIndian(row.avgRate, 2)} / {row.uom}
+                              </td>
+                            )}
+                            {canViewCost && (
+                              <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                                ₹{formatIndian(row.totalCost, 2)}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  <tfoot className="bg-emerald-50/60 dark:bg-emerald-950/30 font-bold text-slate-900 dark:text-white border-t border-emerald-200 dark:border-emerald-800 font-mono text-[11px]">
+                    <tr className="divide-x divide-slate-200 dark:divide-slate-700">
+                      <td colSpan={7} className="py-2.5 px-3 font-sans uppercase">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+                            TOTAL: {filteredUniqueRmLines.length} Unique Raw Materials Consumed
+                          </span>
+                          <span className="text-[10.5px] text-slate-500 font-normal">
+                            Base Materials: {filteredUniqueRmLines.filter(r => r.sourceTypes.has('BASE')).length} • Product Materials &amp; Packaging: {filteredUniqueRmLines.filter(r => r.sourceTypes.has('PRODUCT_RM')).length}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                        {formatIndian(filteredUniqueRmLines.reduce((s, r) => s + Number(r.totalConsumedQty || 0), 0), 2)}
+                      </td>
+                      <td colSpan={2} className="py-2.5 px-3 text-center text-slate-500 font-sans text-[10.5px]">
+                        {new Set(filteredUniqueRmLines.flatMap(r => Array.from(r.lotBatchNumbers))).size} Unique Lots Traced
+                      </td>
+                      {canViewCost && <td className="py-2.5 px-3 text-right font-sans uppercase text-[10px] text-slate-600 dark:text-slate-400">Grand Total Amount:</td>}
+                      {canViewCost && (
+                        <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black text-xs">
+                          ₹{formatIndian(filteredUniqueRmLines.reduce((s, r) => s + Number(r.totalCost || 0), 0), 2)}
+                        </td>
+                      )}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════════════════ */}
+          {/* ── TABLE 2: ALL 46 DETAILED MATERIAL & LOT ALLOCATION ENTRIES TABLE ───────── */}
+          {/* ══════════════════════════════════════════════════════════════════════════════ */}
+          {(rmTableViewMode === 'DETAILED' || rmTableViewMode === 'BOTH') && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="font-sans font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wide">
+                  <Layers className="w-4 h-4 text-indigo-600" />
+                  <span>All 46 Detailed Lot Allocations &amp; Day-Wise Traceability Ledger ({filteredEntireRmLines.length} Entries)</span>
+                </span>
+                <span className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                  Complete day-by-day, output-by-output batch line items
+                </span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                      <th className="py-2.5 px-3 w-10 text-center">#</th>
+                      <th className="py-2.5 px-3">Day &amp; Date</th>
+                      <th className="py-2.5 px-3 font-mono">Day / Batch No</th>
+                      <th className="py-2.5 px-3">RM Code</th>
+                      <th className="py-2.5 px-3 font-sans">Raw Material Name</th>
+                      <th className="py-2.5 px-3 font-sans">Used For / Target Product</th>
+                      <th className="py-2.5 px-3 font-mono">RM Lot / Batch No</th>
+                      <th className="py-2.5 px-3 text-right">Consumed Qty</th>
+                      <th className="py-2.5 px-3 text-center">Lot Expiry</th>
+                      <th className="py-2.5 px-3 text-center font-sans">Material Type</th>
+                      {canViewCost && <th className="py-2.5 px-3 text-right">Unit Rate</th>}
+                      {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono text-[11.5px]">
+                    {filteredEntireRmLines.length === 0 ? (
+                      <tr>
+                        <td colSpan={canViewCost ? 12 : 10} className="py-6 px-3 text-center font-sans text-slate-400">
+                          No raw materials match the selected filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredEntireRmLines.map((row, rIdx) => {
+                        const expInfo = getExpiryBadge(row.expiryDate);
+                        return (
+                          <tr
+                            key={row.id || `entire-rm-${rIdx}`}
+                            className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
+                              row.sourceType === 'BASE' ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
+                            }`}
+                          >
+                            <td className="py-2 px-3 text-center text-slate-400 font-bold">{rIdx + 1}</td>
+                            <td className="py-2 px-3 font-sans">
+                              <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                                <Calendar className="w-3 h-3 text-indigo-500" />
+                                <span>{row.dayLabel}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500 font-mono">
+                                {formatDateDMY(row.productionDate)}
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 font-bold text-slate-800 dark:text-slate-200">
+                              <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[10.5px]">
+                                {row.dayBatchCode || '—'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 dark:text-slate-400 font-bold">
+                              {row.rawMaterialCode}
+                            </td>
+                            <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
+                              {row.rawMaterialName}
+                            </td>
+                            <td className="py-2 px-3 font-sans">
+                              <div className="font-bold text-slate-800 dark:text-slate-100 text-[11px]">
+                                {row.usedFor}
+                              </div>
+                              {row.usedForSub && (
+                                <div className="text-[9.5px] text-slate-500 font-mono">
+                                  {row.usedForSub}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 font-black text-indigo-600 dark:text-indigo-400 text-[11px]">
+                              {row.lotBatchNo}
+                            </td>
+                            <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
+                              {formatIndian(row.consumedQty, 2)} {row.uom}
+                            </td>
+                            <td className={`py-2 px-3 text-center ${expInfo.cls}`}>
+                              {expInfo.label}
+                            </td>
+                            <td className="py-2 px-3 text-center font-sans">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${row.categoryBadgeCls}`}>
+                                {row.sourceCategory}
+                              </span>
+                            </td>
+                            {canViewCost && (
+                              <td className="py-2 px-3 text-right text-slate-600 dark:text-slate-400">
+                                ₹{formatIndian(row.unitRate, 2)} / {row.uom}
+                              </td>
+                            )}
+                            {canViewCost && (
+                              <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                                ₹{formatIndian(row.totalCost, 2)}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  <tfoot className="bg-slate-50 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
+                    <tr className="divide-x divide-slate-200 dark:divide-slate-700">
+                      <td colSpan={7} className="py-2.5 px-3 font-sans uppercase">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className="text-xs">
+                            TOTAL: {filteredEntireRmLines.length} Material Entries ({new Set(filteredEntireRmLines.map(r => r.rawMaterialName)).size} Unique Raw Materials)
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            Base RMs: {filteredEntireRmLines.filter(r => r.sourceType === 'BASE').length} • Added RMs: {filteredEntireRmLines.filter(r => r.sourceType === 'PRODUCT_RM').length}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                        {formatIndian(filteredEntireRmLines.reduce((s, r) => s + Number(r.consumedQty || 0), 0), 2)}
+                      </td>
+                      <td colSpan={2} className="py-2.5 px-3 text-center text-slate-400 font-sans text-[10.5px]">
+                        {filteredEntireRmLines.length} Lots Traced
+                      </td>
+                      {canViewCost && <td className="py-2.5 px-3 text-right font-sans uppercase text-[10px] text-slate-500">Grand Total RM Cost:</td>}
+                      {canViewCost && (
+                        <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black text-xs">
+                          ₹{formatIndian(filteredEntireRmLines.reduce((s, r) => s + Number(r.totalCost || 0), 0), 2)}
+                        </td>
+                      )}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── 5. SECTION 3: DAY-WISE PRODUCTION BREAKDOWN & PER-PRODUCT RM TRACEABILITY ── */}
