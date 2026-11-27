@@ -740,7 +740,7 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     const loadingRate = getTaxRateFromCode(invoice.loadingTaxCode || ancCodes.loadingTaxCode, Number(invoice.loadingChargesRate || invoice.loadingRate || 0));
     const otherRate = getTaxRateFromCode(invoice.otherTaxCode || ancCodes.otherTaxCode, Number(invoice.otherChargesRate || invoice.otherRate || 0));
 
-    const freightRateLabel = formatChargeGstLabel('Freight & Logistics', freightRate, isInterState);
+    const freightRateLabel = 'Freight & Logistics:';
     const packingRateLabel = formatChargeGstLabel('Package Charges', packingRate, isInterState);
     const loadingRateLabel = formatChargeGstLabel('Loading Charges', loadingRate, isInterState);
     const otherRateLabel = formatChargeGstLabel('Other Charges', otherRate, isInterState);

@@ -913,7 +913,7 @@ export function generateA4TaxInvoice(order, companyDetails = {}, options = {}) {
   const loadingRate = getTaxRateFromCode(order.loadingTaxCode || ancCodes.loadingTaxCode, Number(order.loadingChargesRate || order.loadingRate || 0));
   const otherRate = getTaxRateFromCode(order.otherTaxCode || ancCodes.otherTaxCode, Number(order.otherChargesRate || order.otherRate || 0));
 
-  const freightLabel = formatChargeGstLabel('Freight & Logistics', freightRate, isInterState);
+  const freightLabel = 'Freight & Logistics:';
   const packingLabel = formatChargeGstLabel('Package Charges', packingRate, isInterState);
   const loadingLabel = formatChargeGstLabel('Loading Charges', loadingRate, isInterState);
   const otherLabel = formatChargeGstLabel('Other Charges', otherRate, isInterState);
@@ -1268,10 +1268,93 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
 
   const itemsTotalH = preparedItems.reduce((acc, p) => acc + p.rowH, 0);
 
+  // Determine state & GST breakdown for thermal commercial calculations
+  const sellerState = companyDetails.stateCode || (companyGstin ? companyGstin.substring(0, 2) : '33');
+  const buyerState = order.buyerStateCode || (order.customer?.gstin ? order.customer.gstin.substring(0, 2) : sellerState);
+  const isInterState = String(sellerState) !== String(buyerState);
+
+  // Compute elaborate GST Slabs & Ancillary tax codes matching A4 standard invoice
+  const ancCodes = getOrderAncillaryTaxCodes(order);
+  const gstSlabs = computeOrderGstSlabs(order, isInterState);
+  const freightAmt = Number(order.freight || 0);
+  const loadingAmt = Number(order.loadingCharges || 0);
+  const packingLinesSum = (order.items || [])
+    .filter(it => it.isPackingCharge || it.is_packing_charge)
+    .reduce((sum, it) => sum + (Number(it.subtotal) || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+  const packingAmt = Math.max(Number(order.packingCharges || 0), packingLinesSum);
+  const otherAmt = Number(order.otherCharges || 0);
+  const discVal = Number(order.discountValue || order.invoiceDiscount || 0);
+
+  // Derive tax rates and dynamic labels for active charges
+  const freightRate = getTaxRateFromCode(order.freightTaxCode || ancCodes.freightTaxCode, Number(order.freightRate !== undefined ? order.freightRate : (order.freightGst !== false ? 18 : 0)));
+  const packingItemRate = order.items?.find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+  const packingRate = getTaxRateFromCode(order.packingTaxCode || ancCodes.packingTaxCode, Number(order.packingChargesRate || order.packingRate || packingItemRate || 5));
+  const loadingRate = getTaxRateFromCode(order.loadingTaxCode || ancCodes.loadingTaxCode, Number(order.loadingChargesRate || order.loadingRate || 0));
+  const otherRate = getTaxRateFromCode(order.otherTaxCode || ancCodes.otherTaxCode, Number(order.otherChargesRate || order.otherRate || 0));
+
+  // In printable PDF, omit GST percentage label for freight and logistics
+  const freightLabel = 'Freight & Logistics:';
+  const packingLabel = formatChargeGstLabel('Package Charges', packingRate, isInterState);
+  const loadingLabel = formatChargeGstLabel('Loading Charges', loadingRate, isInterState);
+  const otherLabel = formatChargeGstLabel('Other Charges', otherRate, isInterState);
+
+  // Dynamic Product & Charges calculation
+  const activeChargeNames = [];
+  if (packingAmt > 0) activeChargeNames.push('Packing');
+  if (loadingAmt > 0) activeChargeNames.push('Loading');
+  if (freightAmt > 0) activeChargeNames.push('Freight');
+  if (otherAmt > 0) activeChargeNames.push('Other Charges');
+
+  let productAndChargesLabel = 'Total Product Amount:';
+  if (activeChargeNames.length === 1) {
+    productAndChargesLabel = `Total Product & ${activeChargeNames[0]} Amount:`;
+  } else if (activeChargeNames.length === 2) {
+    productAndChargesLabel = `Total Product, ${activeChargeNames[0]} & ${activeChargeNames[1]}:`;
+  } else if (activeChargeNames.length > 2) {
+    productAndChargesLabel = 'Total Product & Charges Amount:';
+  } else if (discVal > 0) {
+    productAndChargesLabel = 'Net Product Taxable Amount:';
+  }
+
+  const hasExtraLines = discVal > 0 || activeChargeNames.length > 0;
+  const thermalItemsTotal = items.reduce((sum, it) => sum + ((Number(it.quantity) || 1) * (Number(it.unitPrice) || 0)), 0);
+  const totalProductAndCharges = Math.max(0, thermalItemsTotal - discVal) + freightAmt + loadingAmt + packingAmt + otherAmt;
+
+  const totalSlabTax = gstSlabs.reduce((acc, s) => acc + (s.totalTax || 0), 0);
+  const totalCgst = gstSlabs.length > 0 ? gstSlabs.reduce((acc, s) => acc + (s.cgstAmount || 0), 0) : Number(order.cgst || (totalSlabTax / 2));
+  const totalSgst = gstSlabs.length > 0 ? gstSlabs.reduce((acc, s) => acc + (s.sgstAmount || 0), 0) : Number(order.sgst || (totalSlabTax / 2));
+  const totalIgst = gstSlabs.length > 0 ? gstSlabs.reduce((acc, s) => acc + (s.igstAmount || 0), 0) : Number(order.igst || totalSlabTax);
+  const totalGstTax = isInterState ? totalIgst : (totalCgst + totalSgst);
+
+  const exactNetGrand = totalProductAndCharges + totalGstTax;
+  const targetRounded = Math.round(exactNetGrand);
+  const accurateRoundOff = Math.round((targetRounded - exactNetGrand) * 100) / 100;
+
+  const isCloseToDbTotal = Math.abs(Number(order.grandTotal || 0) - targetRounded) <= 1.05;
+  const grandTotal = isCloseToDbTotal ? Number(order.grandTotal) : targetRounded;
+  const roundOff = isCloseToDbTotal && order.roundOff !== undefined ? Number(order.roundOff) : accurateRoundOff;
+
+  let thermalRowsCount = 1; // Total Product Amount
+  if (discVal > 0) thermalRowsCount++;
+  if (freightAmt > 0) thermalRowsCount++;
+  if (packingAmt > 0) thermalRowsCount++;
+  if (loadingAmt > 0) thermalRowsCount++;
+  if (otherAmt > 0) thermalRowsCount++;
+  if (hasExtraLines) thermalRowsCount++;
+
+  const slabRowCount = gstSlabs.length > 0
+    ? (isInterState ? gstSlabs.length : (gstSlabs.length * 2))
+    : (isInterState ? 1 : 2);
+  thermalRowsCount += slabRowCount;
+  if (gstSlabs.length > 1) thermalRowsCount++;
+  if (roundOff !== 0) thermalRowsCount++;
+
+  const summaryBoxH = Math.max(38, 8 + (thermalRowsCount * 3.4) + 18);
+
   // Calculate overall page height precisely so there is no cut-off or excessive trailing blank space
   let estHeight = 72 + itemsTotalH; // Top header + meta box + items header
   if (showRates) {
-    estHeight += 65 + (showCategoryWise ? (18 + (bifurcationList.length * 5.5)) : 0);
+    estHeight += summaryBoxH + 25 + (showCategoryWise ? (18 + (bifurcationList.length * 5.5)) : 0);
   } else {
     // Total dispatch summary card (18mm) + Category bifurcation table (18mm + bifLines * 5.5mm) + Signature box (28mm) + footer (10mm)
     estHeight += 18 + (showCategoryWise ? (18 + (bifurcationList.length * 5.5)) : 0) + 28 + 12;
@@ -1549,7 +1632,6 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
   // ── TOTAL SUMMARY / FINANCIAL CARD ───────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────────────
   if (showRates) {
-    const grandTotal = Number(order.grandTotal || subtotal);
     const paymentTermsVal = order.paymentTerms || (order.paymentStatus === 'PAID' ? 'PAID' : 'Net 30');
     const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= grandTotal && grandTotal > 0);
     const paid = Number(order.amountPaid || (isPaid ? grandTotal : 0));
@@ -1558,7 +1640,7 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
     // Summary Box
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(margin, curY, tableW, 36, 1.5, 1.5, 'FD');
+    doc.roundedRect(margin, curY, tableW, summaryBoxH, 1.5, 1.5, 'FD');
 
     let sumY = curY + 4.0;
     const lX = margin + 3.0;
@@ -1573,35 +1655,78 @@ export function generateThermalReceipt(order, companyDetails = {}, options = {})
       sumY += 3.4;
     };
 
-    printRow('Subtotal Taxable Amount:', `INR ${subtotal.toFixed(2)}`);
-    if (Number(order.cgst || 0) > 0) printRow('CGST Tax Total:', `INR ${Number(order.cgst).toFixed(2)}`);
-    if (Number(order.sgst || 0) > 0) printRow('SGST Tax Total:', `INR ${Number(order.sgst).toFixed(2)}`);
-    if (Number(order.roundOff || 0) !== 0) {
-      printRow('Round-Off Adjustment:', `${Number(order.roundOff) > 0 ? '+' : ''}${Number(order.roundOff).toFixed(2)}`);
+    printRow('Total Product Amount:', `INR ${subtotal.toFixed(2)}`);
+    if (discVal > 0) {
+      printRow('Invoice Discount:', `- INR ${discVal.toFixed(2)}`);
+    }
+    if (freightAmt > 0) {
+      printRow(freightLabel, `INR ${freightAmt.toFixed(2)}`);
+    }
+    if (packingAmt > 0) {
+      printRow(packingLabel, `INR ${packingAmt.toFixed(2)}`);
+    }
+    if (loadingAmt > 0) {
+      printRow(loadingLabel, `INR ${loadingAmt.toFixed(2)}`);
+    }
+    if (otherAmt > 0) {
+      printRow(otherLabel, `INR ${otherAmt.toFixed(2)}`);
+    }
+    if (hasExtraLines) {
+      printRow(productAndChargesLabel, `INR ${totalProductAndCharges.toFixed(2)}`, true);
+    }
+
+    if (gstSlabs && gstSlabs.length > 0) {
+      if (!isInterState) {
+        gstSlabs.forEach(slab => {
+          printRow(`CGST ${slab.halfRate}%:`, `INR ${slab.cgstAmount.toFixed(2)}`);
+          printRow(`SGST ${slab.halfRate}%:`, `INR ${slab.sgstAmount.toFixed(2)}`);
+        });
+        if (gstSlabs.length > 1) {
+          printRow('Total GST Tax:', `INR ${totalGstTax.toFixed(2)}`, true);
+        }
+      } else {
+        gstSlabs.forEach(slab => {
+          printRow(`IGST ${slab.rate}%:`, `INR ${slab.igstAmount.toFixed(2)}`);
+        });
+        if (gstSlabs.length > 1) {
+          printRow('Total GST Tax:', `INR ${totalGstTax.toFixed(2)}`, true);
+        }
+      }
+    } else {
+      if (!isInterState) {
+        if (totalCgst > 0) printRow('CGST Tax Total:', `INR ${totalCgst.toFixed(2)}`);
+        if (totalSgst > 0) printRow('SGST Tax Total:', `INR ${totalSgst.toFixed(2)}`);
+      } else {
+        if (totalIgst > 0) printRow('IGST Tax Total:', `INR ${totalIgst.toFixed(2)}`);
+      }
+    }
+
+    if (roundOff !== 0) {
+      printRow('Round-Off Adjustment:', `${roundOff > 0 ? '+' : ''}${roundOff.toFixed(2)}`);
     }
 
     // Grand Total Bar
     doc.setFillColor(30, 27, 75);
-    doc.roundedRect(margin + 1.5, sumY - 1.5, tableW - 3, 7.0, 1.0, 1.0, 'F');
+    doc.roundedRect(margin + 1.5, sumY - 1.0, tableW - 3, 7.0, 1.0, 1.0, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.0);
     doc.setTextColor(255, 255, 255);
-    doc.text('NET GRAND TOTAL:', lX + 1.5, sumY + 3.2);
-    doc.text(`INR ${grandTotal.toFixed(2)}`, rX - 1.5, sumY + 3.2, { align: 'right' });
-    sumY += 8.5;
+    doc.text('NET GRAND TOTAL:', lX + 1.5, sumY + 3.7);
+    doc.text(`INR ${grandTotal.toFixed(2)}`, rX - 1.5, sumY + 3.7, { align: 'right' });
+    sumY += 9.0;
 
     // Payment Settlement Info
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.8);
     doc.setTextColor(71, 85, 105);
-    doc.text(`Payment: ${isPaid ? 'Fully Paid (PAID)' : (order.paymentTerms || 'Pending Settlement')}`, lX, sumY);
+    doc.text(`Payment: ${isPaid ? 'Fully Paid (PAID)' : (order.paymentTerms || 'Not Paid')}`, lX, sumY);
     if (balance > 0) {
       doc.text(`Bal Due: INR ${balance.toFixed(2)}`, rX, sumY, { align: 'right' });
     } else if (paid > 0) {
       doc.text(`Received: INR ${paid.toFixed(2)}`, rX, sumY, { align: 'right' });
     }
 
-    curY += 40;
+    curY += summaryBoxH + 4.0;
 
     // Footer
     doc.setFont('helvetica', 'italic');
