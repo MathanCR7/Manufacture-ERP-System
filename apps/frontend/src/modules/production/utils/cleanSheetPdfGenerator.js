@@ -66,6 +66,7 @@ export function exportCleanSheetPdf({
   batch = {},
   summary = {},
   baseRmLines = [],
+  entireProductionRmLines = [],
   dayEntries = [],
   yieldRows = [],
   timelineStages = [],
@@ -725,7 +726,86 @@ export function exportCleanSheetPdf({
     y += cardH + 2.5;
   }
 
-  // ── SECTION 2: DATE-WISE / DAY-WISE PRODUCT PRODUCTION & PER-PRODUCT RM CONSUMPTION ──
+  // ── SECTION 2: ENTIRE PRODUCTION RAW MATERIAL CONSUMPTION & LOT TRACEABILITY (MASTER SINGLE TABLE) ──
+  const activeEntireRmLines = Array.isArray(entireProductionRmLines) && entireProductionRmLines.length > 0
+    ? entireProductionRmLines
+    : [];
+
+  if (activeEntireRmLines.length > 0) {
+    drawSectionHeading(
+      '2',
+      'Entire Raw Material Consumption & Lot Traceability — Master Ledger',
+      `${activeEntireRmLines.length} Material Entries • All Days, Products & Formulations in Single Table`
+    );
+
+    const entireCols = canViewCost
+      ? [
+          { key: 'day', label: 'Day / Date', width: 20 },
+          { key: 'batch', label: 'Day Batch', width: 22, bold: true },
+          { key: 'code', label: 'RM Code', width: 14 },
+          { key: 'name', label: 'Raw Material Name', width: 34, bold: true },
+          { key: 'usedFor', label: 'Used For / Product', width: 28 },
+          { key: 'lotNo', label: 'RM Lot / Batch No', width: 24, color: COLORS.indigo, bold: true },
+          { key: 'qty', label: 'Consumed Qty', width: 18, align: 'right', bold: true },
+          { key: 'expiry', label: 'Lot Expiry', width: 14, align: 'center' },
+          { key: 'rate', label: 'Unit Rate', width: 16, align: 'right' },
+          { key: 'cost', label: 'Total Cost', width: 18, align: 'right', color: COLORS.emerald, bold: true }
+        ]
+      : [
+          { key: 'day', label: 'Day / Date', width: 24 },
+          { key: 'batch', label: 'Day Batch', width: 26, bold: true },
+          { key: 'code', label: 'RM Code', width: 16 },
+          { key: 'name', label: 'Raw Material Name', width: 44, bold: true },
+          { key: 'usedFor', label: 'Used For / Product', width: 36 },
+          { key: 'lotNo', label: 'RM Lot / Batch No', width: 30, color: COLORS.indigo, bold: true },
+          { key: 'qty', label: 'Consumed Qty', width: 22, align: 'right', bold: true },
+          { key: 'expiry', label: 'Lot Expiry', width: 16, align: 'center' }
+        ];
+
+    const entirePdfRows = activeEntireRmLines.map((r) => ({
+      day: `${r.dayLabel || `Day ${r.dayNo}`}\n${DATE_DMY(r.productionDate, '—')}`,
+      batch: safeText(r.dayBatchCode, '—'),
+      code: safeText(r.rawMaterialCode, 'RM'),
+      name: safeText(r.rawMaterialName),
+      usedFor: safeText(r.usedFor),
+      lotNo: safeText(r.lotBatchNo, 'BATCH-DIRECT'),
+      qty: `${formatIndian(r.consumedQty)} ${r.uom}`,
+      expiry: DATE_DMY(r.expiryDate, 'N/A'),
+      rate: INR_FMT(r.unitRate),
+      cost: INR_FMT(r.totalCost)
+    }));
+
+    const totalEntireCost = round2(activeEntireRmLines.reduce((s, r) => s + Number(r.totalCost || 0), 0));
+    const totalEntireQty = round2(activeEntireRmLines.reduce((s, r) => s + Number(r.consumedQty || 0), 0));
+
+    const entireFooter = canViewCost
+      ? {
+          day: 'TOTAL',
+          batch: `${activeEntireRmLines.length} Entries`,
+          code: '',
+          name: 'Grand Total All Consumed Raw Materials',
+          usedFor: '',
+          lotNo: '',
+          qty: `${formatIndian(totalEntireQty)}`,
+          expiry: '',
+          rate: 'Grand Total:',
+          cost: INR_FMT(totalEntireCost)
+        }
+      : {
+          day: 'TOTAL',
+          batch: `${activeEntireRmLines.length} Entries`,
+          code: '',
+          name: 'Grand Total All Consumed Raw Materials',
+          usedFor: '',
+          lotNo: '',
+          qty: `${formatIndian(totalEntireQty)}`,
+          expiry: ''
+        };
+
+    drawTable(entireCols, entirePdfRows, entireFooter, { fontSize: 6.7 });
+  }
+
+  // ── SECTION 3: DATE-WISE / DAY-WISE PRODUCT PRODUCTION & PER-PRODUCT RM CONSUMPTION ──
   // Filter days: Only include completed days when completed days exist
   const completedOnly = dayEntries.filter(d => d.status === 'COMPLETED' || d.status === 'Completed' || Boolean(d.pushedToSales) || Boolean(d.is_completed) || Boolean(d.isCompleted));
   const activeDayPool = completedOnly.length > 0 ? completedOnly : dayEntries;
@@ -734,7 +814,7 @@ export function exportCleanSheetPdf({
     : activeDayPool;
 
   drawSectionHeading(
-    '2',
+    '3',
     mode === 'datewise' || targetDayNo
       ? 'Date-Wise Product Production, Raw Material Lots & Yield Ledger'
       : 'Day-Wise Production Breakdown & Per-Product RM Traceability',
@@ -1089,14 +1169,14 @@ export function exportCleanSheetPdf({
     }
   });
 
-    // ── SECTION 3: CONSOLIDATED YIELD REPORT ──
+    // ── SECTION 4: CONSOLIDATED YIELD REPORT ──
   if (yieldRows.length > 0) {
     const yieldTableH = 6.2 + (yieldRows.length * 6.5) + 6.2 + 3;
     const totalYieldBlockH = 14 + yieldTableH;
     if (totalYieldBlockH <= (BOTTOM_SAFE - 15)) {
       ensureSpace(totalYieldBlockH);
     }
-    drawSectionHeading('3', 'Consolidated Output & Yield Variance Report', `${yieldRows.length} Output Summary Lines`);
+    drawSectionHeading('4', 'Consolidated Output & Yield Variance Report', `${yieldRows.length} Output Summary Lines`);
     const yCols = canViewCost
       ? [
           { key: 'product', label: 'Product Name', width: 48, bold: true },
@@ -1143,14 +1223,14 @@ export function exportCleanSheetPdf({
     drawTable(yCols, yPdfRows, yFooter, { fontSize: 6.9, preventBreak: true });
   }
 
-  // ── SECTION 4: FINANCIAL COST STATEMENT ──
+  // ── SECTION 5: FINANCIAL COST STATEMENT ──
   if (canViewCost) {
     const costTableH = 6.2 + (5 * 6.5) + 6.2 + 3;
     const totalCostBlockH = 14 + costTableH;
     if (totalCostBlockH <= (BOTTOM_SAFE - 15)) {
       ensureSpace(totalCostBlockH);
     }
-    drawSectionHeading('4', 'Comprehensive Financial Cost Statement', 'Audited Batch Economics');
+    drawSectionHeading('5', 'Comprehensive Financial Cost Statement', 'Audited Batch Economics');
     const costCols = [
       { key: 'head', label: 'Cost Component', width: 90, bold: true },
       { key: 'notes', label: 'Basis / Remarks', width: 60 },
@@ -1344,10 +1424,10 @@ export function exportCleanSheetPdf({
     }
   }
 
-  // ── SECTION 5: QA REMARKS & AUTHORIZED SIGN-OFF ──
+  // ── SECTION 6: QA REMARKS & AUTHORIZED SIGN-OFF ──
   const totalSignBlockH = 14 + 10 + 3 + 17 + 4; // ~48mm
   ensureSpace(totalSignBlockH);
-  drawSectionHeading('5', 'Quality Assurance & Authorized Process Sign-Off');
+  drawSectionHeading('6', 'Quality Assurance & Authorized Process Sign-Off');
   doc.setFillColor(...COLORS.rowAlt);
   doc.setDrawColor(...COLORS.border);
   doc.roundedRect(MARGIN, y, CONTENT_W, 10, 1.2, 1.2, 'FD');

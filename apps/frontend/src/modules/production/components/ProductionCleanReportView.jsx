@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Printer, Unlock, CheckCircle2,
   Layers, Factory, FileSpreadsheet, ShieldCheck, Boxes,
-  Calendar, Flame, Zap, MapPin, Edit3, Download, CalendarDays, Clock, AlertTriangle, Users
+  Calendar, Flame, Zap, MapPin, Edit3, Download, CalendarDays, Clock, AlertTriangle, Users,
+  Search, Filter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
@@ -198,6 +199,9 @@ export default function ProductionCleanReportView({
   const [selectedReportDayNo, setSelectedReportDayNo] = useState('ALL');
   const [standaloneEditDay, setStandaloneEditDay] = useState(null);
   const [savingStandaloneEdit, setSavingStandaloneEdit] = useState(false);
+  const [entireRmSearch, setEntireRmSearch] = useState('');
+  const [entireRmCategoryFilter, setEntireRmCategoryFilter] = useState('ALL');
+  const [entireRmDayFilter, setEntireRmDayFilter] = useState('ALL');
 
   // Live company settings
   const [fetchedCompany, setFetchedCompany] = useState(null);
@@ -760,6 +764,195 @@ export default function ProductionCleanReportView({
     }));
   }, [scopedDays]);
 
+  // ── ENTIRE RAW MATERIALS CONSUMED IN THIS PRODUCTION (UNIFIED MASTER LIST) ──
+  const entireProductionRmLines = useMemo(() => {
+    const list = [];
+    let seq = 1;
+
+    // 1. Base Raw Materials (Used in Tank Preparation / Formulation)
+    const baseDayNo = normalizedDays[0]?.dayNo || 1;
+    const baseDayDate = normalizedDays[0]?.productionDate || batch?.startDate || batch?.start_date;
+    const baseBatchCode = normalizedDays[0]?.dayBatchCode || batch?.shortBatchCode || batch?.short_batch_code || 'BASE-MIX';
+
+    baseRmLines.forEach((line, bIdx) => {
+      const uomClean = formatCleanUom(line.uom, 'kg', line);
+      const lots = Array.isArray(line.lots) && line.lots.length > 0 ? line.lots : null;
+      const rate = Number(line.unitRate || 0);
+
+      if (lots && lots.length > 1) {
+        lots.forEach((lot, lIdx) => {
+          const qty = Number(lot.allocatedQty || 0);
+          const lotRate = Number(lot.unitRate ?? rate);
+          const cost = Number(lot.totalCost) > 0 ? Number(lot.totalCost) : round2(qty * lotRate);
+          list.push({
+            id: `entire-rm-base-${bIdx}-lot-${lIdx}`,
+            seq: seq++,
+            sourceType: 'BASE',
+            sourceCategory: 'Base Tank Mix',
+            categoryBadgeCls: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-200',
+            dayNo: baseDayNo,
+            dayLabel: `Day ${baseDayNo}`,
+            productionDate: baseDayDate,
+            dayBatchCode: baseBatchCode,
+            rawMaterialCode: line.rawMaterialCode || 'RM',
+            rawMaterialName: lIdx === 0 ? line.rawMaterialName : `${line.rawMaterialName} (Lot ${lIdx + 1})`,
+            rawMaterialId: line.rawMaterialId,
+            usedFor: 'Base Formulation (Tank Mix)',
+            usedForSub: 'Primary Formula Pool',
+            productName: 'Base Tank Mix',
+            productBatchNo: baseBatchCode,
+            lotBatchNo: lot.lotNumber || 'BATCH-DIRECT',
+            consumedQty: qty,
+            uom: formatCleanUom(lot.uom || uomClean, 'kg', line),
+            expiryDate: lot.expiryDate || line.expiryDate,
+            unitRate: lotRate,
+            totalCost: cost,
+            isMix: true,
+            purpose: 'Base Mix Preparation'
+          });
+        });
+      } else {
+        const singleLot = lots?.[0];
+        const qty = Number(line.takenQty || 0);
+        const cost = Number(line.totalCost) > 0 ? Number(line.totalCost) : round2(qty * rate);
+        list.push({
+          id: `entire-rm-base-${bIdx}`,
+          seq: seq++,
+          sourceType: 'BASE',
+          sourceCategory: 'Base Tank Mix',
+          categoryBadgeCls: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-200',
+          dayNo: baseDayNo,
+          dayLabel: `Day ${baseDayNo}`,
+          productionDate: baseDayDate,
+          dayBatchCode: baseBatchCode,
+          rawMaterialCode: line.rawMaterialCode || 'RM',
+          rawMaterialName: line.rawMaterialName,
+          rawMaterialId: line.rawMaterialId,
+          usedFor: 'Base Formulation (Tank Mix)',
+          usedForSub: 'Primary Formula Pool',
+          productName: 'Base Tank Mix',
+          productBatchNo: baseBatchCode,
+          lotBatchNo: singleLot?.lotNumber || line.lotBatchNo || 'BATCH-DIRECT',
+          consumedQty: qty,
+          uom: uomClean,
+          expiryDate: singleLot?.expiryDate || line.expiryDate,
+          unitRate: rate,
+          totalCost: cost,
+          isMix: true,
+          purpose: 'Base Mix Preparation'
+        });
+      }
+    });
+
+    // 2. Product-Specific Added Raw Materials across ALL Days & ALL Outputs
+    normalizedDays.forEach(d => {
+      (d.outputs || []).forEach((out, oIdx) => {
+        const prms = Array.isArray(out.productRms) ? out.productRms : [];
+        prms.forEach((prm, pIdx) => {
+          const taken = Number(prm.takenQty ?? prm.qty ?? prm.quantity ?? 0);
+          const rate = Number(prm.unitRate ?? prm.rate ?? 0);
+          const cost = Number(prm.totalCost) > 0 ? Number(prm.totalCost) : round2(taken * rate);
+          const lots = Array.isArray(prm.allocatedBatches) && prm.allocatedBatches.length > 0 ? prm.allocatedBatches : null;
+          const isMix = prm.addToMix !== false;
+          const uomClean = formatCleanUom(prm.uom, 'pcs', prm);
+
+          if (lots && lots.length > 1) {
+            lots.forEach((lot, lIdx) => {
+              const lotQty = Number(lot.allocatedQty || 0);
+              const lotRate = Number(lot.unitRate ?? rate);
+              const lotCost = Number(lot.totalCost) > 0 ? Number(lot.totalCost) : round2(lotQty * lotRate);
+              list.push({
+                id: `entire-rm-day-${d.dayNo}-out-${oIdx}-prm-${pIdx}-lot-${lIdx}`,
+                seq: seq++,
+                sourceType: 'PRODUCT_RM',
+                sourceCategory: isMix ? 'Product Additive' : 'Packaging & Assembly',
+                categoryBadgeCls: isMix
+                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border-purple-200'
+                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-200',
+                dayNo: d.dayNo,
+                dayLabel: `Day ${d.dayNo}`,
+                productionDate: d.productionDate,
+                dayBatchCode: d.dayBatchCode || batch?.shortBatchCode || '—',
+                rawMaterialCode: prm.rawMaterialCode || prm.rmCode || `RM-${pIdx + 1}`,
+                rawMaterialName: lIdx === 0 ? (prm.rawMaterialName || prm.rmName || 'Added RM') : `${prm.rawMaterialName || prm.rmName} (Lot ${lIdx + 1})`,
+                rawMaterialId: prm.rawMaterialId,
+                usedFor: out.productName,
+                usedForSub: `Batch: ${out.productBatchNo || d.dayBatchCode || '—'}`,
+                productName: out.productName,
+                productBatchNo: out.productBatchNo || d.dayBatchCode || '—',
+                lotBatchNo: lot.lotNumber || 'BATCH-DIRECT',
+                consumedQty: lotQty,
+                uom: formatCleanUom(lot.uom || uomClean, 'pcs', prm),
+                expiryDate: lot.expiryDate || prm.expiryDate,
+                unitRate: lotRate,
+                totalCost: lotCost,
+                isMix,
+                purpose: isMix ? 'Flavor / Additive' : 'Packaging / Assembly'
+              });
+            });
+          } else {
+            const singleLot = lots?.[0];
+            list.push({
+              id: `entire-rm-day-${d.dayNo}-out-${oIdx}-prm-${pIdx}`,
+              seq: seq++,
+              sourceType: 'PRODUCT_RM',
+              sourceCategory: isMix ? 'Product Additive' : 'Packaging & Assembly',
+              categoryBadgeCls: isMix
+                ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border-purple-200'
+                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200 border-emerald-200',
+              dayNo: d.dayNo,
+              dayLabel: `Day ${d.dayNo}`,
+              productionDate: d.productionDate,
+              dayBatchCode: d.dayBatchCode || batch?.shortBatchCode || '—',
+              rawMaterialCode: prm.rawMaterialCode || prm.rmCode || `RM-${pIdx + 1}`,
+              rawMaterialName: prm.rawMaterialName || prm.rmName || 'Added Ingredient',
+              rawMaterialId: prm.rawMaterialId,
+              usedFor: out.productName,
+              usedForSub: `Batch: ${out.productBatchNo || d.dayBatchCode || '—'}`,
+              productName: out.productName,
+              productBatchNo: out.productBatchNo || d.dayBatchCode || '—',
+              lotBatchNo: singleLot?.lotNumber || prm.lotBatchNo || 'BATCH-DIRECT',
+              consumedQty: taken,
+              uom: uomClean,
+              expiryDate: singleLot?.expiryDate || prm.expiryDate,
+              unitRate: rate,
+              totalCost: cost,
+              isMix,
+              purpose: isMix ? 'Flavor / Additive' : 'Packaging / Assembly'
+            });
+          }
+        });
+      });
+    });
+
+    return list;
+  }, [baseRmLines, normalizedDays, batch]);
+
+  // Filtered view for Entire Raw Materials Table
+  const filteredEntireRmLines = useMemo(() => {
+    return entireProductionRmLines.filter(row => {
+      if (entireRmCategoryFilter !== 'ALL' && row.sourceType !== entireRmCategoryFilter) {
+        return false;
+      }
+      if (entireRmDayFilter !== 'ALL' && String(row.dayNo) !== String(entireRmDayFilter)) {
+        return false;
+      }
+      if (entireRmSearch.trim()) {
+        const q = entireRmSearch.toLowerCase().trim();
+        const match =
+          (row.rawMaterialName && row.rawMaterialName.toLowerCase().includes(q)) ||
+          (row.rawMaterialCode && row.rawMaterialCode.toLowerCase().includes(q)) ||
+          (row.lotBatchNo && row.lotBatchNo.toLowerCase().includes(q)) ||
+          (row.dayBatchCode && row.dayBatchCode.toLowerCase().includes(q)) ||
+          (row.usedFor && row.usedFor.toLowerCase().includes(q)) ||
+          (row.dayLabel && row.dayLabel.toLowerCase().includes(q)) ||
+          (row.purpose && row.purpose.toLowerCase().includes(q));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [entireProductionRmLines, entireRmCategoryFilter, entireRmDayFilter, entireRmSearch]);
+
   // Duration calculation (number of production days, date span & total factory stage hours)
   const dayCount = Math.max(1, normalizedDays.length);
   const firstDate = normalizedDays[0]?.productionDate || batch?.startDate || batch?.start_date;
@@ -819,6 +1012,7 @@ export default function ProductionCleanReportView({
         costPerUnit
       },
       baseRmLines,
+      entireProductionRmLines,
       dayEntries: normalizedDays,
       yieldRows: consolidatedYieldRows,
       timelineStages,
@@ -1383,12 +1577,234 @@ export default function ProductionCleanReportView({
           </div>
         </div>
 
-        {/* ── 4. SECTION 2: DAY-WISE PRODUCTION BREAKDOWN & PER-PRODUCT RM TRACEABILITY ── */}
+        {/* ── 4. SECTION 2: ENTIRE PRODUCTION RAW MATERIAL CONSUMPTION & LOT TRACEABILITY (MASTER SINGLE TABLE) ── */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-md bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                2
+              </span>
+              <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                Entire Raw Material Consumption &amp; Lot Traceability — Master Production Ledger
+              </h3>
+            </div>
+            <span className="text-xs text-slate-500 font-mono">
+              {entireProductionRmLines.length} Total Material Entries • All Days, Products &amp; Formulations in Single Master Table
+            </span>
+          </div>
+
+          {/* Quick Filters Strip: Search, Category Tabs & Day Selector */}
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 flex-1 max-w-md">
+              <div className="relative w-full">
+                <input
+                  type="text"
+                  value={entireRmSearch}
+                  onChange={(e) => setEntireRmSearch(e.target.value)}
+                  placeholder="Filter by RM name, code, lot number, batch, product, or day..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-mono"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              </div>
+              {entireRmSearch && (
+                <button
+                  type="button"
+                  onClick={() => setEntireRmSearch('')}
+                  className="px-2 py-1 text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white bg-slate-200 dark:bg-slate-700 rounded-md shrink-0"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Category Filter */}
+              <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-200 dark:bg-slate-700 font-mono text-[11px]">
+                {[
+                  { id: 'ALL', label: `All (${entireProductionRmLines.length})` },
+                  { id: 'BASE', label: `Base Mix (${entireProductionRmLines.filter(r => r.sourceType === 'BASE').length})` },
+                  { id: 'PRODUCT_RM', label: `Added RMs (${entireProductionRmLines.filter(r => r.sourceType === 'PRODUCT_RM').length})` }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setEntireRmCategoryFilter(tab.id)}
+                    className={`px-2.5 py-1 rounded-md font-bold transition-all ${
+                      entireRmCategoryFilter === tab.id
+                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Day Scope Filter for this table */}
+              {normalizedDays.length > 1 && (
+                <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-200 dark:bg-slate-700 font-mono text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setEntireRmDayFilter('ALL')}
+                    className={`px-2 py-1 rounded-md font-bold transition-all ${
+                      entireRmDayFilter === 'ALL'
+                        ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                    }`}
+                  >
+                    All Days
+                  </button>
+                  {normalizedDays.map(d => (
+                    <button
+                      key={`entire-day-btn-${d.dayNo}`}
+                      type="button"
+                      onClick={() => setEntireRmDayFilter(String(d.dayNo))}
+                      className={`px-2 py-1 rounded-md font-bold transition-all ${
+                        entireRmDayFilter === String(d.dayNo)
+                          ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                      }`}
+                    >
+                      Day {d.dayNo}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Unified Master Table */}
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <th className="py-2.5 px-3 w-10 text-center">#</th>
+                  <th className="py-2.5 px-3">Day &amp; Date</th>
+                  <th className="py-2.5 px-3 font-mono">Day / Batch No</th>
+                  <th className="py-2.5 px-3">RM Code</th>
+                  <th className="py-2.5 px-3 font-sans">Raw Material Name</th>
+                  <th className="py-2.5 px-3 font-sans">Used For / Target Product</th>
+                  <th className="py-2.5 px-3 font-mono">RM Lot / Batch No</th>
+                  <th className="py-2.5 px-3 text-right">Consumed Qty</th>
+                  <th className="py-2.5 px-3 text-center">Lot Expiry</th>
+                  <th className="py-2.5 px-3 text-center font-sans">Material Type</th>
+                  {canViewCost && <th className="py-2.5 px-3 text-right">Unit Rate</th>}
+                  {canViewCost && <th className="py-2.5 px-3 text-right">Total Cost</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono text-[11.5px]">
+                {filteredEntireRmLines.length === 0 ? (
+                  <tr>
+                    <td colSpan={canViewCost ? 12 : 10} className="py-6 px-3 text-center font-sans text-slate-400">
+                      No raw materials match the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredEntireRmLines.map((row, rIdx) => {
+                    const expInfo = getExpiryBadge(row.expiryDate);
+                    return (
+                      <tr
+                        key={row.id || `entire-rm-${rIdx}`}
+                        className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
+                          row.sourceType === 'BASE' ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
+                        }`}
+                      >
+                        <td className="py-2 px-3 text-center text-slate-400 font-bold">{rIdx + 1}</td>
+                        <td className="py-2 px-3 font-sans">
+                          <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-indigo-500" />
+                            <span>{row.dayLabel}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            {formatDateDMY(row.productionDate)}
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 font-bold text-slate-800 dark:text-slate-200">
+                          <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[10.5px]">
+                            {row.dayBatchCode || '—'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-slate-600 dark:text-slate-400 font-bold">
+                          {row.rawMaterialCode}
+                        </td>
+                        <td className="py-2 px-3 font-sans font-extrabold text-slate-900 dark:text-white">
+                          {row.rawMaterialName}
+                        </td>
+                        <td className="py-2 px-3 font-sans">
+                          <div className="font-bold text-slate-800 dark:text-slate-100 text-[11px]">
+                            {row.usedFor}
+                          </div>
+                          {row.usedForSub && (
+                            <div className="text-[9.5px] text-slate-500 font-mono">
+                              {row.usedForSub}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 font-black text-indigo-600 dark:text-indigo-400 text-[11px]">
+                          {row.lotBatchNo}
+                        </td>
+                        <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
+                          {formatIndian(row.consumedQty, 2)} {row.uom}
+                        </td>
+                        <td className={`py-2 px-3 text-center ${expInfo.cls}`}>
+                          {expInfo.label}
+                        </td>
+                        <td className="py-2 px-3 text-center font-sans">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${row.categoryBadgeCls}`}>
+                            {row.sourceCategory}
+                          </span>
+                        </td>
+                        {canViewCost && (
+                          <td className="py-2 px-3 text-right text-slate-600 dark:text-slate-400">
+                            ₹{formatIndian(row.unitRate, 2)} / {row.uom}
+                          </td>
+                        )}
+                        {canViewCost && (
+                          <td className="py-2 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                            ₹{formatIndian(row.totalCost, 2)}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              <tfoot className="bg-slate-50 dark:bg-slate-800/90 font-bold text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-700 font-mono text-[11px]">
+                <tr className="divide-x divide-slate-200 dark:divide-slate-700">
+                  <td colSpan={7} className="py-2.5 px-3 font-sans uppercase">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs">
+                        TOTAL: {filteredEntireRmLines.length} Material Entries ({new Set(filteredEntireRmLines.map(r => r.rawMaterialName)).size} Unique Raw Materials)
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        Base RMs: {filteredEntireRmLines.filter(r => r.sourceType === 'BASE').length} • Added RMs: {filteredEntireRmLines.filter(r => r.sourceType === 'PRODUCT_RM').length}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
+                    {formatIndian(filteredEntireRmLines.reduce((s, r) => s + Number(r.consumedQty || 0), 0), 2)}
+                  </td>
+                  <td colSpan={2} className="py-2.5 px-3 text-center text-slate-400 font-sans text-[10.5px]">
+                    {filteredEntireRmLines.length} Lots Traced
+                  </td>
+                  {canViewCost && <td className="py-2.5 px-3 text-right font-sans uppercase text-[10px] text-slate-500">Grand Total RM Cost:</td>}
+                  {canViewCost && (
+                    <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400 font-black text-xs">
+                      ₹{formatIndian(filteredEntireRmLines.reduce((s, r) => s + Number(r.totalCost || 0), 0), 2)}
+                    </td>
+                  )}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        {/* ── 5. SECTION 3: DAY-WISE PRODUCTION BREAKDOWN & PER-PRODUCT RM TRACEABILITY ── */}
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <span className="w-6 h-6 rounded-md bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
-                2
+                3
               </span>
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
                 Day-Wise Production Breakdown &amp; Per-Product RM Traceability
@@ -1759,12 +2175,12 @@ export default function ProductionCleanReportView({
           </div>
         </div>
 
-        {/* ── 5. SECTION 3: CONSOLIDATED YIELD REPORT & VARIANCE ACCOUNTING ── */}
+        {/* ── 6. SECTION 4: CONSOLIDATED YIELD REPORT & VARIANCE ACCOUNTING ── */}
         <div className="space-y-3 print-break-avoid">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <span className="w-6 h-6 rounded-md bg-purple-600 text-white font-bold text-xs flex items-center justify-center">
-                3
+                4
               </span>
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
                 Output Yield Report, Wastage &amp; Variance Accounting
@@ -1848,13 +2264,13 @@ export default function ProductionCleanReportView({
           </div>
         </div>
 
-        {/* ── 6. SECTION 4: COMPREHENSIVE FINANCIAL COST STATEMENT ── */}
+        {/* ── 7. SECTION 5: COMPREHENSIVE FINANCIAL COST STATEMENT ── */}
         {canViewCost && (
           <div className="space-y-4 print-break-avoid">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-md bg-slate-900 text-white font-bold text-xs flex items-center justify-center">
-                  4
+                  5
                 </span>
                 <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
                   Comprehensive Financial Cost Statement
@@ -2216,7 +2632,7 @@ export default function ProductionCleanReportView({
           </div>
         )}
 
-        {/* ── 7. SECTION 5: QUALITY ASSURANCE & FINAL PROCESS SIGN-OFF ── */}
+        {/* ── 8. SECTION 6: QUALITY ASSURANCE & FINAL PROCESS SIGN-OFF ── */}
         <div className="border-t border-slate-200 dark:border-slate-800 pt-5 space-y-4 print-break-avoid">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
