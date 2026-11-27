@@ -7,7 +7,7 @@ import {
   DollarSign, TrendingDown, Package, HelpCircle, ArrowDownRight, Layers2,
   Maximize2, Minimize2, Printer, Tag, Boxes, CheckSquare, Calendar, CalendarDays, ChevronLeft,
   Unlock, Lock, FileText, CheckCheck, TrendingUp, Sun, Moon, Zap, Users, Search,
-  Edit3, History
+  Edit3, History, ShoppingCart, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -561,6 +561,9 @@ export default function ProductionFloorCockpitModal({
   const [allocUnitMap, setAllocUnitMap] = useState({}); // { [allocIndex]: 'ml' | 'L' }
   const [mouldCatalog, setMouldCatalog] = useState([]);
   const [mouldCategories, setMouldCategories] = useState([]);
+  const [linkedSalesOrder, setLinkedSalesOrder] = useState(null);
+  const [isSalesDemandExpanded, setIsSalesDemandExpanded] = useState(true);
+  const [showAllocatedInQueue, setShowAllocatedInQueue] = useState(false);
 
   // Item Search Modal (Sales / SAP Order Style)
   const [itemSearchOpen, setItemSearchOpen] = useState(false);
@@ -787,6 +790,29 @@ export default function ProductionFloorCockpitModal({
 
       const b = detailRes.data.batch || detailRes.data;
       setBatch(b);
+
+      const resolvedSo = detailRes.data.salesOrder || b.salesOrder || b.order || null;
+      if (resolvedSo) {
+        setLinkedSalesOrder(resolvedSo);
+      } else {
+        const orderIdToFetch = b.order_id || b.orderId || b.salesOrderId || b.sales_order_id;
+        if (orderIdToFetch) {
+          api.get(`/orders/${orderIdToFetch}`)
+            .then(res => setLinkedSalesOrder(res.data))
+            .catch(() => {});
+        } else if (b.note && b.note.includes('Sales Order #')) {
+          const match = b.note.match(/Sales Order #([^\s()]+)/);
+          if (match && match[1]) {
+            api.get('/orders')
+              .then(res => {
+                const list = Array.isArray(res.data) ? res.data : [];
+                const found = list.find(o => (o.docNo === match[1] || o.referenceNo === match[1]));
+                if (found) setLinkedSalesOrder(found);
+              })
+              .catch(() => {});
+          }
+        }
+      }
       const fetchedDays = Array.isArray(detailRes.data.days) ? detailRes.data.days : [];
       const srvActiveDayNo = Math.max(1, Number(b.activeDayNo ?? b.active_day_no ?? 1));
       const srvViewingDayNo = targetDayNo ? Number(targetDayNo) : Math.max(1, Number(b.viewingDayNo ?? srvActiveDayNo));
@@ -1391,10 +1417,70 @@ export default function ProductionFloorCockpitModal({
       } else {
         // Initialize from batch planned products (Day 1 initial open only)
         let batchProds = Array.isArray(b.products) && b.products.length > 0 ? b.products : (b.selectedProducts || []);
-        if (batchProds.length === 0 && b.product) {
-          batchProds = [b.product];
+        if (batchProds.length === 0 && (b.product || b.product_id || b.productId)) {
+          const singlePId = b.product_id || b.productId || b.product?.id;
+          const matchedP = prods.find(p => p.id === singlePId) || b.product || {};
+          batchProds = [{
+            id: singlePId,
+            productId: singlePId,
+            name: b.product_name || b.productName || b.product?.name || matchedP.name || 'Finished Product',
+            code: b.product_code || b.productCode || b.product?.code || matchedP.code || 'FP',
+            unit: b.product_unit || b.productUnit || b.product?.unit || matchedP.consumptionUnit || 'pcs',
+            plannedQty: Number(b.quantity || b.plannedQty || 0)
+          }];
         }
-        if (batchProds.length > 0) {
+        if (batchProds.length === 0 && savedMAllocs.length > 0) {
+          batchProds = savedMAllocs.map(s => ({
+            id: s.productId || s.product_id,
+            productId: s.productId || s.product_id,
+            name: s.productName || s.product_name,
+            code: s.productCode || s.product_code,
+            unit: s.productUom || s.product_unit || 'pcs',
+            plannedQty: Number(s.plannedQty || s.good_pieces || s.actualYield || 0)
+          }));
+        }
+        if (batchProds.length === 0 && (detailRes.data.salesOrder?.items || b.salesOrder?.items || resolvedSo?.items)) {
+          const soItems = detailRes.data.salesOrder?.items || b.salesOrder?.items || resolvedSo?.items || [];
+          batchProds = soItems.map(it => ({
+            id: it.productId || it.product?.id,
+            productId: it.productId || it.product?.id,
+            name: it.product?.name || it.productName || 'Finished Product',
+            code: it.product?.code || it.productCode || 'FP',
+            unit: it.product?.unit?.abbreviation || it.product?.unit?.name || it.product?.unitId || it.uomName || 'pcs',
+            plannedQty: Number(it.demandedQty ?? it.orderedQuantity ?? it.quantity ?? 0)
+          }));
+        }
+
+        if (savedMAllocs.length > 0) {
+          setAllocations(savedMAllocs.map((s, idx) => {
+            const matchedProd = prods.find(p => p.id === (s.productId || s.product_id));
+            const prodUom = s.productUom || s.product_unit || formatCleanUom(matchedProd?.consumptionUnit || matchedProd?.uom, 'pcs', matchedProd);
+            return {
+              seq: s.seq || (idx + 1),
+              productId: s.productId || s.product_id,
+              productName: s.productName || s.product_name || matchedProd?.name || 'Finished Product',
+              productCode: s.productCode || s.product_code || matchedProd?.code || 'FP',
+              productUom: prodUom,
+              useMould: s.useMould !== undefined ? Boolean(s.useMould) : true,
+              bulkUom: s.bulkUom || (prodUom === 'pcs' ? 'Liter' : prodUom),
+              allocatedBaseMl: Number(s.allocatedBaseMl || 0),
+              mouldId: s.mouldId || null,
+              mouldCode: s.mouldCode || '',
+              mouldName: s.mouldName || '',
+              capacityMl: Number(s.capacityMl || 0),
+              cavities: Number(s.cavities || 0),
+              trays: Number(s.trays || 0),
+              wasteMode: s.wasteMode || 'PERCENT',
+              wasteValue: Number(s.wasteValue || 0),
+              actualYield: s.actualYield !== undefined ? Number(s.actualYield) : undefined,
+              rejectOutput: Number(s.rejectOutput || 0),
+              productBatchNo: s.productBatchNo || '',
+              productBatchNoCustomized: Boolean(s.productBatchNo),
+              productSerialNo: s.productSerialNo || '',
+              productRms: Array.isArray(s.productRms) ? s.productRms : []
+            };
+          }));
+        } else if (batchProds.length > 0) {
           setAllocations(batchProds.map((p, idx) => {
             const prodUom = formatCleanUom(p.consumptionUnit || p.unit || p.uom, 'pcs', p);
             return {
@@ -4030,6 +4116,285 @@ export default function ProductionFloorCockpitModal({
       setSelectedStep3Index(cur => Math.max(0, Math.min(cur >= index ? cur - 1 : cur, next.length - 1)));
       return next;
     });
+  };
+
+  const handleAddProductFromSalesDemand = (item) => {
+    const pId = item.productId || item.product?.id || item.id;
+    if (allocations.some(a => a.productId === pId)) {
+      Swal.fire({ title: 'Already in Step 3', text: 'This product is already added to mould allocations.', icon: 'info' });
+      return;
+    }
+    const matchedMaster = availableProducts.find(p => p.id === pId) || item.product || {};
+    const prodName = matchedMaster.name || item.productName || item.name || 'Finished Product';
+    const prodCode = matchedMaster.code || item.productCode || item.code || 'FP';
+    const prodUom = formatCleanUom(matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || matchedMaster.uom || item.uomName, 'pcs', matchedMaster);
+
+    setAllocations(prev => [
+      ...prev,
+      {
+        seq: prev.length + 1,
+        productId: pId,
+        productName: prodName,
+        productCode: prodCode,
+        productUom: prodUom,
+        useMould: true,
+        bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
+        allocatedBaseMl: 0,
+        mouldId: null,
+        mouldCode: '',
+        mouldName: '',
+        capacityMl: 0,
+        cavities: 0,
+        trays: 0,
+        wasteMode: 'PERCENT',
+        wasteValue: 0,
+        productBatchNo: '',
+        productBatchNoCustomized: false,
+        productSerialNo: '',
+        productRms: []
+      }
+    ]);
+    setSelectedStep3Index(allocations.length);
+  };
+
+  const handleRemoveProductFromAllocations = (pId) => {
+    setAllocations(prev => {
+      const filtered = prev.filter(a => String(a.productId || a.product_id) !== String(pId));
+      return filtered.map((a, idx) => ({ ...a, seq: idx + 1 }));
+    });
+    setSelectedStep3Index(0);
+  };
+
+  const handleAddAllShortfallDemandProducts = () => {
+    if (!linkedSalesOrder?.items || linkedSalesOrder.items.length === 0) return;
+    let count = 0;
+    linkedSalesOrder.items.forEach(it => {
+      const pId = it.productId || it.product?.id || it.id;
+      if (!allocations.some(a => String(a.productId || a.product_id) === String(pId))) {
+        handleAddProductFromSalesDemand(it);
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      Swal.fire({
+        title: 'Products Added to Step 3',
+        text: `Added ${count} sales demand product(s) into mould allocations.`,
+        icon: 'success',
+        timer: 1800,
+        showConfirmButton: false
+      });
+    } else {
+      Swal.fire({
+        title: 'All Added',
+        text: 'All demand items are already in Step 3 allocations.',
+        icon: 'info',
+        timer: 1500
+      });
+    }
+  };
+
+  // Extract all planned / queued end products for this batch (from products, selectedProducts, batchItems, mould_allocations, salesOrder, or batch.product_id)
+  const queuedBatchProducts = useMemo(() => {
+    const list = [];
+    const seenIds = new Set();
+
+    // 1. Batch products or selectedProducts
+    const rawProds = Array.isArray(batch?.products) && batch.products.length > 0
+      ? batch.products
+      : (Array.isArray(batch?.selectedProducts) && batch.selectedProducts.length > 0 ? batch.selectedProducts : []);
+
+    rawProds.forEach(p => {
+      const pId = p.productId || p.id;
+      if (pId && !seenIds.has(String(pId))) {
+        seenIds.add(String(pId));
+        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+        list.push({
+          productId: pId,
+          id: pId,
+          name: p.name || p.productName || matchedMaster.name || 'Finished Product',
+          code: p.code || p.productCode || matchedMaster.code || 'FP',
+          unit: p.unit || p.productUnit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          plannedQty: Number(p.plannedQty || p.demandedQty || p.quantity || 0),
+          source: 'BATCH_ITEM'
+        });
+      }
+    });
+
+    // 2. Batch items / batchItems from DB
+    const dbItems = Array.isArray(batch?.items) && batch.items.length > 0
+      ? batch.items
+      : (Array.isArray(batch?.batchItems) && batch.batchItems.length > 0 ? batch.batchItems : []);
+
+    dbItems.forEach(bi => {
+      const pId = bi.productId || bi.product_id || bi.id;
+      if (pId && !seenIds.has(String(pId))) {
+        seenIds.add(String(pId));
+        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+        list.push({
+          productId: pId,
+          id: pId,
+          name: bi.productName || bi.product_name || matchedMaster.name || 'Finished Product',
+          code: bi.productCode || bi.product_code || matchedMaster.code || 'FP',
+          unit: bi.productUnit || bi.product_unit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          plannedQty: Number(bi.plannedQty || bi.planned_qty || bi.quantity || 0),
+          source: 'BATCH_DB_ITEM'
+        });
+      }
+    });
+
+    // 3. Saved mould allocations (if any exist on batch)
+    const savedAllocs = Array.isArray(batch?.mould_allocations) && batch.mould_allocations.length > 0
+      ? batch.mould_allocations
+      : (Array.isArray(batch?.allocations) && batch.allocations.length > 0 ? batch.allocations : []);
+
+    savedAllocs.forEach(sa => {
+      const pId = sa.productId || sa.product_id;
+      if (pId && !seenIds.has(String(pId))) {
+        seenIds.add(String(pId));
+        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+        list.push({
+          productId: pId,
+          id: pId,
+          name: sa.productName || sa.product_name || matchedMaster.name || 'Finished Product',
+          code: sa.productCode || sa.product_code || matchedMaster.code || 'FP',
+          unit: sa.productUom || sa.product_unit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          plannedQty: Number(sa.plannedQty || sa.planned_qty || 0),
+          source: 'MOULD_ALLOC'
+        });
+      }
+    });
+
+    // 4. Linked sales order items
+    const soItems = Array.isArray(linkedSalesOrder?.items) && linkedSalesOrder.items.length > 0
+      ? linkedSalesOrder.items
+      : (Array.isArray(batch?.salesOrder?.items) ? batch.salesOrder.items : (Array.isArray(batch?.order?.items) ? batch.order.items : []));
+
+    soItems.forEach(it => {
+      const pId = it.productId || it.product?.id || it.id;
+      if (pId && !seenIds.has(String(pId))) {
+        seenIds.add(String(pId));
+        const matchedMaster = availableProducts.find(m => m.id === pId) || it.product || {};
+        list.push({
+          productId: pId,
+          id: pId,
+          name: it.product?.name || it.productName || matchedMaster.name || 'Finished Product',
+          code: it.product?.code || it.productCode || matchedMaster.code || 'FP',
+          unit: it.product?.unit?.abbreviation || it.product?.unit?.name || it.product?.unitId || it.uomName || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+          plannedQty: Number(it.demandedQty ?? it.orderedQuantity ?? it.quantity ?? 0),
+          shortfallQty: Number(it.shortfallQty || 0),
+          source: 'SALES_ORDER'
+        });
+      }
+    });
+
+    // 5. Batch product_id / batch.product (target planned output)
+    const singlePId = batch?.product_id || batch?.productId || batch?.product?.id;
+    if (singlePId && !seenIds.has(String(singlePId))) {
+      seenIds.add(String(singlePId));
+      const matchedMaster = availableProducts.find(m => m.id === singlePId) || batch?.product || {};
+      list.push({
+        productId: singlePId,
+        id: singlePId,
+        name: batch?.product_name || batch?.productName || batch?.product?.name || matchedMaster.name || 'Finished Product',
+        code: batch?.product_code || batch?.productCode || batch?.product?.code || matchedMaster.code || 'FP',
+        unit: batch?.product_unit || batch?.productUnit || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster),
+        plannedQty: Number(batch?.quantity || batch?.plannedQty || 0),
+        source: 'TARGET_PRODUCT'
+      });
+    }
+
+    return list;
+  }, [batch, linkedSalesOrder, availableProducts]);
+
+  const handleAddQueuedProductToAllocations = (item) => {
+    const pId = item.productId || item.id;
+    if (!pId) return;
+    if (allocations.some(a => String(a.productId || a.product_id) === String(pId))) {
+      Swal.fire({ title: 'Already in Step 3', text: 'This product is already added to mould allocations.', icon: 'info' });
+      return;
+    }
+    const matchedMaster = availableProducts.find(p => p.id === pId) || {};
+    const prodName = item.name || item.productName || matchedMaster.name || 'Finished Product';
+    const prodCode = item.code || item.productCode || matchedMaster.code || 'FP';
+    const prodUom = formatCleanUom(item.unit || item.productUom || matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || matchedMaster.uom, 'pcs', matchedMaster);
+
+    setAllocations(prev => [
+      ...prev,
+      {
+        seq: prev.length + 1,
+        productId: pId,
+        productName: prodName,
+        productCode: prodCode,
+        productUom: prodUom,
+        useMould: true,
+        bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
+        allocatedBaseMl: 0,
+        mouldId: null,
+        mouldCode: '',
+        mouldName: '',
+        capacityMl: 0,
+        cavities: 0,
+        trays: 0,
+        wasteMode: 'PERCENT',
+        wasteValue: 0,
+        productBatchNo: '',
+        productBatchNoCustomized: false,
+        productSerialNo: '',
+        productRms: []
+      }
+    ]);
+    setSelectedStep3Index(allocations.length);
+  };
+
+  const handleAddAllQueuedProductsToAllocations = () => {
+    if (!queuedBatchProducts || queuedBatchProducts.length === 0) return;
+    let addedCount = 0;
+    setAllocations(prev => {
+      const existingIds = new Set(prev.map(a => String(a.productId || a.product_id)));
+      const toAdd = queuedBatchProducts.filter(p => !existingIds.has(String(p.productId || p.id)));
+      if (toAdd.length === 0) return prev;
+      addedCount = toAdd.length;
+      const newItems = toAdd.map((p, idx) => {
+        const pId = p.productId || p.id;
+        const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+        const prodName = p.name || p.productName || matchedMaster.name || 'Finished Product';
+        const prodCode = p.code || p.productCode || matchedMaster.code || 'FP';
+        const prodUom = formatCleanUom(p.unit || p.productUom || matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || matchedMaster.uom, 'pcs', matchedMaster);
+        return {
+          seq: prev.length + idx + 1,
+          productId: pId,
+          productName: prodName,
+          productCode: prodCode,
+          productUom: prodUom,
+          useMould: true,
+          bulkUom: prodUom === 'pcs' ? 'Liter' : prodUom,
+          allocatedBaseMl: 0,
+          mouldId: null,
+          mouldCode: '',
+          mouldName: '',
+          capacityMl: 0,
+          cavities: 0,
+          trays: 0,
+          wasteMode: 'PERCENT',
+          wasteValue: 0,
+          productBatchNo: '',
+          productBatchNoCustomized: false,
+          productSerialNo: '',
+          productRms: []
+        };
+      });
+      return [...prev, ...newItems];
+    });
+    if (addedCount > 0) {
+      Swal.fire({
+        title: 'End Products Added!',
+        text: `Successfully added all ${addedCount} queued end products to Step 3 mould allocations.`,
+        icon: 'success',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    }
   };
 
   // Save Section C via PUT /api/production/standard/:id/allocations (or completed Day update)
@@ -6742,6 +7107,192 @@ export default function ProductionFloorCockpitModal({
                   </div>
                 </Card>
 
+                {/* ── QUEUED END PRODUCTS DRAWER (STEP 3) ── */}
+                {queuedBatchProducts && queuedBatchProducts.length > 0 && (() => {
+                  const unallocatedQueuedProducts = queuedBatchProducts.filter(p => {
+                    const pId = p.productId || p.id;
+                    return !allocations.some(a => String(a.productId || a.product_id) === String(pId));
+                  });
+                  const allocatedQueuedProducts = queuedBatchProducts.filter(p => {
+                    const pId = p.productId || p.id;
+                    return allocations.some(a => String(a.productId || a.product_id) === String(pId));
+                  });
+                  const itemsToDisplay = showAllocatedInQueue ? queuedBatchProducts : unallocatedQueuedProducts;
+
+                  return (
+                    <div className="bg-gradient-to-r from-amber-50/95 via-orange-50/50 to-amber-50/90 dark:from-amber-950/40 dark:via-orange-950/20 dark:to-amber-900/30 border-2 border-amber-300 dark:border-amber-700/80 rounded-xl p-3 shadow-xs space-y-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-amber-200/90 dark:border-amber-800/80">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-3xs shrink-0">
+                            {linkedSalesOrder ? <ShoppingCart className="w-3.5 h-3.5" /> : <Boxes className="w-3.5 h-3.5" />}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-extrabold text-xs text-amber-950 dark:text-amber-200 uppercase tracking-tight">
+                                {linkedSalesOrder ? 'SO Demand End Products' : 'Queued End Products For This Batch'}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full text-[9.5px] bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 font-mono font-black">
+                                {unallocatedQueuedProducts.length} Pending • {allocatedQueuedProducts.length} Assigned • {queuedBatchProducts.length} Total
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold truncate max-w-sm">
+                              {linkedSalesOrder 
+                                ? `SO #${linkedSalesOrder.docNo || linkedSalesOrder.referenceNo || 'SO'} • ${linkedSalesOrder.customer?.name || linkedSalesOrder.customerName || 'Customer'}`
+                                : `Standard Production • Planned Batch Output (${formatIndian(batch?.quantity || 0)} pcs)`}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {!isViewMode && unallocatedQueuedProducts.length > 0 && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleAddAllQueuedProductsToAllocations}
+                              className="h-6.5 px-2.5 text-[10.5px] font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-3xs cursor-pointer flex items-center gap-1"
+                              title="Add all remaining pending queued products to Step 3 mould allocations"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>+ Add All ({unallocatedQueuedProducts.length})</span>
+                            </Button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setShowAllocatedInQueue(!showAllocatedInQueue)}
+                            className="h-6.5 px-2.5 rounded-lg border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 bg-white/80 dark:bg-slate-900/80 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-[10.5px] font-bold cursor-pointer transition-colors"
+                          >
+                            {showAllocatedInQueue ? 'Show Pending Only' : `Show All (${queuedBatchProducts.length})`}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsSalesDemandExpanded(!isSalesDemandExpanded)}
+                            className="h-6.5 px-2 rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-amber-200/50 dark:hover:bg-amber-900/50 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer"
+                          >
+                            {isSalesDemandExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            <span>{isSalesDemandExpanded ? 'Hide' : 'Show'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {isSalesDemandExpanded && (
+                        <div>
+                          {!showAllocatedInQueue && unallocatedQueuedProducts.length === 0 ? (
+                            <div className="p-3 text-center rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 text-xs font-semibold flex items-center justify-between gap-2 flex-wrap">
+                              <span className="flex items-center gap-1.5 font-bold">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                All {queuedBatchProducts.length} queued end product(s) have been assigned to Step 3 mould allocations.
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setShowAllocatedInQueue(true)}
+                                className="px-2.5 py-1 text-[10.5px] font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-3xs"
+                              >
+                                View All Assigned ({queuedBatchProducts.length})
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 pt-1 max-h-56 overflow-y-auto pr-1">
+                              {itemsToDisplay.map((p, idx) => {
+                                const pId = p.productId || p.id;
+                                const allocMatch = allocations.find(a => String(a.productId || a.product_id) === String(pId));
+                                const isAdded = Boolean(allocMatch);
+                                const prodName = p.name || p.productName || 'End Product';
+                                const prodCode = p.code || p.productCode || 'ITEM';
+                                const demandedQty = Number(p.plannedQty || 0);
+                                const uom = p.unit || p.productUom || 'pcs';
+
+                                const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+                                const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? 0);
+                                const isSurplus = currentStock >= demandedQty && demandedQty > 0;
+                                const shortfallQty = Math.max(0, demandedQty - currentStock);
+
+                                return (
+                                  <div
+                                    key={idx}
+                                    className={`p-2 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${
+                                      isAdded
+                                        ? 'bg-purple-50/70 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800 shadow-3xs'
+                                        : (isSurplus
+                                            ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-3xs'
+                                            : 'bg-white dark:bg-slate-900 border-amber-200/90 dark:border-slate-800 shadow-3xs')
+                                    }`}
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <div className="font-extrabold text-slate-900 dark:text-white truncate text-[11px]" title={prodName}>
+                                        {prodName}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-[9.5px] text-slate-500 font-mono mt-0.5 flex-wrap">
+                                        <span>{prodCode}</span>
+                                        <span>•</span>
+                                        <span className="font-bold text-amber-700 dark:text-amber-400">
+                                          Planned: {demandedQty} {uom}
+                                        </span>
+                                        <span>•</span>
+                                        <span className={currentStock > 0 ? "font-bold text-emerald-700 dark:text-emerald-400" : "text-slate-500"}>
+                                          Stock: {currentStock} {uom}
+                                        </span>
+                                      </div>
+
+                                      <div className="mt-1">
+                                        {isSurplus ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                                            ✓ In Stock ({currentStock} {uom}) • Surplus
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                            ⚠️ Shortfall: {shortfallQty} {uom}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {!isViewMode && (
+                                      <div className="shrink-0 flex items-center gap-1">
+                                        {isAdded ? (
+                                          <div className="flex flex-col items-end gap-1">
+                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                                              <Check className="w-2.5 h-2.5" /> In Step 3 {allocMatch?.seq ? `(#${allocMatch.seq})` : ''}
+                                            </span>
+                                            <Button
+                                              type="button"
+                                              size="sm"
+                                              onClick={() => handleRemoveProductFromAllocations(pId)}
+                                              className="h-5.5 px-1.5 text-[9.5px] font-bold rounded bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 cursor-pointer shadow-3xs flex items-center gap-0.5"
+                                              title="Remove this product from mould allocations"
+                                            >
+                                              <X className="w-2.5 h-2.5" />
+                                              <span>Remove</span>
+                                            </Button>
+                                          </div>
+                                        ) : (
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => handleAddQueuedProductToAllocations(p)}
+                                            className={`h-6 px-2 text-[10px] font-bold rounded-lg text-white cursor-pointer shadow-3xs flex items-center gap-1 shrink-0 ${
+                                              isSurplus
+                                                ? 'bg-slate-600 hover:bg-slate-700'
+                                                : 'bg-[#8b47d7] hover:bg-purple-700'
+                                            }`}
+                                            title={isSurplus ? "Surplus in stock — optional add to Step 3" : "Add this queued end product to Step 3 mould allocations"}
+                                          >
+                                            <Plus className="w-3 h-3" />
+                                            <span>+ Add</span>
+                                          </Button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* ══════════════════════════════════════════════════════════════════════
                     STEP 3 FINISHED PRODUCTS MASTER-DETAIL WORKSPACE (SIDEBAR & RESPONSIVE)
                 ══════════════════════════════════════════════════════════════════════ */}
@@ -7734,6 +8285,122 @@ export default function ProductionFloorCockpitModal({
                   };
 
                   if (allocations.length === 0) {
+                    if (queuedBatchProducts && queuedBatchProducts.length > 0) {
+                      return (
+                        <div className="p-6 bg-gradient-to-b from-purple-50/60 via-white to-slate-50 dark:from-purple-950/25 dark:via-slate-900 dark:to-slate-950 border-2 border-purple-200/90 dark:border-purple-800/70 rounded-2xl space-y-4 shadow-sm">
+                          <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-purple-100 dark:border-purple-900/40">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#8b47d7] to-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <Boxes className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-tight">
+                                    Queued End Products For This Batch
+                                  </h4>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-100 dark:bg-purple-900/60 text-[#8b47d7] dark:text-purple-300 font-mono font-bold">
+                                    {queuedBatchProducts.length} Items Planned • {formatIndian(queuedBatchProducts.reduce((s, p) => s + (p.plannedQty || 0), 0))} Pcs Total
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                  {previousDaysAllocatedMl > 0
+                                    ? `Day ${activeDayNo} ready with ${formatIndian(availableMixMl, 2)} ml unallocated mix. Select from the planned batch products below to configure mould pouring.`
+                                    : 'These finished products are scheduled for production in this batch. Click "+ Add to Allocations" or "+ Add All" to begin mould allocations.'}
+                                </p>
+                              </div>
+                            </div>
+
+                            {!isViewMode && (
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={handleAddAllQueuedProductsToAllocations}
+                                  className="h-8 px-3.5 text-xs font-bold rounded-lg bg-gradient-to-r from-[#8b47d7] to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>+ Add All to Allocations</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setItemSearchMode('PRODUCT_SINGLE');
+                                    setItemSearchOpen(true);
+                                  }}
+                                  className="h-8 px-3 text-xs font-semibold rounded-lg border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 inline-flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Search className="w-3 h-3" />
+                                  <span>+ Browse Catalog</span>
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {queuedBatchProducts.map((p, idx) => {
+                              const pId = p.productId || p.id;
+                              const matchedMaster = availableProducts.find(m => m.id === pId) || {};
+                              const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? 0);
+                              const plannedQty = Number(p.plannedQty || 0);
+                              const isSurplus = currentStock >= plannedQty && plannedQty > 0;
+                              const shortfallQty = Math.max(0, plannedQty - currentStock);
+                              const uom = p.unit || p.productUom || formatCleanUom(matchedMaster.consumptionUnit || matchedMaster.uom, 'pcs', matchedMaster);
+
+                              return (
+                                <div
+                                  key={idx}
+                                  className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-purple-300 dark:hover:border-purple-700 hover:shadow-sm transition-all flex flex-col justify-between gap-3"
+                                >
+                                  <div>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="font-extrabold text-slate-900 dark:text-white text-xs leading-snug">
+                                        {p.name || p.productName || 'Finished Product'}
+                                      </div>
+                                      <span className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                        {p.code || p.productCode || 'FP'}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mt-2 text-[10.5px] text-slate-600 dark:text-slate-400 font-mono">
+                                      <span>Planned: <strong className="text-[#8b47d7] dark:text-purple-300 font-bold">{plannedQty} {uom}</strong></span>
+                                      <span>•</span>
+                                      <span>Stock: <strong className={currentStock > 0 ? "text-emerald-600 font-bold" : "text-slate-500"}>{currentStock} {uom}</strong></span>
+                                    </div>
+
+                                    <div className="mt-1.5">
+                                      {isSurplus ? (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                          <Check className="w-2.5 h-2.5" /> In Stock • Surplus
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                          ⚠️ Shortfall: {shortfallQty} {uom}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {!isViewMode && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => handleAddQueuedProductToAllocations(p)}
+                                      className="w-full h-7 text-xs font-bold rounded-lg bg-[#8b47d7] hover:bg-purple-700 text-white shadow-3xs cursor-pointer flex items-center justify-center gap-1.5"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      <span>+ Add to Allocations</span>
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div className="p-8 text-center text-slate-400 border border-dashed border-slate-300 dark:border-slate-800 rounded-2xl space-y-3 bg-white dark:bg-slate-900 shadow-xs">
                         <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/60 text-[#8b47d7] flex items-center justify-center mx-auto shadow-xs">
@@ -7771,6 +8438,51 @@ export default function ProductionFloorCockpitModal({
 
                   return (
                     <div className="space-y-2">
+                      {/* Compact Queued End Products Strip (Visible when allocations exist) */}
+                      {queuedBatchProducts && queuedBatchProducts.length > 0 && (
+                        <div className="px-3 py-2 rounded-xl bg-purple-50/70 dark:bg-purple-950/30 border border-purple-200/80 dark:border-purple-800/50 flex items-center justify-between flex-wrap gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-[11px] text-purple-950 dark:text-purple-200 flex items-center gap-1">
+                              <Boxes className="w-3.5 h-3.5 text-[#8b47d7]" />
+                              <span>Queued For Batch:</span>
+                            </span>
+                            {queuedBatchProducts.map((qp, qIdx) => {
+                              const qId = qp.productId || qp.id;
+                              const allocMatch = allocations.find(a => String(a.productId || a.product_id) === String(qId));
+                              const isAllocated = Boolean(allocMatch);
+                              return (
+                                <span
+                                  key={qIdx}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold transition-all ${
+                                    isAllocated
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
+                                      : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-200 cursor-pointer'
+                                  }`}
+                                  onClick={() => !isAllocated && handleAddQueuedProductToAllocations(qp)}
+                                  title={isAllocated ? `Already in mould allocations (Seq #${allocMatch?.seq})` : 'Click to add to mould allocations'}
+                                >
+                                  {isAllocated ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Plus className="w-2.5 h-2.5 text-amber-600" />}
+                                  <span>{qp.name || qp.productName}</span>
+                                  <span className="opacity-75">({qp.plannedQty} {qp.unit})</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+
+                          {!isViewMode && queuedBatchProducts.some(qp => !allocations.some(a => String(a.productId || a.product_id) === String(qp.productId || qp.id))) && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleAddAllQueuedProductsToAllocations}
+                              className="h-6 px-2 text-[10px] font-bold rounded-md bg-[#8b47d7] hover:bg-purple-700 text-white shadow-3xs cursor-pointer flex items-center gap-1"
+                            >
+                              <Plus className="w-2.5 h-2.5" />
+                              <span>+ Add Remaining Queued</span>
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
                       {/* Top Layout Switcher & Information Strip */}
                       <div className="flex items-center justify-between px-1 flex-wrap gap-2">
                         <div className="flex items-center gap-2">

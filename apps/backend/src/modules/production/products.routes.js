@@ -960,9 +960,35 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
     // Reversed for latest first display in ledger table
     const ledgerMovements = [...chronologicalMovements].reverse();
 
-    // 2. Production Inflow Batches
+    // 2. Production Inflow Batches (supports single-product and multi-product batch runs)
+    const movementBatchIds = rawMovements.map(m => m.batchId).filter(Boolean);
+    const relatedBatchIdRows = await prisma.$queryRawUnsafe(`
+      SELECT DISTINCT batch_id FROM (
+        SELECT batch_id FROM production_batch_items WHERE product_id = $1
+        UNION
+        SELECT batch_id FROM production_batch_day_outputs WHERE product_id = $1
+        UNION
+        SELECT batch_id FROM finished_product_stock_lots WHERE product_id = $1
+      ) sub WHERE batch_id IS NOT NULL;
+    `, product.id).catch(() => []);
+
+    const allBatchIds = Array.from(new Set([
+      ...movementBatchIds,
+      ...relatedBatchIdRows.map(r => r.batch_id)
+    ]));
+
+    const batchesWhere = allBatchIds.length > 0 
+      ? {
+          OR: [
+            { productId: product.id },
+            { id: { in: allBatchIds } }
+          ],
+          deletedAt: null
+        }
+      : { productId: product.id, deletedAt: null };
+
     const batches = await prisma.productionBatchNew.findMany({
-      where: { productId: product.id },
+      where: batchesWhere,
       include: {
         creator: { select: { name: true } },
         order: { select: { id: true, docNo: true, referenceNo: true, type: true } },
@@ -983,8 +1009,16 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
     });
 
     const formattedBatches = batches.map(b => {
-      const planned = Number(b.quantity || b.plannedQuantity || 0);
-      const actual = Number(b.actualOutput !== null && b.actualOutput !== undefined ? b.actualOutput : (b.quantity || 0));
+      let planned = Number(b.quantity || b.plannedQuantity || 0);
+      let actual = Number(b.actualOutput !== null && b.actualOutput !== undefined ? b.actualOutput : (b.quantity || 0));
+
+      // For multi-product batches where this product is one of the yields, compute product-specific yield
+      const productMovementsForBatch = rawMovements.filter(m => m.batchId === b.id && m.direction === 1);
+      if (productMovementsForBatch.length > 0) {
+        const movSum = productMovementsForBatch.reduce((sum, m) => sum + Number(m.quantity || 0), 0);
+        if (movSum > 0) actual = movSum;
+      }
+
       const yieldPct = planned > 0 ? ((actual / planned) * 100).toFixed(1) : (actual > 0 ? '100' : '0');
       const latestQc = b.qcTests && b.qcTests.length > 0 ? b.qcTests[b.qcTests.length - 1] : null;
       const unitCostVal = Number(b.costPerUnit || b.unitCost || (planned > 0 ? Number(b.totalCost || b.grandTotal || 0) / planned : 0));

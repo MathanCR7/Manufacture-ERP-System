@@ -5,7 +5,7 @@ import {
   Factory, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
   Layers, Clock, AlertCircle, Sparkles, Database, Check, Package,
   Sliders, ChevronRight, Boxes, RotateCcw, Plus, ShoppingCart, User,
-  ExternalLink, ChevronDown, ChevronUp, ArrowRight
+  ExternalLink, ChevronDown, ChevronUp, ArrowRight, X, Search, Phone
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +43,22 @@ export default function StandardProductionFormPage() {
   const [loadingSalesOrder, setLoadingSalesOrder] = useState(false);
   const [demandPanelOpen, setDemandPanelOpen] = useState(true);
   const [openSalesOrdersList, setOpenSalesOrdersList] = useState([]);
+
+  // ── Searchable Sales Order Dropdown State ──
+  const [soSearchQuery, setSoSearchQuery] = useState('');
+  const [soDropdownOpen, setSoDropdownOpen] = useState(false);
+  const soDropdownRef = useRef(null);
+
+  // Close SO dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (soDropdownRef.current && !soDropdownRef.current.contains(e.target)) {
+        setSoDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ── Master Data from Live APIs ──
   const [bases, setBases] = useState([]);
@@ -181,6 +197,44 @@ export default function StandardProductionFormPage() {
         if (ord) {
           setLinkedSalesOrder(ord);
           setNote(prev => prev ? prev : `Production for Sales Order #${ord.docNo || ord.referenceNo || ''} (${ord.customer?.name || ord.customerName || 'Customer'})`);
+          
+          // Auto-queue all items from the sales order into the batch if currently empty
+          if (Array.isArray(ord.items) && ord.items.length > 0) {
+            setSelectedProducts(prev => {
+              if (prev && prev.length > 0) return prev;
+              let firstBaseId = null;
+              const queuedProds = ord.items.map(it => {
+                const pId = it.productId || it.product?.id || it.id;
+                const matchedMaster = products.find(p => p.id === pId) || it.product || {};
+                const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
+                const prodName = matchedMaster.name || it.productName || it.name || 'End Product';
+                const prodCode = matchedMaster.code || it.productCode || it.code || 'FG-ITEM';
+                const prodUnit = formatCleanUom(matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || it.uomName || matchedMaster.unit, 'pcs', matchedMaster);
+
+                if (!firstBaseId && matchedMaster.baseId) {
+                  firstBaseId = matchedMaster.baseId;
+                }
+
+                return {
+                  productId: pId,
+                  name: prodName,
+                  code: prodCode,
+                  series: matchedMaster.specifications?.series || matchedMaster.series || 'REGULAR',
+                  group: matchedMaster.specifications?.group || matchedMaster.group || 'GENERAL',
+                  factor: Number(matchedMaster.specifications?.factor || matchedMaster.factor || 1),
+                  baseName: matchedMaster.specifications?.baseName || matchedMaster.baseName || selectedBaseName,
+                  plannedQty: demandedQty,
+                  unit: prodUnit
+                };
+              });
+
+              if (firstBaseId && !selectedBaseId) {
+                setSelectedBaseId(firstBaseId);
+              }
+
+              return queuedProds;
+            });
+          }
         }
       })
       .catch(err => {
@@ -231,6 +285,101 @@ export default function StandardProductionFormPage() {
     }
   };
 
+  const handleRemoveProductFromSalesDemand = (itemOrId) => {
+    const pId = typeof itemOrId === 'string' ? itemOrId : (itemOrId.productId || itemOrId.product?.id || itemOrId.id);
+    setSelectedProducts(prev => prev.filter(p => p.productId !== pId));
+  };
+
+  // ── FILTER OPEN SALES ORDERS: ONLY ORDERS WITH SHORTFALL (NOT FULLY IN STOCK) ──
+  // If every item in the sales order is already in stock and available (currentStock >= demandedQty), exclude it!
+  const ordersNeedingProduction = useMemo(() => {
+    return openSalesOrdersList.filter(so => {
+      const items = Array.isArray(so.items) ? so.items : [];
+      if (items.length === 0) return false;
+
+      // An order needs production only if at least one item has a shortfall (demandedQty > currentStock)
+      const hasShortfall = items.some(it => {
+        const pId = it.productId || it.product?.id || it.id;
+        const matchedMaster = products.find(p => p.id === pId) || it.product || {};
+        const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? it.product?.currentStock ?? 0);
+        const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 0));
+        return demandedQty > currentStock;
+      });
+
+      return hasShortfall;
+    });
+  }, [openSalesOrdersList, products]);
+
+  // Search filtered sales orders by SO# / DocNo, Customer Name, Phone #, or Total Quantity
+  const filteredSalesOrders = useMemo(() => {
+    if (!soSearchQuery.trim()) return ordersNeedingProduction;
+    const q = soSearchQuery.toLowerCase().trim();
+    return ordersNeedingProduction.filter(so => {
+      const docNo = (so.docNo || so.referenceNo || '').toLowerCase();
+      const custName = (so.customer?.name || so.customerName || '').toLowerCase();
+      const phone = (so.customer?.phone || so.customer?.mobile || so.customerMobile || so.customerPhone || '').toLowerCase();
+      const totalQty = String((so.items || []).reduce((sum, it) => sum + Number(it.quantity || 0), 0));
+      return docNo.includes(q) || custName.includes(q) || phone.includes(q) || totalQty.includes(q);
+    });
+  }, [ordersNeedingProduction, soSearchQuery]);
+
+  // Handle selecting a Sales Order from the searchable dropdown
+  const handleSelectSalesOrderFromDropdown = (so) => {
+    setLinkedSalesOrder(so);
+    setNote(`Production for Sales Order #${so.docNo || so.referenceNo || ''} (${so.customer?.name || so.customerName || 'Customer'})`);
+    setSoDropdownOpen(false);
+    setSoSearchQuery('');
+
+    // Automatically queue ALL items from the sales order into selectedProducts so none are skipped
+    if (Array.isArray(so.items) && so.items.length > 0) {
+      let firstBaseId = null;
+      const queuedProds = so.items.map(it => {
+        const pId = it.productId || it.product?.id || it.id;
+        const matchedMaster = products.find(p => p.id === pId) || it.product || {};
+        const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
+        const prodName = matchedMaster.name || it.productName || it.name || 'End Product';
+        const prodCode = matchedMaster.code || it.productCode || it.code || 'FG-ITEM';
+        const prodUnit = formatCleanUom(matchedMaster.unit?.abbreviation || matchedMaster.unit?.name || it.uomName || matchedMaster.unit, 'pcs', matchedMaster);
+
+        if (!firstBaseId && matchedMaster.baseId) {
+          firstBaseId = matchedMaster.baseId;
+        }
+
+        return {
+          productId: pId,
+          name: prodName,
+          code: prodCode,
+          series: matchedMaster.specifications?.series || matchedMaster.series || 'REGULAR',
+          group: matchedMaster.specifications?.group || matchedMaster.group || 'GENERAL',
+          factor: Number(matchedMaster.specifications?.factor || matchedMaster.factor || 1),
+          baseName: matchedMaster.specifications?.baseName || matchedMaster.baseName || selectedBaseName,
+          plannedQty: demandedQty,
+          unit: prodUnit
+        };
+      });
+
+      setSelectedProducts(queuedProds);
+
+      if (firstBaseId && bases.some(b => b.id === firstBaseId)) {
+        setSelectedBaseId(firstBaseId);
+      }
+      if (allTemplates.length > 0) {
+        const matchTpl = allTemplates.find(t => (firstBaseId && t.baseId === firstBaseId) || t.baseId === selectedBaseId) || allTemplates[0];
+        if (matchTpl) {
+          handleSelectTemplate(matchTpl);
+        }
+      }
+
+      Swal.fire({
+        title: 'Sales Order Demand Loaded',
+        text: `Loaded SO #${so.docNo || so.referenceNo} with all ${queuedProds.length} item(s) (${queuedProds.reduce((s, p) => s + p.plannedQty, 0)} pcs).`,
+        icon: 'success',
+        timer: 1800,
+        showConfirmButton: false
+      });
+    }
+  };
+
   const handleAddAllSalesDemandProducts = () => {
     if (!linkedSalesOrder?.items || linkedSalesOrder.items.length === 0) return;
     let count = 0;
@@ -241,13 +390,21 @@ export default function StandardProductionFormPage() {
         count++;
       }
     });
+
     if (count > 0) {
       Swal.fire({
-        title: 'End Products Added',
-        text: `Successfully added ${count} end product(s) to the batch queue.`,
+        title: 'Products Added to Batch Queue',
+        text: `Successfully queued all ${count} sales order product(s) for standard production.`,
         icon: 'success',
         timer: 1800,
         showConfirmButton: false
+      });
+    } else {
+      Swal.fire({
+        title: 'All Products Already Queued',
+        text: 'All items from this sales order are already in the batch queue.',
+        icon: 'info',
+        timer: 1500
       });
     }
   };
@@ -1021,6 +1178,7 @@ export default function StandardProductionFormPage() {
 
     const payload = {
       productionType: 'STANDARD',
+      orderId: linkedSalesOrder?.id || salesOrderIdFromUrl || null,
       batchNumber: `BAT-${Date.now().toString().slice(-6)}`,
       shortBatchCode: shortBatchCode || formatDateToDDMMYY(productionDate),
       productionDate,
@@ -1482,8 +1640,151 @@ export default function StandardProductionFormPage() {
           {/* ── RIGHT SIDEBAR (STICKY, TOP: 92px): BATCH SUMMARY & LABOUR STAFF ── */}
           <aside className="space-y-5 xl:sticky xl:top-[92px]">
             
+            {/* ── SEARCHABLE SALES ORDER DEMAND DROPDOWN ── */}
+            {openSalesOrdersList.length > 0 && (
+              <div ref={soDropdownRef} className="relative bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800/80 rounded-2xl p-3.5 shadow-xs space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase text-amber-800 dark:text-amber-400 flex items-center gap-1.5">
+                    <ShoppingCart className="w-3.5 h-3.5 text-amber-600" />
+                    Load Sales Order Demand
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-800">
+                    {ordersNeedingProduction.length} Needing Production
+                  </span>
+                </div>
+
+                {/* Dropdown Trigger */}
+                <div
+                  onClick={() => setSoDropdownOpen(!soDropdownOpen)}
+                  className="w-full min-h-[38px] px-3 py-1.5 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 flex items-center justify-between gap-2 cursor-pointer hover:border-amber-400 transition-colors shadow-3xs"
+                >
+                  {linkedSalesOrder ? (
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="font-mono font-bold text-amber-700 dark:text-amber-400 shrink-0">
+                        SO #{linkedSalesOrder.docNo || linkedSalesOrder.referenceNo}
+                      </span>
+                      <span className="text-slate-400">•</span>
+                      <span className="truncate">{linkedSalesOrder.customer?.name || linkedSalesOrder.customerName || 'Customer'}</span>
+                      {linkedSalesOrder.customer?.phone && (
+                        <>
+                          <span className="text-slate-400">•</span>
+                          <span className="text-slate-500 font-mono text-[10px] flex items-center gap-0.5 shrink-0">
+                            <Phone className="w-2.5 h-2.5 text-slate-400" />
+                            {linkedSalesOrder.customer.phone}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">
+                      Search &amp; select open sales order...
+                    </span>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${soDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+
+                {/* Dropdown Menu Panel */}
+                {soDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-100">
+                    {/* Search Input Bar */}
+                    <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          autoFocus
+                          type="text"
+                          placeholder="Search Order ID, Phone #, Customer Name, or Qty..."
+                          value={soSearchQuery}
+                          onChange={(e) => setSoSearchQuery(e.target.value)}
+                          className="h-8 pl-8 pr-7 text-xs rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus-visible:ring-1 focus-visible:ring-amber-500"
+                        />
+                        {soSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setSoSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Results List */}
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 p-1">
+                      {filteredSalesOrders.length > 0 ? (
+                        filteredSalesOrders.map((so) => {
+                          const isSelected = linkedSalesOrder?.id === so.id;
+                          const custPhone = so.customer?.phone || so.customer?.mobile || so.customerPhone || so.customerMobile || '';
+                          const itemsCount = so.items?.length || 0;
+                          const totalOrderedQty = (so.items || []).reduce((sum, it) => sum + Number(it.quantity || 0), 0);
+                          const shortfallCount = (so.items || []).filter(it => {
+                            const pId = it.productId || it.product?.id || it.id;
+                            const p = products.find(prod => prod.id === pId) || it.product || {};
+                            const stock = Number(p.currentStock ?? p.current_stock ?? p.stock ?? 0);
+                            const demanded = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 0));
+                            return demanded > stock;
+                          }).length;
+
+                          return (
+                            <div
+                              key={so.id}
+                              onClick={() => handleSelectSalesOrderFromDropdown(so)}
+                              className={`p-2.5 rounded-xl cursor-pointer transition-all flex flex-col gap-1.5 ${
+                                isSelected
+                                  ? 'bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700'
+                                  : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono font-bold text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                                  <span>SO #{so.docNo || so.referenceNo}</span>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                                </span>
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700">
+                                  Ordered: {totalOrderedQty} pcs ({itemsCount} items)
+                                </span>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300">
+                                <span className="font-semibold truncate max-w-[190px]" title={so.customer?.name || so.customerName}>
+                                  {so.customer?.name || so.customerName || 'Customer'}
+                                </span>
+                                {custPhone ? (
+                                  <span className="font-mono text-[10px] text-slate-500 flex items-center gap-1">
+                                    <Phone className="w-2.5 h-2.5 text-slate-400" />
+                                    {custPhone}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">No phone</span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 text-[9.5px]">
+                                <span className="px-1.5 py-0.2 rounded bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-800">
+                                  ⚠️ {shortfallCount} item(s) need production
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="p-4 text-center text-xs text-slate-400">
+                          {openSalesOrdersList.length === 0
+                            ? 'No open sales orders found.'
+                            : ordersNeedingProduction.length === 0
+                              ? '✓ All open sales orders have 100% warehouse stock (no production needed).'
+                              : `No matching sales orders found for "${soSearchQuery}".`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── SALES ORDER DEMAND & END PRODUCTS (SIDEBAR PANEL) ── */}
-            {linkedSalesOrder ? (
+            {linkedSalesOrder && (
               <div className="bg-gradient-to-br from-amber-50/95 via-orange-50/60 to-amber-100/70 dark:from-amber-950/50 dark:via-orange-950/30 dark:to-amber-900/40 border-2 border-amber-300 dark:border-amber-700/80 rounded-2xl p-4 shadow-sm space-y-3">
                 <div className="flex items-center justify-between pb-2.5 border-b border-amber-200 dark:border-amber-800">
                   <div className="flex items-center gap-2">
@@ -1515,49 +1816,92 @@ export default function StandardProductionFormPage() {
                 </div>
 
                 {/* Items List */}
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                   {(linkedSalesOrder.items || []).map((it, idx) => {
                     const pId = it.productId || it.product?.id || it.id;
                     const isAdded = selectedProducts.some(p => p.productId === pId);
                     const prodName = it.product?.name || it.productName || it.name || 'End Product';
                     const prodCode = it.product?.code || it.productCode || it.code || 'ITEM';
-                    const qty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
+                    const demandedQty = Number(it.shortfallQty > 0 ? it.shortfallQty : (it.quantity || 100));
                     const uom = it.uomName || it.product?.unit?.abbreviation || 'pcs';
+
+                    const matchedMaster = products.find(p => p.id === pId) || it.product || {};
+                    const currentStock = Number(matchedMaster.currentStock ?? matchedMaster.stock ?? matchedMaster.availableStock ?? it.product?.currentStock ?? 0);
+                    const isSurplus = currentStock >= demandedQty && demandedQty > 0;
+                    const shortfallQty = Math.max(0, demandedQty - currentStock);
 
                     return (
                       <div
                         key={idx}
                         className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${
-                          isAdded
-                            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 shadow-3xs'
-                            : 'bg-white dark:bg-slate-900 border-amber-200/90 dark:border-slate-800 shadow-3xs'
+                          isSurplus
+                            ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-3xs'
+                            : (isAdded
+                                ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800 shadow-3xs'
+                                : 'bg-white dark:bg-slate-900 border-amber-200/90 dark:border-slate-800 shadow-3xs')
                         }`}
                       >
-                        <div className="min-w-0">
-                          <div className="font-extrabold text-slate-900 dark:text-white truncate text-[11.5px]" title={prodName}>
-                            {prodName}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                            <span>{prodCode}</span>
-                            <span>•</span>
-                            <span className="font-bold text-amber-600 dark:text-amber-400">
-                              Demanded: {qty} {uom}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-slate-900 dark:text-white truncate text-[11.5px]" title={prodName}>
+                              {prodName}
                             </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              ({prodCode})
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5 flex-wrap">
+                            <span className="font-bold text-amber-700 dark:text-amber-400">
+                              Demanded: {demandedQty} {uom}
+                            </span>
+                            <span>•</span>
+                            <span className={currentStock > 0 ? "font-bold text-emerald-700 dark:text-emerald-400" : "text-slate-500"}>
+                              Stock: {currentStock} {uom}
+                            </span>
+                          </div>
+
+                          <div className="mt-1">
+                            {isSurplus ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                                ✓ In Stock ({currentStock} {uom}) • Surplus • No Production Needed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                ⚠️ Shortfall: {shortfallQty} {uom}
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        <div>
+                        <div className="shrink-0 flex items-center gap-1.5">
                           {isAdded ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
-                              <Check className="w-3 h-3" /> In Batch
-                            </span>
+                            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1">
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                                <Check className="w-3 h-3" /> In Batch
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => handleRemoveProductFromSalesDemand(pId)}
+                                className="h-6 px-1.5 text-[10px] font-bold rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 cursor-pointer shadow-3xs flex items-center gap-0.5"
+                                title="Remove this product from batch queue"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>Remove</span>
+                              </Button>
+                            </div>
                           ) : (
                             <Button
                               type="button"
                               size="sm"
                               onClick={() => handleAddProductFromSalesDemand(it)}
-                              className="h-6.5 px-2.5 text-[10.5px] font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shadow-3xs flex items-center gap-1 shrink-0"
-                              title="Add this demanded end product to Step 3 batch queue"
+                              className={`h-6.5 px-2.5 text-[10.5px] font-bold rounded-lg text-white cursor-pointer shadow-3xs flex items-center gap-1 shrink-0 ${
+                                isSurplus
+                                  ? 'bg-slate-600 hover:bg-slate-700'
+                                  : 'bg-indigo-600 hover:bg-indigo-700'
+                              }`}
+                              title={isSurplus ? "Stock already sufficient — optional add to batch" : "Add this demanded end product to Step 3 batch queue"}
                             >
                               <Plus className="w-3 h-3" />
                               <span>+ Add</span>
@@ -1569,35 +1913,7 @@ export default function StandardProductionFormPage() {
                   })}
                 </div>
               </div>
-            ) : openSalesOrdersList.length > 0 ? (
-              <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/80 rounded-2xl p-4 shadow-xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                    <ShoppingCart className="w-3.5 h-3.5 text-amber-600" />
-                    Load Sales Order Demand
-                  </span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold">
-                    {openSalesOrdersList.length} Open
-                  </span>
-                </div>
-                <select
-                  onChange={(e) => {
-                    const selId = e.target.value;
-                    const found = openSalesOrdersList.find(o => o.id === selId);
-                    if (found) setLinkedSalesOrder(found);
-                  }}
-                  defaultValue=""
-                  className="w-full h-8 px-2 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 outline-none"
-                >
-                  <option value="" disabled>Select an open Sales Order...</option>
-                  {openSalesOrdersList.map(so => (
-                    <option key={so.id} value={so.id}>
-                      {so.docNo || so.referenceNo} • {so.customerName || so.customer?.name} ({so.items?.length || 0} items)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+            )}
 
             {/* Card "Batch summary" */}
             <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs space-y-4">

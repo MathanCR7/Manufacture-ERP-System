@@ -350,6 +350,7 @@ class StandardProductionController {
             batchNo: generatedBatchNo,
             referenceNo: generatedBatchNo,
             productId: productId || null,
+            orderId: data.orderId || null,
             productionType: 'STANDARD',
             status: 'Draft',
             startDate: startDate,
@@ -378,6 +379,52 @@ class StandardProductionController {
           }
         });
 
+        // Save multi-product items & initial mould allocations
+        const inputProducts = Array.isArray(data.selectedProducts) && data.selectedProducts.length > 0
+          ? data.selectedProducts
+          : (Array.isArray(data.products) && data.products.length > 0 ? data.products : []);
+
+        const initialAllocations = [];
+        if (inputProducts.length > 0) {
+          for (let pIdx = 0; pIdx < inputProducts.length; pIdx++) {
+            const p = inputProducts[pIdx];
+            const pId = p.productId || p.id;
+            if (!pId) continue;
+            const itemId = require('crypto').randomUUID();
+            await tx.$executeRawUnsafe(`
+              INSERT INTO production_batch_items (
+                id, batch_id, product_id, planned_qty, factor, created_at
+              ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+              ON CONFLICT (id) DO NOTHING;
+            `, itemId, batch.id, pId, Number(p.plannedQty || 0), Number(p.factor || 1.0)).catch(() => {});
+
+            initialAllocations.push({
+              seq: pIdx + 1,
+              productId: pId,
+              productName: p.name || p.productName || 'Finished Product',
+              productCode: p.code || p.productCode || 'FP',
+              productUom: p.unit || 'pcs',
+              useMould: true,
+              bulkUom: (p.unit === 'pcs' || !p.unit) ? 'Liter' : p.unit,
+              allocatedBaseMl: 0,
+              mouldId: null,
+              mouldCode: '',
+              mouldName: '',
+              capacityMl: 0,
+              cavities: 0,
+              trays: 0,
+              wasteMode: 'PERCENT',
+              wasteValue: 0,
+              productBatchNo: '',
+              productBatchNoCustomized: false,
+              productSerialNo: '',
+              productRms: []
+            });
+          }
+        }
+
+        const mouldAllocationsJson = JSON.stringify(initialAllocations);
+
         // Persist additive DDMMYY editable short batch code & initial active_day_no
         const defaultShortCode = sanitizeToken(
           data.shortBatchCode || data.dayBatchCode || formatDDMMYY(startDate),
@@ -389,9 +436,10 @@ class StandardProductionController {
           SET short_batch_code = $2,
               active_day_no = 1,
               completed_days_count = 0,
+              mould_allocations = $3::jsonb,
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $1;
-        `, batch.id, defaultShortCode).catch(() => {});
+        `, batch.id, defaultShortCode, mouldAllocationsJson).catch(() => {});
 
         // If formulation lines were sent, save them into production_batch_rm_line
         const rawMaterials = Array.isArray(data.rawMaterials) ? data.rawMaterials : [];
@@ -560,6 +608,7 @@ class StandardProductionController {
           where: { id },
           data: {
             startDate: data.startDate ? new Date(data.startDate) : undefined,
+            orderId: data.orderId !== undefined ? data.orderId : undefined,
             shift: data.shift !== undefined ? data.shift : undefined,
             machineLine: data.machineLine !== undefined ? data.machineLine : undefined,
             baseId: data.baseId !== undefined ? data.baseId : undefined,
@@ -707,6 +756,66 @@ class StandardProductionController {
                 }
               }
             }
+          }
+        }
+
+        // Update multi-product items & mould allocations if provided in update draft
+        const updateProducts = Array.isArray(data.selectedProducts)
+          ? data.selectedProducts
+          : (Array.isArray(data.products) ? data.products : null);
+
+        if (Array.isArray(updateProducts) && updateProducts.length > 0) {
+          await tx.$executeRawUnsafe(`DELETE FROM production_batch_items WHERE batch_id = $1;`, id).catch(() => {});
+          const initialAllocations = [];
+          for (let pIdx = 0; pIdx < updateProducts.length; pIdx++) {
+            const p = updateProducts[pIdx];
+            const pId = p.productId || p.id;
+            if (!pId) continue;
+            const itemId = require('crypto').randomUUID();
+            await tx.$executeRawUnsafe(`
+              INSERT INTO production_batch_items (
+                id, batch_id, product_id, planned_qty, factor, created_at
+              ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+              ON CONFLICT (id) DO NOTHING;
+            `, itemId, id, pId, Number(p.plannedQty || 0), Number(p.factor || 1.0)).catch(() => {});
+
+            initialAllocations.push({
+              seq: pIdx + 1,
+              productId: pId,
+              productName: p.name || p.productName || 'Finished Product',
+              productCode: p.code || p.productCode || 'FP',
+              productUom: p.unit || 'pcs',
+              useMould: true,
+              bulkUom: (p.unit === 'pcs' || !p.unit) ? 'Liter' : p.unit,
+              allocatedBaseMl: 0,
+              mouldId: null,
+              mouldCode: '',
+              mouldName: '',
+              capacityMl: 0,
+              cavities: 0,
+              trays: 0,
+              wasteMode: 'PERCENT',
+              wasteValue: 0,
+              productBatchNo: '',
+              productBatchNoCustomized: false,
+              productSerialNo: '',
+              productRms: []
+            });
+          }
+
+          // If mould_allocations is currently empty in database, initialize it with these products
+          const currentMouldRows = await tx.$queryRawUnsafe(`
+            SELECT mould_allocations FROM production_batches WHERE id = $1 LIMIT 1;
+          `, id).catch(() => []);
+          const existingAlloc = currentMouldRows?.[0]?.mould_allocations;
+          const parsedExisting = typeof existingAlloc === 'string' ? JSON.parse(existingAlloc || '[]') : (existingAlloc || []);
+          if (!Array.isArray(parsedExisting) || parsedExisting.length === 0) {
+            await tx.$executeRawUnsafe(`
+              UPDATE production_batches
+              SET mould_allocations = $2::jsonb,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = $1;
+            `, id, JSON.stringify(initialAllocations)).catch(() => {});
           }
         }
 
@@ -1541,10 +1650,17 @@ class StandardProductionController {
           SELECT 
             pb.*,
             bm.name AS base_name,
-            pt.name AS template_name
+            pt.name AS template_name,
+            COALESCE(p.name, p2.name) AS product_name,
+            COALESCE(p.code, p2.code) AS product_code,
+            COALESCE(puom.abbreviation, puom.name, p2uom.abbreviation, p2uom.name, 'pcs') AS product_unit
           FROM production_batches pb
           LEFT JOIN base_master bm ON bm.id = pb.base_id
           LEFT JOIN production_templates pt ON pt.id = pb.template_id
+          LEFT JOIN products p ON p.id = pb.product_id
+          LEFT JOIN "UOM" puom ON puom.id = p.unit_id
+          LEFT JOIN "Product" p2 ON p2.id = pb.product_id
+          LEFT JOIN "UOM" p2uom ON p2uom.id = p2."unitId"
           WHERE pb.id = $1;
         `, id);
       } catch (_) {
@@ -1816,6 +1932,70 @@ class StandardProductionController {
         console.warn('Notice reading production_batch_days:', daysErr.message);
       }
 
+      // Fetch batch items and linked sales order
+      let batchItems = [];
+      try {
+        batchItems = await prisma.$queryRawUnsafe(`
+          SELECT 
+            pbi.id,
+            pbi.product_id,
+            pbi.planned_qty,
+            pbi.factor,
+            COALESCE(p.name, p2.name) AS product_name,
+            COALESCE(p.code, p2.code) AS product_code,
+            COALESCE(puom.abbreviation, puom.name, p2uom.abbreviation, p2uom.name, 'pcs') AS product_unit
+          FROM production_batch_items pbi
+          LEFT JOIN products p ON p.id = pbi.product_id
+          LEFT JOIN "UOM" puom ON puom.id = p.unit_id
+          LEFT JOIN "Product" p2 ON p2.id = pbi.product_id
+          LEFT JOIN "UOM" p2uom ON p2uom.id = p2."unitId"
+          WHERE pbi.batch_id = $1
+          ORDER BY pbi.created_at;
+        `, id);
+      } catch (_) {
+        batchItems = [];
+      }
+
+      let salesOrder = null;
+      const targetOrderId = batch.order_id || batch.orderId;
+      if (targetOrderId) {
+        try {
+          salesOrder = await prisma.customerOrder.findUnique({
+            where: { id: targetOrderId },
+            include: {
+              customer: true,
+              items: {
+                include: { product: true }
+              }
+            }
+          });
+        } catch (_) {}
+      }
+
+      if (batchItems.length === 0 && batch.product_id) {
+        batchItems = [{
+          id: batch.id,
+          product_id: batch.product_id,
+          planned_qty: Number(batch.quantity || 0),
+          factor: 1,
+          product_name: batch.product_name || 'Finished Product',
+          product_code: batch.product_code || 'FP',
+          product_unit: batch.product_unit || 'pcs'
+        }];
+      }
+
+      if (batchItems.length === 0 && salesOrder && Array.isArray(salesOrder.items) && salesOrder.items.length > 0) {
+        batchItems = salesOrder.items.map((soIt, idx) => ({
+          id: soIt.id || `so-it-${idx}`,
+          product_id: soIt.productId || soIt.product?.id,
+          planned_qty: Number(soIt.demandedQty ?? soIt.orderedQuantity ?? soIt.quantity ?? 0),
+          factor: 1,
+          product_name: soIt.product?.name || soIt.productName || 'Finished Product',
+          product_code: soIt.product?.code || soIt.productCode || 'FP',
+          product_unit: soIt.product?.unit?.abbreviation || soIt.product?.unit?.name || soIt.product?.unitId || soIt.uomName || 'pcs'
+        }));
+      }
+
       const activeDayNo = Math.max(1, Number(batch.active_day_no || 1));
       const viewingDayNo = req.query?.dayNo ? Math.max(1, Number(req.query.dayNo)) : activeDayNo;
       const hasMultiDay = days.length > 0;
@@ -1919,16 +2099,107 @@ class StandardProductionController {
         } catch (_) {}
       }
 
-      // Merge saved rich mould_allocations JSON ONLY when there are active rows (or legacy single-day batch)
+      // Merge saved rich mould_allocations JSON
       let savedMouldAllocs = [];
-      if (!hasMultiDay || allocations.length > 0) {
-        try {
-          if (typeof batch.mould_allocations === 'string') {
-            savedMouldAllocs = JSON.parse(batch.mould_allocations || '[]');
-          } else if (Array.isArray(batch.mould_allocations)) {
-            savedMouldAllocs = batch.mould_allocations;
-          }
-        } catch (_) {}
+      try {
+        if (typeof batch.mould_allocations === 'string') {
+          savedMouldAllocs = JSON.parse(batch.mould_allocations || '[]');
+        } else if (Array.isArray(batch.mould_allocations)) {
+          savedMouldAllocs = batch.mould_allocations;
+        }
+      } catch (_) {}
+
+      // If allocations is empty for Day 1, populate it from savedMouldAllocs or batchItems or salesOrder
+      if (allocations.length === 0 && viewingDayNo === 1) {
+        if (savedMouldAllocs.length > 0) {
+          allocations = savedMouldAllocs.map((sa, idx) => ({
+            seq: sa.seq || (idx + 1),
+            product_id: sa.productId || sa.product_id,
+            product_name: sa.productName || sa.product_name,
+            product_code: sa.productCode || sa.product_code,
+            product_unit: sa.productUom || sa.product_unit || 'pcs',
+            use_mould: sa.useMould !== undefined ? Boolean(sa.useMould) : true,
+            bulk_uom: sa.bulkUom || sa.productUom || 'pcs',
+            mould_id: sa.mouldId || null,
+            mould_code: sa.mouldCode || '',
+            mould_name: sa.mouldName || '',
+            capacity_ml: Number(sa.capacityMl || 0),
+            cavities: Number(sa.cavities || 0),
+            trays: Number(sa.trays || 0),
+            waste_mode: sa.wasteMode || 'PERCENT',
+            waste_value: Number(sa.wasteValue || 0),
+            allocated_base_ml: Number(sa.allocatedBaseMl || 0),
+            product_rms: Array.isArray(sa.productRms) ? sa.productRms : [],
+            product_batch_no: sa.productBatchNo || '',
+            product_serial_no: sa.productSerialNo || ''
+          }));
+        } else if (batchItems.length > 0) {
+          allocations = batchItems.map((bi, idx) => ({
+            seq: idx + 1,
+            product_id: bi.product_id,
+            product_name: bi.product_name || 'Finished Product',
+            product_code: bi.product_code || 'FP',
+            product_unit: bi.product_unit || 'pcs',
+            use_mould: true,
+            bulk_uom: bi.product_unit === 'pcs' ? 'Liter' : bi.product_unit,
+            mould_id: null,
+            mould_code: '',
+            mould_name: '',
+            capacity_ml: 0,
+            cavities: 0,
+            trays: 0,
+            waste_mode: 'PERCENT',
+            waste_value: 0,
+            allocated_base_ml: 0,
+            product_rms: [],
+            product_batch_no: '',
+            product_serial_no: ''
+          }));
+        } else if (salesOrder && Array.isArray(salesOrder.items) && salesOrder.items.length > 0) {
+          allocations = salesOrder.items.map((soIt, idx) => ({
+            seq: idx + 1,
+            product_id: soIt.productId,
+            product_name: soIt.product?.name || 'Finished Product',
+            product_code: soIt.product?.code || 'FP',
+            product_unit: soIt.product?.unitId || 'pcs',
+            use_mould: true,
+            bulk_uom: 'Liter',
+            mould_id: null,
+            mould_code: '',
+            mould_name: '',
+            capacity_ml: 0,
+            cavities: 0,
+            trays: 0,
+            waste_mode: 'PERCENT',
+            waste_value: 0,
+            allocated_base_ml: 0,
+            product_rms: [],
+            product_batch_no: '',
+            product_serial_no: ''
+          }));
+        } else if (batch.product_id) {
+          allocations = [{
+            seq: 1,
+            product_id: batch.product_id,
+            product_name: batch.product_name || 'Finished Product',
+            product_code: batch.product_code || 'FP',
+            product_unit: batch.product_unit || 'pcs',
+            use_mould: true,
+            bulk_uom: batch.product_unit === 'pcs' ? 'Liter' : (batch.product_unit || 'pcs'),
+            mould_id: null,
+            mould_code: '',
+            mould_name: '',
+            capacity_ml: 0,
+            cavities: 0,
+            trays: 0,
+            waste_mode: 'PERCENT',
+            waste_value: 0,
+            allocated_base_ml: 0,
+            product_rms: [],
+            product_batch_no: '',
+            product_serial_no: ''
+          }];
+        }
       }
 
       const viewingOuts = Array.isArray(viewingDayRec?.outputs) ? viewingDayRec.outputs : [];
@@ -2239,6 +2510,27 @@ class StandardProductionController {
         success: true,
         batch: {
           ...batch,
+          orderId: targetOrderId,
+          order: salesOrder,
+          salesOrder,
+          products: batchItems.map(bi => ({
+            productId: bi.product_id,
+            id: bi.product_id,
+            name: bi.product_name,
+            code: bi.product_code,
+            unit: bi.product_unit,
+            plannedQty: Number(bi.planned_qty || 0),
+            factor: Number(bi.factor || 1)
+          })),
+          selectedProducts: batchItems.map(bi => ({
+            productId: bi.product_id,
+            id: bi.product_id,
+            name: bi.product_name,
+            code: bi.product_code,
+            unit: bi.product_unit,
+            plannedQty: Number(bi.planned_qty || 0),
+            factor: Number(bi.factor || 1)
+          })),
           batchNo: batch.batch_no || batch.reference_no,
           referenceNo: batch.reference_no || batch.batch_no,
           batch_number: batch.batch_no || batch.reference_no,
@@ -2263,6 +2555,8 @@ class StandardProductionController {
           productStagesMap: parsedProductStagesMap,
           companyDetails
         },
+        salesOrder,
+        order: salesOrder,
         companyDetails,
         days,
         timelineStages: parsedTimelineStages,
@@ -3594,91 +3888,155 @@ class StandardProductionController {
 
         const batch = rows[0];
 
-        // 1. If batch was Completed or already completed Day runs, automatically restore warehouse stock (dual-layer safety)
-        if (batch.status === 'Completed' || batch.base_rm_deducted || Number(batch.completed_days_count || 0) > 0) {
-          const allocations = await tx.$queryRawUnsafe(`
-            SELECT inventory_batch_id, lot_number, allocated_qty 
-            FROM production_batch_allocations 
-            WHERE batch_id = $1 AND allocated_qty > 0;
-          `, id);
+        // 1. Calculate & Revert Finished Product Stock across all tracking sources (multi-product, day outputs, lots, items, single batch)
+        const stockMovements = await tx.$queryRawUnsafe(`
+          SELECT product_id, SUM(quantity) as qty
+          FROM product_stock_movements
+          WHERE batch_id = $1 AND (direction = 1 OR type = 'production_in') AND product_id IS NOT NULL
+          GROUP BY product_id;
+        `, id).catch(() => []);
 
-          for (const alloc of allocations) {
-            const lotId = alloc.inventory_batch_id ? String(alloc.inventory_batch_id).trim() : null;
-            const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
-            const aQty = Number(alloc.allocated_qty || 0);
-            if (aQty > 0) {
-              if (lotId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lotId)) {
-                await tx.$executeRawUnsafe(`
-                  UPDATE "InventoryBatch" 
-                  SET "netQty" = "netQty" + $1,
-                      "status" = 'AVAILABLE',
-                      "updatedAt" = CURRENT_TIMESTAMP
-                  WHERE id = $2;
-                `, aQty, lotId);
-              } else if (lotNum) {
-                await tx.$executeRawUnsafe(`
-                  UPDATE "InventoryBatch" 
-                  SET "netQty" = "netQty" + $1,
-                      "status" = 'AVAILABLE',
-                      "updatedAt" = CURRENT_TIMESTAMP
-                  WHERE "batchNumber" = $2;
-                `, aQty, lotNum);
-              }
-            }
+        const psmTotals = new Map();
+        for (const m of stockMovements) {
+          const q = Number(m.qty || 0);
+          if (m.product_id && q > 0) psmTotals.set(m.product_id, q);
+        }
+
+        const stockLots = await tx.$queryRawUnsafe(`
+          SELECT product_id, SUM(COALESCE(remaining_qty, initial_qty, 0)) as qty
+          FROM finished_product_stock_lots
+          WHERE batch_id = $1 AND product_id IS NOT NULL
+          GROUP BY product_id;
+        `, id).catch(() => []);
+
+        const lotTotals = new Map();
+        for (const l of stockLots) {
+          const q = Number(l.qty || 0);
+          if (l.product_id && q > 0) lotTotals.set(l.product_id, q);
+        }
+
+        const dayOutputs = await tx.$queryRawUnsafe(`
+          SELECT product_id, SUM(COALESCE(actual_yield, 0)) as qty
+          FROM production_batch_day_outputs
+          WHERE batch_id = $1 AND product_id IS NOT NULL
+          GROUP BY product_id;
+        `, id).catch(() => []);
+
+        const dayTotals = new Map();
+        for (const d of dayOutputs) {
+          const q = Number(d.qty || 0);
+          if (d.product_id && q > 0) dayTotals.set(d.product_id, q);
+        }
+
+        const batchItems = await tx.$queryRawUnsafe(`
+          SELECT product_id, SUM(COALESCE(actual_qty, 0)) as qty
+          FROM production_batch_items
+          WHERE batch_id = $1 AND product_id IS NOT NULL AND actual_qty > 0
+          GROUP BY product_id;
+        `, id).catch(() => []);
+
+        const itemTotals = new Map();
+        for (const item of batchItems) {
+          const q = Number(item.qty || 0);
+          if (item.product_id && q > 0) itemTotals.set(item.product_id, q);
+        }
+
+        const hasItemDetails = psmTotals.size > 0 || lotTotals.size > 0 || dayTotals.size > 0 || itemTotals.size > 0;
+
+        const allProductIds = new Set([
+          ...psmTotals.keys(),
+          ...lotTotals.keys(),
+          ...dayTotals.keys(),
+          ...itemTotals.keys()
+        ]);
+        if (!hasItemDetails && batch.product_id) {
+          allProductIds.add(batch.product_id);
+        }
+
+        for (const pId of allProductIds) {
+          const psmQ = psmTotals.get(pId) || 0;
+          const lotQ = lotTotals.get(pId) || 0;
+          const dayQ = dayTotals.get(pId) || 0;
+          const itemQ = itemTotals.get(pId) || 0;
+          let singleQ = 0;
+          if (!hasItemDetails && batch.product_id === pId) {
+            singleQ = Number(batch.good_quantity || batch.actual_output || (batch.status === 'Completed' ? batch.quantity : 0) || 0);
           }
+          const qtyToDeduct = Math.max(psmQ, lotQ, dayQ, itemQ, singleQ);
+          if (qtyToDeduct > 0) {
+            await tx.$executeRawUnsafe(`
+              UPDATE products
+              SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = $2;
+            `, qtyToDeduct, pId);
+          }
+        }
 
-          const usages = await tx.$queryRawUnsafe(`
-            SELECT rm_id, COALESCE(actual_used_qty, required_qty, input_qty, 0) AS qty
-            FROM production_batch_rm_usage
-            WHERE batch_id = $1 AND status = 'CONSUMED';
-          `, id);
+        // 2. Automatically restore Raw Material warehouse stock (dual-layer safety)
+        const allocations = await tx.$queryRawUnsafe(`
+          SELECT inventory_batch_id, lot_number, allocated_qty 
+          FROM production_batch_allocations 
+          WHERE batch_id = $1 AND allocated_qty > 0;
+        `, id).catch(() => []);
 
-          for (const u of usages) {
-            const uQty = Number(u.qty || 0);
-            if (uQty > 0 && u.rm_id) {
+        for (const alloc of allocations) {
+          const lotId = alloc.inventory_batch_id ? String(alloc.inventory_batch_id).trim() : null;
+          const lotNum = alloc.lot_number ? String(alloc.lot_number).trim() : null;
+          const aQty = Number(alloc.allocated_qty || 0);
+          if (aQty > 0) {
+            if (lotId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lotId)) {
               await tx.$executeRawUnsafe(`
-                UPDATE "RawMaterial"
-                SET "currentStock" = "currentStock" + $1,
+                UPDATE "InventoryBatch" 
+                SET "netQty" = "netQty" + $1,
+                    "status" = 'AVAILABLE',
                     "updatedAt" = CURRENT_TIMESTAMP
                 WHERE id = $2;
-              `, uQty, u.rm_id);
-            }
-          }
-
-          // Revert multi-day finished product stock lots pushed to sales, else fallback to single product
-          const pushedLots = await tx.$queryRawUnsafe(`
-            SELECT product_id, remaining_qty, initial_qty
-            FROM finished_product_stock_lots
-            WHERE batch_id = $1 AND is_sellable = TRUE;
-          `, id).catch(() => []);
-
-          if (pushedLots && pushedLots.length > 0) {
-            for (const lot of pushedLots) {
-              const revQty = Number(lot.remaining_qty ?? lot.initial_qty ?? 0);
-              if (lot.product_id && revQty > 0) {
-                await tx.$executeRawUnsafe(`
-                  UPDATE products
-                  SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
-                      updated_at = CURRENT_TIMESTAMP
-                  WHERE id = $2;
-                `, revQty, lot.product_id);
-              }
-            }
-          } else {
-            const prodYield = Number(batch.good_quantity || batch.actual_output || batch.quantity || 0);
-            if (batch.product_id && prodYield > 0 && batch.status === 'Completed') {
+              `, aQty, lotId).catch(() => {});
+            } else if (lotNum) {
               await tx.$executeRawUnsafe(`
-                UPDATE products
-                SET current_stock = GREATEST(0, COALESCE(current_stock, 0) - $1),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = $2;
-              `, prodYield, batch.product_id);
+                UPDATE "InventoryBatch" 
+                SET "netQty" = "netQty" + $1,
+                    "status" = 'AVAILABLE',
+                    "updatedAt" = CURRENT_TIMESTAMP
+                WHERE "batchNumber" = $2;
+              `, aQty, lotNum).catch(() => {});
             }
           }
         }
 
-        // 2. Cascade delete all child foreign key tables
+        const usages = await tx.$queryRawUnsafe(`
+          SELECT rm_id, COALESCE(actual_used_qty, required_qty, input_qty, 0) AS qty
+          FROM production_batch_rm_usage
+          WHERE batch_id = $1 AND (status = 'CONSUMED' OR status = 'ALLOCATED');
+        `, id).catch(() => []);
+
+        for (const u of usages) {
+          const uQty = Number(u.qty || 0);
+          if (uQty > 0 && u.rm_id) {
+            await tx.$executeRawUnsafe(`
+              UPDATE "RawMaterial"
+              SET "currentStock" = "currentStock" + $1,
+                  "updatedAt" = CURRENT_TIMESTAMP
+              WHERE id = $2;
+            `, uQty, u.rm_id).catch(() => {});
+          }
+        }
+
+        // 3. Purge finished product stock movements for this batch (ensures running stock ledger is accurate)
+        await tx.$executeRawUnsafe(`DELETE FROM product_stock_movements WHERE batch_id = $1;`, id).catch(() => {});
+        const refNo = batch.reference_no || batch.batch_no;
+        if (refNo) {
+          await tx.$executeRawUnsafe(`
+            DELETE FROM product_stock_movements 
+            WHERE batch_id = $1 OR (batch_id IS NULL AND note ILIKE $2);
+          `, id, `%Ref: ${refNo}%`).catch(() => {});
+        }
+
+        // 4. Cascade delete all child foreign key tables
         await tx.$executeRawUnsafe(`DELETE FROM finished_product_stock_lots WHERE batch_id = $1;`, id).catch(() => {});
+        await tx.$executeRawUnsafe(`DELETE FROM production_barcode_labels WHERE batch_id = $1;`, id).catch(() => {});
+        await tx.$executeRawUnsafe(`DELETE FROM batch_allocations WHERE batch_id = $1;`, id).catch(() => {});
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_day_outputs WHERE batch_id = $1;`, id).catch(() => {});
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_days WHERE batch_id = $1;`, id).catch(() => {});
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_allocations WHERE batch_id = $1;`, id);
@@ -3688,10 +4046,13 @@ class StandardProductionController {
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_merge WHERE batch_id = $1;`, id);
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_items WHERE batch_id = $1;`, id);
         await tx.$executeRawUnsafe(`DELETE FROM production_batch_output WHERE batch_id = $1;`, id);
+        await tx.$executeRawUnsafe(`DELETE FROM production_output_details WHERE batch_id = $1;`, id).catch(() => {});
+        await tx.$executeRawUnsafe(`DELETE FROM production_loss_materials WHERE loss_id IN (SELECT id FROM production_loss WHERE production_batch_id = $1);`, id).catch(() => {});
+        await tx.$executeRawUnsafe(`DELETE FROM production_loss_products WHERE loss_id IN (SELECT id FROM production_loss WHERE production_batch_id = $1);`, id).catch(() => {});
         await tx.$executeRawUnsafe(`DELETE FROM production_loss WHERE production_batch_id = $1;`, id);
         await tx.$executeRawUnsafe(`DELETE FROM lab_production_test WHERE production_batch_id = $1;`, id);
 
-        // 3. Delete the production batch itself
+        // 5. Delete the production batch itself
         await tx.$executeRawUnsafe(`DELETE FROM production_batches WHERE id = $1;`, id);
 
         return { success: true, batchNo: batch.batch_no || batch.reference_no, status: batch.status };
