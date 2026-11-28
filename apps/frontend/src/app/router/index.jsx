@@ -144,7 +144,9 @@ const ExpensesPage = lazy(() => import('@/modules/finance/pages/ExpensesPage'));
 const FinanceModuleDashboardPage = lazy(() => import('@/modules/finance/pages/FinanceDashboardPage'));
 const FinanceDocumentsPage = lazy(() => import('@/modules/finance/pages/FinanceDocumentsPage'));
 const PartyLedgerAgingPage = lazy(() => import('@/modules/finance/pages/PartyLedgerAgingPage'));
-const GstAndBooksPage = lazy(() => import('@/modules/finance/pages/GstAndBooksPage'));
+const BankStatementPage = lazy(() => import('@/modules/finance/pages/BankStatementPage'));
+const BankMasterPage = lazy(() => import('@/modules/finance/pages/BankMasterPage'));
+const GstFilingPage = lazy(() => import('@/modules/finance/pages/GstFilingPage'));
 
 // Reports & Analytics Module Pages
 const RMConsumptionReportPage = lazy(() => import('@/pages/reports/RMConsumptionReportPage'));
@@ -539,10 +541,13 @@ const AppRouter = () => {
               <Route path="/finance/documents" element={<FinanceDocumentsPage />} />
               <Route path="/finance/ledger" element={<PartyLedgerAgingPage />} />
               <Route path="/finance/aging" element={<PartyLedgerAgingPage />} />
-              <Route path="/finance/gst" element={<GstAndBooksPage />} />
-              <Route path="/finance/cashbook" element={<GstAndBooksPage />} />
+              <Route path="/finance/gst" element={<GstFilingPage />} />
+              <Route path="/finance/gst-filing" element={<GstFilingPage />} />
+              <Route path="/finance/cashbook" element={<BankStatementPage />} />
+              <Route path="/finance/bank-statement" element={<BankStatementPage />} />
+              <Route path="/finance/bank-master" element={<BankMasterPage />} />
               <Route path="/finance/expenses" element={<ExpensesPage />} />
-              <Route path="/finance/accounts" element={<GstAndBooksPage />} />
+              <Route path="/finance/accounts" element={<BankStatementPage />} />
             </Route>
 
             {/* Admin & Setup */}

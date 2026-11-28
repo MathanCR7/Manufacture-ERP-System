@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const controller = require('./finance.controller');
 const paymentController = require('./payment.controller');
+const bankStatementRoutes = require('./bankStatement.routes');
 
 const router = express.Router();
 
@@ -42,5 +43,8 @@ router.get('/payments', paymentController.getPaymentsList);
 router.post('/payments', paymentController.createPayment);
 router.post('/payments/:id/reverse', paymentController.reversePayment);
 router.post('/payments/:id/reallocate', paymentController.reallocatePayment);
+
+// --- Bank Statement + GST Review Endpoints ---
+router.use('/bank-statement', bankStatementRoutes);
 
 module.exports = router;

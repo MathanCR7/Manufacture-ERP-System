@@ -2759,3 +2759,524 @@ model BulkStorageUnit {
 
   @@map("bulk_storage_units")
 }
+
+// ─────────────────────── Bank Statement & GST Review ───────────────────────
+
+model BankStatementAccount {
+  id                   BigInt            @id @default(autoincrement())
+  companyId            String            @default("default") @map("company_id")
+  legacyBankAccountId  BigInt?           @map("legacy_bank_account_id")
+  accountName          String            @map("account_name")
+  bankName             String?           @map("bank_name")
+  accountNumber        String            @default("") @map("account_number")
+  ifscCode             String?           @default("") @map("ifsc_code")
+  accountType          String            @default("BANK") @map("account_type")
+  branchName           String?           @default("") @map("branch_name")
+  sortOrder            Int               @default(0) @map("sort_order")
+  isDefault            Boolean           @default(false) @map("is_default")
+  notes                String?           @default("")
+  openingBalance       Decimal           @default(0.00) @map("opening_balance") @db.Decimal(18, 2)
+  isActive             Boolean           @default(true) @map("is_active")
+  isDeleted            Boolean           @default(false) @map("is_deleted")
+  createdBy            String?           @map("created_by")
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  batches              BankImportBatch[]
+  transactions         BankTxn[]
+
+  @@index([companyId, isActive], map: "idx_bsa_company_active")
+  @@map("bank_statement_accounts")
+}
+
+model BankImportBatch {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String               @map("company_id")
+  bankAccountId  BigInt               @map("bank_account_id")
+  fileName       String               @map("file_name")
+  fileType       String               @default("xlsx") @map("file_type")
+  uploadedBy     String               @map("uploaded_by")
+  uploadedByName String?              @map("uploaded_by_name")
+  uploadedAt     DateTime             @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+  totalRows      Int                  @default(0) @map("total_rows")
+  savedRows      Int                  @default(0) @map("saved_rows")
+  duplicateRows  Int                  @default(0) @map("duplicate_rows")
+  possibleRows   Int                  @default(0) @map("possible_rows")
+  errorRows      Int                  @default(0) @map("error_rows")
+  totalDebit     Decimal              @default(0.00) @map("total_debit") @db.Decimal(18, 2)
+  totalCredit    Decimal              @default(0.00) @map("total_credit") @db.Decimal(18, 2)
+  notes          String?
+
+  account        BankStatementAccount @relation(fields: [bankAccountId], references: [id])
+  transactions   BankTxn[]
+
+  @@index([companyId, bankAccountId, uploadedAt(sort: Desc)], map: "idx_bib_company_account")
+  @@map("bank_import_batches")
+}
+
+model BankTxn {
+  id                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String                      @map("company_id")
+  bankAccountId     BigInt                      @map("bank_account_id")
+  batchId           String?                     @map("batch_id") @db.Uuid
+  sortOrder         Int                         @default(0) @map("sort_order")
+  txnDate           DateTime                    @map("txn_date") @db.Date
+  valueDate         DateTime?                   @map("value_date") @db.Date
+  description       String
+  refNo             String                      @default("") @map("ref_no")
+  branchCode        String                      @default("") @map("branch_code")
+  debit             Decimal                     @default(0.00) @db.Decimal(18, 2)
+  credit            Decimal                     @default(0.00) @db.Decimal(18, 2)
+  balance           Decimal?                    @db.Decimal(18, 2)
+  remarks           String                      @default("")
+  txnMonth          String                      @map("txn_month")
+  finYear           String                      @map("fin_year")
+  txnType           String                      @default("") @map("txn_type")
+  mode              String                      @default("")
+  utr               String                      @default("")
+  partyName         String                      @default("") @map("party_name")
+  dedupeKey         String                      @map("dedupe_key")
+  sourceKey         String                      @map("source_key")
+  version           Int                         @default(1)
+  possibleDuplicate Boolean                     @default(false) @map("possible_duplicate")
+  keepPossible      Boolean                     @default(false) @map("keep_possible")
+  balanceGapFlag    Boolean                     @default(false) @map("balance_gap_flag")
+  balanceGapDiff    Decimal?                    @default(0.00) @map("balance_gap_diff") @db.Decimal(18, 2)
+  isDeleted         Boolean                     @default(false) @map("is_deleted")
+  deletedAt         DateTime?                   @map("deleted_at") @db.Timestamptz(6)
+  deletedBy         String?                     @map("deleted_by")
+  createdBy         String                      @map("created_by")
+  createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy         String?                     @map("updated_by")
+  updatedAt         DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account           BankStatementAccount        @relation(fields: [bankAccountId], references: [id])
+  batch             BankImportBatch?            @relation(fields: [batchId], references: [id])
+  gstReview         BankTxnGst?
+  invoiceLinks      BankTxnInvoiceAllocation[]
+
+  @@index([companyId, isDeleted, txnDate(sort: Desc), bankAccountId], map: "idx_bank_txn_query")
+  @@index([companyId, isDeleted, finYear, bankAccountId], map: "idx_bank_txn_fy")
+  @@map("bank_txn")
+}
+
+model BankTxnGst {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String    @map("company_id")
+  txnId              String    @unique @map("txn_id") @db.Uuid
+  treatment          String    @default("Unreviewed")
+  suggestedTreatment String    @default("Unreviewed") @map("suggested_treatment")
+  suggestionReason   String    @default("") @map("suggestion_reason")
+  invoiceNo          String    @default("") @map("invoice_no")
+  invoiceDate        DateTime? @map("invoice_date") @db.Date
+  gstin              String    @default("")
+  hsnSac             String    @default("") @map("hsn_sac")
+  taxableAmount      Decimal   @default(0.00) @map("taxable_amount") @db.Decimal(18, 2)
+  cgstAmount         Decimal   @default(0.00) @map("cgst_amount") @db.Decimal(18, 2)
+  sgstAmount         Decimal   @default(0.00) @map("sgst_amount") @db.Decimal(18, 2)
+  igstAmount         Decimal   @default(0.00) @map("igst_amount") @db.Decimal(18, 2)
+  totalTax           Decimal   @default(0.00) @map("total_tax") @db.Decimal(18, 2)
+  foundInGstr2b      String    @default("Not Checked") @map("found_in_gstr2b")
+  imsStatus          String    @default("Pending") @map("ims_status")
+  isReviewed         Boolean   @default(false) @map("is_reviewed")
+  needsRecheck       Boolean   @default(false) @map("needs_recheck")
+  notes              String    @default("")
+  reviewedBy         String?   @map("reviewed_by")
+  reviewedByName     String?   @map("reviewed_by_name")
+  reviewedAt         DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  txn                BankTxn   @relation(fields: [txnId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, isReviewed, treatment], map: "idx_btg_company_reviewed")
+  @@map("bank_txn_gst")
+}
+
+model BankTxnInvoiceAllocation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @map("company_id")
+  txnId           String    @map("txn_id") @db.Uuid
+  invoiceSource   String    @map("invoice_source")
+  invoiceId       String?   @map("invoice_id")
+  invoiceNo       String    @map("invoice_no")
+  invoiceDate     DateTime? @map("invoice_date") @db.Date
+  partyName       String    @default("") @map("party_name")
+  partyGstin      String    @default("") @map("party_gstin")
+  invoiceTaxable  Decimal   @default(0.00) @map("invoice_taxable") @db.Decimal(18, 2)
+  invoiceCgst     Decimal   @default(0.00) @map("invoice_cgst") @db.Decimal(18, 2)
+  invoiceSgst     Decimal   @default(0.00) @map("invoice_sgst") @db.Decimal(18, 2)
+  invoiceIgst     Decimal   @default(0.00) @map("invoice_igst") @db.Decimal(18, 2)
+  invoiceTotal    Decimal   @default(0.00) @map("invoice_total") @db.Decimal(18, 2)
+  allocatedAmount Decimal   @default(0.00) @map("allocated_amount") @db.Decimal(18, 2)
+  needsRecheck    Boolean   @default(false) @map("needs_recheck")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  txn             BankTxn   @relation(fields: [txnId], references: [id], onDelete: Cascade)
+
+  @@map("bank_txn_invoice_allocations")
+}
+
+model BankGstr2bEntry {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @map("company_id")
+  finYear         String    @default("") @map("fin_year")
+  returnPeriod    String    @default("") @map("return_period")
+  supplierGstin   String    @map("supplier_gstin")
+  supplierName    String    @default("") @map("supplier_name")
+  invoiceNo       String    @map("invoice_no")
+  invoiceDate     DateTime? @map("invoice_date") @db.Date
+  taxableAmount   Decimal   @default(0.00) @map("taxable_amount") @db.Decimal(18, 2)
+  cgstAmount      Decimal   @default(0.00) @map("cgst_amount") @db.Decimal(18, 2)
+  sgstAmount      Decimal   @default(0.00) @map("sgst_amount") @db.Decimal(18, 2)
+  igstAmount      Decimal   @default(0.00) @map("igst_amount") @db.Decimal(18, 2)
+  invoiceValue    Decimal   @default(0.00) @map("invoice_value") @db.Decimal(18, 2)
+  itcAvailability String    @default("Yes") @map("itc_availability")
+  imsStatus       String    @default("Pending") @map("ims_status")
+  uploadedBy      String?   @map("uploaded_by")
+  uploadedAt      DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  @@unique([companyId, supplierGstin, invoiceNo], map: "uq_gstr2b_inv")
+  @@map("bank_gstr2b_entries")
+}
+
+model BankAuditLog {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id")
+  action        String
+  entityType    String   @map("entity_type")
+  entityId      String?  @map("entity_id")
+  txnId         String?  @map("txn_id") @db.Uuid
+  batchId       String?  @map("batch_id") @db.Uuid
+  beforeData    Json?    @map("before_data")
+  afterData     Json?    @map("after_data")
+  changedBy     String   @map("changed_by")
+  changedByName String?  @map("changed_by_name")
+  changedAt     DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+
+  @@index([companyId, changedAt(sort: Desc)], map: "idx_bal_company_time")
+  @@map("bank_audit_log")
+}
+
+// ─────────────────────── Legacy / Finance & Production Tables Synced to Prisma ───────────────────────
+
+model BankAccount {
+  id             BigInt    @id @default(autoincrement())
+  name           String
+  type           String
+  accountNumber  String?   @map("account_number")
+  bankName       String?   @map("bank_name")
+  ifscCode       String?   @map("ifsc_code")
+  openingBalance Decimal?  @default(0.00) @map("opening_balance") @db.Decimal(14, 2)
+  currentBalance Decimal?  @default(0.00) @map("current_balance") @db.Decimal(14, 2)
+  isActive       Boolean?  @default(true) @map("is_active")
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("bank_accounts")
+}
+
+model Party {
+  id                 String    @id
+  type               String
+  name               String
+  gstin              String?
+  stateCode          String?   @map("state_code")
+  phone              String?
+  email              String?
+  address            String?
+  creditDays         Int?      @default(30) @map("credit_days")
+  creditLimit        Decimal?  @default(0.00) @map("credit_limit") @db.Decimal(14, 2)
+  openingBalance     Decimal?  @default(0.00) @map("opening_balance") @db.Decimal(14, 2)
+  openingBalanceType String?   @default("DR") @map("opening_balance_type")
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("parties")
+}
+
+model Payment {
+  id            BigInt    @id @default(autoincrement())
+  paymentNo     String    @unique(map: "payments_payment_no_key") @map("payment_no")
+  direction     String
+  partyId       String    @map("party_id")
+  bankAccountId BigInt?   @map("bank_account_id")
+  payDate       DateTime  @default(dbgenerated("CURRENT_DATE")) @map("pay_date") @db.Date
+  mode          String
+  referenceNo   String?   @map("reference_no")
+  amount        Decimal   @db.Decimal(14, 2)
+  reversedOf    BigInt?   @map("reversed_of")
+  isReversed    Boolean?  @default(false) @map("is_reversed")
+  notes         String?
+  isMigrated    Boolean?  @default(false) @map("is_migrated")
+  createdBy     String?   @map("created_by")
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("payments")
+}
+
+model PaymentAllocation {
+  id          BigInt    @id @default(autoincrement())
+  paymentId   BigInt    @map("payment_id")
+  docType     String    @map("doc_type")
+  docId       String?   @map("doc_id")
+  kind        String
+  milestoneId BigInt?   @map("milestone_id")
+  amount      Decimal   @db.Decimal(14, 2)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([docType, docId], map: "idx_pay_alloc_doc")
+  @@index([paymentId], map: "idx_pay_alloc_payment")
+  @@map("payment_allocations")
+}
+
+model PaymentMilestone {
+  id        BigInt    @id @default(autoincrement())
+  poId      String?   @map("po_id")
+  label     String
+  percent   Decimal   @db.Decimal(5, 2)
+  dueDate   DateTime? @map("due_date") @db.Date
+  amount    Decimal   @db.Decimal(14, 2)
+  status    String?   @default("PENDING")
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("payment_milestones")
+}
+
+model IceCreamMould {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mouldCode              String    @unique(map: "ice_cream_moulds_mould_code_key") @map("mould_code") @db.VarChar(50)
+  mouldName              String    @map("mould_name") @db.VarChar(150)
+  mouldCategory          String    @map("mould_category") @db.VarChar(100)
+  modelNumber            String?   @map("model_number") @db.VarChar(100)
+  capacityMl             Decimal   @map("capacity_ml") @db.Decimal(10, 2)
+  cavityCount            Int       @default(1) @map("cavity_count")
+  totalNominalCapacityMl Decimal?  @map("total_nominal_capacity_ml") @db.Decimal(12, 2)
+  lengthMm               Decimal?  @map("length_mm") @db.Decimal(10, 2)
+  widthMm                Decimal?  @map("width_mm") @db.Decimal(10, 2)
+  heightMm               Decimal?  @map("height_mm") @db.Decimal(10, 2)
+  cavityLengthMm         Decimal?  @map("cavity_length_mm") @db.Decimal(10, 2)
+  cavityWidthMm          Decimal?  @map("cavity_width_mm") @db.Decimal(10, 2)
+  cavityDepthMm          Decimal?  @map("cavity_depth_mm") @db.Decimal(10, 2)
+  material               String?   @default("Stainless Steel 304") @db.VarChar(100)
+  machineType            String?   @default("Brine Tank Line") @map("machine_type") @db.VarChar(100)
+  dimensionSource        String?   @default("Manufacturer") @map("dimension_source") @db.VarChar(100)
+  specificationStatus    String    @default("VERIFIED") @map("specification_status") @db.VarChar(50)
+  supplierId             String?   @map("supplier_id") @db.VarChar(100)
+  supplierName           String?   @map("supplier_name") @db.VarChar(200)
+  status                 String    @default("ACTIVE") @db.VarChar(50)
+  linkedRawMaterials     Json?     @default("[]") @map("linked_raw_materials")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([mouldCategory], map: "idx_mould_category")
+  @@index([mouldCode], map: "idx_mould_code")
+  @@index([specificationStatus], map: "idx_mould_spec_status")
+  @@index([status], map: "idx_mould_status")
+  @@map("ice_cream_moulds")
+}
+
+model FinishedProductStockLot {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId       String    @map("product_id")
+  batchId         String    @map("batch_id")
+  dayId           String?   @map("day_id") @db.Uuid
+  dayOutputId     String?   @map("day_output_id") @db.Uuid
+  dayNo           Int?      @default(1) @map("day_no")
+  productBatchNo  String    @map("product_batch_no") @db.VarChar(150)
+  productSerialNo String?   @map("product_serial_no") @db.VarChar(180)
+  referenceNo     String?   @map("reference_no") @db.VarChar(100)
+  mfgDate         DateTime? @map("mfg_date") @db.Timestamptz(6)
+  expiryDate      DateTime? @map("expiry_date") @db.Timestamptz(6)
+  initialQty      Decimal   @default(0) @map("initial_qty") @db.Decimal(16, 3)
+  remainingQty    Decimal   @default(0) @map("remaining_qty") @db.Decimal(16, 3)
+  unitCost        Decimal?  @default(0) @map("unit_cost") @db.Decimal(16, 4)
+  qcStatus        String?   @default("EXEMPT") @map("qc_status") @db.VarChar(40)
+  isSellable      Boolean?  @default(true) @map("is_sellable")
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([productId, isSellable, expiryDate], map: "idx_fpsl_product_sellable")
+  @@map("finished_product_stock_lots")
+}
+
+model ProductSerialSequence {
+  productId   String    @id @map("product_id") @db.VarChar(64)
+  productName String?   @map("product_name") @db.VarChar(255)
+  lastSerial  BigInt    @default(0) @map("last_serial")
+  updatedAt   DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("product_serial_sequences")
+}
+
+model ProductionBatchAllocationRow {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId         String    @map("batch_id")
+  seq             Int
+  productId       String    @map("product_id")
+  useMould        Boolean   @default(false) @map("use_mould")
+  mouldId         String?   @map("mould_id") @db.Uuid
+  capacityMl      Decimal   @map("capacity_ml") @db.Decimal(10, 2)
+  cavities        Int       @default(1)
+  trays           Int       @default(0)
+  wasteMode       String    @default("PERCENT") @map("waste_mode") @db.VarChar(20)
+  wasteValue      Decimal   @default(0) @map("waste_value") @db.Decimal(10, 2)
+  mixUsedMl       Decimal   @default(0) @map("mix_used_ml") @db.Decimal(16, 2)
+  wasteMl         Decimal   @default(0) @map("waste_ml") @db.Decimal(16, 2)
+  goodPieces      Decimal   @default(0) @map("good_pieces") @db.Decimal(16, 2)
+  createdAt       DateTime? @default(now()) @map("created_at")
+  updatedAt       DateTime? @default(now()) @updatedAt @map("updated_at")
+  allocatedBaseMl Decimal?  @default(0) @map("allocated_base_ml") @db.Decimal(16, 2)
+  bulkUom         String?   @default("L") @map("bulk_uom") @db.VarChar(30)
+  productRms      Json?     @default("[]") @map("product_rms")
+  dayNo           Int?      @default(1) @map("day_no")
+  dayId           String?   @map("day_id") @db.Uuid
+  productBatchNo  String?   @map("product_batch_no") @db.VarChar(150)
+  productSerialNo String?   @map("product_serial_no") @db.VarChar(180)
+  actualYield     Decimal?  @map("actual_yield") @db.Decimal(16, 2)
+
+  @@unique([batchId, dayNo, seq], map: "uq_pb_alloc_batch_day_seq")
+  @@map("production_batch_allocation")
+}
+
+model ProductionBatchDayOutput {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId             String    @map("batch_id")
+  dayId               String    @map("day_id") @db.Uuid
+  dayNo               Int       @map("day_no")
+  seq                 Int       @default(1)
+  productId           String    @map("product_id")
+  productName         String?   @map("product_name") @db.VarChar(255)
+  uom                 String?   @default("pcs") @db.VarChar(50)
+  productBatchNo      String    @map("product_batch_no") @db.VarChar(150)
+  companyPrefix       String?   @map("company_prefix") @db.VarChar(50)
+  serialSeq           BigInt?   @map("serial_seq")
+  productSerialNo     String?   @map("product_serial_no") @db.VarChar(180)
+  useMould            Boolean?  @default(false) @map("use_mould")
+  mouldId             String?   @map("mould_id") @db.Uuid
+  capacityMl          Decimal?  @default(0) @map("capacity_ml") @db.Decimal(10, 2)
+  cavities            Int?      @default(1)
+  trays               Int?      @default(0)
+  bulkUom             String?   @default("L") @map("bulk_uom") @db.VarChar(30)
+  wasteMode           String?   @default("PERCENT") @map("waste_mode") @db.VarChar(20)
+  wasteValue          Decimal?  @default(0) @map("waste_value") @db.Decimal(10, 2)
+  allocatedBaseMl     Decimal?  @default(0) @map("allocated_base_ml") @db.Decimal(16, 2)
+  wasteMl             Decimal?  @default(0) @map("waste_ml") @db.Decimal(16, 2)
+  theoreticalQty      Decimal?  @default(0) @map("theoretical_qty") @db.Decimal(16, 2)
+  actualYield         Decimal?  @default(0) @map("actual_yield") @db.Decimal(16, 2)
+  rejectOutput        Decimal?  @default(0) @map("reject_output") @db.Decimal(16, 2)
+  productRms          Json?     @default("[]") @map("product_rms")
+  baseRmCost          Decimal?  @default(0) @map("base_rm_cost") @db.Decimal(16, 2)
+  productRmCost       Decimal?  @default(0) @map("product_rm_cost") @db.Decimal(16, 2)
+  allocatedEbCost     Decimal?  @default(0) @map("allocated_eb_cost") @db.Decimal(16, 2)
+  allocatedLabourCost Decimal?  @default(0) @map("allocated_labour_cost") @db.Decimal(16, 2)
+  totalCost           Decimal?  @default(0) @map("total_cost") @db.Decimal(16, 2)
+  unitCost            Decimal?  @default(0) @map("unit_cost") @db.Decimal(16, 4)
+  qcStatus            String    @default("EXEMPT") @map("qc_status") @db.VarChar(40)
+  labTestRequired     Boolean   @default(false) @map("lab_test_required")
+  pushedToSales       Boolean   @default(false) @map("pushed_to_sales")
+  createdAt           DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([batchId, dayNo], map: "idx_pb_day_outputs_batch")
+  @@map("production_batch_day_outputs")
+}
+
+model ProductionBatchDay {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId           String    @map("batch_id")
+  dayNo             Int       @default(1) @map("day_no")
+  dayLabel          String    @default("Day 1") @map("day_label") @db.VarChar(50)
+  productionDate    DateTime  @default(dbgenerated("CURRENT_DATE")) @map("production_date") @db.Date
+  dayBatchCode      String?   @map("day_batch_code") @db.VarChar(80)
+  status            String    @default("IN_PROGRESS") @db.VarChar(40)
+  qcStatus          String    @default("EXEMPT") @map("qc_status") @db.VarChar(40)
+  labTestRequired   Boolean   @default(false) @map("lab_test_required")
+  openingMixMl      Decimal   @default(0) @map("opening_mix_ml") @db.Decimal(16, 2)
+  allocatedMixMl    Decimal   @default(0) @map("allocated_mix_ml") @db.Decimal(16, 2)
+  wasteMl           Decimal   @default(0) @map("waste_ml") @db.Decimal(16, 2)
+  remainingMixMl    Decimal   @default(0) @map("remaining_mix_ml") @db.Decimal(16, 2)
+  totalOutputQty    Decimal   @default(0) @map("total_output_qty") @db.Decimal(16, 2)
+  totalRejectedQty  Decimal   @default(0) @map("total_rejected_qty") @db.Decimal(16, 2)
+  timelineStages    Json?     @default("[]") @map("timeline_stages")
+  productStagesMap  Json?     @default("{}") @map("product_stages_map")
+  ebStartReading    Decimal?  @default(0) @map("eb_start_reading") @db.Decimal(14, 2)
+  ebEndReading      Decimal?  @default(0) @map("eb_end_reading") @db.Decimal(14, 2)
+  ebUnitsKwh        Decimal?  @default(0) @map("eb_units_kwh") @db.Decimal(14, 2)
+  ebRatePerUnit     Decimal?  @default(8.50) @map("eb_rate_per_unit") @db.Decimal(10, 2)
+  ebTotalCost       Decimal?  @default(0) @map("eb_total_cost") @db.Decimal(16, 2)
+  labourTotalCost   Decimal?  @default(0) @map("labour_total_cost") @db.Decimal(16, 2)
+  overheadAmt       Decimal?  @default(0) @map("overhead_amt") @db.Decimal(16, 2)
+  baseRmCost        Decimal?  @default(0) @map("base_rm_cost") @db.Decimal(16, 2)
+  productRmCost     Decimal?  @default(0) @map("product_rm_cost") @db.Decimal(16, 2)
+  dayGrandTotal     Decimal?  @default(0) @map("day_grand_total") @db.Decimal(16, 2)
+  productRmDeducted Boolean   @default(false) @map("product_rm_deducted")
+  pushedToSales     Boolean   @default(false) @map("pushed_to_sales")
+  notes             String?
+  pausedAt          DateTime? @map("paused_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+  completedBy       String?   @map("completed_by")
+  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignedUsers     Json?     @default("[]") @map("assigned_users")
+  startedBy         String?   @map("started_by")
+
+  @@unique([batchId, dayNo], map: "uq_pb_days_batch_day")
+  @@index([batchId, dayNo], map: "idx_pb_days_batch_id")
+  @@map("production_batch_days")
+}
+
+model ProductionBatchMerge {
+  batchId            String    @id @map("batch_id")
+  mergeStage         String    @default("Before freezing") @map("merge_stage") @db.VarChar(50)
+  mergedTotalMl      Decimal   @default(0) @map("merged_total_ml") @db.Decimal(16, 2)
+  evaporationPct     Decimal   @default(5.00) @map("evaporation_pct") @db.Decimal(6, 2)
+  evaporationApplied Boolean   @default(false) @map("evaporation_applied")
+  evaporatedMl       Decimal   @default(0) @map("evaporated_ml") @db.Decimal(16, 2)
+  mixAfterEvapMl     Decimal   @default(0) @map("mix_after_evap_ml") @db.Decimal(16, 2)
+  locked             Boolean   @default(false)
+  updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at")
+  isSlideMerged      Boolean?  @default(false) @map("is_slide_merged")
+
+  @@map("production_batch_merge")
+}
+
+model ProductionBatchOutput {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId                 String    @map("batch_id")
+  goodQuantity            Decimal   @default(0) @map("good_quantity") @db.Decimal(14, 2)
+  rejectedQuantity        Decimal   @default(0) @map("rejected_quantity") @db.Decimal(14, 2)
+  reworkQuantity          Decimal   @default(0) @map("rework_quantity") @db.Decimal(14, 2)
+  scrapQuantity           Decimal   @default(0) @map("scrap_quantity") @db.Decimal(14, 2)
+  scrapReason             String?   @map("scrap_reason")
+  qcSampleQuantity        Decimal?  @default(0) @map("qc_sample_quantity") @db.Decimal(14, 2)
+  retentionSampleQuantity Decimal?  @default(0) @map("retention_sample_quantity") @db.Decimal(14, 2)
+  theoreticalQuantity     Decimal   @default(0) @map("theoretical_quantity") @db.Decimal(14, 2)
+  yieldPercentage         Decimal   @default(100) @map("yield_percentage") @db.Decimal(6, 2)
+  createdAt               DateTime? @default(now()) @map("created_at")
+
+  @@map("production_batch_output")
+}
+
+model ProductionBatchRmLine {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  batchId       String    @map("batch_id")
+  rawMaterialId String    @map("raw_material_id")
+  lotId         String?   @map("lot_id")
+  uom           String    @db.VarChar(30)
+  density       Decimal   @default(1.0000) @db.Decimal(8, 4)
+  availableQty  Decimal   @default(0) @map("available_qty") @db.Decimal(14, 4)
+  requiredQty   Decimal   @default(0) @map("required_qty") @db.Decimal(14, 4)
+  takenQty      Decimal   @default(0) @map("taken_qty") @db.Decimal(14, 4)
+  evaporates    Boolean   @default(false)
+  merged        Boolean   @default(false)
+  createdAt     DateTime? @default(now()) @map("created_at")
+  updatedAt     DateTime? @default(now()) @updatedAt @map("updated_at")
+  unitRate      Decimal?  @default(0) @map("unit_rate") @db.Decimal(14, 4)
+  totalCost     Decimal?  @default(0) @map("total_cost") @db.Decimal(16, 2)
+
+  @@index([batchId], map: "idx_pb_rm_line_batch_id")
+  @@index([rawMaterialId], map: "idx_pb_rm_line_rm_id")
+  @@map("production_batch_rm_line")
+}

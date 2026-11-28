@@ -819,8 +819,9 @@ const MENU_GROUPS = [
       { name: '📊 Finance Dashboard', path: '/finance', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
       { name: '📁 Financial Documents', path: '/finance/documents', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
       { name: '👥 Party Ledger & Aging', path: '/finance/ledger', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
-      { name: '🏛️ GST Register', path: '/finance/gst', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
-      { name: '🏦 Cash & Bank Book', path: '/finance/cashbook', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '🏦 Bank Statement', path: '/finance/bank-statement', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT', 'ADMIN', 'OPERATOR'] },
+      { name: '🏛️ GST & Filing', path: '/finance/gst', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'ADMIN'] },
+      { name: '🗄️ Bank Master', path: '/finance/bank-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT', 'ADMIN'] },
     ]
   },
   {
