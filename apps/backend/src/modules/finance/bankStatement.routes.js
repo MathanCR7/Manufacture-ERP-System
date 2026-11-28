@@ -39,10 +39,15 @@ router.post('/preview', ctrl.requirePermission('upload'), handleUploadSingle, ct
 router.post('/recheck', ctrl.requirePermission('upload'), ctrl.recheckPreview);
 router.post('/commit', ctrl.requirePermission('upload'), ctrl.commitBatch);
 
-// Step 4-5: Saved Transactions, Edit, Soft Delete & Change Log
+// Step 4-5: Saved Transactions, Edit, Soft Delete, Restore & Change Log / Import Batches
 router.get('/transactions', ctrl.requirePermission('view'), ctrl.listTransactions);
 router.put('/transactions/:id', ctrl.requirePermission('edit'), ctrl.updateTransaction);
 router.delete('/transactions/:id', ctrl.requirePermission('delete'), ctrl.deleteTransaction);
+router.post('/transactions/:id/restore', ctrl.requirePermission('delete'), ctrl.restoreTransaction);
+router.post('/transactions/bulk-delete', ctrl.requirePermission('delete'), ctrl.bulkDeleteTransactions);
+router.get('/batches', ctrl.requirePermission('view'), ctrl.getImportBatches);
+router.delete('/batches/:batchId', ctrl.requirePermission('delete'), ctrl.deleteImportBatch);
+router.post('/batches/:batchId/restore', ctrl.requirePermission('delete'), ctrl.restoreImportBatch);
 router.get('/audit-logs', ctrl.requirePermission('view'), ctrl.getAuditLogs);
 
 // Step 6: GST Working Paper & Invoice Matching / GSTR-2B

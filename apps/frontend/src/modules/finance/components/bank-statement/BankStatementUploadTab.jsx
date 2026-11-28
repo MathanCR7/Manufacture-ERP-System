@@ -282,12 +282,12 @@ export default function BankStatementUploadTab({
   const renderStatusBadge = (row) => {
     if (row.status === 'New') {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] text-[#087A55] border border-[#087A55]/25 whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30 whitespace-nowrap">
           <CheckCircle2 className="w-3 h-3 shrink-0" />
           <span>New</span>
           {row.balanceGap && (
             <AlertTriangle
-              className="w-3 h-3 text-[#8A5300] ml-0.5"
+              className="w-3 h-3 text-[#8A5300] dark:text-amber-300 ml-0.5"
               title={`Balance gap: expected ${formatINRBank(row.expectedBalance)}, diff ${formatINRBank(row.balanceGapDiff)}`}
             />
           )}
@@ -297,7 +297,7 @@ export default function BankStatementUploadTab({
     if (row.status === 'Duplicate') {
       return (
         <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] text-[#B4232F] border border-[#B4232F]/25 whitespace-nowrap"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border border-[#B4232F]/25 dark:border-rose-500/30 whitespace-nowrap"
           title={row.statusReason}
         >
           <XCircle className="w-3 h-3 shrink-0" />
@@ -309,18 +309,18 @@ export default function BankStatementUploadTab({
       return (
         <div className="flex flex-col gap-1">
           <span
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FEF4E6] text-[#8A5300] border border-[#8A5300]/25 whitespace-nowrap"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FEF4E6] dark:bg-amber-500/15 text-[#8A5300] dark:text-amber-300 border border-[#8A5300]/25 dark:border-amber-500/30 whitespace-nowrap"
             title={row.statusReason}
           >
             <HelpCircle className="w-3 h-3 shrink-0" />
             <span>Possible</span>
           </span>
-          <label className="inline-flex items-center gap-1 text-[10px] font-bold text-[#14213D] cursor-pointer select-none">
+          <label className="inline-flex items-center gap-1 text-[10px] font-bold text-[#14213D] dark:text-slate-100 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={Boolean(row.keepPossible)}
               onChange={(e) => handleCellChange(row.clientId, 'keepPossible', e.target.checked, true)}
-              className="rounded border-slate-300 text-[#3646C9] focus:ring-[#3646C9]"
+              className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400 focus:ring-[#3646C9]"
             />
             <span>Keep</span>
           </label>
@@ -329,7 +329,7 @@ export default function BankStatementUploadTab({
     }
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] text-[#B4232F] border border-[#B4232F]/25 whitespace-nowrap"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border border-[#B4232F]/25 dark:border-rose-500/30 whitespace-nowrap"
         title={row.statusReason}
       >
         <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -341,14 +341,14 @@ export default function BankStatementUploadTab({
   return (
     <div className="space-y-3">
       {errorBanner && (
-        <div role="alert" className="px-3 py-2 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] flex items-center justify-between gap-2 text-xs font-semibold">
+        <div role="alert" className="px-3 py-2 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 flex items-center justify-between gap-2 text-xs font-semibold">
           <span className="flex items-center gap-1.5"><XCircle className="w-4 h-4 shrink-0" /> {errorBanner}</span>
           <button onClick={() => setErrorBanner('')} className="underline font-bold">Dismiss</button>
         </div>
       )}
 
       {successBanner && (
-        <div role="status" className="px-3 py-2 rounded-xl bg-[#E6F5EF] border border-[#087A55]/30 text-[#087A55] flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+        <div role="status" className="px-3 py-2 rounded-xl bg-[#E6F5EF] dark:bg-emerald-500/15 border border-[#087A55]/30 dark:border-emerald-500/30 text-[#087A55] dark:text-emerald-400 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
           <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 shrink-0" /> {successBanner}</span>
           <div className="flex items-center gap-3">
             {onViewTransactions && (
@@ -362,18 +362,18 @@ export default function BankStatementUploadTab({
       )}
 
       {!canUpload && (
-        <div className="px-3 py-2 rounded-xl bg-[#FEF4E6] border border-[#8A5300]/30 text-[#8A5300] flex items-center gap-2 text-xs font-semibold">
+        <div className="px-3 py-2 rounded-xl bg-[#FEF4E6] dark:bg-amber-500/15 border border-[#8A5300]/30 dark:border-amber-500/30 text-[#8A5300] dark:text-amber-300 flex items-center gap-2 text-xs font-semibold">
           <ShieldAlert className="w-4 h-4 shrink-0" />
           <span>Read-only access: your role can view transactions and GST working papers, but cannot upload statements.</span>
         </div>
       )}
 
       {/* Compact Upload & Paste Card */}
-      <div className="bg-white rounded-[14px] border border-[#E3E8F0] p-3.5 space-y-3 shadow-2xs">
+      <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 p-3.5 space-y-3 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2 flex-1 max-w-lg">
             <div className="relative flex-1">
-              <Building2 className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Building2 className="w-4 h-4 text-slate-400 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <select
                 id="bs-account-select"
                 aria-label="Bank account"
@@ -384,7 +384,7 @@ export default function BankStatementUploadTab({
                     runServerRecheck(previewState.rows);
                   }
                 }}
-                className="w-full h-9 pl-8 pr-2.5 rounded-xl border border-[#E3E8F0] bg-white text-[#14213D] text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30"
+                className="w-full h-9 pl-8 pr-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-[#14213D] dark:text-slate-100 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30 dark:bg-slate-950 dark:text-slate-100"
               >
                 <option value="">Select bank account *</option>
                 {accounts.map((a) => (
@@ -398,9 +398,9 @@ export default function BankStatementUploadTab({
               <button
                 type="button"
                 onClick={onOpenAddAccount}
-                className="h-9 px-3 rounded-xl border border-[#E3E8F0] hover:bg-[#F4F6FA] text-[#14213D] text-xs font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                className="h-9 px-3 rounded-xl border border-[#E3E8F0] dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-[#14213D] dark:text-slate-100 text-xs font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer"
               >
-                <Plus className="w-3.5 h-3.5 text-[#3646C9]" />
+                <Plus className="w-3.5 h-3.5 text-[#3646C9] dark:text-indigo-400" />
                 <span>Add Account</span>
               </button>
             )}
@@ -409,7 +409,7 @@ export default function BankStatementUploadTab({
           <button
             type="button"
             onClick={() => setShowPasteBox((v) => !v)}
-            className="text-xs font-bold text-[#3646C9] hover:underline inline-flex items-center gap-1 cursor-pointer"
+            className="text-xs font-bold text-[#3646C9] dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
           >
             {showPasteBox ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <ClipboardPaste className="w-3.5 h-3.5" />
@@ -430,8 +430,8 @@ export default function BankStatementUploadTab({
           }}
           className={`rounded-xl border-2 border-dashed px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 transition-colors ${
             dragActive
-              ? 'border-[#3646C9] bg-indigo-50/40'
-              : 'border-[#CBD5E1] bg-[#F4F6FA]/60 hover:border-[#3646C9]/60'
+              ? 'border-[#3646C9] bg-indigo-50/40 dark:bg-indigo-950/50'
+              : 'border-[#CBD5E1] dark:border-slate-700 bg-[#F4F6FA]/60 dark:bg-slate-800/50 hover:border-[#3646C9]/60'
           }`}
         >
           <input
@@ -443,16 +443,16 @@ export default function BankStatementUploadTab({
             className="hidden"
           />
           <div className="flex items-center gap-3 text-left">
-            <div className="w-10 h-10 rounded-xl bg-white border border-[#E3E8F0] flex items-center justify-center shrink-0 text-[#3646C9] shadow-2xs">
+            <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-[#E3E8F0] dark:border-slate-800 flex items-center justify-center shrink-0 text-[#3646C9] dark:text-indigo-400 shadow-2xs">
               {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <UploadCloud className="w-5 h-5" />}
             </div>
             <div>
-              <p className="text-xs sm:text-sm font-bold text-[#14213D]">
+              <p className="text-xs sm:text-sm font-bold text-[#14213D] dark:text-slate-100">
                 Drag and drop bank statement file here
-                {previewState?.fileName && <span className="ml-2 text-[#3646C9] font-semibold">({previewState.fileName})</span>}
+                {previewState?.fileName && <span className="ml-2 text-[#3646C9] dark:text-indigo-400 font-semibold">({previewState.fileName})</span>}
               </p>
-              <p className="text-[11px] text-slate-500">
-                Supports <strong className="text-[#14213D]">.xlsx</strong>, <strong className="text-[#14213D]">.xls</strong>, <strong className="text-[#14213D]">.csv</strong> (max 10 MB) • Auto-detects header row &amp; duplicates
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Supports <strong className="text-[#14213D] dark:text-slate-100">.xlsx</strong>, <strong className="text-[#14213D] dark:text-slate-100">.xls</strong>, <strong className="text-[#14213D] dark:text-slate-100">.csv</strong> (max 10 MB) • Auto-detects header row &amp; duplicates
               </p>
             </div>
           </div>
@@ -469,20 +469,20 @@ export default function BankStatementUploadTab({
 
         {/* Collapsible Paste from Excel */}
         {showPasteBox && (
-          <div className="pt-2 border-t border-[#E3E8F0] space-y-2">
+          <div className="pt-2 border-t border-[#E3E8F0] dark:border-slate-800 space-y-2">
             <textarea
               value={pastedText}
               onChange={(e) => setPastedText(e.target.value)}
               rows={4}
               disabled={!canUpload}
               placeholder="Paste copied rows from Excel (Txn Date | Value Date | Description | Ref No. | Branch | Debit | Credit | Balance | Remarks | Month | Year | Type)"
-              className="w-full p-2.5 rounded-xl border border-[#E3E8F0] bg-[#F4F6FA] text-xs font-mono text-[#14213D] focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30"
+              className="w-full p-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 bg-[#F4F6FA] dark:bg-slate-800 text-xs font-mono text-[#14213D] dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30"
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => { setPastedText(''); setShowPasteBox(false); }}
-                className="px-3 py-1 rounded-lg border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-3 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
               >
                 Cancel
               </button>
@@ -499,50 +499,79 @@ export default function BankStatementUploadTab({
         )}
       </div>
 
-      {/* Preview KPI Strip + Editable Table */}
+      {/* Preview KPI Strip + Detected Column Mapping + Editable Table */}
       {summary && (
         <div className="space-y-2.5">
+          {previewState?.columnMapping && (
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2 flex flex-wrap items-center gap-1.5 text-[11px] shadow-2xs">
+              <span className="font-black text-[#14213D] dark:text-slate-100 uppercase tracking-wide mr-1">
+                Auto-Mapped ({previewState.columnMapping.detectionMode === 'amount-drcr'
+                  ? 'Single Amount + Dr/Cr'
+                  : previewState.columnMapping.detectionMode === 'headerless-inferred'
+                    ? 'Headerless Auto-Detect'
+                    : previewState.columnMapping.detectionMode === 'predicted'
+                      ? 'Header + Balance-Equation Predict'
+                      : 'Header Match'}):
+              </span>
+              {Object.entries(previewState.columnMapping.mappedHeaders || {}).map(([field, label]) => (
+                <span
+                  key={field}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/20 dark:border-emerald-500/30 font-semibold"
+                >
+                  <strong className="font-bold">{field}</strong>
+                  <span className="opacity-70">←</span>
+                  <span>{label}</span>
+                </span>
+              ))}
+              {(!previewState.columnMapping.mappedHeaders?.Month || !previewState.columnMapping.mappedHeaders?.Year) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-[#3646C9] dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 font-semibold">
+                  Month / Year ← Auto from Txn Date
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-            <div className="bg-white rounded-[14px] border border-[#E3E8F0] px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-slate-500">Rows</div>
-              <div className="text-lg font-black text-[#14213D] tabular-nums">{summary.totalRows}</div>
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Rows</div>
+              <div className="text-lg font-black text-[#14213D] dark:text-slate-100 tabular-nums">{summary.totalRows}</div>
             </div>
-            <div className="bg-white rounded-[14px] border border-[#E3E8F0] px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-[#087A55]">Ready to Save</div>
-              <div className="text-lg font-black text-[#087A55] tabular-nums">{summary.willSaveCount}</div>
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase text-[#087A55] dark:text-emerald-400">Ready to Save</div>
+              <div className="text-lg font-black text-[#087A55] dark:text-emerald-400 tabular-nums">{summary.willSaveCount}</div>
             </div>
-            <div className="bg-white rounded-[14px] border border-[#E3E8F0] px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-[#B4232F]">Duplicates</div>
-              <div className="text-lg font-black text-[#B4232F] tabular-nums">{summary.duplicateCount}</div>
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase text-[#B4232F] dark:text-rose-400">Duplicates</div>
+              <div className="text-lg font-black text-[#B4232F] dark:text-rose-400 tabular-nums">{summary.duplicateCount}</div>
             </div>
-            <div className="bg-white rounded-[14px] border border-[#E3E8F0] px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-[#8A5300]">Possible / Error</div>
-              <div className="text-lg font-black text-[#14213D] tabular-nums">
-                <span className="text-[#8A5300]">{summary.possibleCount}</span>
-                <span className="text-slate-400 mx-1">/</span>
-                <span className="text-[#B4232F]">{summary.errorCount}</span>
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase text-[#8A5300] dark:text-amber-300">Possible / Error</div>
+              <div className="text-lg font-black text-[#14213D] dark:text-slate-100 tabular-nums">
+                <span className="text-[#8A5300] dark:text-amber-300">{summary.possibleCount}</span>
+                <span className="text-slate-400 dark:text-slate-400 mx-1">/</span>
+                <span className="text-[#B4232F] dark:text-rose-400">{summary.errorCount}</span>
               </div>
             </div>
-            <div className="bg-white rounded-[14px] border border-[#E3E8F0] px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-[#8A5300]">Balance Gaps</div>
-              <div className="text-lg font-black text-[#8A5300] tabular-nums">{summary.balanceGapCount}</div>
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase text-[#8A5300] dark:text-amber-300">Balance Gaps</div>
+              <div className="text-lg font-black text-[#8A5300] dark:text-amber-300 tabular-nums">{summary.balanceGapCount}</div>
             </div>
-            <div className="bg-white rounded-[14px] border border-[#E3E8F0] px-3 py-2">
-              <div className="text-[10px] font-bold uppercase text-slate-500">Save Dr / Cr</div>
+            <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 px-3 py-2">
+              <div className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Save Dr / Cr</div>
               <div className="text-[11px] font-black tabular-nums leading-tight mt-0.5">
-                <div className="text-[#B4232F]">Dr: {formatINRBank(summary.totalDebit)}</div>
-                <div className="text-[#087A55]">Cr: {formatINRBank(summary.totalCredit)}</div>
+                <div className="text-[#B4232F] dark:text-rose-400">Dr: {formatINRBank(summary.totalDebit)}</div>
+                <div className="text-[#087A55] dark:text-emerald-400">Cr: {formatINRBank(summary.totalCredit)}</div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] p-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <select
                 value={rowFilter}
                 onChange={(e) => setRowFilter(e.target.value)}
                 aria-label="Filter preview rows"
-                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] bg-[#F4F6FA] text-xs font-bold text-[#14213D]"
+                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-[#F4F6FA] dark:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
               >
                 {PREVIEW_FILTERS.map((f) => (
                   <option key={f.id} value={f.id}>{f.label}</option>
@@ -553,9 +582,9 @@ export default function BankStatementUploadTab({
                 type="button"
                 onClick={handleAddBlankRow}
                 disabled={!canUpload || rechecking}
-                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] hover:bg-[#F4F6FA] text-xs font-bold text-[#14213D] inline-flex items-center gap-1 cursor-pointer"
+                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1 cursor-pointer"
               >
-                <Plus className="w-3.5 h-3.5 text-[#3646C9]" />
+                <Plus className="w-3.5 h-3.5 text-[#3646C9] dark:text-indigo-400" />
                 <span>Add row</span>
               </button>
 
@@ -563,7 +592,7 @@ export default function BankStatementUploadTab({
                 <button
                   type="button"
                   onClick={() => setShowConfirmBulkDelete(true)}
-                  className="h-8 px-2.5 rounded-lg bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                  className="h-8 px-2.5 rounded-lg bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Delete ({selectedIds.size})</span>
@@ -574,9 +603,9 @@ export default function BankStatementUploadTab({
                 <button
                   type="button"
                   onClick={handleRemoveDuplicates}
-                  className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] hover:bg-[#F4F6FA] text-xs font-bold text-[#14213D] inline-flex items-center gap-1 cursor-pointer"
+                  className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <CopyCheck className="w-3.5 h-3.5 text-[#B4232F]" />
+                  <CopyCheck className="w-3.5 h-3.5 text-[#B4232F] dark:text-rose-400" />
                   <span>Remove duplicates</span>
                 </button>
               )}
@@ -585,7 +614,7 @@ export default function BankStatementUploadTab({
                 type="button"
                 onClick={() => runServerRecheck(rows)}
                 disabled={rechecking}
-                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] hover:bg-[#F4F6FA] text-xs font-bold text-[#14213D] inline-flex items-center gap-1 cursor-pointer"
+                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1 cursor-pointer"
               >
                 <RotateCcw className={`w-3.5 h-3.5 ${rechecking ? 'animate-spin' : ''}`} />
                 <span>Re-check</span>
@@ -597,7 +626,7 @@ export default function BankStatementUploadTab({
                 type="button"
                 onClick={handleDiscardPreview}
                 disabled={saving}
-                className="h-8 px-3 rounded-lg border border-[#E3E8F0] hover:bg-[#F4F6FA] text-xs font-bold text-[#14213D] cursor-pointer"
+                className="h-8 px-3 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer"
               >
                 Discard
               </button>
@@ -613,10 +642,10 @@ export default function BankStatementUploadTab({
             </div>
           </div>
 
-          <div className="bg-white rounded-[14px] border border-[#CBD5E1] overflow-hidden shadow-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
             <div className="overflow-x-auto max-h-[58vh]">
-              <table className="w-full text-left border-collapse min-w-[1380px] [&_th]:border-r [&_th]:border-[#CBD5E1] [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] [&_td:last-child]:border-r-0">
-                <thead className="sticky top-0 z-10 bg-[#EEF2F8] border-b-2 border-[#CBD5E1] text-[10.5px] font-bold uppercase text-[#14213D]">
+              <table className="w-full text-left border-collapse min-w-[1380px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+                <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
                   <tr>
                     <th className="p-2 w-8 text-center">
                       <input
@@ -642,10 +671,10 @@ export default function BankStatementUploadTab({
                     <th className="p-2 w-9 text-center">Del</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E3E8F0] text-xs text-[#14213D]">
+                <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
                   {filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={15} className="py-10 text-center text-slate-400 font-medium">
+                      <td colSpan={15} className="py-10 text-center text-slate-400 dark:text-slate-400 font-medium">
                         No preview rows match this filter.
                       </td>
                     </tr>
@@ -655,12 +684,12 @@ export default function BankStatementUploadTab({
                         key={row.clientId}
                         className={`align-top transition-colors ${
                           row.status === 'Error' || row.status === 'Duplicate'
-                            ? 'bg-rose-50/60 hover:bg-rose-50'
+                            ? 'bg-rose-50/60 dark:bg-rose-500/15 hover:bg-rose-50'
                             : row.balanceGap || row.status === 'Possible'
-                              ? 'bg-amber-50/60 hover:bg-amber-50'
+                              ? 'bg-amber-50/60 dark:bg-amber-500/15 hover:bg-amber-50 dark:hover:bg-amber-500/20'
                               : idx % 2 === 0
-                                ? 'bg-white hover:bg-[#E8EEFA]/70'
-                                : 'bg-[#F3F6FB] hover:bg-[#E8EEFA]/70'
+                                ? 'bg-white dark:bg-slate-900 hover:bg-[#E8EEFA]/70 dark:hover:bg-slate-800/85'
+                                : 'bg-[#F3F6FB] dark:bg-slate-800/45 hover:bg-[#E8EEFA]/70 dark:hover:bg-slate-800/85'
                         }`}
                       >
                         <td className="p-1.5 text-center">
@@ -674,12 +703,12 @@ export default function BankStatementUploadTab({
                         <td className="p-1.5 space-y-1">
                           {renderStatusBadge(row)}
                           {row.errors && row.errors.length > 0 && (
-                            <div className="text-[10px] font-semibold text-[#B4232F] leading-tight">
+                            <div className="text-[10px] font-semibold text-[#B4232F] dark:text-rose-400 leading-tight">
                               {row.errors.join(' • ')}
                             </div>
                           )}
                           {row.balanceGap && (
-                            <div className="text-[10px] font-semibold text-[#8A5300] leading-tight">
+                            <div className="text-[10px] font-semibold text-[#8A5300] dark:text-amber-300 leading-tight">
                               Gap: Exp {formatINRBank(row.expectedBalance)} (Diff {formatINRBank(row.balanceGapDiff)})
                             </div>
                           )}
@@ -690,9 +719,9 @@ export default function BankStatementUploadTab({
                             value={row.txnDate || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'txnDate', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs font-mono"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-mono"
                           />
-                          <div className="text-[10px] text-slate-400 px-0.5">{formatBankDisplayDate(row.txnDate)}</div>
+                          <div className="text-[10px] text-slate-400 dark:text-slate-400 px-0.5">{formatBankDisplayDate(row.txnDate)}</div>
                         </td>
                         <td className="p-1.5">
                           <input
@@ -700,7 +729,7 @@ export default function BankStatementUploadTab({
                             value={row.valueDate || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'valueDate', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs font-mono"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-mono"
                           />
                         </td>
                         <td className="p-1.5">
@@ -709,10 +738,10 @@ export default function BankStatementUploadTab({
                             value={row.description || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'description', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs resize-y"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs resize-y"
                           />
                           {row.partyName && (
-                            <div className="text-[10px] font-semibold text-[#3646C9]">Party: {row.partyName}</div>
+                            <div className="text-[10px] font-semibold text-[#3646C9] dark:text-indigo-400">Party: {row.partyName}</div>
                           )}
                         </td>
                         <td className="p-1.5">
@@ -721,7 +750,7 @@ export default function BankStatementUploadTab({
                             value={row.refNo || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'refNo', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs font-mono"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-mono"
                           />
                         </td>
                         <td className="p-1.5">
@@ -730,7 +759,7 @@ export default function BankStatementUploadTab({
                             value={row.branchCode || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'branchCode', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs font-mono"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-mono"
                           />
                         </td>
                         <td className="p-1.5">
@@ -739,7 +768,7 @@ export default function BankStatementUploadTab({
                             value={row.debitRaw ?? (row.debit || '')}
                             onChange={(e) => handleCellChange(row.clientId, 'debit', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs text-right font-mono tabular-nums text-[#B4232F] font-semibold"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-right font-mono tabular-nums text-[#B4232F] dark:text-rose-400 font-semibold"
                           />
                         </td>
                         <td className="p-1.5">
@@ -748,7 +777,7 @@ export default function BankStatementUploadTab({
                             value={row.creditRaw ?? (row.credit || '')}
                             onChange={(e) => handleCellChange(row.clientId, 'credit', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs text-right font-mono tabular-nums text-[#087A55] font-semibold"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-right font-mono tabular-nums text-[#087A55] dark:text-emerald-400 font-semibold"
                           />
                         </td>
                         <td className="p-1.5">
@@ -757,8 +786,8 @@ export default function BankStatementUploadTab({
                             value={row.balanceRaw ?? (row.balance !== null && row.balance !== undefined ? row.balance : '')}
                             onChange={(e) => handleCellChange(row.clientId, 'balance', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className={`w-full px-1.5 py-1 rounded border bg-white text-xs text-right font-mono tabular-nums font-semibold ${
-                              row.balanceGap ? 'border-[#8A5300] text-[#8A5300]' : 'border-[#E3E8F0]'
+                            className={`w-full px-1.5 py-1 rounded border bg-white dark:bg-slate-900 text-xs text-right font-mono tabular-nums font-semibold ${
+                              row.balanceGap ? 'border-[#8A5300] text-[#8A5300] dark:text-amber-300' : 'border-[#E3E8F0] dark:border-slate-800'
                             }`}
                           />
                         </td>
@@ -768,7 +797,7 @@ export default function BankStatementUploadTab({
                             value={row.remarks || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'remarks', e.target.value)}
                             onBlur={() => runServerRecheck(rows)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
                           />
                         </td>
                         <td className="p-1.5">
@@ -776,7 +805,7 @@ export default function BankStatementUploadTab({
                             type="text"
                             value={row.month || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'month', e.target.value)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
                           />
                         </td>
                         <td className="p-1.5">
@@ -784,7 +813,7 @@ export default function BankStatementUploadTab({
                             type="text"
                             value={row.year || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'year', e.target.value)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs font-mono"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-mono"
                           />
                         </td>
                         <td className="p-1.5">
@@ -792,7 +821,7 @@ export default function BankStatementUploadTab({
                             type="text"
                             value={row.type || ''}
                             onChange={(e) => handleCellChange(row.clientId, 'type', e.target.value)}
-                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] bg-white text-xs"
+                            className="w-full px-1.5 py-1 rounded border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs"
                           />
                         </td>
                         <td className="p-1.5 text-center">
@@ -800,7 +829,7 @@ export default function BankStatementUploadTab({
                             type="button"
                             onClick={() => handleDeleteRow(row.clientId)}
                             title="Delete preview row"
-                            className="p-1 rounded text-[#B4232F] hover:bg-[#FDECEC] cursor-pointer"
+                            className="p-1 rounded text-[#B4232F] dark:text-rose-400 hover:bg-[#FDECEC] dark:hover:bg-rose-500/20 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -818,26 +847,26 @@ export default function BankStatementUploadTab({
       {/* Confirm Save Popup */}
       {showConfirmSaveModal && summary && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4" onClick={() => !saving && setShowConfirmSaveModal(false)}>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-md p-4 space-y-3.5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-black text-[#14213D]">
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-md p-4 space-y-3.5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">
               Save {summary.willSaveCount} transaction{summary.willSaveCount === 1 ? '' : 's'}?
             </h3>
-            <div className="rounded-xl bg-[#F4F6FA] border border-[#E3E8F0] p-3 space-y-1.5 text-xs">
+            <div className="rounded-xl bg-[#F4F6FA] dark:bg-slate-800 border border-[#E3E8F0] dark:border-slate-800 p-3 space-y-1.5 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-600 font-semibold">Total debit</span>
-                <span className="font-black text-[#B4232F] tabular-nums">{formatINRBank(summary.totalDebit)}</span>
+                <span className="text-slate-600 dark:text-slate-300 font-semibold">Total debit</span>
+                <span className="font-black text-[#B4232F] dark:text-rose-400 tabular-nums">{formatINRBank(summary.totalDebit)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-600 font-semibold">Total credit</span>
-                <span className="font-black text-[#087A55] tabular-nums">{formatINRBank(summary.totalCredit)}</span>
+                <span className="text-slate-600 dark:text-slate-300 font-semibold">Total credit</span>
+                <span className="font-black text-[#087A55] dark:text-emerald-400 tabular-nums">{formatINRBank(summary.totalCredit)}</span>
               </div>
-              <div className="flex justify-between border-t border-[#E3E8F0] pt-1.5">
-                <span className="text-slate-600 font-semibold">Not saved</span>
-                <span className="font-bold text-[#14213D] tabular-nums">{summary.notSavedCount} rows</span>
+              <div className="flex justify-between border-t border-[#E3E8F0] dark:border-slate-800 pt-1.5">
+                <span className="text-slate-600 dark:text-slate-300 font-semibold">Not saved</span>
+                <span className="font-bold text-[#14213D] dark:text-slate-100 tabular-nums">{summary.notSavedCount} rows</span>
               </div>
             </div>
             {summary.balanceGapCount > 0 && (
-              <div className="p-2 rounded-xl bg-[#FEF4E6] border border-[#8A5300]/30 text-[#8A5300] text-xs font-semibold flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-[#FEF4E6] dark:bg-amber-500/15 border border-[#8A5300]/30 dark:border-amber-500/30 text-[#8A5300] dark:text-amber-300 text-xs font-semibold flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{summary.balanceGapCount} balance gap warning(s) detected. Saving is still permitted.</span>
               </div>
@@ -847,7 +876,7 @@ export default function BankStatementUploadTab({
                 type="button"
                 disabled={saving}
                 onClick={() => setShowConfirmSaveModal(false)}
-                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>
@@ -868,14 +897,14 @@ export default function BankStatementUploadTab({
       {/* Confirm Bulk Delete Popup */}
       {showConfirmBulkDelete && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4" onClick={() => setShowConfirmBulkDelete(false)}>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-sm p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-black text-[#14213D]">Delete {selectedIds.size} selected preview row(s)?</h3>
-            <p className="text-xs text-slate-600">This removes the selected rows from your upload preview only.</p>
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-sm p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">Delete {selectedIds.size} selected preview row(s)?</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300">This removes the selected rows from your upload preview only.</p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowConfirmBulkDelete(false)}
-                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>

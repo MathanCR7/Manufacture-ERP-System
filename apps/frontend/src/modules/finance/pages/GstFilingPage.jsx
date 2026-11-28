@@ -43,10 +43,10 @@ export default function GstFilingPage() {
   }, [loadInit]);
 
   return (
-    <div className="min-h-screen bg-[#F4F6FA] text-[#14213D] p-2.5 sm:p-4">
+    <div className="min-h-screen bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 p-2.5 sm:p-4 transition-colors">
       <div className="max-w-[1520px] mx-auto space-y-3">
-        {/* Top Bar (#111A36) */}
-        <header className="bg-[#111A36] text-white rounded-[14px] px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {/* Top Bar (#111A36 in Light, Slate-900 in Dark) */}
+        <header className="bg-[#111A36] dark:bg-slate-900 dark:border dark:border-slate-800 text-white rounded-[14px] px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
               <ReceiptIndianRupee className="w-4.5 h-4.5 text-emerald-300" />
@@ -62,7 +62,7 @@ export default function GstFilingPage() {
                 </span>
               </div>
               <p className="text-[11px] text-slate-300/90 truncate">
-                Bank GST review, GSTR-2B matching, ERP GSTR-3B reconciliation, 6-sheet Excel &amp; Filing PDF Reports
+                Bank GST review, GSTR-2B matching, ITC register verification, 6-sheet Excel &amp; Filing PDF Reports
               </p>
             </div>
           </div>
@@ -88,9 +88,9 @@ export default function GstFilingPage() {
         </header>
 
         {loadingInit && accounts.length === 0 ? (
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] p-12 text-center">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#3646C9]" />
-            <p className="mt-2 text-xs font-semibold text-slate-500">Loading GST &amp; Filing workspace...</p>
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 p-12 text-center">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#3646C9] dark:text-indigo-400" />
+            <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Loading GST &amp; Filing workspace...</p>
           </div>
         ) : (
           <main>

@@ -222,14 +222,28 @@ function parseAmountToPaise(raw, { allowBlank = true, allowZero = true, allowNeg
       : { ok: false, isBlank: true, paise: 0, error: 'Amount is missing' };
   }
 
-  // Strip currency symbol, commas, spaces
+  // Strip currency symbol/prefix, commas, spaces
+  s = s.replace(/^(?:rs\.?|inr)\s*/i, '').replace(/\s*(?:rs\.?|inr)$/i, '');
   s = s.replace(/[₹,\s]/g, '');
+
+  // Handle trailing Dr / Cr suffix (commonly exported in Indian Balance / Amount columns)
+  let dcSuffix = '';
+  const dcMatch = s.match(/^(.*?)(cr|dr)\.?$/i);
+  if (dcMatch && dcMatch[1]) {
+    s = dcMatch[1];
+    dcSuffix = dcMatch[2].toUpperCase();
+  }
+
   if (s.startsWith('(') && s.endsWith(')')) {
     return { ok: false, isBlank: false, paise: 0, error: 'Negative/parenthetical amount is not allowed' };
   }
 
   if (!/^-?\d+(\.\d+)?$/.test(s)) {
     return { ok: false, isBlank: false, paise: 0, error: `Invalid amount "${raw}"` };
+  }
+
+  if (dcSuffix === 'DR' && allowNegative && !s.startsWith('-')) {
+    s = `-${s}`;
   }
 
   const neg = s.startsWith('-');
@@ -316,19 +330,35 @@ function extractPaymentMetadata(description = '', refNo = '') {
     utr = upiSlashMatch[1].trim();
     partyName = upiSlashMatch[2].trim();
   } else {
-    // Pattern 2: NEFT / RTGS / IMPS slash or dash patterns
-    const neftMatch = desc.match(/(?:NEFT|RTGS|IMPS)[-/](?:CR|DR|IN|OUT)?[-/]?([A-Z0-9]{8,24})[-/]([^/-][^/]{1,60})/i);
-    if (neftMatch) {
-      utr = neftMatch[1].trim();
-      partyName = neftMatch[2].trim();
+    // Pattern 2: Asterisk-separated NEFT/RTGS/IMPS (e.g. NEFT*HDFC0000001*HDFCH01039257470*RAJARAJAN U*BATC--)
+    const starNeftMatch = desc.match(/(?:NEFT|RTGS|IMPS)\*[A-Z0-9]{4,12}\*([A-Z0-9]{8,26})\*([^*--][^*]{1,60})/i);
+    if (starNeftMatch) {
+      utr = starNeftMatch[1].trim();
+      partyName = starNeftMatch[2].trim();
     } else {
-      // Check standalone long UTR / ref numbers in Ref No or Description
-      const refNumMatch = ref.match(/\b(\d{9,22})\b/) || desc.match(/\b(\d{10,22})\b/);
-      if (refNumMatch) {
-        utr = refNumMatch[1];
+      // Pattern 3: "UTR NO: SBIN126152075451--756052 THE TIIC LTD" or "UTR NO: SMPUTR000204--200204 SAMPLE SUPPLIER LTD"
+      const utrNoMatch = desc.match(/UTR\s*(?:NO\.?|:)?\s*:?\s*([A-Z0-9]{8,26})(?:--(?:\d*\s*)?|\s+)([A-Za-z][A-Za-z0-9 .&_-]{1,60})?/i);
+      if (utrNoMatch) {
+        utr = utrNoMatch[1].trim();
+        if (utrNoMatch[2]) partyName = utrNoMatch[2].trim();
       } else {
-        const alphaUtr = desc.match(/\b([A-Z]{4}\d{10,18})\b/i) || ref.match(/\b([A-Z]{4}\d{10,18})\b/i);
-        if (alphaUtr) utr = alphaUtr[1].toUpperCase();
+        // Pattern 4: NEFT / RTGS / IMPS slash or dash patterns
+        const neftMatch = desc.match(/(?:NEFT|RTGS|IMPS)[-/](?:CR|DR|IN|OUT)?[-/]?([A-Z0-9]{6,24})[-/]([^/-][^/]{1,60})/i);
+        if (neftMatch) {
+          utr = neftMatch[1].trim();
+          partyName = neftMatch[2].trim();
+        } else {
+          // Check standalone long UTR / ref numbers in Ref No or Description
+          const refNumMatch = ref.match(/\b(\d{9,22})\b/) || desc.match(/\b(\d{10,22})\b/);
+          if (refNumMatch) {
+            utr = refNumMatch[1];
+          } else {
+            const alphaUtr =
+              ref.match(/\b([A-Z]{2,6}\d+[A-Z0-9]{4,20})\b/i) ||
+              desc.match(/\b([A-Z]{4}\d{10,18}|CHX\d{5,12}|SBIN\d{10,18}|[A-Z]{2,6}\d+[A-Z0-9]{6,20})\b/i);
+            if (alphaUtr) utr = alphaUtr[1].toUpperCase();
+          }
+        }
       }
     }
   }
@@ -353,10 +383,16 @@ function extractPaymentMetadata(description = '', refNo = '') {
 function suggestGstTreatment({ description = '', remarks = '', debitPaise = 0, creditPaise = 0 }) {
   const haystack = `${description} ${remarks}`.toLowerCase();
 
-  if (haystack.includes('capital receipt') || haystack.includes('capital infus') || haystack.includes('own transfer')) {
+  if (
+    haystack.includes('capital receipt') ||
+    haystack.includes('capital infus') ||
+    haystack.includes('partner capital') ||
+    haystack.includes('director loan') ||
+    haystack.includes('own transfer')
+  ) {
     return {
       treatment: 'Not a supply (capital / loan / own transfer)',
-      reason: 'Matched capital receipt / own transfer keyword (suggestion only)'
+      reason: 'Matched capital / partner / own transfer keyword (suggestion only)'
     };
   }
   if (haystack.includes('tneb') || haystack.includes('electricity') || haystack.includes('eb bill') || haystack.includes('tangedco')) {
@@ -383,10 +419,34 @@ function suggestGstTreatment({ description = '', remarks = '', debitPaise = 0, c
       reason: 'Loan processing fee — verify lender GST invoice & eligibility'
     };
   }
+  if (
+    haystack.includes('packing') ||
+    haystack.includes('raw material') ||
+    haystack.includes('supplier') ||
+    haystack.includes('vendor') ||
+    haystack.includes('freight') ||
+    haystack.includes('transport') ||
+    haystack.includes('software') ||
+    haystack.includes('saas') ||
+    haystack.includes('subscription') ||
+    haystack.includes('factory rent') ||
+    haystack.includes('office rent')
+  ) {
+    return {
+      treatment: 'Purchase: ITC to verify',
+      reason: 'Business purchase / service — verify tax invoice, GSTIN, and GSTR-2B for ITC'
+    };
+  }
   if (haystack.includes('fssai') || haystack.includes('treasury') || haystack.includes('mod charge') || haystack.includes('govt') || haystack.includes('challan')) {
     return {
       treatment: 'Government fee / tax',
       reason: 'Government / statutory fee — check reverse charge applicability'
+    };
+  }
+  if (creditPaise > 0 && debitPaise === 0 && (haystack.includes('customer') || haystack.includes('sales') || haystack.includes('inv'))) {
+    return {
+      treatment: 'Sales receipt',
+      reason: 'Matched customer / sales keyword — link ERP sales invoice (suggestion only)'
     };
   }
 
@@ -475,42 +535,224 @@ const HEADER_ALIASES = {
   txndate: 'txnDate',
   transactiondate: 'txnDate',
   date: 'txnDate',
+  trandate: 'txnDate',
+  transdate: 'txnDate',
+  txndt: 'txnDate',
+  postingdate: 'txnDate',
+  postdate: 'txnDate',
+  bookdate: 'txnDate',
+  entrydate: 'txnDate',
+  voucherdate: 'txnDate',
+  dateoftransaction: 'txnDate',
   valuedate: 'valueDate',
   valdate: 'valueDate',
+  valuedt: 'valueDate',
+  clearingdate: 'valueDate',
+  effectivedate: 'valueDate',
+  settlementdate: 'valueDate',
   description: 'description',
   narration: 'description',
   particulars: 'description',
   txndescription: 'description',
+  transactiondescription: 'description',
+  transactionremarks: 'description',
+  transactionparticulars: 'description',
+  details: 'description',
+  txndetails: 'description',
+  paymentnarration: 'description',
+  narrative: 'description',
+  memo: 'description',
   refnochequeno: 'refNo',
   refno: 'refNo',
   chequeno: 'refNo',
+  chqno: 'refNo',
   chqrefno: 'refNo',
+  refchequeno: 'refNo',
   referenceno: 'refNo',
+  referencenumber: 'refNo',
+  transactionreference: 'refNo',
+  transactionref: 'refNo',
+  txnreference: 'refNo',
+  txnref: 'refNo',
+  utr: 'refNo',
+  utrno: 'refNo',
+  utrnumber: 'refNo',
+  chequerefno: 'refNo',
+  instrumentno: 'refNo',
+  instno: 'refNo',
+  tranid: 'refNo',
+  transactionid: 'refNo',
+  chequenumber: 'refNo',
+  docno: 'refNo',
+  voucherno: 'refNo',
   branchcode: 'branchCode',
   branch: 'branchCode',
+  bankbranch: 'branchCode',
+  solid: 'branchCode',
+  branchid: 'branchCode',
+  brcode: 'branchCode',
+  branchname: 'branchCode',
   debit: 'debit',
   withdrawal: 'debit',
   withdrawalamt: 'debit',
+  withdrawalamount: 'debit',
   debitamount: 'debit',
+  debitamt: 'debit',
   dr: 'debit',
+  dramount: 'debit',
+  debitinr: 'debit',
+  debitrs: 'debit',
+  withdrawaldr: 'debit',
+  paidout: 'debit',
+  outflow: 'debit',
+  moneyout: 'debit',
+  cashout: 'debit',
+  fundsout: 'debit',
+  spent: 'debit',
+  amountdebited: 'debit',
   credit: 'credit',
   deposit: 'credit',
   depositamt: 'credit',
+  depositamount: 'credit',
   creditamount: 'credit',
+  creditamt: 'credit',
   cr: 'credit',
+  cramount: 'credit',
+  creditinr: 'credit',
+  creditrs: 'credit',
+  depositcr: 'credit',
+  paidin: 'credit',
+  inflow: 'credit',
+  moneyin: 'credit',
+  cashin: 'credit',
+  fundsin: 'credit',
+  received: 'credit',
+  amountcredited: 'credit',
+  amount: 'amount',
+  txnamount: 'amount',
+  transactionamount: 'amount',
+  amt: 'amount',
+  amountinr: 'amount',
+  txnvalue: 'amount',
+  drcr: 'drCr',
+  crdr: 'drCr',
+  debitcredit: 'drCr',
+  drcrind: 'drCr',
+  drcrindicator: 'drCr',
+  indicator: 'drCr',
   balance: 'balance',
   closingbalance: 'balance',
   runningbalance: 'balance',
+  availablebalance: 'balance',
+  availbalance: 'balance',
+  balanceinr: 'balance',
+  closingbal: 'balance',
+  balanceamt: 'balance',
+  netbalance: 'balance',
+  bal: 'balance',
+  closingbalanceinr: 'balance',
   remarks: 'remarks',
   remark: 'remarks',
+  usernote: 'remarks',
+  usernotes: 'remarks',
+  userremarks: 'remarks',
+  banknote: 'remarks',
+  comment: 'remarks',
+  comments: 'remarks',
+  note: 'remarks',
+  notes: 'remarks',
+  category: 'remarks',
+  internalremarks: 'remarks',
   month: 'month',
+  txnmonth: 'month',
+  monthname: 'month',
+  periodmonth: 'month',
+  period: 'month',
   year: 'year',
   finyear: 'year',
   fy: 'year',
   financialyear: 'year',
+  accountingyear: 'year',
   type: 'type',
-  txntype: 'type'
+  txntype: 'type',
+  mode: 'type',
+  paymentmode: 'type',
+  channel: 'type',
+  trantype: 'type',
+  transactiontype: 'type'
 };
+
+const CANONICAL_DISPLAY_NAMES = {
+  txnDate: 'Txn Date',
+  valueDate: 'Value Date',
+  description: 'Description',
+  refNo: 'Ref No./Cheque No.',
+  branchCode: 'Branch Code',
+  debit: 'Debit',
+  credit: 'Credit',
+  amount: 'Amount',
+  drCr: 'Dr / Cr',
+  balance: 'Balance',
+  remarks: 'Remarks',
+  month: 'Month',
+  year: 'Year',
+  type: 'Type'
+};
+
+/**
+ * Two-pass intelligent header matcher:
+ * 1) Exact normalized match against HEADER_ALIASES (after stripping currency tags)
+ * 2) Fuzzy keyword rule match for bank variations like "Money In", "Money Out", "Withdrawal Amt (INR)", etc.
+ */
+function matchHeaderToField(rawHeader) {
+  const normFull = normalizeHeaderName(rawHeader);
+  if (!normFull) return null;
+  if (/^(sno|slno|srno|serialno|seqno|lineno|rowid|index)$/.test(normFull)) return null;
+  if (HEADER_ALIASES[normFull]) return HEADER_ALIASES[normFull];
+
+  // Strip trailing currency/unit words e.g. "(INR)", "(Rs.)", "(Rs)", "Amt in INR"
+  const strippedRaw = String(rawHeader || '')
+    .replace(/\((?:inr|rs\.?|₹|amount|dr|cr)[^)]*\)/gi, '')
+    .replace(/\b(?:in\s+inr|in\s+rs\.?|inr)\b/gi, '');
+  const normStripped = normalizeHeaderName(strippedRaw);
+  if (normStripped && HEADER_ALIASES[normStripped]) return HEADER_ALIASES[normStripped];
+
+  // Keyword rules (Pass 2)
+  if (/^(?:dr\/?cr|cr\/?dr|debit\/?credit)/i.test(String(rawHeader || '').trim()) || (normFull.includes('drcr') || normFull.includes('crdr'))) {
+    return 'drCr';
+  }
+  if (normFull.includes('withdrawal') || normFull.includes('moneyout') || normFull.includes('cashout') || normFull.includes('fundsout') || normFull.includes('outflow') || normFull.includes('paidout') || normFull === 'payment' || normFull === 'payments' || (normFull.includes('debit') && !normFull.includes('credit'))) {
+    return 'debit';
+  }
+  if (normFull.includes('deposit') || normFull.includes('moneyin') || normFull.includes('cashin') || normFull.includes('fundsin') || normFull.includes('inflow') || normFull.includes('paidin') || normFull === 'receipt' || normFull === 'receipts' || (normFull.includes('credit') && !normFull.includes('debit'))) {
+    return 'credit';
+  }
+  if (normFull.includes('balance') || normFull.startsWith('closbal')) {
+    return 'balance';
+  }
+  if (normFull.includes('narration') || normFull.includes('particular') || normFull.includes('description')) {
+    return 'description';
+  }
+  if (normFull.includes('cheque') || normFull.includes('chq') || normFull.includes('utr') || normFull.includes('referenceno') || normFull.includes('transactionref') || normFull.includes('refno') || normFull.includes('instrument')) {
+    return 'refNo';
+  }
+  if (normFull.includes('valuedate') || normFull.includes('valdate') || normFull.includes('clearingdate') || normFull.includes('effectivedate')) {
+    return 'valueDate';
+  }
+  if (normFull.includes('txndate') || normFull.includes('trandate') || normFull.includes('transdate') || normFull.includes('transactiondate') || normFull.includes('postingdate') || normFull.includes('bookdate') || normFull.includes('ledgerdate')) {
+    return 'txnDate';
+  }
+  if (normFull.includes('branch') || normFull.includes('solid') || normFull === 'initbr') {
+    return 'branchCode';
+  }
+  if (normFull.includes('remark') || normFull.includes('usernote')) {
+    return 'remarks';
+  }
+  if (normFull.includes('txnamount') || normFull.includes('transactionamount')) {
+    return 'amount';
+  }
+  return null;
+}
 
 /**
  * Parse uploaded Excel (.xlsx / .xls) or CSV buffer into raw 2D grid rows using SheetJS 0.20.3
@@ -617,7 +859,394 @@ function parsePastedTextToGrid(text = '') {
 }
 
 /**
- * Find header row automatically and map column indices
+ * Infer headerless columns from sample row values when user pastes rows without any header row.
+ */
+function inferHeaderlessMapping(sampleRows) {
+  const maxCols = Math.max(...sampleRows.map((r) => (Array.isArray(r) ? r.length : 0)), 0);
+  if (maxCols < 4) return null;
+
+  const isDateLike = (v) => {
+    const s = String(v || '').trim();
+    if (!s || /^\d+(\.\d+)?$/.test(s)) return false; // avoid treating plain integers like branch codes/amounts as Excel serial dates in heuristic scan
+    return parseStatementDate(s).ok;
+  };
+
+  const isMoneyLike = (v) => {
+    const s = String(v || '').trim();
+    if (!s || /^\(?blank\)?$/i.test(s) || s === '-' || s === '--') return false;
+    const p = parseAmountToPaise(s, { allowBlank: false, allowZero: true, allowNegative: true });
+    return p.ok;
+  };
+
+  const colStats = [];
+  for (let c = 0; c < maxCols; c++) {
+    let nonBlank = 0;
+    let dateCount = 0;
+    let moneyCount = 0;
+    let totalLen = 0;
+    let decimalCount = 0;
+    let branchLikeCount = 0;
+    let fyLikeCount = 0;
+    let monthLikeCount = 0;
+
+    for (const row of sampleRows) {
+      const val = String(row?.[c] ?? '').trim();
+      if (!val || /^\(?blank\)?$/i.test(val)) continue;
+      nonBlank++;
+      totalLen += val.length;
+      if (isDateLike(val)) dateCount++;
+      if (isMoneyLike(val)) {
+        moneyCount++;
+        if (/\.\d{1,2}/.test(val) || val.includes(',')) decimalCount++;
+        if (/^\d{1,5}$/.test(val)) branchLikeCount++;
+      }
+      if (/^\d{2}-\d{2}$/.test(val)) fyLikeCount++;
+      if (MONTH_NAMES.some((m) => m.toLowerCase() === val.toLowerCase())) monthLikeCount++;
+    }
+
+    colStats.push({
+      col: c,
+      nonBlank,
+      dateRatio: nonBlank ? dateCount / nonBlank : 0,
+      moneyRatio: nonBlank ? moneyCount / nonBlank : 0,
+      avgLen: nonBlank ? totalLen / nonBlank : 0,
+      decimalCount,
+      branchLikeCount,
+      fyLikeCount,
+      monthLikeCount
+    });
+  }
+
+  const dateCols = colStats.filter((s) => s.nonBlank > 0 && s.dateRatio >= 0.6).map((s) => s.col);
+  if (dateCols.length === 0) return null;
+
+  // Classic 12-column fallback check (col 0 date, col 1 date, col 2 description, col 5 debit, col 6 credit, col 7 balance)
+  const moneyCols = colStats.filter(
+    (s) => !dateCols.includes(s.col) && s.nonBlank > 0 && s.moneyRatio >= 0.7 && (s.decimalCount > 0 || s.col >= 4)
+  );
+  // Distinguish branch code (short integer like "913" before monetary columns) from actual Debit/Credit/Balance
+  const trueMoneyCols = moneyCols.filter((s) => !(s.branchLikeCount === s.nonBlank && s.decimalCount === 0 && moneyCols.length >= 3));
+
+  const map = { txnDate: dateCols[0] };
+  if (dateCols.length >= 2 && dateCols[1] !== dateCols[0]) {
+    map.valueDate = dateCols[1];
+  }
+
+  // Pick description column as longest average text column not marked as date/money
+  const textCols = colStats.filter(
+    (s) =>
+      !dateCols.includes(s.col) &&
+      !trueMoneyCols.some((m) => m.col === s.col) &&
+      s.nonBlank > 0 &&
+      s.fyLikeCount === 0 &&
+      s.monthLikeCount === 0
+  );
+  if (textCols.length > 0) {
+    const descCol = [...textCols].sort((a, b) => b.avgLen - a.avgLen)[0];
+    map.description = descCol.col;
+  }
+
+  // Remaining monetary columns -> [debit, credit, balance?]
+  if (trueMoneyCols.length >= 2) {
+    map.debit = trueMoneyCols[0].col;
+    map.credit = trueMoneyCols[1].col;
+    if (trueMoneyCols.length >= 3) {
+      map.balance = trueMoneyCols[2].col;
+    }
+  } else if (trueMoneyCols.length === 1) {
+    map.amount = trueMoneyCols[0].col;
+  }
+
+  const monthCol = colStats.find((s) => s.monthLikeCount > 0 && s.monthLikeCount === s.nonBlank);
+  if (monthCol) map.month = monthCol.col;
+  const fyCol = colStats.find((s) => s.fyLikeCount > 0 && s.fyLikeCount === s.nonBlank);
+  if (fyCol) map.year = fyCol.col;
+
+  const hasEnough = map.txnDate !== undefined && map.description !== undefined && ((map.debit !== undefined && map.credit !== undefined) || map.amount !== undefined);
+  if (!hasEnough) return null;
+
+  return {
+    headerRowIndex: -1,
+    colMap: map,
+    headerLabels: Object.entries(map).reduce((acc, [k, idx]) => {
+      acc[CANONICAL_DISPLAY_NAMES[k] || k] = `Column ${idx + 1} (Auto-detected)`;
+      return acc;
+    }, {}),
+    detectionMode: 'headerless-inferred'
+  };
+}
+
+/**
+ * Deterministic Zero-AI Predictor:
+ * Uses exact accounting math (prevBalance + Credit - Debit == currBalance) and statistical cell profiling
+ * to predict any missing/unfamiliar statement columns (e.g. "Money In", "Money Out", "Col Out", "Dt1", etc.).
+ */
+function predictMissingColumnsFromRows(grid, headerRowIndex, colMap, headerLabels) {
+  const sampleRows = grid
+    .slice(headerRowIndex + 1)
+    .filter((r) => Array.isArray(r) && r.some((c) => String(c || '').trim() !== ''))
+    .slice(0, 25);
+
+  if (sampleRows.length === 0) return { colMap, headerLabels, predictedAny: false };
+
+  const headerRow = headerRowIndex >= 0 && Array.isArray(grid[headerRowIndex]) ? grid[headerRowIndex] : [];
+  const maxCols = Math.max(headerRow.length, ...sampleRows.map((r) => r.length), 0);
+  const nextMap = { ...colMap };
+  const nextLabels = { ...headerLabels };
+  const usedCols = new Set(Object.values(nextMap));
+  let predictedAny = false;
+
+  const markPredicted = (field, colIdx, note) => {
+    nextMap[field] = colIdx;
+    usedCols.add(colIdx);
+    const hdr = String(headerRow[colIdx] ?? '').trim();
+    nextLabels[CANONICAL_DISPLAY_NAMES[field] || field] = hdr
+      ? `${hdr} (Predicted${note ? ` • ${note}` : ''})`
+      : `Col ${colIdx + 1} (Predicted)`;
+    predictedAny = true;
+  };
+
+  const isDateCell = (v) => {
+    const s = String(v || '').trim();
+    if (!s || /^\d+(\.\d+)?$/.test(s)) return false;
+    return parseStatementDate(s).ok;
+  };
+
+  const parseMoneyCell = (v) => {
+    const s = String(v || '').trim();
+    if (!s || /^\(?blank\)?$/i.test(s) || s === '-' || s === '--') return null;
+    const res = parseAmountToPaise(s, { allowBlank: false, allowZero: true, allowNegative: true });
+    return res.ok ? res.paise : undefined;
+  };
+
+  const colStats = [];
+  for (let c = 0; c < maxCols; c++) {
+    let nonBlank = 0;
+    let dateCount = 0;
+    let moneyCount = 0;
+    let invalidMoney = 0;
+    let decOrComma = 0;
+    let shortIntCount = 0;
+    let monthCount = 0;
+    let fyCount = 0;
+    let refLikeCount = 0;
+    let totalLen = 0;
+    let narrationHint = 0;
+    const distinctVals = new Set();
+
+    for (const row of sampleRows) {
+      const val = String(row?.[c] ?? '').trim();
+      if (!val || /^\(?blank\)?$/i.test(val)) continue;
+      nonBlank++;
+      totalLen += val.length;
+      distinctVals.add(val.toLowerCase());
+      if (isDateCell(val)) dateCount++;
+      const m = parseMoneyCell(val);
+      if (m !== undefined && m !== null) {
+        moneyCount++;
+        if (/\.\d{1,2}/.test(val) || val.includes(',')) decOrComma++;
+        if (/^\d{1,6}$/.test(val)) shortIntCount++;
+      } else if (m === undefined) {
+        invalidMoney++;
+      }
+      if (/^\d{2}-\d{2}$/.test(val)) fyCount++;
+      if (MONTH_NAMES.some((mn) => mn.toLowerCase() === val.toLowerCase() || mn.slice(0, 3).toLowerCase() === val.toLowerCase())) {
+        monthCount++;
+      }
+      if (/\b(UPI|NEFT|RTGS|IMPS|INB|TRANSFER|CHQ)\b/i.test(val)) narrationHint++;
+      if (/\b([A-Z]{2,6}\d+[A-Z0-9]{4,}|\d{7,22})\b/i.test(val) || /TRANSFER\s+FROM/i.test(val)) refLikeCount++;
+    }
+
+    const hdrNorm = normalizeHeaderName(headerRow[c]);
+    const isSerialHdr = /^(sno|slno|srno|serialno|seqno|lineno|rowid|index)$/.test(hdrNorm);
+    const seqValues = sampleRows.map((r) => String(r?.[c] ?? '').trim()).filter(Boolean);
+    const isSequential1N = seqValues.length >= 2 && seqValues.every((v, idx) => v === String(idx + 1));
+
+    colStats.push({
+      col: c,
+      nonBlank,
+      dateRatio: nonBlank ? dateCount / nonBlank : 0,
+      isCleanMoneyCol: nonBlank > 0 && invalidMoney === 0 && moneyCount === nonBlank && !isSerialHdr && !isSequential1N && (decOrComma > 0 || nonBlank < sampleRows.length),
+      isBlankCol: nonBlank === 0,
+      isBranchLikeCol: nonBlank > 0 && invalidMoney === 0 && shortIntCount === nonBlank && decOrComma === 0 && !isSerialHdr && !isSequential1N,
+      isSerialCol: isSerialHdr || isSequential1N,
+      avgLen: nonBlank ? totalLen / nonBlank : 0,
+      monthRatio: nonBlank ? monthCount / nonBlank : 0,
+      fyRatio: nonBlank ? fyCount / nonBlank : 0,
+      refLikeRatio: nonBlank ? refLikeCount / nonBlank : 0,
+      narrationHint,
+      uniqueCount: distinctVals.size
+    });
+  }
+
+  // 1. Predict txnDate & valueDate if missing
+  const unmappedDateCols = colStats
+    .filter((s) => !usedCols.has(s.col) && s.nonBlank > 0 && s.dateRatio >= 0.6)
+    .map((s) => s.col);
+
+  if (nextMap.txnDate === undefined && unmappedDateCols.length > 0) {
+    // If 2 date cols are unmapped, prefer chronological order or posting date vs effective date
+    markPredicted('txnDate', unmappedDateCols[0], 'Date');
+    if (nextMap.valueDate === undefined && unmappedDateCols.length >= 2) {
+      markPredicted('valueDate', unmappedDateCols[1], 'Date');
+    }
+  } else if (nextMap.valueDate === undefined && unmappedDateCols.length > 0) {
+    markPredicted('valueDate', unmappedDateCols[0], 'Date');
+  }
+
+  // 2. Predict description if missing
+  if (nextMap.description === undefined) {
+    const descCandidates = colStats
+      .filter((s) => !usedCols.has(s.col) && s.nonBlank > 0 && s.dateRatio < 0.3 && !s.isCleanMoneyCol && !s.isBranchLikeCol && s.monthRatio < 0.5 && s.fyRatio < 0.5)
+      .sort((a, b) => (b.narrationHint - a.narrationHint) || (b.avgLen - a.avgLen));
+    if (descCandidates.length > 0) {
+      markPredicted('description', descCandidates[0].col, 'Text');
+    }
+  }
+
+  // 3. Predict debit, credit, balance via deterministic accounting identity (both Ascending & Descending order!)
+  if (nextMap.debit === undefined || nextMap.credit === undefined) {
+    const cleanMoneyCandidates = colStats
+      .filter((s) => !usedCols.has(s.col) && s.isCleanMoneyCol)
+      .map((s) => s.col);
+
+    // Also include 100%-blank columns inside monetary region (e.g. an all-debit or all-credit slice)
+    const minMoneyIdx = cleanMoneyCandidates.length > 0 ? Math.min(...cleanMoneyCandidates) : -1;
+    const blankMoneyCandidates = minMoneyIdx >= 0
+      ? colStats.filter((s) => !usedCols.has(s.col) && s.isBlankCol && Math.abs(s.col - minMoneyIdx) <= 2).map((s) => s.col)
+      : [];
+
+    const balCandidates = nextMap.balance !== undefined ? [nextMap.balance] : cleanMoneyCandidates;
+    const flowCandidates = [
+      ...(nextMap.debit !== undefined ? [nextMap.debit] : []),
+      ...(nextMap.credit !== undefined ? [nextMap.credit] : []),
+      ...cleanMoneyCandidates,
+      ...blankMoneyCandidates
+    ].filter((v, idx, arr) => arr.indexOf(v) === idx);
+
+    let bestTriple = null;
+    let bestEqScore = -Infinity;
+
+    if (flowCandidates.length >= 2 && balCandidates.length >= 1) {
+      for (const bCol of balCandidates) {
+        const bStat = colStats.find((s) => s.col === bCol);
+        if (bStat && bStat.isBlankCol) continue;
+        for (const drCol of flowCandidates) {
+          if (drCol === bCol) continue;
+          if (nextMap.debit !== undefined && drCol !== nextMap.debit) continue;
+          for (const crCol of flowCandidates) {
+            if (crCol === bCol || crCol === drCol) continue;
+            if (nextMap.credit !== undefined && crCol !== nextMap.credit) continue;
+
+            // Skip pairing two completely blank columns
+            const drNonBlank = colStats.find((s) => s.col === drCol)?.nonBlank || 0;
+            const crNonBlank = colStats.find((s) => s.col === crCol)?.nonBlank || 0;
+            if (drNonBlank === 0 && crNonBlank === 0) continue;
+
+            let ascMatches = 0;
+            let ascMismatches = 0;
+            let descMatches = 0;
+            let descMismatches = 0;
+            let bothNonZero = 0;
+
+            for (let r = 1; r < sampleRows.length; r++) {
+              const prevB = parseMoneyCell(sampleRows[r - 1]?.[bCol]);
+              const currB = parseMoneyCell(sampleRows[r]?.[bCol]);
+              const drCurr = parseMoneyCell(sampleRows[r]?.[drCol]) || 0;
+              const crCurr = parseMoneyCell(sampleRows[r]?.[crCol]) || 0;
+              const drPrev = parseMoneyCell(sampleRows[r - 1]?.[drCol]) || 0;
+              const crPrev = parseMoneyCell(sampleRows[r - 1]?.[crCol]) || 0;
+              if (drCurr > 0 && crCurr > 0) bothNonZero++;
+              if (prevB !== null && prevB !== undefined && currB !== null && currB !== undefined) {
+                if (prevB + crCurr - drCurr === currB) ascMatches++;
+                else ascMismatches++;
+
+                // Descending statement (newest row r-1 above older row r): prevB = currB + row[r-1].credit - row[r-1].debit
+                if (currB + crPrev - drPrev === prevB) descMatches++;
+                else descMismatches++;
+              }
+            }
+
+            const ascScore = ascMatches > 0 ? (ascMatches * 4 - ascMismatches * 6 - bothNonZero * 10) : -Infinity;
+            const descScore = descMatches > 0 ? (descMatches * 4 - descMismatches * 6 - bothNonZero * 10) : -Infinity;
+            const eqScore = Math.max(ascScore, descScore);
+            if (eqScore > bestEqScore) {
+              bestEqScore = eqScore;
+              bestTriple = { drCol, crCol, bCol };
+            }
+          }
+        }
+      }
+    }
+
+    if (bestTriple && bestEqScore > 0) {
+      if (nextMap.debit === undefined) markPredicted('debit', bestTriple.drCol, 'Balance Math');
+      if (nextMap.credit === undefined) markPredicted('credit', bestTriple.crCol, 'Balance Math');
+      if (nextMap.balance === undefined) markPredicted('balance', bestTriple.bCol, 'Balance Math');
+    } else if (nextMap.debit === undefined && nextMap.credit === undefined && flowCandidates.length >= 2 && nextMap.description !== undefined) {
+      // Secondary rule when Balance column absent: match Credit cues ("BY TRANSFER", "/CR/", "Cr -") vs Debit cues ("TO TRANSFER", "/DR/")
+      const [c1, c2] = flowCandidates;
+      let c1CrScore = 0;
+      let c2CrScore = 0;
+      for (const row of sampleRows) {
+        const descStr = String(row?.[nextMap.description] || '').toUpperCase();
+        const isCrHint = descStr.includes('BY TRANSFER') || descStr.includes('/CR/') || descStr.includes('CR -');
+        const isDrHint = descStr.includes('TO TRANSFER') || descStr.includes('/DR/') || descStr.includes('CHQ TRANSFER');
+        const v1 = parseMoneyCell(row?.[c1]) || 0;
+        const v2 = parseMoneyCell(row?.[c2]) || 0;
+        if (v1 > 0 && v2 === 0) {
+          if (isCrHint) c1CrScore++;
+          if (isDrHint) c1CrScore--;
+        } else if (v2 > 0 && v1 === 0) {
+          if (isCrHint) c2CrScore++;
+          if (isDrHint) c2CrScore--;
+        }
+      }
+      if (c1CrScore >= c2CrScore) {
+        markPredicted('credit', c1, 'Flow Cue');
+        markPredicted('debit', c2, 'Flow Cue');
+      } else {
+        markPredicted('credit', c2, 'Flow Cue');
+        markPredicted('debit', c1, 'Flow Cue');
+      }
+    }
+  }
+
+  // 4. Optional metadata prediction (month, year, branchCode, refNo, remarks, type)
+  if (nextMap.month === undefined) {
+    const mCol = colStats.find((s) => !usedCols.has(s.col) && s.monthRatio >= 0.6);
+    if (mCol) markPredicted('month', mCol.col);
+  }
+  if (nextMap.year === undefined) {
+    const yCol = colStats.find((s) => !usedCols.has(s.col) && s.fyRatio >= 0.6);
+    if (yCol) markPredicted('year', yCol.col);
+  }
+  if (nextMap.branchCode === undefined) {
+    const brCol = colStats.find((s) => !usedCols.has(s.col) && s.isBranchLikeCol);
+    if (brCol) markPredicted('branchCode', brCol.col);
+  }
+  if (nextMap.refNo === undefined) {
+    const rfCol = colStats.find((s) => !usedCols.has(s.col) && !s.isSerialCol && !s.isCleanMoneyCol && s.dateRatio < 0.3 && s.refLikeRatio >= 0.5);
+    if (rfCol) markPredicted('refNo', rfCol.col);
+  }
+  if (nextMap.remarks === undefined) {
+    const rmCol = colStats
+      .filter((s) => !usedCols.has(s.col) && !s.isSerialCol && s.nonBlank > 0 && s.dateRatio < 0.3 && !s.isCleanMoneyCol && !s.isBranchLikeCol && s.monthRatio < 0.5 && s.fyRatio < 0.5 && s.uniqueCount >= 2)
+      .sort((a, b) => b.avgLen - a.avgLen)[0];
+    if (rmCol && rmCol.avgLen >= 4) markPredicted('remarks', rmCol.col);
+  }
+  if (nextMap.type === undefined) {
+    const tpCol = colStats.find(
+      (s) => !usedCols.has(s.col) && !s.isSerialCol && s.nonBlank > 0 && s.dateRatio < 0.2 && !s.isCleanMoneyCol && !s.isBranchLikeCol && s.avgLen <= 18 && s.uniqueCount <= 4
+    );
+    if (tpCol) markPredicted('type', tpCol.col);
+  }
+
+  return { colMap: nextMap, headerLabels: nextLabels, predictedAny };
+}
+
+/**
+ * Find header row automatically and map column indices across bank formats & arbitrary column orders.
  */
 function findHeaderRowAndMap(grid) {
   if (!Array.isArray(grid) || grid.length === 0) {
@@ -626,20 +1255,23 @@ function findHeaderRowAndMap(grid) {
 
   let bestIdx = -1;
   let bestMap = {};
+  let bestLabels = {};
   let bestScore = 0;
 
-  const limit = Math.min(grid.length, 40);
+  const limit = Math.min(grid.length, 60);
   for (let r = 0; r < limit; r++) {
     const row = grid[r];
     if (!Array.isArray(row)) continue;
 
     const colMap = {};
+    const headerLabels = {};
     let score = 0;
     for (let c = 0; c < row.length; c++) {
-      const norm = normalizeHeaderName(row[c]);
-      const canonical = HEADER_ALIASES[norm];
+      const rawCell = String(row[c] ?? '').trim();
+      const canonical = matchHeaderToField(rawCell);
       if (canonical && colMap[canonical] === undefined) {
         colMap[canonical] = c;
+        headerLabels[CANONICAL_DISPLAY_NAMES[canonical] || canonical] = rawCell;
         score += 1;
       }
     }
@@ -648,51 +1280,72 @@ function findHeaderRowAndMap(grid) {
       bestScore = score;
       bestIdx = r;
       bestMap = colMap;
+      bestLabels = headerLabels;
     }
 
-    // Stop early if all 4 required headers found with high score
-    if (colMap.txnDate !== undefined && colMap.description !== undefined && colMap.debit !== undefined && colMap.credit !== undefined && score >= 6) {
+    // Stop early once core statement columns + extra metadata are confidently matched
+    const hasCore = colMap.txnDate !== undefined && colMap.description !== undefined &&
+      ((colMap.debit !== undefined && colMap.credit !== undefined) || colMap.amount !== undefined);
+    if (hasCore && score >= 6) {
       break;
     }
   }
 
-  const required = [
-    { key: 'txnDate', label: 'Txn Date' },
-    { key: 'description', label: 'Description' },
-    { key: 'debit', label: 'Debit' },
-    { key: 'credit', label: 'Credit' }
-  ];
-
-  // If user pasted rows without a header row (e.g. 12 raw columns starting directly with sample row), check!
-  if (bestScore < 3 && grid[0] && grid[0].length >= 7) {
-    const firstDate = parseStatementDate(grid[0][0]);
-    if (firstDate.ok) {
-      return {
-        headerRowIndex: -1,
-        colMap: {
-          txnDate: 0,
-          valueDate: 1,
-          description: 2,
-          refNo: 3,
-          branchCode: 4,
-          debit: 5,
-          credit: 6,
-          balance: 7,
-          remarks: 8,
-          month: 9,
-          year: 10,
-          type: 11
-        }
-      };
+  // If NO header names matched, distinguish between (a) unknown-name header row vs (b) headerless data rows
+  if (bestScore === 0 && grid.length >= 2 && Array.isArray(grid[0]) && grid[0].length >= 4) {
+    const row0HasDatesOrAmounts = grid[0].some((cell) => {
+      const s = String(cell || '').trim();
+      if (!s) return false;
+      if (!/^\d+(\.\d+)?$/.test(s) && parseStatementDate(s).ok) return true;
+      const amt = parseAmountToPaise(s, { allowBlank: true, allowZero: false, allowNegative: true });
+      return amt.ok && !amt.isBlank;
+    });
+    if (!row0HasDatesOrAmounts) {
+      bestIdx = 0;
     }
   }
 
-  const missing = required.filter((req) => bestMap[req.key] === undefined).map((req) => req.label);
-  if (missing.length > 0) {
-    throw new Error(`Missing required statement column(s): ${missing.join(', ')}. Ensure header row contains Txn Date, Description, Debit, and Credit.`);
+  // Headerless paste fallback when row 0 is already transaction data
+  if (bestIdx === -1 && bestScore < 3 && grid[0] && grid[0].length >= 4) {
+    const nonEmptySample = grid.filter((r) => Array.isArray(r) && r.some((c) => String(c || '').trim() !== '')).slice(0, 10);
+    const inferred = inferHeaderlessMapping(nonEmptySample);
+    if (inferred) return inferred;
   }
 
-  return { headerRowIndex: bestIdx, colMap: bestMap };
+  // Run Zero-AI Mathematical + Statistical Predictor to fill any unmapped/unfamiliar columns!
+  let usedPrediction = false;
+  if (bestIdx >= 0) {
+    const hasCoreAlready = bestMap.txnDate !== undefined && bestMap.description !== undefined &&
+      ((bestMap.debit !== undefined && bestMap.credit !== undefined) || bestMap.amount !== undefined);
+    if (!hasCoreAlready || bestMap.balance === undefined || bestMap.remarks === undefined) {
+      const predicted = predictMissingColumnsFromRows(grid, bestIdx, bestMap, bestLabels);
+      bestMap = predicted.colMap;
+      bestLabels = predicted.headerLabels;
+      usedPrediction = predicted.predictedAny;
+    }
+  }
+
+  const hasSplitDrCr = bestMap.debit !== undefined && bestMap.credit !== undefined;
+  const hasSingleAmount = bestMap.amount !== undefined && !hasSplitDrCr;
+
+  const missing = [];
+  if (bestMap.txnDate === undefined) missing.push('Txn Date');
+  if (bestMap.description === undefined) missing.push('Description');
+  if (!hasSplitDrCr && !hasSingleAmount) {
+    if (bestMap.debit === undefined) missing.push('Debit');
+    if (bestMap.credit === undefined) missing.push('Credit');
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required statement column(s): ${missing.join(', ')}. Ensure header row contains Txn Date, Description, Debit, and Credit (or Amount + Dr/Cr).`);
+  }
+
+  return {
+    headerRowIndex: bestIdx,
+    colMap: bestMap,
+    headerLabels: bestLabels,
+    detectionMode: usedPrediction ? 'predicted' : (hasSingleAmount ? 'amount-drcr' : 'header-matched')
+  };
 }
 
 /**
@@ -818,10 +1471,38 @@ function normalizeAndValidateRow(rawRow, bankAccountId, sortOrder = 0) {
 }
 
 /**
- * Parse grid into normalized preview rows (skipping empty rows, preserving invalid non-empty rows as Error)
+ * Resolve Amount + Dr/Cr single-column statements into split Debit / Credit values
  */
-function parseGridToPreviewRows(grid, bankAccountId) {
-  const { headerRowIndex, colMap } = findHeaderRowAndMap(grid);
+function resolveSplitDebitCredit({ debitVal, creditVal, amountVal, drCrVal, typeVal }) {
+  if (amountVal === undefined) {
+    return { debit: debitVal, credit: creditVal };
+  }
+  const rawAmtStr = String(amountVal ?? '').trim();
+  if (!rawAmtStr || /^\(?blank\)?$/i.test(rawAmtStr)) {
+    return { debit: '', credit: '' };
+  }
+  const indicator = String(drCrVal || typeVal || '').trim().toUpperCase();
+  const hasDrSuffix = /\bdr\.?$/i.test(rawAmtStr);
+  const hasCrSuffix = /\bcr\.?$/i.test(rawAmtStr);
+
+  if (hasDrSuffix || /^(dr|d|debit|wd|withdrawal)/i.test(indicator)) {
+    return { debit: rawAmtStr.replace(/\s*(dr|cr)\.?$/i, ''), credit: '' };
+  }
+  if (hasCrSuffix || /^(cr|c|credit|dep|deposit)/i.test(indicator)) {
+    return { debit: '', credit: rawAmtStr.replace(/\s*(dr|cr)\.?$/i, '') };
+  }
+  if (rawAmtStr.startsWith('-')) {
+    return { debit: rawAmtStr.slice(1), credit: '' };
+  }
+  return { debit: '', credit: rawAmtStr };
+}
+
+/**
+ * Parse grid into normalized preview rows + detected column mapping metadata.
+ * Skips empty rows and repeated headers; preserves every invalid transaction row as Error.
+ */
+function parseGridWithMapping(grid, bankAccountId) {
+  const { headerRowIndex, colMap, headerLabels, detectionMode } = findHeaderRowAndMap(grid);
   const rows = [];
   let sortIdx = 0;
 
@@ -838,9 +1519,18 @@ function parseGridToPreviewRows(grid, bankAccountId) {
       return idx !== undefined && idx < rawCells.length ? rawCells[idx] : '';
     };
 
-    // Skip repeated header row inside exports
-    const firstNorm = normalizeHeaderName(getCell('txnDate'));
-    if (firstNorm === 'txndate' || firstNorm === 'transactiondate') continue;
+    // Skip repeated header row inside multi-page exports (matches any header alias)
+    const dateFieldMatch = matchHeaderToField(getCell('txnDate'));
+    const descFieldMatch = matchHeaderToField(getCell('description'));
+    if (dateFieldMatch === 'txnDate' && descFieldMatch === 'description') continue;
+
+    const { debit, credit } = resolveSplitDebitCredit({
+      debitVal: getCell('debit'),
+      creditVal: getCell('credit'),
+      amountVal: colMap.amount !== undefined && colMap.debit === undefined && colMap.credit === undefined ? getCell('amount') : undefined,
+      drCrVal: getCell('drCr'),
+      typeVal: getCell('type')
+    });
 
     const rawObj = {
       txnDate: getCell('txnDate'),
@@ -848,8 +1538,8 @@ function parseGridToPreviewRows(grid, bankAccountId) {
       description: getCell('description'),
       refNo: getCell('refNo'),
       branchCode: getCell('branchCode'),
-      debit: getCell('debit'),
-      credit: getCell('credit'),
+      debit,
+      credit,
       balance: getCell('balance'),
       remarks: getCell('remarks'),
       month: getCell('month'),
@@ -864,7 +1554,21 @@ function parseGridToPreviewRows(grid, bankAccountId) {
     throw new Error('No transaction rows were found below the header row.');
   }
 
-  return rows;
+  return {
+    rows,
+    mappingInfo: {
+      headerRowNumber: headerRowIndex >= 0 ? headerRowIndex + 1 : 0,
+      detectionMode,
+      mappedHeaders: headerLabels || {}
+    }
+  };
+}
+
+/**
+ * Parse grid into normalized preview rows (backwards-compatible wrapper)
+ */
+function parseGridToPreviewRows(grid, bankAccountId) {
+  return parseGridWithMapping(grid, bankAccountId).rows;
 }
 
 /**
@@ -1125,10 +1829,12 @@ module.exports = {
   cleanTextForKey,
   computeTransactionKeys,
   normalizeHeaderName,
+  matchHeaderToField,
   parseFileBufferToGrid,
   parsePastedTextToGrid,
   findHeaderRowAndMap,
   normalizeAndValidateRow,
+  parseGridWithMapping,
   parseGridToPreviewRows,
   evaluatePreviewState,
   resolvePresetDateRange,

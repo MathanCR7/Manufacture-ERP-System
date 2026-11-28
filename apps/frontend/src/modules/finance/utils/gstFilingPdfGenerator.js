@@ -35,8 +35,7 @@ export function exportGstFilingPdf({
   kpis = {},
   monthlySummary = [],
   itcRegister = [],
-  allEntries = [],
-  gstr3bRows = []
+  allEntries = []
 }) {
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -297,47 +296,9 @@ export function exportGstFilingPdf({
     ['TOTAL', String(s1Tot.entries), fmtRs(s1Tot.credit), fmtRs(s1Tot.debit), fmtRs(s1Tot.sales), fmtRs(s1Tot.itcC), fmtRs(s1Tot.itcP), String(s1Tot.rev)]
   );
 
-  // SECTION 2: ERP GSTR-3B Input vs Output Return Summary
-  if (gstr3bRows && gstr3bRows.length > 0) {
-    drawSectionHeading(
-      '2. ERP Books GSTR-3B Input ITC vs Output Liability Summary',
-      'Reconciliation of Raw Material / Asset / Expense Input Tax Credit against Sales Output GST'
-    );
-    const s2Rows = gstr3bRows.map((r) => [
-      r.month_key,
-      fmtRs(r.itc_cgst),
-      fmtRs(r.itc_sgst),
-      fmtRs(r.itc_igst),
-      fmtRs(r.total_itc),
-      fmtRs(r.output_cgst),
-      fmtRs(r.output_sgst),
-      fmtRs(r.output_igst),
-      fmtRs(r.total_output),
-      fmtRs(r.net_gst_payable),
-      fmtRs(r.carry_forward_itc)
-    ]);
-    drawTable(
-      '2. ERP Books GSTR-3B Summary',
-      [
-        { header: 'Month', w: 22, bold: true },
-        { header: 'ITC CGST', w: 24, align: 'right' },
-        { header: 'ITC SGST', w: 24, align: 'right' },
-        { header: 'ITC IGST', w: 24, align: 'right' },
-        { header: 'Total Input ITC', w: 28, align: 'right', color: 'green', bold: true },
-        { header: 'Out CGST', w: 24, align: 'right' },
-        { header: 'Out SGST', w: 24, align: 'right' },
-        { header: 'Out IGST', w: 24, align: 'right' },
-        { header: 'Total Output', w: 28, align: 'right', bold: true },
-        { header: 'Net Payable', w: 28, align: 'right', color: 'red', bold: true },
-        { header: 'ITC Carried Fwd', w: 29, align: 'right' }
-      ],
-      s2Rows
-    );
-  }
-
-  // SECTION 3: Verified ITC Register (Unique Invoice Level — Tax Counted Once)
+  // SECTION 2: Verified ITC Register (Unique Invoice Level — Tax Counted Once)
   drawSectionHeading(
-    '3. Input Tax Credit (ITC) Invoice Register (Tax Counted Once per Invoice)',
+    '2. Input Tax Credit (ITC) Invoice Register (Tax Counted Once per Invoice)',
     'Unique supplier invoices matched to bank payments — split payments never double-count GST'
   );
   const s3Rows = (itcRegister || []).map((inv) => [
@@ -366,7 +327,7 @@ export function exportGstFilingPdf({
     { taxable: 0, cgst: 0, sgst: 0, igst: 0, tax: 0 }
   );
   drawTable(
-    '3. Input Tax Credit Register',
+    '2. Input Tax Credit Register',
     [
       { header: 'Invoice No', w: 24, bold: true },
       { header: 'Inv Date', w: 22 },
@@ -386,10 +347,10 @@ export function exportGstFilingPdf({
     'No ITC invoices linked or entered yet.'
   );
 
-  // SECTION 4: Sales Receipts Summary
+  // SECTION 3: Sales Receipts Summary
   const salesEntries = (allEntries || []).filter((e) => e.is_reviewed && e.treatment === 'Sales receipt');
   drawSectionHeading(
-    '4. Confirmed Sales Receipts Register',
+    '3. Confirmed Sales Receipts Register',
     'Bank credits classified as Sales Receipts (Note: GST turnover is sourced from ERP sales invoices)'
   );
   const s4Rows = salesEntries.map((e) => [
@@ -406,7 +367,7 @@ export function exportGstFilingPdf({
   const s4TotCredit = salesEntries.reduce((s, e) => s + Number(e.credit || 0), 0);
   const s4TotTax = salesEntries.reduce((s, e) => s + Number(e.total_tax || 0), 0);
   drawTable(
-    '4. Confirmed Sales Receipts',
+    '3. Confirmed Sales Receipts',
     [
       { header: 'Txn Date', w: 24 },
       { header: 'Account', w: 36 },
@@ -423,10 +384,10 @@ export function exportGstFilingPdf({
     'No entries confirmed as Sales Receipt yet.'
   );
 
-  // SECTION 5: Pending Review / Missing Docs Action List
+  // SECTION 4: Pending Review / Missing Docs Action List
   const pendingEntries = (allEntries || []).filter((e) => e.needs_review || e.docs_pending);
   drawSectionHeading(
-    '5. Action Checklist — Entries Needing Review or Missing GST Documents',
+    '4. Action Checklist — Entries Needing Review or Missing GST Documents',
     'Items that require accountant classification, tax invoice upload, valid GSTIN, or GSTR-2B verification'
   );
   const s5Rows = pendingEntries.map((e) => [
@@ -439,7 +400,7 @@ export function exportGstFilingPdf({
     e.needs_review ? 'Needs Review' : 'Docs Pending'
   ]);
   drawTable(
-    '5. Action Checklist (Pending Items)',
+    '4. Action Checklist (Pending Items)',
     [
       { header: 'Txn Date', w: 22 },
       { header: 'Account', w: 34 },

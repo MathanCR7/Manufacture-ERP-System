@@ -282,12 +282,12 @@ export default function BankMasterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F6FA] text-[#14213D] p-2.5 sm:p-4">
+    <div className="min-h-screen bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 transition-colors p-2.5 sm:p-4">
       <div className="max-w-[1520px] mx-auto space-y-3">
         {/* Top Bar (#111A36) */}
-        <header className="bg-[#111A36] text-white rounded-[14px] px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <header className="bg-[#111A36] dark:bg-slate-900 dark:border dark:border-slate-800 text-white rounded-[14px] px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center shrink-0 dark:bg-slate-950 dark:text-slate-100">
               <Landmark className="w-4.5 h-4.5 text-emerald-300" />
             </div>
             <div className="min-w-0">
@@ -323,14 +323,14 @@ export default function BankMasterPage() {
         </header>
 
         {errorMsg && (
-          <div role="alert" className="px-3 py-2 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] flex items-center justify-between gap-2 text-xs font-semibold">
+          <div role="alert" className="px-3 py-2 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 flex items-center justify-between gap-2 text-xs font-semibold">
             <span className="flex items-center gap-1.5"><XCircle className="w-4 h-4 shrink-0" /> {errorMsg}</span>
             <button onClick={() => setErrorMsg('')} className="underline font-bold">Dismiss</button>
           </div>
         )}
 
         {successMsg && (
-          <div role="status" className="px-3 py-2 rounded-xl bg-[#E6F5EF] border border-[#087A55]/30 text-[#087A55] flex items-center justify-between gap-2 text-xs font-semibold">
+          <div role="status" className="px-3 py-2 rounded-xl bg-[#E6F5EF] dark:bg-emerald-500/15 border border-[#087A55]/30 dark:border-emerald-500/30 text-[#087A55] dark:text-emerald-400 flex items-center justify-between gap-2 text-xs font-semibold">
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 shrink-0" /> {successMsg}</span>
             <button onClick={() => setSuccessMsg('')} className="underline font-bold">Dismiss</button>
           </div>
@@ -338,39 +338,39 @@ export default function BankMasterPage() {
 
         {/* 4 KPI Strip */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#3646C9] px-3.5 py-2.5">
-            <div className="text-[10.5px] font-bold uppercase text-slate-500">Active Accounts</div>
-            <div className="text-lg sm:text-xl font-black text-[#14213D] tabular-nums">
-              {stats.activeCount} <span className="text-xs font-semibold text-slate-400">/ {stats.totalCount} total</span>
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#3646C9] px-3.5 py-2.5">
+            <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Active Accounts</div>
+            <div className="text-lg sm:text-xl font-black text-[#14213D] dark:text-slate-100 tabular-nums">
+              {stats.activeCount} <span className="text-xs font-semibold text-slate-400 dark:text-slate-400">/ {stats.totalCount} total</span>
             </div>
           </div>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#111A36] px-3.5 py-2.5">
-            <div className="text-[10.5px] font-bold uppercase text-slate-500">Banks / Cash &amp; UPI</div>
-            <div className="text-lg sm:text-xl font-black text-[#14213D] tabular-nums">
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#111A36] dark:border-t-slate-600 px-3.5 py-2.5">
+            <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Banks / Cash &amp; UPI</div>
+            <div className="text-lg sm:text-xl font-black text-[#14213D] dark:text-slate-100 tabular-nums">
               {stats.bankCount} Bank • {stats.cashUpiCount} Cash/UPI
             </div>
           </div>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#087A55] px-3.5 py-2.5">
-            <div className="text-[10.5px] font-bold uppercase text-[#087A55]">Combined Balance</div>
-            <div className="text-lg sm:text-xl font-black text-[#087A55] tabular-nums">{formatINRBank(stats.totalBalance)}</div>
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#087A55] px-3.5 py-2.5">
+            <div className="text-[10.5px] font-bold uppercase text-[#087A55] dark:text-emerald-400">Combined Balance</div>
+            <div className="text-lg sm:text-xl font-black text-[#087A55] dark:text-emerald-400 tabular-nums">{formatINRBank(stats.totalBalance)}</div>
           </div>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#8A5300] px-3.5 py-2.5">
-            <div className="text-[10.5px] font-bold uppercase text-slate-500">Statement Entries</div>
-            <div className="text-lg sm:text-xl font-black text-[#14213D] tabular-nums">{stats.totalTxns} txns</div>
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#8A5300] px-3.5 py-2.5">
+            <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Statement Entries</div>
+            <div className="text-lg sm:text-xl font-black text-[#14213D] dark:text-slate-100 tabular-nums">{stats.totalTxns} txns</div>
           </div>
         </div>
 
         {/* Search & Filter Toolbar */}
-        <div className="bg-white rounded-[14px] border border-[#E3E8F0] p-2.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+        <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[260px]">
             <div className="relative flex-1 max-w-sm">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search account name, number, bank or IFSC..."
-                className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-[#E3E8F0] text-xs text-[#14213D]"
+                className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 text-xs text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
@@ -378,7 +378,7 @@ export default function BankMasterPage() {
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
               aria-label="Filter by account type"
-              className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] bg-white text-xs font-semibold text-[#14213D]"
+              className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
             >
               <option value="ALL">All Types</option>
               {ACCOUNT_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
@@ -388,7 +388,7 @@ export default function BankMasterPage() {
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               aria-label="Filter by status"
-              className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] bg-white text-xs font-semibold text-[#14213D]"
+              className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
             >
               <option value="ACTIVE">Active Only</option>
               <option value="INACTIVE">Inactive Only</option>
@@ -398,10 +398,10 @@ export default function BankMasterPage() {
         </div>
 
         {/* Bank Master Table */}
-        <div className="bg-white rounded-[14px] border border-[#CBD5E1] overflow-hidden shadow-xs">
+        <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1040px] [&_th]:border-r [&_th]:border-[#CBD5E1] [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] [&_td:last-child]:border-r-0">
-              <thead className="bg-[#EEF2F8] border-b-2 border-[#CBD5E1] text-[10.5px] font-bold uppercase text-[#14213D]">
+            <table className="w-full text-left border-collapse min-w-[1040px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+              <thead className="bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
                 <tr>
                   <th className="py-2 px-2.5 w-20 text-center">Order</th>
                   <th className="py-2 px-2.5">Account Name</th>
@@ -415,18 +415,18 @@ export default function BankMasterPage() {
                   <th className="py-2 px-2.5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E3E8F0] text-xs text-[#14213D]">
+              <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-400">
-                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1.5 text-[#3646C9]" />
+                    <td colSpan={10} className="py-12 text-center text-slate-400 dark:text-slate-400">
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1.5 text-[#3646C9] dark:text-indigo-400" />
                       Loading Bank Master...
                     </td>
                   </tr>
                 ) : filteredAccounts.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="py-12 text-center space-y-2.5">
-                      <div className="text-slate-600 font-bold text-xs">
+                      <div className="text-slate-600 dark:text-slate-300 font-bold text-xs">
                         {accounts.length === 0
                           ? 'No bank, cash, or UPI accounts added yet.'
                           : 'No bank or cash accounts match this filter.'}
@@ -448,12 +448,12 @@ export default function BankMasterPage() {
                   filteredAccounts.map((a, idx) => (
                     <tr
                       key={a.id}
-                      className={`align-middle transition-colors hover:bg-[#E8EEFA]/75 ${
+                      className={`align-middle transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
                         !a.is_active
-                          ? 'opacity-65 bg-slate-100'
+                          ? 'opacity-65 bg-slate-100 dark:bg-slate-800'
                           : idx % 2 === 0
-                            ? 'bg-white'
-                            : 'bg-[#F3F6FB]'
+                            ? 'bg-white dark:bg-slate-900'
+                            : 'bg-[#F3F6FB] dark:bg-slate-800/45'
                       }`}
                     >
                       <td className="py-2 px-2 text-center whitespace-nowrap">
@@ -463,7 +463,7 @@ export default function BankMasterPage() {
                             disabled={!permissions.edit || idx === 0}
                             onClick={() => handleMoveOrder(idx, -1)}
                             title="Move Up"
-                            className="p-1 rounded hover:bg-slate-200 disabled:opacity-30 cursor-pointer"
+                            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
                           >
                             <ArrowUp className="w-3.5 h-3.5" />
                           </button>
@@ -472,7 +472,7 @@ export default function BankMasterPage() {
                             disabled={!permissions.edit || idx === filteredAccounts.length - 1}
                             onClick={() => handleMoveOrder(idx, 1)}
                             title="Move Down"
-                            className="p-1 rounded hover:bg-slate-200 disabled:opacity-30 cursor-pointer"
+                            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
                           >
                             <ArrowDown className="w-3.5 h-3.5" />
                           </button>
@@ -480,43 +480,43 @@ export default function BankMasterPage() {
                       </td>
                       <td className="py-2 px-2.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-bold text-[#14213D]">{a.account_name}</span>
+                          <span className="font-bold text-[#14213D] dark:text-slate-100">{a.account_name}</span>
                           {a.is_default && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-indigo-50 text-[#3646C9] border border-indigo-200 text-[10px] font-bold">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-[#3646C9] dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 text-[10px] font-bold">
                               <Star className="w-2.5 h-2.5 fill-current" /> Default
                             </span>
                           )}
                         </div>
-                        {a.notes && <div className="text-[10.5px] text-slate-400 truncate max-w-[220px]">{a.notes}</div>}
+                        {a.notes && <div className="text-[10.5px] text-slate-400 dark:text-slate-400 truncate max-w-[220px]">{a.notes}</div>}
                       </td>
                       <td className="py-2 px-2.5 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#F4F6FA] border border-[#E3E8F0] text-[10.5px] font-bold">
-                          {a.account_type === 'CASH' || a.account_type === 'UPI' ? <Wallet className="w-3 h-3 text-[#087A55]" /> : <Building2 className="w-3 h-3 text-[#3646C9]" />}
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#F4F6FA] dark:bg-slate-800 border border-[#E3E8F0] dark:border-slate-800 text-[10.5px] font-bold">
+                          {a.account_type === 'CASH' || a.account_type === 'UPI' ? <Wallet className="w-3 h-3 text-[#087A55] dark:text-emerald-400" /> : <Building2 className="w-3 h-3 text-[#3646C9] dark:text-indigo-400" />}
                           {a.account_type}
                         </span>
                       </td>
-                      <td className="py-2 px-2.5 font-mono font-semibold text-slate-700 whitespace-nowrap">
+                      <td className="py-2 px-2.5 font-mono font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
                         {a.account_number || '—'}
                       </td>
                       <td className="py-2 px-2.5 text-[11.5px]">
-                        <div className="font-semibold text-[#14213D]">{a.bank_name || '—'}</div>
+                        <div className="font-semibold text-[#14213D] dark:text-slate-100">{a.bank_name || '—'}</div>
                         {(a.ifsc_code || a.branch_name) && (
-                          <div className="text-[10.5px] text-slate-500 font-mono">
+                          <div className="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono">
                             {a.ifsc_code}{a.ifsc_code && a.branch_name ? ' • ' : ''}{a.branch_name}
                           </div>
                         )}
                       </td>
-                      <td className="py-2 px-2.5 text-right font-mono tabular-nums text-slate-600 whitespace-nowrap">
+                      <td className="py-2 px-2.5 text-right font-mono tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         {formatINRBank(a.opening_balance)}
                       </td>
-                      <td className="py-2 px-2.5 text-right font-mono tabular-nums font-black text-[#087A55] whitespace-nowrap">
+                      <td className="py-2 px-2.5 text-right font-mono tabular-nums font-black text-[#087A55] dark:text-emerald-400 whitespace-nowrap">
                         {formatINRBank(a.latest_balance)}
                       </td>
                       <td className="py-2 px-2.5 text-center">
                         <button
                           type="button"
                           onClick={() => navigate(`/finance/bank-statement?accountId=${a.id}`)}
-                          className="px-2 py-0.5 rounded-full bg-[#F4F6FA] hover:bg-indigo-50 border border-[#E3E8F0] text-[11px] font-bold text-[#3646C9] cursor-pointer"
+                          className="px-2 py-0.5 rounded-full bg-[#F4F6FA] dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-[#E3E8F0] dark:border-slate-800 text-[11px] font-bold text-[#3646C9] dark:text-indigo-400 cursor-pointer"
                           title="Open transactions for this account"
                         >
                           {a.txn_count} txns
@@ -529,8 +529,8 @@ export default function BankMasterPage() {
                           onClick={() => handleToggleQuickField(a, 'isActive', !a.is_active)}
                           className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold border cursor-pointer ${
                             a.is_active
-                              ? 'bg-[#E6F5EF] text-[#087A55] border-[#087A55]/25'
-                              : 'bg-slate-100 text-slate-500 border-slate-300'
+                              ? 'bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border-[#087A55]/25 dark:border-emerald-500/30'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300'
                           }`}
                         >
                           {a.is_active ? 'Active' : 'Inactive'}
@@ -543,7 +543,7 @@ export default function BankMasterPage() {
                               type="button"
                               onClick={() => handleToggleQuickField(a, 'isDefault', true)}
                               title="Set as default account"
-                              className="p-1.5 rounded-lg border border-[#E3E8F0] hover:bg-[#F4F6FA] text-slate-600 cursor-pointer"
+                              className="p-1.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
                             >
                               <Star className="w-3.5 h-3.5" />
                             </button>
@@ -553,7 +553,7 @@ export default function BankMasterPage() {
                               type="button"
                               onClick={() => openEditModal(a)}
                               title="Edit / Update account"
-                              className="px-2 py-1 rounded-lg border border-[#E3E8F0] hover:bg-indigo-50 text-[#3646C9] text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              className="px-2 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-[#3646C9] dark:text-indigo-400 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                             >
                               <Pencil className="w-3 h-3" /> Edit
                             </button>
@@ -563,7 +563,7 @@ export default function BankMasterPage() {
                               type="button"
                               onClick={() => openMoveTransactionsModal(a)}
                               title="Move transactions to another bank account"
-                              className="px-2 py-1 rounded-lg border border-[#E3E8F0] hover:bg-amber-50 text-[#8A5300] text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              className="px-2 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-amber-50 dark:hover:bg-amber-500/20 text-[#8A5300] dark:text-amber-300 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                             >
                               <ArrowRightLeft className="w-3 h-3" /> Move
                             </button>
@@ -573,7 +573,7 @@ export default function BankMasterPage() {
                               type="button"
                               onClick={() => openDeleteModal(a)}
                               title="Delete account"
-                              className="px-2 py-1 rounded-lg border border-[#E3E8F0] hover:bg-[#FDECEC] text-[#B4232F] text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              className="px-2 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#FDECEC] dark:hover:bg-rose-500/20 text-[#B4232F] dark:text-rose-400 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                             >
                               <Trash2 className="w-3 h-3" /> Delete
                             </button>
@@ -595,142 +595,142 @@ export default function BankMasterPage() {
           <form
             onSubmit={handleSaveForm}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-lg p-4 sm:p-5 space-y-3.5 shadow-xl max-h-[90vh] overflow-y-auto"
+            className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-lg p-4 sm:p-5 space-y-3.5 shadow-xl max-h-[90vh] overflow-y-auto"
           >
-            <div className="flex items-center justify-between border-b border-[#E3E8F0] pb-2.5">
-              <h3 className="text-sm font-black text-[#14213D]">
+            <div className="flex items-center justify-between border-b border-[#E3E8F0] dark:border-slate-800 pb-2.5">
+              <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">
                 {formModal.mode === 'create' ? 'Add New Bank / Cash Account' : 'Edit Bank / Cash Account'}
               </h3>
-              <button type="button" onClick={() => setFormModal(null)} className="p-1 rounded-lg hover:bg-[#F4F6FA]">
+              <button type="button" onClick={() => setFormModal(null)} className="p-1 rounded-lg hover:bg-[#F4F6FA] dark:hover:bg-slate-800">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {formError && (
-              <div className="p-2.5 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] text-xs font-semibold">
+              <div className="p-2.5 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 text-xs font-semibold">
                 {formError}
               </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div className="sm:col-span-2">
-                <label className="block font-bold text-slate-600 mb-1">Account Display Name *</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Account Display Name *</label>
                 <input
                   required
                   type="text"
                   value={formModal.data.accountName}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, accountName: e.target.value } })}
                   placeholder="e.g. HDFC Current Account"
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Account Type</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Account Type</label>
                 <select
                   value={formModal.data.accountType}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, accountType: e.target.value } })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   {ACCOUNT_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                 </select>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Account Number / UPI ID</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Account Number / UPI ID</label>
                 <input
                   type="text"
                   value={formModal.data.accountNumber}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, accountNumber: e.target.value } })}
                   placeholder="50200012345678 or upi@bank"
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] font-mono"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 font-mono dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Bank / Institution Name</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Bank / Institution Name</label>
                 <input
                   type="text"
                   value={formModal.data.bankName}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, bankName: e.target.value } })}
                   placeholder="HDFC Bank Ltd"
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-600 mb-1">IFSC Code</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">IFSC Code</label>
                 <input
                   type="text"
                   value={formModal.data.ifscCode}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, ifscCode: e.target.value.toUpperCase() } })}
                   placeholder="HDFC0001234"
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] font-mono uppercase"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 font-mono uppercase dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Branch Name</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Branch Name</label>
                 <input
                   type="text"
                   value={formModal.data.branchName}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, branchName: e.target.value } })}
                   placeholder="Main Branch"
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Opening Balance (₹)</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Opening Balance (₹)</label>
                 <input
                   type="number"
                   step="0.01"
                   value={formModal.data.openingBalance}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, openingBalance: e.target.value } })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] text-right font-mono tabular-nums"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-right font-mono tabular-nums dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block font-bold text-slate-600 mb-1">Notes</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Notes</label>
                 <input
                   type="text"
                   value={formModal.data.notes}
                   onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, notes: e.target.value } })}
                   placeholder="Optional remark or purpose"
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
 
               <div className="sm:col-span-2 flex flex-wrap items-center gap-4 pt-1">
-                <label className="inline-flex items-center gap-1.5 font-bold text-[#14213D] cursor-pointer">
+                <label className="inline-flex items-center gap-1.5 font-bold text-[#14213D] dark:text-slate-100 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formModal.data.isDefault}
                     onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, isDefault: e.target.checked } })}
-                    className="rounded border-slate-300 text-[#3646C9]"
+                    className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
                   />
                   <span>Set as Default Account</span>
                 </label>
 
-                <label className="inline-flex items-center gap-1.5 font-bold text-[#14213D] cursor-pointer">
+                <label className="inline-flex items-center gap-1.5 font-bold text-[#14213D] dark:text-slate-100 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formModal.data.isActive}
                     onChange={(e) => setFormModal({ ...formModal, data: { ...formModal.data, isActive: e.target.checked } })}
-                    className="rounded border-slate-300 text-[#087A55]"
+                    className="rounded border-slate-300 text-[#087A55] dark:text-emerald-400"
                   />
                   <span>Active</span>
                 </label>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0]">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0] dark:border-slate-800">
               <button
                 type="button"
                 disabled={savingForm}
                 onClick={() => setFormModal(null)}
-                className="px-4 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-4 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>
@@ -753,35 +753,35 @@ export default function BankMasterPage() {
           <form
             onSubmit={handleConfirmMoveTransactions}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-md p-4 space-y-3.5 shadow-xl"
+            className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-md p-4 space-y-3.5 shadow-xl"
           >
-            <div className="flex items-center justify-between border-b border-[#E3E8F0] pb-2.5">
-              <h3 className="text-sm font-black text-[#14213D] flex items-center gap-1.5">
-                <ArrowRightLeft className="w-4 h-4 text-[#8A5300]" /> Move Account Transactions
+            <div className="flex items-center justify-between border-b border-[#E3E8F0] dark:border-slate-800 pb-2.5">
+              <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100 flex items-center gap-1.5">
+                <ArrowRightLeft className="w-4 h-4 text-[#8A5300] dark:text-amber-300" /> Move Account Transactions
               </h3>
-              <button type="button" onClick={() => setMoveModal(null)} className="p-1 rounded-lg hover:bg-[#F4F6FA]">
+              <button type="button" onClick={() => setMoveModal(null)} className="p-1 rounded-lg hover:bg-[#F4F6FA] dark:hover:bg-slate-800">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {moveError && (
-              <div className="p-2.5 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] text-xs font-semibold">
+              <div className="p-2.5 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 text-xs font-semibold">
                 {moveError}
               </div>
             )}
 
             <div className="text-xs space-y-2">
-              <div className="p-2.5 rounded-xl bg-[#F4F6FA] border border-[#E3E8F0]">
+              <div className="p-2.5 rounded-xl bg-[#F4F6FA] dark:bg-slate-800 border border-[#E3E8F0] dark:border-slate-800">
                 Moving <strong>{moveModal.sourceAccount.txn_count} transaction(s)</strong> from{' '}
-                <strong className="text-[#14213D]">{moveModal.sourceAccount.account_name}</strong>
+                <strong className="text-[#14213D] dark:text-slate-100">{moveModal.sourceAccount.account_name}</strong>
               </div>
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Destination Bank / Cash Account *</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Destination Bank / Cash Account *</label>
                 <select
                   required
                   value={moveModal.targetAccountId}
                   onChange={(e) => setMoveModal({ ...moveModal, targetAccountId: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="">Select destination account...</option>
                   {accounts
@@ -795,12 +795,12 @@ export default function BankMasterPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0]">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0] dark:border-slate-800">
               <button
                 type="button"
                 disabled={movingTxns}
                 onClick={() => setMoveModal(null)}
-                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>
@@ -820,31 +820,31 @@ export default function BankMasterPage() {
       {/* Delete Account Modal */}
       {deleteModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4" onClick={() => !deletingAcct && setDeleteModal(null)}>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-md p-4 space-y-3.5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-black text-[#14213D]">
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-md p-4 space-y-3.5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">
               Delete &ldquo;{deleteModal.account.account_name}&rdquo;?
             </h3>
 
             {deleteError && (
-              <div className="p-2.5 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] text-xs font-semibold">
+              <div className="p-2.5 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 text-xs font-semibold">
                 {deleteError}
               </div>
             )}
 
             {deleteModal.account.txn_count > 0 ? (
               <div className="space-y-2.5 text-xs">
-                <div className="p-2.5 rounded-xl bg-[#FEF4E6] border border-[#8A5300]/30 text-[#8A5300] font-semibold">
+                <div className="p-2.5 rounded-xl bg-[#FEF4E6] dark:bg-amber-500/15 border border-[#8A5300]/30 dark:border-amber-500/30 text-[#8A5300] dark:text-amber-300 font-semibold">
                   This account currently holds <strong>{deleteModal.account.txn_count} transaction(s)</strong>. Choose how to handle them:
                 </div>
 
                 {accounts.some((a) => a.id !== deleteModal.account.id && a.is_active) && (
-                  <label className="flex items-center gap-2 font-bold text-[#14213D] cursor-pointer">
+                  <label className="flex items-center gap-2 font-bold text-[#14213D] dark:text-slate-100 cursor-pointer">
                     <input
                       type="radio"
                       name="deleteMode"
                       checked={deleteModal.mode === 'MOVE'}
                       onChange={() => setDeleteModal({ ...deleteModal, mode: 'MOVE' })}
-                      className="text-[#3646C9]"
+                      className="text-[#3646C9] dark:text-indigo-400"
                     />
                     <span>Move transactions to another account first</span>
                   </label>
@@ -854,7 +854,7 @@ export default function BankMasterPage() {
                   <select
                     value={deleteModal.moveToAccountId}
                     onChange={(e) => setDeleteModal({ ...deleteModal, moveToAccountId: e.target.value })}
-                    className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                    className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="">Select destination account...</option>
                     {accounts
@@ -867,41 +867,41 @@ export default function BankMasterPage() {
                   </select>
                 )}
 
-                <label className="flex items-center gap-2 font-bold text-[#B4232F] cursor-pointer">
+                <label className="flex items-center gap-2 font-bold text-[#B4232F] dark:text-rose-400 cursor-pointer">
                   <input
                     type="radio"
                     name="deleteMode"
                     checked={deleteModal.mode === 'PURGE'}
                     onChange={() => setDeleteModal({ ...deleteModal, mode: 'PURGE' })}
-                    className="text-[#B4232F]"
+                    className="text-[#B4232F] dark:text-rose-400"
                   />
                   <span>Delete account &amp; archive its {deleteModal.account.txn_count} transaction(s)</span>
                 </label>
 
                 {deleteModal.mode === 'PURGE' && (
-                  <label className="flex items-start gap-2 p-2.5 rounded-xl bg-[#FDECEC] border border-[#B4232F]/25 text-[#B4232F] cursor-pointer">
+                  <label className="flex items-start gap-2 p-2.5 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/25 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={Boolean(deleteModal.confirmPurgeTxns)}
                       onChange={(e) => setDeleteModal({ ...deleteModal, confirmPurgeTxns: e.target.checked })}
-                      className="mt-0.5 rounded border-red-300 text-[#B4232F]"
+                      className="mt-0.5 rounded border-red-300 text-[#B4232F] dark:text-rose-400"
                     />
                     <span>I confirm archiving all {deleteModal.account.txn_count} transaction(s) in this account.</span>
                   </label>
                 )}
               </div>
             ) : (
-              <p className="text-xs text-slate-600">
+              <p className="text-xs text-slate-600 dark:text-slate-300">
                 This account has 0 transactions and will be archived from active Bank Master &amp; statement selectors. An audit entry will be recorded.
               </p>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0]">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0] dark:border-slate-800">
               <button
                 type="button"
                 disabled={deletingAcct}
                 onClick={() => setDeleteModal(null)}
-                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>

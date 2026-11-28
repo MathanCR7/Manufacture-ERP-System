@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, Download, History, Pencil, Trash2, ArrowUpDown, ChevronLeft, ChevronRight,
-  AlertTriangle, CheckCircle2, XCircle, Loader2, X, UploadCloud, Clock, FileCheck2
+  AlertTriangle, CheckCircle2, XCircle, Loader2, X, UploadCloud, Clock, FileCheck2,
+  RotateCcw, FileSpreadsheet, Layers
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import { formatINRBank, formatBankDisplayDate, downloadAuthenticatedExcel } from './bankStatementHelpers';
@@ -59,14 +60,25 @@ export default function BankStatementTransactionsTab({
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
-  // Delete Confirm State
+  // Delete & Bulk Select State
   const [deletingRow, setDeletingRow] = useState(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  // Change Log Modal State
+  // Full-Screen Audit Log & Uploaded Excel Batches Modal State
   const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditTab, setAuditTab] = useState('LOGS'); // 'LOGS' | 'BATCHES'
   const [auditLogs, setAuditLogs] = useState([]);
+  const [batches, setBatches] = useState([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
+  const [auditActionFilter, setAuditActionFilter] = useState('ALL');
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditError, setAuditError] = useState('');
+  const [auditSuccess, setAuditSuccess] = useState('');
+  const [busyAuditId, setBusyAuditId] = useState(null);
+  const [expandedRawLogId, setExpandedRawLogId] = useState(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -156,18 +168,138 @@ export default function BankStatementTransactionsTab({
     }
   };
 
-  const openChangeLog = async () => {
-    setShowAuditModal(true);
+  const loadAuditAndBatches = async () => {
     try {
       setLoadingAudit(true);
-      const res = await api.get('/finance/bank-statement/audit-logs');
-      if (res.data?.success) setAuditLogs(res.data.data || []);
+      setAuditError('');
+      const [logsRes, batchesRes] = await Promise.all([
+        api.get('/finance/bank-statement/audit-logs?limit=200'),
+        api.get('/finance/bank-statement/batches')
+      ]);
+      if (logsRes.data?.success) setAuditLogs(logsRes.data.data || []);
+      if (batchesRes.data?.success) setBatches(batchesRes.data.data || []);
     } catch (err) {
-      console.error(err);
+      setAuditError(err.response?.data?.error || 'Failed to load change history & batches.');
     } finally {
       setLoadingAudit(false);
     }
   };
+
+  const openChangeLog = async (initialTab = 'LOGS') => {
+    setAuditTab(initialTab);
+    setAuditSuccess('');
+    setAuditError('');
+    setShowAuditModal(true);
+    await loadAuditAndBatches();
+  };
+
+  const handleRestoreTxn = async (txnId) => {
+    if (!txnId || busyAuditId) return;
+    try {
+      setBusyAuditId(txnId);
+      setAuditError('');
+      const res = await api.post(`/finance/bank-statement/transactions/${txnId}/restore`);
+      if (res.data?.success) {
+        setAuditSuccess('Deleted transaction restored cleanly back to the active table.');
+        setSuccessMsg('Transaction restored cleanly.');
+        await Promise.all([loadAuditAndBatches(), fetchTransactions()]);
+        onDataMutated?.();
+      }
+    } catch (err) {
+      setAuditError(err.response?.data?.error || 'Failed to restore transaction.');
+    } finally {
+      setBusyAuditId(null);
+    }
+  };
+
+  const handleUndoBatch = async (batchId, fileName) => {
+    if (!batchId || busyAuditId) return;
+    try {
+      setBusyAuditId(batchId);
+      setAuditError('');
+      const res = await api.delete(`/finance/bank-statement/batches/${batchId}`);
+      if (res.data?.success) {
+        const cnt = res.data.data?.removedCount || 0;
+        setAuditSuccess(`Removed ${cnt} transaction(s) from "${fileName}".`);
+        setSuccessMsg(`Removed ${cnt} transaction(s) uploaded from "${fileName}".`);
+        await Promise.all([loadAuditAndBatches(), fetchTransactions()]);
+        onDataMutated?.();
+      }
+    } catch (err) {
+      setAuditError(err.response?.data?.error || 'Failed to remove Excel batch.');
+    } finally {
+      setBusyAuditId(null);
+    }
+  };
+
+  const handleRestoreBatch = async (batchId, fileName) => {
+    if (!batchId || busyAuditId) return;
+    try {
+      setBusyAuditId(batchId);
+      setAuditError('');
+      const res = await api.post(`/finance/bank-statement/batches/${batchId}/restore`);
+      if (res.data?.success) {
+        const cnt = res.data.data?.restoredCount || 0;
+        setAuditSuccess(`Restored ${cnt} transaction(s) from "${fileName}".`);
+        setSuccessMsg(`Restored ${cnt} transaction(s) from "${fileName}".`);
+        await Promise.all([loadAuditAndBatches(), fetchTransactions()]);
+        onDataMutated?.();
+      }
+    } catch (err) {
+      setAuditError(err.response?.data?.error || 'Failed to restore Excel batch.');
+    } finally {
+      setBusyAuditId(null);
+    }
+  };
+
+  const toggleSelectAll = (checked) => {
+    if (!checked) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(rows.map((r) => r.id)));
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.size === 0 || bulkDeleting) return;
+    try {
+      setBulkDeleting(true);
+      const res = await api.post('/finance/bank-statement/transactions/bulk-delete', {
+        txnIds: Array.from(selectedIds)
+      });
+      if (res.data?.success) {
+        setShowBulkDeleteModal(false);
+        setSelectedIds(new Set());
+        setSuccessMsg(`Soft-deleted ${res.data.deletedCount} selected transaction(s). You can restore them anytime from Change Log.`);
+        await fetchTransactions();
+        onDataMutated?.();
+      }
+    } catch (err) {
+      setErrorMsg(err.response?.data?.error || 'Failed to delete selected transactions.');
+      setShowBulkDeleteModal(false);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const filteredAuditLogs = useMemo(() => {
+    const q = auditSearch.trim().toLowerCase();
+    return auditLogs.filter((log) => {
+      if (auditActionFilter !== 'ALL' && log.action !== auditActionFilter) return false;
+      if (q) {
+        const hay = `${log.action} ${log.changed_by_name || ''} ${JSON.stringify(log.before_data || '')} ${JSON.stringify(log.after_data || '')}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [auditLogs, auditActionFilter, auditSearch]);
 
   const openEditPopup = (row) => {
     setEditError('');
@@ -247,14 +379,14 @@ export default function BankStatementTransactionsTab({
   return (
     <div className="space-y-3">
       {errorMsg && (
-        <div role="alert" className="px-3 py-2 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] flex items-center justify-between gap-2 text-xs font-semibold">
+        <div role="alert" className="px-3 py-2 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 flex items-center justify-between gap-2 text-xs font-semibold">
           <span className="flex items-center gap-1.5"><XCircle className="w-4 h-4 shrink-0" /> {errorMsg}</span>
           <button onClick={() => setErrorMsg('')} className="underline font-bold">Dismiss</button>
         </div>
       )}
 
       {successMsg && (
-        <div role="status" className="px-3 py-2 rounded-xl bg-[#E6F5EF] border border-[#087A55]/30 text-[#087A55] flex items-center justify-between gap-2 text-xs font-semibold">
+        <div role="status" className="px-3 py-2 rounded-xl bg-[#E6F5EF] dark:bg-emerald-500/15 border border-[#087A55]/30 dark:border-emerald-500/30 text-[#087A55] dark:text-emerald-400 flex items-center justify-between gap-2 text-xs font-semibold">
           <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 shrink-0" /> {successMsg}</span>
           <button onClick={() => setSuccessMsg('')} className="underline font-bold">Dismiss</button>
         </div>
@@ -262,31 +394,31 @@ export default function BankStatementTransactionsTab({
 
       {/* Compact 4 KPI Summary Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#3646C9] px-3.5 py-2.5 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#3646C9] px-3.5 py-2.5 flex items-center justify-between">
           <div>
-            <div className="text-[10.5px] font-bold uppercase text-slate-500">Transactions</div>
-            <div className="text-lg sm:text-xl font-black text-[#14213D] tabular-nums leading-tight">{summary.count}</div>
+            <div className="text-[10.5px] font-bold uppercase text-slate-500 dark:text-slate-400">Transactions</div>
+            <div className="text-lg sm:text-xl font-black text-[#14213D] dark:text-slate-100 tabular-nums leading-tight">{summary.count}</div>
           </div>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F4F6FA] text-slate-600">Filtered</span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F4F6FA] dark:bg-slate-800 text-slate-600 dark:text-slate-300">Filtered</span>
         </div>
-        <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#087A55] px-3.5 py-2.5">
-          <div className="text-[10.5px] font-bold uppercase text-[#087A55]">Total Credit (Inflow)</div>
-          <div className="text-lg sm:text-xl font-black text-[#087A55] tabular-nums leading-tight">{formatINRBank(summary.totalCredit)}</div>
+        <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#087A55] px-3.5 py-2.5">
+          <div className="text-[10.5px] font-bold uppercase text-[#087A55] dark:text-emerald-400">Total Inward (Credit)</div>
+          <div className="text-lg sm:text-xl font-black text-[#087A55] dark:text-emerald-400 tabular-nums leading-tight">{formatINRBank(summary.totalCredit)}</div>
         </div>
-        <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#B4232F] px-3.5 py-2.5">
-          <div className="text-[10.5px] font-bold uppercase text-[#B4232F]">Total Debit (Outflow)</div>
-          <div className="text-lg sm:text-xl font-black text-[#B4232F] tabular-nums leading-tight">{formatINRBank(summary.totalDebit)}</div>
+        <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#B4232F] px-3.5 py-2.5">
+          <div className="text-[10.5px] font-bold uppercase text-[#B4232F] dark:text-rose-400">Total Outward (Debit)</div>
+          <div className="text-lg sm:text-xl font-black text-[#B4232F] dark:text-rose-400 tabular-nums leading-tight">{formatINRBank(summary.totalDebit)}</div>
         </div>
-        <div className="bg-white rounded-[14px] border border-[#E3E8F0] border-t-2 border-t-[#111A36] px-3.5 py-2.5">
-          <div className="text-[10.5px] font-bold uppercase text-slate-500">Net Cashflow</div>
-          <div className={`text-lg sm:text-xl font-black tabular-nums leading-tight ${summary.net >= 0 ? 'text-[#087A55]' : 'text-[#B4232F]'}`}>
+        <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 border-t-2 border-t-[#EA580C] dark:border-t-orange-500 px-3.5 py-2.5">
+          <div className="text-[10.5px] font-bold uppercase text-[#EA580C] dark:text-orange-400">Net Cashflow</div>
+          <div className="text-lg sm:text-xl font-black text-[#EA580C] dark:text-orange-400 tabular-nums leading-tight">
             {formatINRBank(summary.net)}
           </div>
         </div>
       </div>
 
       {/* Dense Combined Filter & Action Toolbar */}
-      <div className="bg-white rounded-[14px] border border-[#E3E8F0] p-3 space-y-2.5 shadow-2xs">
+      <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 p-3 space-y-2.5 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Date Presets */}
           <div className="flex flex-wrap gap-1">
@@ -298,7 +430,7 @@ export default function BankStatementTransactionsTab({
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
                   preset === p.id
                     ? 'bg-[#3646C9] text-white shadow-2xs'
-                    : 'bg-[#F4F6FA] text-[#14213D] hover:bg-slate-200/80 border border-[#E3E8F0]'
+                    : 'bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 transition-colors hover:bg-slate-200 dark:hover:bg-slate-700/80 dark:hover:bg-slate-700 border border-[#E3E8F0] dark:border-slate-800'
                 }`}
               >
                 {p.label}
@@ -308,6 +440,16 @@ export default function BankStatementTransactionsTab({
 
           {/* Right Action Buttons */}
           <div className="flex flex-wrap items-center gap-1.5">
+            {permissions.delete && selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowBulkDeleteModal(true)}
+                className="h-8 px-3 rounded-lg bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/35 dark:border-rose-500/30 hover:bg-red-100 dark:hover:bg-rose-500/25 text-[#B4232F] dark:text-rose-400 text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Selected ({selectedIds.size})</span>
+              </button>
+            )}
             {permissions.upload && onGoToUpload && (
               <button
                 type="button"
@@ -322,17 +464,26 @@ export default function BankStatementTransactionsTab({
               type="button"
               disabled={exporting || summary.count === 0}
               onClick={handleExportExcel}
-              className="h-8 px-3 rounded-lg border border-[#E3E8F0] bg-white hover:bg-[#F4F6FA] disabled:opacity-50 text-[11px] font-bold text-[#14213D] inline-flex items-center gap-1.5 cursor-pointer"
+              className="h-8 px-3 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 disabled:opacity-50 text-[11px] font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer"
             >
-              {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5 text-[#087A55]" />}
+              {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5 text-[#087A55] dark:text-emerald-400" />}
               <span>Export Excel</span>
             </button>
             <button
               type="button"
-              onClick={openChangeLog}
-              className="h-8 px-3 rounded-lg border border-[#E3E8F0] bg-white hover:bg-[#F4F6FA] text-[11px] font-bold text-[#14213D] inline-flex items-center gap-1.5 cursor-pointer"
+              onClick={() => openChangeLog('BATCHES')}
+              className="h-8 px-3 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 text-[11px] font-bold text-[#8A5300] dark:text-amber-300 inline-flex items-center gap-1.5 cursor-pointer"
+              title="View uploaded Excel batches and remove/undo an entire upload"
             >
-              <History className="w-3.5 h-3.5 text-[#3646C9]" />
+              <Layers className="w-3.5 h-3.5" />
+              <span>Upload Batches</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openChangeLog('LOGS')}
+              className="h-8 px-3 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-[11px] font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <History className="w-3.5 h-3.5 text-[#3646C9] dark:text-indigo-400" />
               <span>Change log</span>
             </button>
           </div>
@@ -347,14 +498,14 @@ export default function BankStatementTransactionsTab({
                 aria-label="From date"
                 value={customFrom}
                 onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
-                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] text-xs font-mono text-[#14213D]"
+                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 text-xs font-mono text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
               />
               <input
                 type="date"
                 aria-label="To date"
                 value={customTo}
                 onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
-                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] text-xs font-mono text-[#14213D]"
+                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 text-xs font-mono text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
               />
             </>
           )}
@@ -363,7 +514,7 @@ export default function BankStatementTransactionsTab({
             value={accountId}
             aria-label="Account filter"
             onChange={(e) => { setAccountId(e.target.value); setPage(1); }}
-            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] bg-white text-xs font-semibold text-[#14213D]"
+            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
           >
             <option value="ALL">All Bank Accounts</option>
             {accounts.map((a) => (
@@ -375,7 +526,7 @@ export default function BankStatementTransactionsTab({
             value={dcFilter}
             aria-label="Debit or Credit filter"
             onChange={(e) => { setDcFilter(e.target.value); setPage(1); }}
-            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] bg-white text-xs font-semibold text-[#14213D]"
+            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
           >
             <option value="ALL">Debit &amp; Credit</option>
             <option value="DEBIT">Debit Only</option>
@@ -386,7 +537,7 @@ export default function BankStatementTransactionsTab({
             value={txnType}
             aria-label="Type filter"
             onChange={(e) => { setTxnType(e.target.value); setPage(1); }}
-            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] bg-white text-xs font-semibold text-[#14213D]"
+            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
           >
             <option value="ALL">All Types</option>
             {availableTypes.map((t) => (
@@ -396,13 +547,13 @@ export default function BankStatementTransactionsTab({
 
           <div className={preset === 'custom' ? '' : 'lg:col-span-3'}>
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search description, remarks, UTR, reference, party or amount..."
-                className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-[#E3E8F0] text-xs text-[#14213D] focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30"
+                className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 text-xs text-[#14213D] dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
           </div>
@@ -410,11 +561,20 @@ export default function BankStatementTransactionsTab({
       </div>
 
       {/* Primary Transactions Table */}
-      <div className="bg-white rounded-[14px] border border-[#CBD5E1] overflow-hidden shadow-xs">
+      <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
         <div className="overflow-x-auto max-h-[65vh]">
-          <table className="w-full text-left border-collapse min-w-[1160px] [&_th]:border-r [&_th]:border-[#CBD5E1] [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] [&_td:last-child]:border-r-0">
-            <thead className="sticky top-0 z-10 bg-[#EEF2F8] border-b-2 border-[#CBD5E1] text-[10.5px] font-bold uppercase text-[#14213D]">
+          <table className="w-full text-left border-collapse min-w-[1180px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+            <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
               <tr>
+                <th className="py-2 px-2 w-9 text-center">
+                  <input
+                    type="checkbox"
+                    checked={rows.length > 0 && rows.every((r) => selectedIds.has(r.id))}
+                    onChange={(e) => toggleSelectAll(e.target.checked)}
+                    aria-label="Select all transactions on this page"
+                    className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
+                  />
+                </th>
                 <th className="py-2 px-2.5 w-16 text-center">Act</th>
                 <th className="py-2 px-2.5 cursor-pointer select-none" onClick={() => handleSort('txn_date')}>
                   <span className="inline-flex items-center gap-1">Txn Date <ArrowUpDown className="w-3 h-3" /></span>
@@ -438,18 +598,18 @@ export default function BankStatementTransactionsTab({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#E3E8F0] text-xs text-[#14213D]">
+            <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400 font-medium">
-                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1.5 text-[#3646C9]" />
+                  <td colSpan={12} className="py-12 text-center text-slate-400 dark:text-slate-400 font-medium">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1.5 text-[#3646C9] dark:text-indigo-400" />
                     Loading transactions...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center space-y-2">
-                    <div className="text-slate-600 font-bold">No transactions for this filter</div>
+                  <td colSpan={12} className="py-12 text-center space-y-2">
+                    <div className="text-slate-600 dark:text-slate-300 font-bold">No transactions for this filter</div>
                     {permissions.upload && onGoToUpload && summary.count === 0 && (
                       <button
                         type="button"
@@ -466,10 +626,23 @@ export default function BankStatementTransactionsTab({
                 rows.map((r, idx) => (
                   <tr
                     key={r.id}
-                    className={`align-top transition-colors hover:bg-[#E8EEFA]/75 ${
-                      idx % 2 === 0 ? 'bg-white' : 'bg-[#F3F6FB]'
+                    className={`align-top transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
+                      selectedIds.has(r.id)
+                        ? 'bg-indigo-50/70 dark:bg-indigo-950/50'
+                        : idx % 2 === 0
+                          ? 'bg-white dark:bg-slate-900'
+                          : 'bg-[#F3F6FB] dark:bg-slate-800/45'
                     }`}
                   >
+                    <td className="py-2 px-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleSelectOne(r.id)}
+                        aria-label={`Select transaction ${r.txn_date}`}
+                        className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
+                      />
+                    </td>
                     <td className="py-1.5 px-2 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-0.5">
                         {permissions.edit && (
@@ -477,7 +650,7 @@ export default function BankStatementTransactionsTab({
                             type="button"
                             onClick={() => openEditPopup(r)}
                             title="Edit transaction"
-                            className="p-1 rounded-md text-[#3646C9] hover:bg-indigo-50 cursor-pointer"
+                            className="p-1 rounded-md text-[#3646C9] dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -487,7 +660,7 @@ export default function BankStatementTransactionsTab({
                             type="button"
                             onClick={() => setDeletingRow(r)}
                             title="Delete transaction"
-                            className="p-1 rounded-md text-[#B4232F] hover:bg-[#FDECEC] cursor-pointer"
+                            className="p-1 rounded-md text-[#B4232F] dark:text-rose-400 hover:bg-[#FDECEC] dark:hover:bg-rose-500/20 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -496,21 +669,21 @@ export default function BankStatementTransactionsTab({
                     </td>
                     <td className="py-2 px-2.5 whitespace-nowrap font-mono font-semibold text-[11.5px]">
                       {formatBankDisplayDate(r.txn_date)}
-                      <div className="text-[10px] text-slate-400">{r.txn_month} • {r.fin_year}</div>
+                      <div className="text-[10px] text-slate-400 dark:text-slate-400">{r.txn_month} • {r.fin_year}</div>
                     </td>
-                    <td className="py-2 px-2.5 whitespace-nowrap font-semibold text-slate-700 text-[11.5px]">
+                    <td className="py-2 px-2.5 whitespace-nowrap font-semibold text-slate-700 dark:text-slate-200 text-[11.5px]">
                       {r.account_name}
                       {r.txn_type && (
-                        <div className="text-[10px] text-slate-400 font-medium">{r.txn_type}</div>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-400 font-medium">{r.txn_type}</div>
                       )}
                     </td>
                     <td className="py-2 px-2.5 max-w-[260px] break-words text-[11.5px] leading-snug">{r.description}</td>
-                    <td className="py-2 px-2.5 max-w-[160px] break-words text-slate-600 text-[11.5px]">{r.remarks || '—'}</td>
-                    <td className="py-2 px-2.5 font-semibold text-[#14213D] text-[11.5px]">
+                    <td className="py-2 px-2.5 max-w-[160px] break-words text-slate-600 dark:text-slate-300 text-[11.5px]">{r.remarks || '—'}</td>
+                    <td className="py-2 px-2.5 font-semibold text-[#14213D] dark:text-slate-100 text-[11.5px]">
                       {r.party_name || '—'}
-                      {r.mode && <div className="text-[10px] text-[#3646C9] font-bold">{r.mode}</div>}
+                      {r.mode && <div className="text-[10px] text-[#3646C9] dark:text-indigo-400 font-bold">{r.mode}</div>}
                     </td>
-                    <td className="py-2 px-2.5 font-mono text-[11px] text-slate-600 break-all max-w-[130px]">
+                    <td className="py-2 px-2.5 font-mono text-[11px] text-slate-600 dark:text-slate-300 break-all max-w-[130px]">
                       {r.utr || r.ref_no || '—'}
                     </td>
                     <td className="py-2 px-2.5 whitespace-nowrap">
@@ -521,44 +694,44 @@ export default function BankStatementTransactionsTab({
                         title="Open GST & Filing tab"
                       >
                         {r.gst_reviewed && !r.gst_needs_recheck ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#E6F5EF] text-[#087A55] border border-[#087A55]/20 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/20 dark:border-emerald-500/30 text-[10px] font-bold">
                             <FileCheck2 className="w-2.5 h-2.5" /> {r.gst_treatment}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#FEF4E6] text-[#8A5300] border border-[#8A5300]/20 text-[10px] font-bold">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#FEF4E6] dark:bg-amber-500/15 text-[#8A5300] dark:text-amber-300 border border-[#8A5300]/20 dark:border-amber-500/30 text-[10px] font-bold">
                             <Clock className="w-2.5 h-2.5" /> {r.gst_needs_recheck ? 'Re-check GST' : 'Needs Review'}
                           </span>
                         )}
                       </button>
                     </td>
-                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#B4232F] whitespace-nowrap">
+                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#B4232F] dark:text-rose-400 whitespace-nowrap">
                       {r.debit > 0 ? formatINRBank(r.debit) : '—'}
                     </td>
-                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#087A55] whitespace-nowrap">
+                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#087A55] dark:text-emerald-400 whitespace-nowrap">
                       {r.credit > 0 ? formatINRBank(r.credit) : '—'}
                     </td>
-                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#14213D] whitespace-nowrap">
+                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#14213D] dark:text-slate-100 whitespace-nowrap">
                       {r.balance !== null && r.balance !== undefined ? formatINRBank(r.balance) : '—'}
                       {r.balance_gap_flag && (
-                        <div className="text-[10px] text-[#8A5300] font-semibold">⚠ Gap</div>
+                        <div className="text-[10px] text-[#8A5300] dark:text-amber-300 font-semibold">⚠ Gap</div>
                       )}
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
-            <tfoot className="sticky bottom-0 z-10 bg-[#EEF2F8] border-t-2 border-[#CBD5E1] text-xs font-black text-[#14213D]">
+            <tfoot className="sticky bottom-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-t-2 border-[#CBD5E1] dark:border-slate-700 text-xs font-black text-[#14213D] dark:text-slate-100">
               <tr>
-                <td colSpan={8} className="py-2 px-2.5 uppercase tracking-wide">
+                <td colSpan={9} className="py-2 px-2.5 uppercase tracking-wide">
                   TOTAL ({summary.count} FILTERED TRANSACTIONS)
                 </td>
-                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-[#B4232F]">
+                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-[#B4232F] dark:text-rose-400">
                   {formatINRBank(summary.totalDebit)}
                 </td>
-                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-[#087A55]">
+                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-[#087A55] dark:text-emerald-400">
                   {formatINRBank(summary.totalCredit)}
                 </td>
-                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-slate-500">
+                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">
                   Net {formatINRBank(summary.net)}
                 </td>
               </tr>
@@ -567,9 +740,9 @@ export default function BankStatementTransactionsTab({
         </div>
 
         {/* Compact Pagination Footer */}
-        <div className="px-3 py-2 border-t border-[#E3E8F0] flex items-center justify-between bg-white text-xs">
-          <span className="text-slate-500 font-medium">
-            Showing page <strong className="text-[#14213D]">{meta.page}</strong> of <strong className="text-[#14213D]">{meta.totalPages}</strong> ({meta.total} entries)
+        <div className="px-3 py-2 border-t border-[#E3E8F0] dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 text-xs">
+          <span className="text-slate-500 dark:text-slate-400 font-medium">
+            Showing page <strong className="text-[#14213D] dark:text-slate-100">{meta.page}</strong> of <strong className="text-[#14213D] dark:text-slate-100">{meta.totalPages}</strong> ({meta.total} entries)
           </span>
           {meta.totalPages > 1 && (
             <div className="flex items-center gap-1.5">
@@ -577,7 +750,7 @@ export default function BankStatementTransactionsTab({
                 type="button"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="px-2.5 py-1 rounded-lg border border-[#E3E8F0] font-bold text-[#14213D] disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 font-bold text-[#14213D] dark:text-slate-100 disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Prev
               </button>
@@ -585,7 +758,7 @@ export default function BankStatementTransactionsTab({
                 type="button"
                 disabled={page >= meta.totalPages}
                 onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
-                className="px-2.5 py-1 rounded-lg border border-[#E3E8F0] font-bold text-[#14213D] disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 font-bold text-[#14213D] dark:text-slate-100 disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer"
               >
                 Next <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -600,152 +773,152 @@ export default function BankStatementTransactionsTab({
           <form
             onSubmit={handleSaveEdit}
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-2xl p-4 sm:p-5 space-y-3.5 shadow-xl max-h-[90vh] overflow-y-auto"
+            className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-2xl p-4 sm:p-5 space-y-3.5 shadow-xl max-h-[90vh] overflow-y-auto"
           >
-            <div className="flex items-center justify-between border-b border-[#E3E8F0] pb-2.5">
-              <h3 className="text-sm font-black text-[#14213D]">Edit transaction</h3>
-              <button type="button" onClick={() => setEditingRow(null)} className="p-1 rounded-lg hover:bg-[#F4F6FA]">
+            <div className="flex items-center justify-between border-b border-[#E3E8F0] dark:border-slate-800 pb-2.5">
+              <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">Edit transaction</h3>
+              <button type="button" onClick={() => setEditingRow(null)} className="p-1 rounded-lg hover:bg-[#F4F6FA] dark:hover:bg-slate-800">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {editingRow.gstReviewed && (
-              <div className="p-2.5 rounded-xl bg-[#FEF4E6] border border-[#8A5300]/30 text-[#8A5300] text-xs font-semibold flex items-center gap-2">
+              <div className="p-2.5 rounded-xl bg-[#FEF4E6] dark:bg-amber-500/15 border border-[#8A5300]/30 dark:border-amber-500/30 text-[#8A5300] dark:text-amber-300 text-xs font-semibold flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>Changing Txn Date, Debit or Credit removes the GST "reviewed" mark and flags linked invoice allocations for re-check.</span>
               </div>
             )}
 
             {editError && (
-              <div className="p-2.5 rounded-xl bg-[#FDECEC] border border-[#B4232F]/30 text-[#B4232F] text-xs font-semibold">
+              <div className="p-2.5 rounded-xl bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 text-xs font-semibold">
                 {editError}
               </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Account</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Account</label>
                 <select
                   value={editingRow.bankAccountId}
                   onChange={(e) => setEditingRow({ ...editingRow, bankAccountId: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   {accounts.map((a) => <option key={a.id} value={a.id}>{a.account_name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Txn Date</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Txn Date</label>
                 <input
                   type="date"
                   required
                   value={editingRow.txnDate}
                   onChange={(e) => setEditingRow({ ...editingRow, txnDate: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] font-mono"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 font-mono dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Value Date</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Value Date</label>
                 <input
                   type="date"
                   value={editingRow.valueDate}
                   onChange={(e) => setEditingRow({ ...editingRow, valueDate: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] font-mono"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 font-mono dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
             </div>
 
             <div className="text-xs">
-              <label className="block font-bold text-slate-600 mb-1">Description</label>
+              <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Description</label>
               <textarea
                 required
                 rows={2}
                 value={editingRow.description}
                 onChange={(e) => setEditingRow({ ...editingRow, description: e.target.value })}
-                className="w-full p-2.5 rounded-xl border border-[#E3E8F0]"
+                className="w-full p-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800"
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Ref No. / Cheque No.</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Ref No. / Cheque No.</label>
                 <input
                   type="text"
                   value={editingRow.refNo}
                   onChange={(e) => setEditingRow({ ...editingRow, refNo: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] font-mono"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 font-mono dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Branch Code</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Branch Code</label>
                 <input
                   type="text"
                   value={editingRow.branchCode}
                   onChange={(e) => setEditingRow({ ...editingRow, branchCode: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] font-mono"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 font-mono dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Type</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Type</label>
                 <input
                   type="text"
                   value={editingRow.type}
                   onChange={(e) => setEditingRow({ ...editingRow, type: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
               <div>
-                <label className="block font-bold text-[#B4232F] mb-1">Debit</label>
+                <label className="block font-bold text-[#B4232F] dark:text-rose-400 mb-1">Debit</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   value={editingRow.debit}
                   onChange={(e) => setEditingRow({ ...editingRow, debit: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] text-right font-mono tabular-nums"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-right font-mono tabular-nums dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label className="block font-bold text-[#087A55] mb-1">Credit</label>
+                <label className="block font-bold text-[#087A55] dark:text-emerald-400 mb-1">Credit</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   value={editingRow.credit}
                   onChange={(e) => setEditingRow({ ...editingRow, credit: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] text-right font-mono tabular-nums"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-right font-mono tabular-nums dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Balance</label>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Balance</label>
                 <input
                   type="number"
                   step="0.01"
                   value={editingRow.balance}
                   onChange={(e) => setEditingRow({ ...editingRow, balance: e.target.value })}
-                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] text-right font-mono tabular-nums"
+                  className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-right font-mono tabular-nums dark:bg-slate-950 dark:text-slate-100"
                 />
               </div>
             </div>
 
             <div className="text-xs">
-              <label className="block font-bold text-slate-600 mb-1">Remarks</label>
+              <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Remarks</label>
               <input
                 type="text"
                 value={editingRow.remarks}
                 onChange={(e) => setEditingRow({ ...editingRow, remarks: e.target.value })}
-                className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0]"
+                className="w-full h-9 px-2.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0]">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E3E8F0] dark:border-slate-800">
               <button
                 type="button"
                 disabled={editSaving}
                 onClick={() => setEditingRow(null)}
-                className="px-4 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-4 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>
@@ -765,12 +938,12 @@ export default function BankStatementTransactionsTab({
       {/* Soft Delete Confirmation */}
       {deletingRow && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4" onClick={() => !deleteSaving && setDeletingRow(null)}>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-md p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-black text-[#14213D]">Delete this transaction?</h3>
-            <p className="text-xs text-slate-600">
-              <span className="font-bold text-[#14213D]">{formatBankDisplayDate(deletingRow.txn_date)}</span> — {deletingRow.description}
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-md p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">Delete this transaction?</h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              <span className="font-bold text-[#14213D] dark:text-slate-100">{formatBankDisplayDate(deletingRow.txn_date)}</span> — {deletingRow.description}
             </p>
-            <p className="text-xs text-[#8A5300] font-semibold">
+            <p className="text-xs text-[#8A5300] dark:text-amber-300 font-semibold">
               This performs a soft delete, excludes the entry from totals and GST working papers, and records an entry in the audit log.
             </p>
             <div className="flex justify-end gap-2">
@@ -778,7 +951,7 @@ export default function BankStatementTransactionsTab({
                 type="button"
                 disabled={deleteSaving}
                 onClick={() => setDeletingRow(null)}
-                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] text-xs font-bold text-[#14213D]"
+                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
               >
                 Cancel
               </button>
@@ -796,51 +969,404 @@ export default function BankStatementTransactionsTab({
         </div>
       )}
 
-      {/* Change Log Modal */}
-      {showAuditModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4" onClick={() => setShowAuditModal(false)}>
-          <div className="bg-white rounded-[14px] border border-[#E3E8F0] w-full max-w-4xl p-4 space-y-3 shadow-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-[#E3E8F0] pb-2.5">
-              <h3 className="text-sm font-black text-[#14213D] flex items-center gap-2">
-                <History className="w-4 h-4 text-[#3646C9]" /> Bank Statement Audit &amp; Change Log
-              </h3>
-              <button type="button" onClick={() => setShowAuditModal(false)} className="p-1 rounded-lg hover:bg-[#F4F6FA]">
-                <X className="w-4 h-4" />
+      {/* Bulk Delete Selected Transactions Confirmation */}
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-4" onClick={() => !bulkDeleting && setShowBulkDeleteModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 w-full max-w-md p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-black text-[#14213D] dark:text-slate-100">Delete {selectedIds.size} Selected Transaction(s)?</h3>
+            <p className="text-xs text-[#8A5300] dark:text-amber-300 font-semibold">
+              These entries will be soft-deleted, excluded from account totals &amp; GST working papers, and can be restored anytime from the Audit &amp; Change Log.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={() => setShowBulkDeleteModal(false)}
+                className="px-3.5 py-1.5 rounded-xl border border-[#E3E8F0] dark:border-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={handleConfirmBulkDelete}
+                className="px-3.5 py-1.5 rounded-xl bg-[#B4232F] hover:bg-red-800 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                {bulkDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Delete {selectedIds.size} Row(s)</span>
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
-              {loadingAudit ? (
-                <div className="py-10 text-center text-xs text-slate-400">Loading change history...</div>
-              ) : auditLogs.length === 0 ? (
-                <div className="py-10 text-center text-xs text-slate-400">No audit changes recorded yet.</div>
-              ) : (
-                auditLogs.map((log) => (
-                  <div key={log.id} className="p-2.5 rounded-xl border border-[#E3E8F0] bg-[#F4F6FA]/50 text-xs space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="px-2 py-0.5 rounded-full bg-white border border-[#E3E8F0] font-bold text-[#3646C9] text-[10px]">
-                        {log.action}
-                      </span>
-                      <span className="text-[11px] text-slate-500 font-medium">
-                        By <strong className="text-[#14213D]">{log.changed_by_name || log.changed_by}</strong> • {new Date(log.changed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono">
-                      {log.before_data && (
-                        <div className="p-2 rounded-lg bg-white border border-[#E3E8F0] overflow-x-auto">
-                          <div className="text-[10px] font-sans font-bold text-[#B4232F] mb-0.5">Before</div>
-                          <pre className="whitespace-pre-wrap break-all">{JSON.stringify(log.before_data, null, 1)}</pre>
-                        </div>
-                      )}
-                      {log.after_data && (
-                        <div className="p-2 rounded-lg bg-white border border-[#E3E8F0] overflow-x-auto">
-                          <div className="text-[10px] font-sans font-bold text-[#087A55] mb-0.5">After</div>
-                          <pre className="whitespace-pre-wrap break-all">{JSON.stringify(log.after_data, null, 1)}</pre>
-                        </div>
-                      )}
+          </div>
+        </div>
+      )}
+
+      {/* Full-Screen Attractive Audit & Change Log + Upload Batch Manager Modal */}
+      {showAuditModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/65 backdrop-blur-2xs flex items-center justify-center p-2 sm:p-4" onClick={() => setShowAuditModal(false)}>
+          <div
+            className="bg-[#F4F6FA] dark:bg-slate-800 rounded-[16px] border border-[#CBD5E1] dark:border-slate-700 w-[98vw] max-w-[1620px] h-[93vh] overflow-hidden shadow-2xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Dark Top Bar (#111A36) */}
+            <div className="bg-[#111A36] dark:bg-slate-900 dark:border dark:border-slate-800 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center dark:bg-slate-950 dark:text-slate-100">
+                  <History className="w-4.5 h-4.5 text-emerald-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black tracking-tight">
+                    Bank Statement Audit &amp; Upload Recovery Center
+                  </h3>
+                  <p className="text-[11px] text-slate-300">
+                    Restore accidentally deleted transactions OR remove all rows uploaded from a wrong Excel / paste batch in 1 click
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 bg-white/10 p-1 rounded-xl border border-white/15">
+                  <button
+                    type="button"
+                    onClick={() => setAuditTab('LOGS')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all ${
+                      auditTab === 'LOGS' ? 'bg-[#3646C9] text-white shadow-2xs' : 'text-slate-200 hover:bg-white/10'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span>Change Log ({auditLogs.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuditTab('BATCHES')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-all ${
+                      auditTab === 'BATCHES' ? 'bg-[#3646C9] text-white shadow-2xs' : 'text-slate-200 hover:bg-white/10'
+                    }`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Uploaded Excel Batches ({batches.length})</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAuditModal(false)}
+                  className="h-8.5 px-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-4 h-4" /> Close
+                </button>
+              </div>
+            </div>
+
+            {/* Alerts & Toolbar inside modal */}
+            <div className="px-4 py-2.5 bg-white dark:bg-slate-900 border-b border-[#E3E8F0] dark:border-slate-800 space-y-2 shrink-0">
+              {auditError && (
+                <div className="px-3 py-1.5 rounded-lg bg-[#FDECEC] dark:bg-rose-500/15 border border-[#B4232F]/30 dark:border-rose-500/30 text-[#B4232F] dark:text-rose-400 text-xs font-semibold flex justify-between">
+                  <span>{auditError}</span>
+                  <button onClick={() => setAuditError('')} className="underline font-bold">Dismiss</button>
+                </div>
+              )}
+              {auditSuccess && (
+                <div className="px-3 py-1.5 rounded-lg bg-[#E6F5EF] dark:bg-emerald-500/15 border border-[#087A55]/30 dark:border-emerald-500/30 text-[#087A55] dark:text-emerald-400 text-xs font-semibold flex justify-between">
+                  <span>{auditSuccess}</span>
+                  <button onClick={() => setAuditSuccess('')} className="underline font-bold">Dismiss</button>
+                </div>
+              )}
+
+              {auditTab === 'LOGS' && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={auditActionFilter}
+                      onChange={(e) => setAuditActionFilter(e.target.value)}
+                      className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
+                    >
+                      <option value="ALL">All Actions ({auditLogs.length})</option>
+                      <option value="BATCH_IMPORT">BATCH_IMPORT (Excel Uploads)</option>
+                      <option value="BATCH_UNDO">BATCH_UNDO (Removed Uploads)</option>
+                      <option value="BATCH_RESTORE">BATCH_RESTORE (Restored Uploads)</option>
+                      <option value="TXN_DELETE">TXN_DELETE (Deleted Rows)</option>
+                      <option value="TXN_BULK_DELETE">TXN_BULK_DELETE</option>
+                      <option value="TXN_RESTORE">TXN_RESTORE (Restored Rows)</option>
+                      <option value="TXN_EDIT">TXN_EDIT (Edits)</option>
+                      <option value="ACCOUNT_CREATE">ACCOUNT_CREATE</option>
+                      <option value="ACCOUNT_UPDATE">ACCOUNT_UPDATE</option>
+                      <option value="ACCOUNT_DELETE">ACCOUNT_DELETE</option>
+                    </select>
+
+                    <div className="relative min-w-[260px]">
+                      <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={auditSearch}
+                        onChange={(e) => setAuditSearch(e.target.value)}
+                        placeholder="Search file name, narration, account, user, amount..."
+                        className="w-full h-8 pl-8 pr-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 text-xs text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
+                      />
                     </div>
                   </div>
-                ))
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    Showing <strong className="text-[#14213D] dark:text-slate-100">{filteredAuditLogs.length}</strong> log entries (IST timezone)
+                  </div>
+                </div>
               )}
+
+              {auditTab === 'BATCHES' && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="font-semibold text-[#14213D] dark:text-slate-100">
+                    Every Excel / CSV / Paste upload creates an isolated batch. Click <strong className="text-[#B4232F] dark:text-rose-400">Remove All Rows</strong> on any batch to clear all entries imported from that file.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Table Area */}
+            <div className="flex-1 overflow-auto p-3 sm:p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  {loadingAudit ? (
+                    <div className="py-16 text-center text-xs text-slate-500 dark:text-slate-400">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-[#3646C9] dark:text-indigo-400" />
+                      Loading audit records &amp; upload batches...
+                    </div>
+                  ) : auditTab === 'BATCHES' ? (
+                    <table className="w-full text-left border-collapse min-w-[980px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+                      <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
+                        <tr>
+                          <th className="py-2.5 px-3">Uploaded At (IST)</th>
+                          <th className="py-2.5 px-3">File / Source Name</th>
+                          <th className="py-2.5 px-3">Bank Account</th>
+                          <th className="py-2.5 px-3">Uploaded By</th>
+                          <th className="py-2.5 px-3 text-right">Active Rows</th>
+                          <th className="py-2.5 px-3 text-right">Removed Rows</th>
+                          <th className="py-2.5 px-3 text-right">Total Debit (Outward)</th>
+                          <th className="py-2.5 px-3 text-right">Total Credit (Inward)</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                          <th className="py-2.5 px-3 text-right">Remove / Restore Upload</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
+                        {batches.length === 0 ? (
+                          <tr><td colSpan={10} className="py-12 text-center text-slate-400 dark:text-slate-400">No Excel / paste upload batches recorded yet.</td></tr>
+                        ) : (
+                          batches.map((b, idx) => (
+                            <tr
+                              key={b.id}
+                              className={`align-middle transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
+                                idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#F3F6FB] dark:bg-slate-800/45'
+                              }`}
+                            >
+                              <td className="py-2 px-3 font-mono text-[11px] whitespace-nowrap text-slate-600 dark:text-slate-300">
+                                {new Date(b.uploaded_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                              </td>
+                              <td className="py-2 px-3 font-bold text-[#14213D] dark:text-slate-100">
+                                <div className="flex items-center gap-1.5">
+                                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#3646C9] dark:text-indigo-400 shrink-0" />
+                                  <span>{b.file_name}</span>
+                                  <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
+                                    {b.file_type}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-2 px-3 font-semibold">
+                                <div>{b.account_name}</div>
+                                {b.account_number && <div className="text-[10px] font-mono text-slate-400 dark:text-slate-400">{b.account_number}</div>}
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-700 dark:text-slate-200">{b.uploaded_by_name || b.uploaded_by}</td>
+                              <td className="py-2 px-3 text-right font-mono font-black text-[#087A55] dark:text-emerald-400 tabular-nums">{b.active_rows}</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-slate-500 dark:text-slate-400 tabular-nums">{b.deleted_rows}</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-[#B4232F] dark:text-rose-400 tabular-nums whitespace-nowrap">
+                                {formatINRBank(b.total_debit)}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-[#087A55] dark:text-emerald-400 tabular-nums whitespace-nowrap">
+                                {formatINRBank(b.total_credit)}
+                              </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                {b.active_rows > 0 ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30 text-[10.5px] font-bold">
+                                    Active ({b.active_rows})
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border border-[#B4232F]/25 dark:border-rose-500/30 text-[10.5px] font-bold">
+                                    Removed
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-right whitespace-nowrap">
+                                {permissions.delete && b.active_rows > 0 && (
+                                  <button
+                                    type="button"
+                                    disabled={busyAuditId === b.id}
+                                    onClick={() => handleUndoBatch(b.id, b.file_name)}
+                                    className="px-2.5 py-1 rounded-lg bg-[#B4232F] hover:bg-red-800 disabled:opacity-50 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    {busyAuditId === b.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                    <span>Remove All ({b.active_rows})</span>
+                                  </button>
+                                )}
+                                {permissions.delete && b.active_rows === 0 && b.deleted_rows > 0 && (
+                                  <button
+                                    type="button"
+                                    disabled={busyAuditId === b.id}
+                                    onClick={() => handleRestoreBatch(b.id, b.file_name)}
+                                    className="px-2.5 py-1 rounded-lg bg-[#3646C9] hover:bg-[#2b39ab] disabled:opacity-50 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    {busyAuditId === b.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                    <span>Restore ({b.deleted_rows})</span>
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <table className="w-full text-left border-collapse min-w-[1120px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+                      <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
+                        <tr>
+                          <th className="py-2.5 px-3 w-40">Date &amp; Time (IST)</th>
+                          <th className="py-2.5 px-3 w-36">Action</th>
+                          <th className="py-2.5 px-3 w-36">Performed By</th>
+                          <th className="py-2.5 px-3 w-52">Target / Account / File</th>
+                          <th className="py-2.5 px-3 min-w-[340px]">Structured Details (Before → After)</th>
+                          <th className="py-2.5 px-3 w-40 text-right">Recovery / Undo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
+                        {filteredAuditLogs.length === 0 ? (
+                          <tr><td colSpan={6} className="py-12 text-center text-slate-400 dark:text-slate-400">No audit records match this filter.</td></tr>
+                        ) : (
+                          filteredAuditLogs.map((log, idx) => {
+                            const data = log.after_data || log.before_data || {};
+                            const isDeleteAction = log.action === 'TXN_DELETE' || log.action === 'BATCH_UNDO' || log.action === 'TXN_BULK_DELETE' || log.action === 'ACCOUNT_DELETE';
+                            const isCreateOrRestore = log.action === 'BATCH_IMPORT' || log.action === 'TXN_RESTORE' || log.action === 'BATCH_RESTORE' || log.action === 'ACCOUNT_CREATE';
+                            const actionBadgeCls = isDeleteAction
+                              ? 'bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border-[#B4232F]/25 dark:border-rose-500/30'
+                              : isCreateOrRestore
+                                ? 'bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border-[#087A55]/25 dark:border-emerald-500/30'
+                                : 'bg-indigo-50 dark:bg-indigo-950/50 text-[#3646C9] dark:text-indigo-400 border-indigo-200 dark:border-indigo-800';
+
+                            const targetLabel = data.fileName
+                              ? `${data.fileName}${data.accountName ? ` (${data.accountName})` : ''}`
+                              : data.account_name
+                                ? `${data.account_name} (${data.account_number || data.account_type || 'Bank'})`
+                                : data.txn_date
+                                  ? `Txn Date: ${formatBankDisplayDate(data.txn_date)}`
+                                  : log.entity_type;
+
+                            const renderKV = (obj, sideLabel, badgeColor) => {
+                              if (!obj || typeof obj !== 'object') return null;
+                              const moneyKeys = new Set(['debit', 'credit', 'balance', 'totalDebit', 'totalCredit', 'opening_balance', 'taxable_amount', 'total_tax']);
+                              const entries = Object.entries(obj).filter(([k, v]) => k !== 'id' && v !== null && v !== undefined && v !== '' && typeof v !== 'object');
+                              if (entries.length === 0) return null;
+                              return (
+                                <div className="flex flex-wrap items-center gap-1.5 py-0.5">
+                                  <span className={`text-[10px] font-black uppercase px-1.5 py-0.2 rounded ${badgeColor}`}>
+                                    {sideLabel}
+                                  </span>
+                                  {entries.map(([k, v]) => {
+                                    const label = k.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+                                    const displayVal = moneyKeys.has(k) ? formatINRBank(v) : (k === 'txn_date' ? formatBankDisplayDate(v) : String(v));
+                                    const valTone = k === 'debit' || k === 'totalDebit'
+                                      ? 'text-[#B4232F] dark:text-rose-400 font-bold'
+                                      : k === 'credit' || k === 'totalCredit'
+                                        ? 'text-[#087A55] dark:text-emerald-400 font-bold'
+                                        : 'text-[#14213D] dark:text-slate-100 font-semibold';
+                                    return (
+                                      <span key={k} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 text-[11px]">
+                                        <span className="text-slate-400 dark:text-slate-400 font-medium">{label}:</span>
+                                        <span className={`${valTone} break-all`}>{displayVal}</span>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            };
+
+                            return (
+                              <tr
+                                key={log.id}
+                                className={`align-top transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
+                                  idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#F3F6FB] dark:bg-slate-800/45'
+                                }`}
+                              >
+                                <td className="py-2 px-3 font-mono text-[11px] whitespace-nowrap text-slate-600 dark:text-slate-300">
+                                  {new Date(log.changed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-black ${actionBadgeCls}`}>
+                                    {log.action}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 font-bold text-[#14213D] dark:text-slate-100 whitespace-nowrap">
+                                  {log.changed_by_name || log.changed_by}
+                                </td>
+                                <td className="py-2 px-3 font-semibold text-[11.5px] text-[#14213D] dark:text-slate-100 break-words">
+                                  {targetLabel}
+                                </td>
+                                <td className="py-2 px-3 space-y-1">
+                                  {renderKV(log.before_data, 'Before', 'bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400')}
+                                  {renderKV(log.after_data, 'After', 'bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400')}
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedRawLogId((prev) => (prev === log.id ? null : log.id))}
+                                    className="text-[10px] font-bold text-[#3646C9] dark:text-indigo-400 hover:underline cursor-pointer"
+                                  >
+                                    {expandedRawLogId === log.id ? 'Hide Raw JSON' : 'View Raw JSON'}
+                                  </button>
+                                  {expandedRawLogId === log.id && (
+                                    <pre className="mt-1 p-2 rounded-lg bg-slate-900 text-slate-100 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap">
+                                      {JSON.stringify({ before: log.before_data, after: log.after_data }, null, 2)}
+                                    </pre>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-right whitespace-nowrap">
+                                  {permissions.delete && log.action === 'TXN_DELETE' && log.txn_id && log.txn_is_deleted && (
+                                    <button
+                                      type="button"
+                                      disabled={busyAuditId === log.txn_id}
+                                      onClick={() => handleRestoreTxn(log.txn_id)}
+                                      className="px-2.5 py-1 rounded-lg bg-[#087A55] hover:bg-emerald-800 disabled:opacity-50 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      {busyAuditId === log.txn_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                      <span>Restore Row</span>
+                                    </button>
+                                  )}
+                                  {log.action === 'TXN_DELETE' && !log.txn_is_deleted && (
+                                    <span className="text-[10.5px] font-bold text-[#087A55] dark:text-emerald-400">✓ Already Restored</span>
+                                  )}
+                                  {permissions.delete && log.action === 'BATCH_IMPORT' && log.batch_id && log.batch_active_rows > 0 && (
+                                    <button
+                                      type="button"
+                                      disabled={busyAuditId === log.batch_id}
+                                      onClick={() => handleUndoBatch(log.batch_id, data.fileName || 'Excel Batch')}
+                                      className="px-2.5 py-1 rounded-lg bg-[#B4232F] hover:bg-red-800 disabled:opacity-50 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      {busyAuditId === log.batch_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                      <span>Remove Excel ({log.batch_active_rows})</span>
+                                    </button>
+                                  )}
+                                  {permissions.delete && log.action === 'BATCH_UNDO' && log.batch_id && log.batch_deleted_rows > 0 && log.batch_active_rows === 0 && (
+                                    <button
+                                      type="button"
+                                      disabled={busyAuditId === log.batch_id}
+                                      onClick={() => handleRestoreBatch(log.batch_id, data.fileName || 'Excel Batch')}
+                                      className="px-2.5 py-1 rounded-lg bg-[#3646C9] hover:bg-[#2b39ab] disabled:opacity-50 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      {busyAuditId === log.batch_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                      <span>Restore Batch</span>
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

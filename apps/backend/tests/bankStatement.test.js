@@ -344,5 +344,142 @@ describe('Bank Statement & GST Review — Unit + 12 Acceptance Tests', () => {
       .delete(`/api/finance/bank-statement/accounts/${accountAId}`)
       .set('Authorization', `Bearer ${tokenA}`);
     expect(del.status).toBe(200);
+
+    // Recovery & Batch Rollback tests:
+    // 1. Restore a soft-deleted transaction
+    const logsBefore = await request(app)
+      .get('/api/finance/bank-statement/audit-logs')
+      .set('Authorization', `Bearer ${tokenA}`);
+    const delLog = logsBefore.body.data.find((l) => l.action === 'TXN_DELETE' && l.txn_is_deleted);
+    expect(delLog).toBeTruthy();
+
+    const restoreRes = await request(app)
+      .post(`/api/finance/bank-statement/transactions/${delLog.txn_id}/restore`)
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(restoreRes.status).toBe(200);
+
+    // 2. Remove an entire uploaded Excel batch cleanly, then restore it
+    const batchesRes = await request(app)
+      .get('/api/finance/bank-statement/batches')
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(batchesRes.status).toBe(200);
+    const activeBatch = batchesRes.body.data.find((b) => b.active_rows > 0);
+    expect(activeBatch).toBeTruthy();
+
+    const undoBatchRes = await request(app)
+      .delete(`/api/finance/bank-statement/batches/${activeBatch.id}`)
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(undoBatchRes.status).toBe(200);
+    expect(undoBatchRes.body.data.removedCount).toBe(activeBatch.active_rows);
+
+    const listAfterUndo = await request(app)
+      .get('/api/finance/bank-statement/transactions')
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(listAfterUndo.body.data.summary.count).toBe(0);
+
+    const restoreBatchRes = await request(app)
+      .post(`/api/finance/bank-statement/batches/${activeBatch.id}/restore`)
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(restoreBatchRes.status).toBe(200);
+    expect(restoreBatchRes.body.data.restoredCount).toBe(activeBatch.active_rows);
+  });
+
+  test('Intelligent Multi-Format Column Mapping: screenshot order, fuzzy bank aliases, Amount+Dr/Cr, and NEFT UTR extraction', async () => {
+    const { parseGridWithMapping, extractPaymentMetadata } = require('../src/modules/finance/bankStatement.utils');
+
+    // 1. Screenshot column order + fuzzy currency labels + repeated mid-page header + star/UTR NO extraction
+    const gridA = [
+      ['Account Summary Export'],
+      ['Txn Date', 'Value Date', 'Description', 'Branch Code', 'Debit (INR)', 'Credit (INR)', 'Closing Balance (Rs.)', 'Chq./Ref. Number', 'Remarks', 'Month', 'Year', 'Type'],
+      ['01-Jun-26', '01-Jun-26', 'CHQ TRANSFER-NEFT UTR NO: SBIN126152075451--756052 THE TIIC LTD', '913', '39,664.72', '', '9,59,627.02 Cr', 'TRANSFER1', 'Loan EMI', '', '', ''],
+      ['Txn Date', 'Value Date', 'Description', 'Branch Code', 'Debit (INR)', 'Credit (INR)', 'Closing Balance (Rs.)', 'Chq./Ref. Number', 'Remarks', 'Month', 'Year', 'Type'],
+      ['04-Jun-26', '04-Jun-26', 'BY TRANSFER-NEFT*HDFC0000001*HDFCH01039257470*RAJARAJAN U*BATC--', '913', '', '2,00,000.00', '11,59,627.02 Cr', '', '', '', '', 'Online']
+    ];
+    const parsedA = parseGridWithMapping(gridA, acctIdForMappingCheck());
+    expect(parsedA.rows).toHaveLength(2);
+    expect(parsedA.rows[0].debit).toBe(39664.72);
+    expect(parsedA.rows[0].utr).toBe('SBIN126152075451');
+    expect(parsedA.rows[0].partyName).toContain('THE TIIC LTD');
+    expect(parsedA.rows[0].month).toBe('June');
+    expect(parsedA.rows[0].year).toBe('26-27');
+    expect(parsedA.rows[1].credit).toBe(200000);
+    expect(parsedA.rows[1].utr).toBe('HDFCH01039257470');
+    expect(parsedA.rows[1].partyName).toBe('RAJARAJAN U');
+
+    // 2. Single Amount + Dr/Cr column format (used by Kotak / Axis / CSV statements)
+    const gridB = [
+      ['Date', 'Particulars', 'Transaction Amount', 'Dr / Cr', 'Running Balance'],
+      ['15/06/2026', 'UPI/DR/776655443322/DAIRY MART/OKICICI', '1,250.50', 'DR', '50,000.00'],
+      ['16/06/2026', 'IMPS/CR/88776655/CUSTOMER ABC', '4,500.00', 'CR', '54,500.00']
+    ];
+    const parsedB = parseGridWithMapping(gridB, acctIdForMappingCheck());
+    expect(parsedB.mappingInfo.detectionMode).toBe('amount-drcr');
+    expect(parsedB.rows).toHaveLength(2);
+    expect(parsedB.rows[0].debit).toBe(1250.5);
+    expect(parsedB.rows[0].credit).toBe(0);
+    expect(parsedB.rows[1].credit).toBe(4500);
+
+    const neftMeta = extractPaymentMetadata('BY TRANSFER-NEFT*HDFC0000001*HDFCH01039257470*RAJARAJAN U*BATC--', '');
+    expect(neftMeta.mode).toBe('NEFT');
+    expect(neftMeta.utr).toBe('HDFCH01039257470');
+    expect(neftMeta.partyName).toBe('RAJARAJAN U');
+
+    // 3. Exact custom headers: Narration | Effective Date | Posting Date | Payment Mode | Money In | Money Out | Closing Balance | User Note | Transaction Reference | Bank Branch | Period Month | Financial Year
+    const gridC = [
+      ['Narration', 'Effective Date', 'Posting Date', 'Payment Mode', 'Money In', 'Money Out', 'Closing Balance', 'User Note', 'Transaction Reference', 'Bank Branch', 'Period Month', 'Financial Year'],
+      ['BY TRANSFER-UPI/CR/300000000001/SAMPLE PARTNER/TEST/demo/UPI--', '06-Apr-26', '05-Apr-26', 'Online', '75,000.00', '', '1,00,000.00', 'Cr - Sample Partner Capital', 'TRANSFER FROM 0000000000011 / ', '913', 'April', '26-27'],
+      ['TO TRANSFER-INB--', '18-May-26', '18-May-26', 'Online', '', '2,360.00', '97,640.00', 'Sample Internet Bill', 'SMP202CHX0000202', '99922', 'May', '26-27'],
+      ['CHQ TRANSFER-NEFT UTR NO: SMPUTR000204--200204 SAMPLE SUPPLIER LTD', '14-Jul-26', '11-Jul-26', 'Cheque', '', '18,500.00', '72,265.00', 'Sample Packing Material', ' / 200204 SAMPLE SUPPLIER LTD', '64929', 'July', '26-27'],
+      ['BY TRANSFER-NEFT*SMPL0000001*SMPUTR000206*SAMPLE CUSTOMER B*TEST--', '08-Aug-26', '07-Aug-26', 'Online', '1,25,000.00', '', '1,97,247.30', 'Cr - Sample Customer B', 'TRANSFER FROM 0000000000012 / ', '4430', 'August', '26-27']
+    ];
+    const parsedC = parseGridWithMapping(gridC, acctIdForMappingCheck());
+    expect(parsedC.rows).toHaveLength(4);
+    expect(parsedC.rows[0].txnDate).toBe('2026-04-05');
+    expect(parsedC.rows[0].valueDate).toBe('2026-04-06');
+    expect(parsedC.rows[0].credit).toBe(75000);
+    expect(parsedC.rows[0].debit).toBe(0);
+    expect(parsedC.rows[0].balance).toBe(100000);
+    expect(parsedC.rows[0].remarks).toBe('Cr - Sample Partner Capital');
+    expect(parsedC.rows[0].branchCode).toBe('913');
+    expect(parsedC.rows[0].type).toBe('Online');
+    expect(parsedC.rows[1].debit).toBe(2360);
+    expect(parsedC.rows[1].utr).toBe('SMP202CHX0000202');
+    expect(parsedC.rows[2].utr).toBe('SMPUTR000204');
+    expect(parsedC.rows[3].credit).toBe(125000);
+    expect(parsedC.rows[3].partyName).toBe('SAMPLE CUSTOMER B');
+
+    // 4. Deterministic zero-AI balance-equation prediction even when column headers are completely unfamiliar (Col 1..Col 7)
+    const gridUnknownHeaders = [
+      ['Text Info', 'Dt1', 'Dt2', 'Col Out', 'Col In', 'Col End'],
+      ['BY TRANSFER-UPI/CR/300000000001/SAMPLE PARTNER/TEST', '06-Apr-26', '05-Apr-26', '', '75,000.00', '1,00,000.00'],
+      ['TO TRANSFER-INB-- Internet Bill', '18-May-26', '18-May-26', '2,360.00', '', '97,640.00'],
+      ['TO TRANSFER-INB-- Electricity', '24-Jun-26', '23-Jun-26', '6,875.00', '', '90,765.00']
+    ];
+    const parsedPredicted = parseGridWithMapping(gridUnknownHeaders, acctIdForMappingCheck());
+    expect(parsedPredicted.mappingInfo.detectionMode).toBe('predicted');
+    expect(parsedPredicted.rows).toHaveLength(3);
+    expect(parsedPredicted.rows[0].credit).toBe(75000);
+    expect(parsedPredicted.rows[1].debit).toBe(2360);
+    expect(parsedPredicted.rows[2].debit).toBe(6875);
+
+    // 5. Descending (newest-first) + all-debit (blank credit col) + Serial No exclusion with unknown headers
+    const gridDesc = [
+      ['S No', 'Dt', 'Particular', 'Pay Col', 'Rcpt Col', 'End Bal'],
+      ['1', '14-Jul-26', 'CHQ TRANSFER-NEFT--200204 SAMPLE SUPPLIER LTD', '18,500.00', '', '72,265.00'],
+      ['2', '24-Jun-26', 'TO TRANSFER-INB-- Sample Electricity', '6,875.00', '', '90,765.00'],
+      ['3', '18-May-26', 'TO TRANSFER-INB-- Sample Internet Bill', '2,360.00', '', '97,640.00']
+    ];
+    const parsedDesc = parseGridWithMapping(gridDesc, acctIdForMappingCheck());
+    expect(parsedDesc.mappingInfo.detectionMode).toBe('predicted');
+    expect(parsedDesc.rows).toHaveLength(3);
+    expect(parsedDesc.rows[0].debit).toBe(18500);
+    expect(parsedDesc.rows[0].credit).toBe(0);
+    expect(parsedDesc.rows[0].branchCode).toBe(''); // S No 1,2,3 never mistaken for branch code
+    expect(parsedDesc.rows[1].suggestedTreatment).toBe('Exempt / Non-GST');
+    expect(parsedDesc.rows[2].suggestedTreatment).toBe('Purchase: ITC to verify');
+
+    function acctIdForMappingCheck() {
+      return 999;
+    }
   });
 });

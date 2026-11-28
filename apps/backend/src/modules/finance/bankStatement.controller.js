@@ -17,7 +17,7 @@ const {
   parseFileBufferToGrid,
   parsePastedTextToGrid,
   normalizeAndValidateRow,
-  parseGridToPreviewRows,
+  parseGridWithMapping,
   evaluatePreviewState,
   resolvePresetDateRange,
   sanitizeSpreadsheetCell
@@ -729,9 +729,9 @@ async function previewUpload(req, res) {
       return res.status(400).json({ success: false, error: 'Please select a .xlsx/.xls/.csv file or paste copied rows from Excel.' });
     }
 
-    const parsedRows = parseGridToPreviewRows(grid, account.id);
+    const parsed = parseGridWithMapping(grid, account.id);
     const existingState = await loadAccountExistingState(prisma, companyId, account.id);
-    const evaluated = evaluatePreviewState(parsedRows, existingState);
+    const evaluated = evaluatePreviewState(parsed.rows, existingState);
 
     return res.json({
       success: true,
@@ -739,6 +739,7 @@ async function previewUpload(req, res) {
         fileName,
         fileType,
         account,
+        columnMapping: parsed.mappingInfo,
         rows: evaluated.rows,
         summary: evaluated.summary
       }
@@ -1440,7 +1441,360 @@ async function deleteTransaction(req, res) {
 }
 
 /**
- * GET /audit-logs (Step 4 & Step 5: Change log history)
+ * POST /transactions/:id/restore (Undo accidental soft-delete atomically)
+ */
+async function restoreTransaction(req, res) {
+  try {
+    const companyId = await resolveCompanyId(req);
+    const { id } = req.params;
+    const userId = String(req.user?.id || 'SYSTEM');
+    const userName = String(req.user?.name || req.user?.email || 'User');
+
+    await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRawUnsafe(`
+        SELECT id::text as id, bank_account_id::text as bank_account_id, txn_date::text as txn_date,
+               description, debit::text as debit, credit::text as credit, dedupe_key, source_key
+        FROM bank_txn
+        WHERE id = $1::uuid AND company_id = $2 AND is_deleted = true
+        FOR UPDATE;
+      `, id, companyId);
+
+      if (!rows || rows.length === 0) {
+        const err = new Error('Deleted transaction not found or already active.');
+        err.statusCode = 404;
+        throw err;
+      }
+      const row = rows[0];
+
+      const conflict = await tx.$queryRawUnsafe(`
+        SELECT id::text as id FROM bank_txn
+        WHERE company_id = $1 AND bank_account_id = $2::bigint AND is_deleted = false
+          AND (dedupe_key = $3 OR source_key = $4)
+        LIMIT 1;
+      `, companyId, Number(row.bank_account_id), row.dedupe_key, row.source_key);
+
+      if (conflict && conflict.length > 0) {
+        const err = new Error('An identical active transaction already exists in this account.');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn SET
+          is_deleted = false,
+          deleted_at = null,
+          deleted_by = null,
+          version = version + 1,
+          updated_by = $1,
+          updated_at = now()
+        WHERE id = $2::uuid AND company_id = $3;
+      `, userId, id, companyId);
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn_invoice_allocations SET is_deleted = false, updated_at = now()
+        WHERE txn_id = $1::uuid AND company_id = $2;
+      `, id, companyId);
+
+      await tx.$executeRawUnsafe(`
+        INSERT INTO bank_audit_log (
+          company_id, action, entity_type, entity_id, txn_id, after_data, changed_by, changed_by_name
+        ) VALUES ($1, 'TXN_RESTORE', 'bank_txn', $2, $2::uuid, $3::jsonb, $4, $5);
+      `, companyId, id, JSON.stringify({
+        id: row.id,
+        txn_date: row.txn_date,
+        description: row.description,
+        debit: row.debit,
+        credit: row.credit
+      }), userId, userName);
+    });
+
+    return res.json({ success: true, message: 'Transaction restored.' });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Failed to restore transaction.' });
+  }
+}
+
+/**
+ * POST /transactions/bulk-delete (Soft-delete multiple selected transactions atomically)
+ */
+async function bulkDeleteTransactions(req, res) {
+  try {
+    const companyId = await resolveCompanyId(req);
+    const { txnIds = [] } = req.body || {};
+    if (!Array.isArray(txnIds) || txnIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'Please select at least one transaction to delete.' });
+    }
+
+    const userId = String(req.user?.id || 'SYSTEM');
+    const userName = String(req.user?.name || req.user?.email || 'User');
+
+    const deletedCount = await prisma.$transaction(async (tx) => {
+      const existing = await tx.$queryRawUnsafe(`
+        SELECT id::text as id, txn_date::text as txn_date, debit::text as debit, credit::text as credit
+        FROM bank_txn
+        WHERE company_id = $1 AND id = ANY($2::uuid[]) AND is_deleted = false
+        FOR UPDATE;
+      `, companyId, txnIds);
+
+      if (!existing || existing.length === 0) return 0;
+
+      const targetIds = existing.map((x) => x.id);
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn SET
+          is_deleted = true,
+          deleted_at = now(),
+          deleted_by = $1,
+          updated_at = now()
+        WHERE company_id = $2 AND id = ANY($3::uuid[]);
+      `, userId, companyId, targetIds);
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn_invoice_allocations SET is_deleted = true, updated_at = now()
+        WHERE company_id = $1 AND txn_id = ANY($2::uuid[]);
+      `, companyId, targetIds);
+
+      const drSum = existing.reduce((s, r) => s + Number(r.debit || 0), 0).toFixed(2);
+      const crSum = existing.reduce((s, r) => s + Number(r.credit || 0), 0).toFixed(2);
+
+      await tx.$executeRawUnsafe(`
+        INSERT INTO bank_audit_log (
+          company_id, action, entity_type, before_data, changed_by, changed_by_name
+        ) VALUES ($1, 'TXN_BULK_DELETE', 'bank_txn', $2::jsonb, $3, $4);
+      `, companyId, JSON.stringify({
+        deletedRows: existing.length,
+        totalDebit: drSum,
+        totalCredit: crSum,
+        txnIds: targetIds.slice(0, 50)
+      }), userId, userName);
+
+      return existing.length;
+    });
+
+    return res.json({ success: true, deletedCount });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to delete selected transactions.' });
+  }
+}
+
+/**
+ * GET /batches (List uploaded Excel/CSV/paste import batches with live active/deleted counts)
+ */
+async function getImportBatches(req, res) {
+  try {
+    const companyId = await resolveCompanyId(req);
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        b.id::text as id,
+        b.bank_account_id::text as bank_account_id,
+        COALESCE(a.account_name, 'Deleted Account') as account_name,
+        COALESCE(a.account_number, '') as account_number,
+        b.file_name,
+        b.file_type,
+        b.uploaded_by,
+        b.uploaded_by_name,
+        b.uploaded_at,
+        b.total_rows,
+        b.saved_rows,
+        b.duplicate_rows,
+        b.total_debit::text as total_debit,
+        b.total_credit::text as total_credit,
+        COUNT(t.id) FILTER (WHERE t.is_deleted = false)::int as active_rows,
+        COUNT(t.id) FILTER (WHERE t.is_deleted = true)::int as deleted_rows
+      FROM bank_import_batches b
+      LEFT JOIN bank_statement_accounts a ON a.id = b.bank_account_id AND a.company_id = b.company_id
+      LEFT JOIN bank_txn t ON t.batch_id = b.id AND t.company_id = b.company_id
+      WHERE b.company_id = $1
+      GROUP BY b.id, a.account_name, a.account_number
+      ORDER BY b.uploaded_at DESC
+      LIMIT 100;
+    `, companyId);
+
+    return res.json({
+      success: true,
+      data: rows.map((r) => ({
+        ...r,
+        total_debit: Number(r.total_debit || 0),
+        total_credit: Number(r.total_credit || 0)
+      }))
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'Failed to load import batches.' });
+  }
+}
+
+/**
+ * DELETE /batches/:batchId (Remove / undo ALL active transactions uploaded from a specific Excel/paste batch)
+ */
+async function deleteImportBatch(req, res) {
+  try {
+    const companyId = await resolveCompanyId(req);
+    const { batchId } = req.params;
+    const userId = String(req.user?.id || 'SYSTEM');
+    const userName = String(req.user?.name || req.user?.email || 'User');
+
+    const result = await prisma.$transaction(async (tx) => {
+      const batchRows = await tx.$queryRawUnsafe(`
+        SELECT b.id::text as id, b.file_name, b.bank_account_id::text as bank_account_id,
+               COALESCE(a.account_name, '') as account_name
+        FROM bank_import_batches b
+        LEFT JOIN bank_statement_accounts a ON a.id = b.bank_account_id
+        WHERE b.id = $1::uuid AND b.company_id = $2
+        FOR UPDATE OF b;
+      `, batchId, companyId);
+
+      if (!batchRows || batchRows.length === 0) {
+        const err = new Error('Upload batch not found.');
+        err.statusCode = 404;
+        throw err;
+      }
+      const batch = batchRows[0];
+
+      const activeTxns = await tx.$queryRawUnsafe(`
+        SELECT id::text as id, debit::text as debit, credit::text as credit
+        FROM bank_txn
+        WHERE company_id = $1 AND batch_id = $2::uuid AND is_deleted = false
+        FOR UPDATE;
+      `, companyId, batchId);
+
+      if (!activeTxns || activeTxns.length === 0) {
+        return { batchId, fileName: batch.file_name, removedCount: 0 };
+      }
+
+      const drSum = activeTxns.reduce((s, t) => s + Number(t.debit || 0), 0).toFixed(2);
+      const crSum = activeTxns.reduce((s, t) => s + Number(t.credit || 0), 0).toFixed(2);
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn_invoice_allocations SET is_deleted = true, updated_at = now()
+        WHERE company_id = $1 AND txn_id IN (
+          SELECT id FROM bank_txn WHERE company_id = $1 AND batch_id = $2::uuid AND is_deleted = false
+        );
+      `, companyId, batchId);
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn SET
+          is_deleted = true,
+          deleted_at = now(),
+          deleted_by = $3,
+          updated_at = now()
+        WHERE company_id = $1 AND batch_id = $2::uuid AND is_deleted = false;
+      `, companyId, batchId, userId);
+
+      await tx.$executeRawUnsafe(`
+        INSERT INTO bank_audit_log (
+          company_id, action, entity_type, entity_id, batch_id, before_data, changed_by, changed_by_name
+        ) VALUES ($1, 'BATCH_UNDO', 'bank_import_batches', $2, $2::uuid, $3::jsonb, $4, $5);
+      `, companyId, batchId, JSON.stringify({
+        fileName: batch.file_name,
+        accountId: batch.bank_account_id,
+        accountName: batch.account_name,
+        removedRows: activeTxns.length,
+        totalDebit: drSum,
+        totalCredit: crSum
+      }), userId, userName);
+
+      return { batchId, fileName: batch.file_name, removedCount: activeTxns.length };
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Failed to remove upload batch.' });
+  }
+}
+
+/**
+ * POST /batches/:batchId/restore (Restore all deleted transactions from an undone Excel batch)
+ */
+async function restoreImportBatch(req, res) {
+  try {
+    const companyId = await resolveCompanyId(req);
+    const { batchId } = req.params;
+    const userId = String(req.user?.id || 'SYSTEM');
+    const userName = String(req.user?.name || req.user?.email || 'User');
+
+    const result = await prisma.$transaction(async (tx) => {
+      const batchRows = await tx.$queryRawUnsafe(`
+        SELECT b.id::text as id, b.file_name, b.bank_account_id::text as bank_account_id,
+               COALESCE(a.account_name, '') as account_name
+        FROM bank_import_batches b
+        LEFT JOIN bank_statement_accounts a ON a.id = b.bank_account_id
+        WHERE b.id = $1::uuid AND b.company_id = $2
+        FOR UPDATE OF b;
+      `, batchId, companyId);
+
+      if (!batchRows || batchRows.length === 0) {
+        const err = new Error('Upload batch not found.');
+        err.statusCode = 404;
+        throw err;
+      }
+      const batch = batchRows[0];
+
+      const delTxns = await tx.$queryRawUnsafe(`
+        SELECT id::text as id, bank_account_id::text as bank_account_id, debit::text as debit, credit::text as credit, dedupe_key, source_key
+        FROM bank_txn
+        WHERE company_id = $1 AND batch_id = $2::uuid AND is_deleted = true
+        FOR UPDATE;
+      `, companyId, batchId);
+
+      if (!delTxns || delTxns.length === 0) {
+        return { batchId, fileName: batch.file_name, restoredCount: 0 };
+      }
+
+      const conflicts = await tx.$queryRawUnsafe(`
+        SELECT id::text as id FROM bank_txn
+        WHERE company_id = $1 AND bank_account_id = $2::bigint AND is_deleted = false
+          AND (dedupe_key = ANY($3::text[]) OR source_key = ANY($4::text[]))
+        LIMIT 1;
+      `, companyId, Number(batch.bank_account_id), delTxns.map((x) => x.dedupe_key), delTxns.map((x) => x.source_key));
+
+      if (conflicts && conflicts.length > 0) {
+        const err = new Error('Cannot restore batch: one or more identical transactions already exist in active rows.');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      const drSum = delTxns.reduce((s, t) => s + Number(t.debit || 0), 0).toFixed(2);
+      const crSum = delTxns.reduce((s, t) => s + Number(t.credit || 0), 0).toFixed(2);
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn SET
+          is_deleted = false,
+          deleted_at = null,
+          deleted_by = null,
+          version = version + 1,
+          updated_by = $3,
+          updated_at = now()
+        WHERE company_id = $1 AND batch_id = $2::uuid AND is_deleted = true;
+      `, companyId, batchId, userId);
+
+      await tx.$executeRawUnsafe(`
+        UPDATE bank_txn_invoice_allocations SET is_deleted = false, updated_at = now()
+        WHERE company_id = $1 AND txn_id = ANY($2::uuid[]);
+      `, companyId, delTxns.map((x) => x.id));
+
+      await tx.$executeRawUnsafe(`
+        INSERT INTO bank_audit_log (
+          company_id, action, entity_type, entity_id, batch_id, after_data, changed_by, changed_by_name
+        ) VALUES ($1, 'BATCH_RESTORE', 'bank_import_batches', $2, $2::uuid, $3::jsonb, $4, $5);
+      `, companyId, batchId, JSON.stringify({
+        fileName: batch.file_name,
+        accountId: batch.bank_account_id,
+        accountName: batch.account_name,
+        restoredRows: delTxns.length,
+        totalDebit: drSum,
+        totalCredit: crSum
+      }), userId, userName);
+
+      return { batchId, fileName: batch.file_name, restoredCount: delTxns.length };
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Failed to restore upload batch.' });
+  }
+}
+
+/**
+ * GET /audit-logs (Step 4 & Step 5: Change log history with live restore availability)
  */
 async function getAuditLogs(req, res) {
   try {
@@ -1448,20 +1802,28 @@ async function getAuditLogs(req, res) {
     const limit = Math.min(200, Math.max(10, parseInt(req.query.limit, 10) || 100));
     const rows = await prisma.$queryRawUnsafe(`
       SELECT
-        id::text as id,
-        action,
-        entity_type,
-        entity_id,
-        txn_id::text as txn_id,
-        batch_id::text as batch_id,
-        before_data,
-        after_data,
-        changed_by,
-        changed_by_name,
-        changed_at
-      FROM bank_audit_log
-      WHERE company_id = $1
-      ORDER BY changed_at DESC
+        l.id::text as id,
+        l.action,
+        l.entity_type,
+        l.entity_id,
+        l.txn_id::text as txn_id,
+        l.batch_id::text as batch_id,
+        l.before_data,
+        l.after_data,
+        l.changed_by,
+        l.changed_by_name,
+        l.changed_at,
+        COALESCE(t.is_deleted, false) as txn_is_deleted,
+        CASE WHEN l.batch_id IS NOT NULL THEN (
+          SELECT COUNT(*)::int FROM bank_txn bt WHERE bt.company_id = l.company_id AND bt.batch_id = l.batch_id AND bt.is_deleted = false
+        ) ELSE 0 END as batch_active_rows,
+        CASE WHEN l.batch_id IS NOT NULL THEN (
+          SELECT COUNT(*)::int FROM bank_txn bt WHERE bt.company_id = l.company_id AND bt.batch_id = l.batch_id AND bt.is_deleted = true
+        ) ELSE 0 END as batch_deleted_rows
+      FROM bank_audit_log l
+      LEFT JOIN bank_txn t ON t.id = l.txn_id AND t.company_id = l.company_id
+      WHERE l.company_id = $1
+      ORDER BY l.changed_at DESC
       LIMIT $2;
     `, companyId, limit);
 
@@ -2668,6 +3030,11 @@ module.exports = {
   listTransactions,
   updateTransaction,
   deleteTransaction,
+  restoreTransaction,
+  bulkDeleteTransactions,
+  getImportBatches,
+  deleteImportBatch,
+  restoreImportBatch,
   getAuditLogs,
   getGstReview,
   updateGstReview,
