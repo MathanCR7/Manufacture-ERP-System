@@ -397,7 +397,6 @@ function NonInventoryItemForm({ editId, onBack }) {
                     return true;
                   }
                 })}
-                className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
                 onChange={(e) => {
                   const upper = e.target.value.toUpperCase().replace(/[^A-Z ]/g, '');
                   setValue('name', upper, { shouldValidate: true });

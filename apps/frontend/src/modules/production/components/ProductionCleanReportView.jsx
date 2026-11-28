@@ -3,7 +3,7 @@ import {
   Printer, Unlock, CheckCircle2,
   Layers, Factory, FileSpreadsheet, ShieldCheck, Boxes,
   Calendar, Flame, Zap, MapPin, Edit3, Download, CalendarDays, Clock, AlertTriangle, Users,
-  Search, Filter
+  Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
@@ -498,7 +498,7 @@ export default function ProductionCleanReportView({
           const yPct = exp > 0 ? round2((act / exp) * 100) : (act > 0 ? 100 : 0);
 
           const outMix = Number(o.allocatedBaseMl || 0);
-          let allocLabour = 0;
+          let allocLabour;
           if (o.labourCostOverride !== undefined && Number(o.labourCostOverride) > 0) {
             allocLabour = Number(o.labourCostOverride);
           } else if (resolvedLabourCost > 0) {
@@ -1102,7 +1102,7 @@ export default function ProductionCleanReportView({
       ? Number(forceDayNo)
       : (selectedReportDayNo === 'ALL' ? null : Number(selectedReportDayNo));
     exportCleanSheetPdf({
-      mode: 'full',
+      mode: pdfMode || 'full',
       targetDayNo: targetDay,
       companyDetails: liveCompany,
       batch,
@@ -1259,6 +1259,18 @@ export default function ProductionCleanReportView({
                 <span>Reopen Batch</span>
               </Button>
             )}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePrint}
+              className="h-8 px-3 text-xs font-bold rounded-xl border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+              title="Print Clean Sheet Report"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-300" />
+              <span>Print</span>
+            </Button>
 
             <Button
               type="button"
@@ -1614,7 +1626,6 @@ export default function ProductionCleanReportView({
                     const lots = Array.isArray(line.lots) && line.lots.length > 0 ? line.lots : null;
                     const liquidMl = Number(line.liquidVolumeMl || 0);
                     const evaporates = Boolean(line.evaporates);
-                    const evapLoss = evaporates ? round2(liquidMl * (evaporationPct / 100)) : 0;
 
                     if (lots && lots.length > 1) {
                       return lots.map((lot, lIdx) => {
