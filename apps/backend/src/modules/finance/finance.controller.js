@@ -1453,7 +1453,7 @@ const getFinanceDocumentDetail = async (req, res, next) => {
 };
 
 /**
- * Get Party Ledger with running balance
+ * Get Party Ledger with running balance (parameterized SQL & period opening balance)
  */
 const getPartyLedger = async (req, res, next) => {
   try {
@@ -1461,7 +1461,7 @@ const getPartyLedger = async (req, res, next) => {
     const { from, to } = req.query;
 
     const partyRows = await prisma.$queryRawUnsafe(`
-      SELECT id, name, type, gstin, phone, email, address, opening_balance, opening_balance_type, credit_days, credit_limit
+      SELECT id, name, type, gstin, state_code, phone, email, address, opening_balance, opening_balance_type, credit_days, credit_limit
       FROM parties WHERE id = $1 LIMIT 1;
     `, id);
 
@@ -1470,25 +1470,58 @@ const getPartyLedger = async (req, res, next) => {
     }
 
     const party = partyRows[0];
-    let dateFilter = '1=1';
-    if (from) dateFilter += ` AND txn_date >= '${from}'::date`;
-    if (to) dateFilter += ` AND txn_date <= '${to}'::date`;
+    const baseOpening = party.opening_balance_type === 'CR'
+      ? -Number(party.opening_balance || 0)
+      : Number(party.opening_balance || 0);
+
+    // Compute transactions prior to `from` date so period opening balance reflects carried balance accurately
+    let priorDelta = 0;
+    if (from && /^\d{4}-\d{2}-\d{2}$/.test(String(from).trim())) {
+      const priorRows = await prisma.$queryRawUnsafe(`
+        SELECT COALESCE(SUM(debit), 0)::numeric as dr, COALESCE(SUM(credit), 0)::numeric as cr
+        FROM v_party_ledger
+        WHERE party_id = $1 AND txn_date < $2::date;
+      `, id, String(from).trim());
+      if (priorRows?.[0]) {
+        priorDelta = Number(priorRows[0].dr || 0) - Number(priorRows[0].cr || 0);
+      }
+    }
+
+    const conditions = ['party_id = $1'];
+    const params = [id];
+    let pIdx = 2;
+    if (from && /^\d{4}-\d{2}-\d{2}$/.test(String(from).trim())) {
+      conditions.push(`txn_date >= $${pIdx}::date`);
+      params.push(String(from).trim());
+      pIdx += 1;
+    }
+    if (to && /^\d{4}-\d{2}-\d{2}$/.test(String(to).trim())) {
+      conditions.push(`txn_date <= $${pIdx}::date`);
+      params.push(String(to).trim());
+      pIdx += 1;
+    }
 
     const txns = await prisma.$queryRawUnsafe(`
       SELECT txn_date, ref_no, txn_type, description, debit, credit
       FROM v_party_ledger
-      WHERE party_id = $1 AND ${dateFilter}
+      WHERE ${conditions.join(' AND ')}
       ORDER BY txn_date ASC, ref_no ASC;
-    `, id);
+    `, ...params);
 
-    // Compute running balance
-    let running = party.opening_balance_type === 'CR' ? -Number(party.opening_balance) : Number(party.opening_balance);
-    const ledger = txns.map(t => {
+    const periodOpening = Number((baseOpening + priorDelta).toFixed(2));
+    let running = periodOpening;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const ledger = txns.map((t) => {
       const dr = Number(t.debit) || 0;
       const cr = Number(t.credit) || 0;
+      totalDebit += dr;
+      totalCredit += cr;
       running += (dr - cr);
       return {
         ...t,
+        txn_date: t.txn_date instanceof Date ? t.txn_date.toISOString().slice(0, 10) : String(t.txn_date || '').slice(0, 10),
         debit: dr,
         credit: cr,
         running_balance: Number(running.toFixed(2))
@@ -1497,8 +1530,16 @@ const getPartyLedger = async (req, res, next) => {
 
     return res.json({
       success: true,
-      party,
-      openingBalance: Number(party.opening_balance),
+      party: {
+        ...party,
+        opening_balance: Number(party.opening_balance || 0),
+        credit_days: Number(party.credit_days || 0),
+        credit_limit: Number(party.credit_limit || 0)
+      },
+      openingBalance: periodOpening,
+      baseOpeningBalance: Number(baseOpening.toFixed(2)),
+      totalDebit: Number(totalDebit.toFixed(2)),
+      totalCredit: Number(totalCredit.toFixed(2)),
       closingBalance: Number(running.toFixed(2)),
       ledger
     });
@@ -1508,21 +1549,65 @@ const getPartyLedger = async (req, res, next) => {
 };
 
 /**
- * Get Aging Matrix Report
+ * Get Aging Matrix Report (enriched with party contact metadata + summary totals)
  */
 const getAgingReport = async (req, res, next) => {
   try {
     const { direction = 'PAYABLE' } = req.query;
     const isPayable = direction.toUpperCase() === 'PAYABLE';
+    const viewName = isPayable ? 'v_aging_payables' : 'v_aging_receivables';
 
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT * FROM ${isPayable ? 'v_aging_payables' : 'v_aging_receivables'};
+      SELECT
+        a.*,
+        p.id as party_id,
+        p.type as party_type,
+        p.gstin,
+        p.phone,
+        p.email,
+        p.credit_days,
+        p.credit_limit
+      FROM ${viewName} a
+      LEFT JOIN LATERAL (
+        SELECT id, type, gstin, phone, email, credit_days, credit_limit
+        FROM parties pt
+        WHERE LOWER(TRIM(pt.name)) = LOWER(TRIM(a.party_name))
+        ORDER BY pt.created_at DESC NULLS LAST
+        LIMIT 1
+      ) p ON true
+      ORDER BY a.total_outstanding DESC;
     `);
+
+    const formatted = rows.map((r) => ({
+      ...r,
+      total_outstanding: Number(r.total_outstanding || 0),
+      current_due: Number(r.current_due || 0),
+      bucket_0_30: Number(r.bucket_0_30 || 0),
+      bucket_31_60: Number(r.bucket_31_60 || 0),
+      bucket_61_90: Number(r.bucket_61_90 || 0),
+      bucket_90_plus: Number(r.bucket_90_plus || 0),
+      credit_days: r.credit_days !== null && r.credit_days !== undefined ? Number(r.credit_days) : null,
+      credit_limit: r.credit_limit !== null && r.credit_limit !== undefined ? Number(r.credit_limit) : null
+    }));
+
+    const summary = formatted.reduce(
+      (acc, r) => {
+        acc.totalOutstanding += r.total_outstanding;
+        acc.currentDue += r.current_due;
+        acc.bucket0_30 += r.bucket_0_30;
+        acc.bucket31_60 += r.bucket_31_60;
+        acc.bucket61_90 += r.bucket_61_90;
+        acc.bucket90Plus += r.bucket_90_plus;
+        return acc;
+      },
+      { totalOutstanding: 0, currentDue: 0, bucket0_30: 0, bucket31_60: 0, bucket61_90: 0, bucket90Plus: 0 }
+    );
 
     return res.json({
       success: true,
       direction: direction.toUpperCase(),
-      data: rows
+      summary,
+      data: formatted
     });
   } catch (err) {
     next(err);
@@ -1594,24 +1679,76 @@ const getQuotationPipeline = async (req, res, next) => {
 };
 
 /**
- * Get list of Parties for selectors
+ * Get list of Parties enriched with ledger activity, balance & searchable bill refs/names
  */
 const getPartiesList = async (req, res, next) => {
   try {
     const { type } = req.query;
-    let typeClause = '1=1';
-    if (type) typeClause = `type = '${type.toUpperCase()}' OR type = 'BOTH'`;
+    const params = [];
+    let whereSql = '';
+    if (type) {
+      params.push(String(type).trim().toUpperCase());
+      whereSql = `WHERE p.type = $1 OR p.type = 'BOTH'`;
+    }
 
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT id, name, type, gstin, phone, email, credit_days, credit_limit
-      FROM parties
-      WHERE ${typeClause}
-      ORDER BY name ASC;
-    `);
+      SELECT
+        p.id,
+        p.name,
+        p.type,
+        p.gstin,
+        p.state_code,
+        p.phone,
+        p.email,
+        p.address,
+        COALESCE(p.credit_days, 0)::int as credit_days,
+        COALESCE(p.credit_limit, 0)::numeric as credit_limit,
+        COALESCE(p.opening_balance, 0)::numeric as opening_balance,
+        COALESCE(p.opening_balance_type, 'DR') as opening_balance_type,
+        COALESCE(l.txns_count, 0)::int as txns_count,
+        COALESCE(l.total_debit, 0)::numeric as total_debit,
+        COALESCE(l.total_credit, 0)::numeric as total_credit,
+        COALESCE(l.bill_refs, ARRAY[]::text[]) as bill_refs,
+        COALESCE(l.bill_descriptions, '') as bill_descriptions,
+        l.last_txn_date::text as last_txn_date
+      FROM parties p
+      LEFT JOIN (
+        SELECT
+          party_id,
+          COUNT(*)::int as txns_count,
+          COALESCE(SUM(debit), 0)::numeric as total_debit,
+          COALESCE(SUM(credit), 0)::numeric as total_credit,
+          MAX(txn_date) as last_txn_date,
+          ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM(ref_no), '')), NULL) as bill_refs,
+          STRING_AGG(DISTINCT NULLIF(TRIM(description), ''), ' | ') as bill_descriptions
+        FROM v_party_ledger
+        GROUP BY party_id
+      ) l ON l.party_id = p.id
+      ${whereSql}
+      ORDER BY COALESCE(l.txns_count, 0) DESC, p.name ASC;
+    `, ...params);
+
+    const enriched = rows.map((r) => {
+      const opening = r.opening_balance_type === 'CR'
+        ? -Number(r.opening_balance || 0)
+        : Number(r.opening_balance || 0);
+      const totalDebit = Number(r.total_debit || 0);
+      const totalCredit = Number(r.total_credit || 0);
+      const closingBalance = Number((opening + totalDebit - totalCredit).toFixed(2));
+      return {
+        ...r,
+        opening_balance: Number(r.opening_balance || 0),
+        credit_limit: Number(r.credit_limit || 0),
+        total_debit: totalDebit,
+        total_credit: totalCredit,
+        closing_balance: closingBalance,
+        bill_refs: Array.isArray(r.bill_refs) ? r.bill_refs : []
+      };
+    });
 
     return res.json({
       success: true,
-      data: rows
+      data: enriched
     });
   } catch (err) {
     next(err);
