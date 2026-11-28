@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Search, Download, History, Pencil, Trash2, ArrowUpDown, ChevronLeft, ChevronRight,
+  Search, Download, History, Pencil, Trash2, ArrowUpDown,
   AlertTriangle, CheckCircle2, XCircle, Loader2, X, UploadCloud, Clock, FileCheck2,
   RotateCcw, FileSpreadsheet, Layers
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import { formatINRBank, formatBankDisplayDate, downloadAuthenticatedExcel } from './bankStatementHelpers';
+import BankStatementPagination from './BankStatementPagination';
 
 const DATE_PRESETS = [
   { id: 'all', label: 'All' },
@@ -44,7 +45,7 @@ export default function BankStatementTransactionsTab({
   const [sortBy, setSortBy] = useState('txn_date');
   const [sortDir, setSortDir] = useState('DESC');
   const [page, setPage] = useState(1);
-  const [limit] = useState(25);
+  const [limit, setLimit] = useState(25);
 
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({ count: 0, totalDebit: 0, totalCredit: 0, net: 0 });
@@ -562,11 +563,11 @@ export default function BankStatementTransactionsTab({
 
       {/* Primary Transactions Table */}
       <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
-        <div className="overflow-x-auto max-h-[65vh]">
-          <table className="w-full text-left border-collapse min-w-[1180px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+        <div className="overflow-x-auto max-h-[68vh]">
+          <table className="w-full text-left border-collapse [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
             <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
               <tr>
-                <th className="py-2 px-2 w-9 text-center">
+                <th className="py-2 px-1.5 w-8 text-center">
                   <input
                     type="checkbox"
                     checked={rows.length > 0 && rows.every((r) => selectedIds.has(r.id))}
@@ -575,25 +576,25 @@ export default function BankStatementTransactionsTab({
                     className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
                   />
                 </th>
-                <th className="py-2 px-2.5 w-16 text-center">Act</th>
-                <th className="py-2 px-2.5 cursor-pointer select-none" onClick={() => handleSort('txn_date')}>
+                <th className="py-2 px-1.5 w-14 text-center whitespace-nowrap">Act</th>
+                <th className="py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('txn_date')}>
                   <span className="inline-flex items-center gap-1">Txn Date <ArrowUpDown className="w-3 h-3" /></span>
                 </th>
-                <th className="py-2 px-2.5">Account</th>
-                <th className="py-2 px-2.5 min-w-[230px]">Description</th>
-                <th className="py-2 px-2.5 min-w-[140px]">Remarks</th>
-                <th className="py-2 px-2.5 cursor-pointer select-none" onClick={() => handleSort('party_name')}>
+                <th className="py-2 px-2 whitespace-nowrap">Account</th>
+                <th className="py-2 px-2 min-w-[165px] max-w-[230px]">Description</th>
+                <th className="py-2 px-2 w-[115px] max-w-[130px]">Remarks</th>
+                <th className="py-2 px-2 cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('party_name')}>
                   <span className="inline-flex items-center gap-1">Party <ArrowUpDown className="w-3 h-3" /></span>
                 </th>
-                <th className="py-2 px-2.5">UTR / Ref</th>
-                <th className="py-2 px-2.5">GST Status</th>
-                <th className="py-2 px-2.5 text-right cursor-pointer select-none" onClick={() => handleSort('debit')}>
+                <th className="py-2 px-2 whitespace-nowrap">UTR / Ref</th>
+                <th className="py-2 px-2 whitespace-nowrap">GST Status</th>
+                <th className="py-2 px-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('debit')}>
                   <span className="inline-flex items-center justify-end gap-1">Debit <ArrowUpDown className="w-3 h-3" /></span>
                 </th>
-                <th className="py-2 px-2.5 text-right cursor-pointer select-none" onClick={() => handleSort('credit')}>
+                <th className="py-2 px-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('credit')}>
                   <span className="inline-flex items-center justify-end gap-1">Credit <ArrowUpDown className="w-3 h-3" /></span>
                 </th>
-                <th className="py-2 px-2.5 text-right cursor-pointer select-none" onClick={() => handleSort('balance')}>
+                <th className="py-2 px-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('balance')}>
                   <span className="inline-flex items-center justify-end gap-1">Balance <ArrowUpDown className="w-3 h-3" /></span>
                 </th>
               </tr>
@@ -634,7 +635,7 @@ export default function BankStatementTransactionsTab({
                           : 'bg-[#F3F6FB] dark:bg-slate-800/45'
                     }`}
                   >
-                    <td className="py-2 px-2 text-center">
+                    <td className="py-1.5 px-1.5 text-center">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(r.id)}
@@ -643,7 +644,7 @@ export default function BankStatementTransactionsTab({
                         className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
                       />
                     </td>
-                    <td className="py-1.5 px-2 text-center whitespace-nowrap">
+                    <td className="py-1.5 px-1.5 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-0.5">
                         {permissions.edit && (
                           <button
@@ -667,26 +668,28 @@ export default function BankStatementTransactionsTab({
                         )}
                       </div>
                     </td>
-                    <td className="py-2 px-2.5 whitespace-nowrap font-mono font-semibold text-[11.5px]">
+                    <td className="py-1.5 px-2 whitespace-nowrap font-mono font-semibold text-[11px]">
                       {formatBankDisplayDate(r.txn_date)}
-                      <div className="text-[10px] text-slate-400 dark:text-slate-400">{r.txn_month} • {r.fin_year}</div>
+                      <div className="text-[9.5px] text-slate-400 dark:text-slate-400">{r.txn_month} • {r.fin_year}</div>
                     </td>
-                    <td className="py-2 px-2.5 whitespace-nowrap font-semibold text-slate-700 dark:text-slate-200 text-[11.5px]">
+                    <td className="py-1.5 px-2 whitespace-nowrap font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
                       {r.account_name}
                       {r.txn_type && (
-                        <div className="text-[10px] text-slate-400 dark:text-slate-400 font-medium">{r.txn_type}</div>
+                        <div className="text-[9.5px] text-slate-400 dark:text-slate-400 font-medium">{r.txn_type}</div>
                       )}
                     </td>
-                    <td className="py-2 px-2.5 max-w-[260px] break-words text-[11.5px] leading-snug">{r.description}</td>
-                    <td className="py-2 px-2.5 max-w-[160px] break-words text-slate-600 dark:text-slate-300 text-[11.5px]">{r.remarks || '—'}</td>
-                    <td className="py-2 px-2.5 font-semibold text-[#14213D] dark:text-slate-100 text-[11.5px]">
-                      {r.party_name || '—'}
-                      {r.mode && <div className="text-[10px] text-[#3646C9] dark:text-indigo-400 font-bold">{r.mode}</div>}
+                    <td className="py-1.5 px-2 max-w-[230px] break-words text-[11px] leading-snug">{r.description}</td>
+                    <td className="py-1.5 px-2 w-[115px] max-w-[130px] break-words text-slate-600 dark:text-slate-300 text-[11px] leading-snug" title={r.remarks || ''}>
+                      {r.remarks || '—'}
                     </td>
-                    <td className="py-2 px-2.5 font-mono text-[11px] text-slate-600 dark:text-slate-300 break-all max-w-[130px]">
+                    <td className="py-1.5 px-2 max-w-[150px] font-semibold text-[#14213D] dark:text-slate-100 text-[11px] leading-snug">
+                      <div className="break-words">{r.party_name || '—'}</div>
+                      {r.mode && <div className="text-[9.5px] text-[#3646C9] dark:text-indigo-400 font-bold">{r.mode}</div>}
+                    </td>
+                    <td className="py-1.5 px-2 font-mono text-[10.5px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
                       {r.utr || r.ref_no || '—'}
                     </td>
-                    <td className="py-2 px-2.5 whitespace-nowrap">
+                    <td className="py-1.5 px-2 whitespace-nowrap">
                       <button
                         type="button"
                         onClick={onGoToGst}
@@ -704,16 +707,16 @@ export default function BankStatementTransactionsTab({
                         )}
                       </button>
                     </td>
-                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#B4232F] dark:text-rose-400 whitespace-nowrap">
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-[#B4232F] dark:text-rose-400 whitespace-nowrap text-[11.5px]">
                       {r.debit > 0 ? formatINRBank(r.debit) : '—'}
                     </td>
-                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#087A55] dark:text-emerald-400 whitespace-nowrap">
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-[#087A55] dark:text-emerald-400 whitespace-nowrap text-[11.5px]">
                       {r.credit > 0 ? formatINRBank(r.credit) : '—'}
                     </td>
-                    <td className="py-2 px-2.5 text-right font-mono tabular-nums font-bold text-[#14213D] dark:text-slate-100 whitespace-nowrap">
+                    <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-[#14213D] dark:text-slate-100 whitespace-nowrap text-[11.5px]">
                       {r.balance !== null && r.balance !== undefined ? formatINRBank(r.balance) : '—'}
                       {r.balance_gap_flag && (
-                        <div className="text-[10px] text-[#8A5300] dark:text-amber-300 font-semibold">⚠ Gap</div>
+                        <div className="text-[9.5px] text-[#8A5300] dark:text-amber-300 font-semibold">⚠ Gap</div>
                       )}
                     </td>
                   </tr>
@@ -722,16 +725,16 @@ export default function BankStatementTransactionsTab({
             </tbody>
             <tfoot className="sticky bottom-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-t-2 border-[#CBD5E1] dark:border-slate-700 text-xs font-black text-[#14213D] dark:text-slate-100">
               <tr>
-                <td colSpan={9} className="py-2 px-2.5 uppercase tracking-wide">
+                <td colSpan={9} className="py-2 px-2 uppercase tracking-wide">
                   TOTAL ({summary.count} FILTERED TRANSACTIONS)
                 </td>
-                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-[#B4232F] dark:text-rose-400">
+                <td className="py-2 px-2 text-right font-mono tabular-nums text-[#B4232F] dark:text-rose-400 whitespace-nowrap">
                   {formatINRBank(summary.totalDebit)}
                 </td>
-                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-[#087A55] dark:text-emerald-400">
+                <td className="py-2 px-2 text-right font-mono tabular-nums text-[#087A55] dark:text-emerald-400 whitespace-nowrap">
                   {formatINRBank(summary.totalCredit)}
                 </td>
-                <td className="py-2 px-2.5 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                <td className="py-2 px-2 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap">
                   Net {formatINRBank(summary.net)}
                 </td>
               </tr>
@@ -739,32 +742,18 @@ export default function BankStatementTransactionsTab({
           </table>
         </div>
 
-        {/* Compact Pagination Footer */}
-        <div className="px-3 py-2 border-t border-[#E3E8F0] dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 text-xs">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">
-            Showing page <strong className="text-[#14213D] dark:text-slate-100">{meta.page}</strong> of <strong className="text-[#14213D] dark:text-slate-100">{meta.totalPages}</strong> ({meta.total} entries)
-          </span>
-          {meta.totalPages > 1 && (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="px-2.5 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 font-bold text-[#14213D] dark:text-slate-100 disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" /> Prev
-              </button>
-              <button
-                type="button"
-                disabled={page >= meta.totalPages}
-                onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
-                className="px-2.5 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 font-bold text-[#14213D] dark:text-slate-100 disabled:opacity-40 inline-flex items-center gap-1 cursor-pointer"
-              >
-                Next <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
+        <BankStatementPagination
+          page={meta.page}
+          totalPages={meta.totalPages}
+          totalItems={meta.total}
+          pageSize={limit}
+          onPageChange={(nextPage) => setPage(nextPage)}
+          onPageSizeChange={(nextLimit) => {
+            setLimit(nextLimit);
+            setPage(1);
+          }}
+          itemLabel="entries"
+        />
       </div>
 
       {/* Edit Transaction Popup */}

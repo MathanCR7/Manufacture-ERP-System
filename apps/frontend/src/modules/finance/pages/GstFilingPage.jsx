@@ -43,8 +43,8 @@ export default function GstFilingPage() {
   }, [loadInit]);
 
   return (
-    <div className="min-h-screen bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 p-2.5 sm:p-4 transition-colors">
-      <div className="max-w-[1520px] mx-auto space-y-3">
+    <div className="min-h-screen w-full bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 p-2 sm:p-2.5 transition-colors">
+      <div className="w-full space-y-2.5">
         {/* Top Bar (#111A36 in Light, Slate-900 in Dark) */}
         <header className="bg-[#111A36] dark:bg-slate-900 dark:border dark:border-slate-800 text-white rounded-[14px] px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">

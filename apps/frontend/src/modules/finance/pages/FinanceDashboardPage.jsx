@@ -209,7 +209,7 @@ export default function FinanceDashboardPage() {
   };
 
   return (
-    <div className="p-3 sm:p-5 lg:p-6 space-y-5 max-w-[1550px] mx-auto min-h-screen text-slate-800 dark:text-slate-100">
+    <div className="w-full px-2.5 sm:px-3.5 py-2.5 space-y-4 min-h-screen text-slate-800 dark:text-slate-100">
       
       {/* 1. TOP HEADER & INTERACTIVE COMMAND BAR */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">

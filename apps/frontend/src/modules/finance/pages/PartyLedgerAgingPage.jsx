@@ -75,7 +75,7 @@ export default function PartyLedgerAgingPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-7xl mx-auto text-xs">
+    <div className="w-full px-2.5 sm:px-3.5 py-2.5 space-y-3 text-xs">
       {/* Header & Sub-Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>

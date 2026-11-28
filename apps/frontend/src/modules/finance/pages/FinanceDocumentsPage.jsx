@@ -453,7 +453,7 @@ export default function FinanceDocumentsPage() {
   }, [parties]);
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 max-w-[1680px] mx-auto font-sans">
+    <div className="w-full px-2.5 sm:px-3.5 py-2.5 space-y-3 font-sans">
       {/* ── PRINT-ONLY STYLES ── */}
       <style>{`
         @media print {

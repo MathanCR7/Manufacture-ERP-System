@@ -1837,7 +1837,7 @@ async function getAuditLogs(req, res) {
  * Internal helper to compute GST review dataset (used by both UI GET /gst-review & GST Excel export)
  * Ensures one invoice paid in multiple transactions counts invoice tax ONCE!
  */
-async function computeGstWorkingPaper(companyId, { finYear = 'ALL', accountId = 'ALL', pendingOnly = false } = {}) {
+async function computeGstWorkingPaper(companyId, { finYear = 'ALL', month = 'ALL', accountId = 'ALL', pendingOnly = false } = {}) {
   const cond = ['t.company_id = $1', 't.is_deleted = false'];
   const params = [companyId];
   let idx = 2;
@@ -1845,6 +1845,11 @@ async function computeGstWorkingPaper(companyId, { finYear = 'ALL', accountId = 
   if (finYear && finYear !== 'ALL') {
     cond.push(`t.fin_year = $${idx}`);
     params.push(finYear);
+    idx++;
+  }
+  if (month && month !== 'ALL') {
+    cond.push(`LOWER(t.txn_month) = LOWER($${idx})`);
+    params.push(String(month).trim());
     idx++;
   }
   if (accountId && accountId !== 'ALL') {
@@ -2153,6 +2158,38 @@ async function computeGstWorkingPaper(companyId, { finYear = 'ALL', accountId = 
     ORDER BY fin_year DESC;
   `, companyId);
 
+  const monthParams = [companyId];
+  let monthFyClause = '';
+  if (finYear && finYear !== 'ALL') {
+    monthFyClause = ' AND fin_year = $2';
+    monthParams.push(finYear);
+  }
+  const monthRows = await prisma.$queryRawUnsafe(`
+    SELECT DISTINCT txn_month FROM bank_txn
+    WHERE company_id = $1 AND is_deleted = false AND COALESCE(txn_month, '') <> ''${monthFyClause};
+  `, ...monthParams);
+  const availableMonths = monthRows
+    .map((x) => x.txn_month)
+    .sort((a, b) => fyMonthRank(MONTH_NAMES.indexOf(a)) - fyMonthRank(MONTH_NAMES.indexOf(b)));
+
+  const itcRegisterList = Array.from(itcRegisterMap.values());
+  let cgstTotalPaise = 0;
+  let sgstTotalPaise = 0;
+  let igstTotalPaise = 0;
+  let itcCompleteTaxPaise = 0;
+  let itcPendingTaxPaise = 0;
+  for (const inv of itcRegisterList) {
+    const cP = parseAmountToPaise(inv.cgst).paise;
+    const sP = parseAmountToPaise(inv.sgst).paise;
+    const iP = parseAmountToPaise(inv.igst).paise;
+    const tP = parseAmountToPaise(inv.total_tax).paise;
+    cgstTotalPaise += cP;
+    sgstTotalPaise += sP;
+    igstTotalPaise += iP;
+    if (inv.docs_complete) itcCompleteTaxPaise += tP;
+    else itcPendingTaxPaise += tP;
+  }
+
   return {
     kpis: {
       entries: enrichedEntries.length,
@@ -2162,11 +2199,20 @@ async function computeGstWorkingPaper(companyId, { finYear = 'ALL', accountId = 
       itcDocsPending: paiseToNumber(itcPendingPaise),
       salesReceipts: paiseToNumber(salesReceiptsPaise)
     },
+    taxBreakup: {
+      cgst: paiseToNumber(cgstTotalPaise),
+      sgst: paiseToNumber(sgstTotalPaise),
+      igst: paiseToNumber(igstTotalPaise),
+      totalTax: paiseToNumber(cgstTotalPaise + sgstTotalPaise + igstTotalPaise),
+      itcCompleteTax: paiseToNumber(itcCompleteTaxPaise),
+      itcPendingTax: paiseToNumber(itcPendingTaxPaise)
+    },
     monthlySummary,
     entries: filteredEntries,
     allEntries: enrichedEntries,
-    itcRegister: Array.from(itcRegisterMap.values()),
-    availableFinYears: fyRows.map((x) => x.fin_year)
+    itcRegister: itcRegisterList,
+    availableFinYears: fyRows.map((x) => x.fin_year),
+    availableMonths
   };
 }
 
@@ -2176,9 +2222,10 @@ async function computeGstWorkingPaper(companyId, { finYear = 'ALL', accountId = 
 async function getGstReview(req, res) {
   try {
     const companyId = await resolveCompanyId(req);
-    const { finYear = 'ALL', accountId = 'ALL', pendingOnly = 'false' } = req.query;
+    const { finYear = 'ALL', month = 'ALL', accountId = 'ALL', pendingOnly = 'false' } = req.query;
     const data = await computeGstWorkingPaper(companyId, {
       finYear,
+      month,
       accountId,
       pendingOnly: String(pendingOnly) === 'true'
     });
@@ -2816,17 +2863,27 @@ async function exportTransactionsExcel(req, res) {
 async function exportGstExcel(req, res) {
   try {
     const companyId = await resolveCompanyId(req);
-    const { finYear = 'ALL', accountId = 'ALL' } = req.query;
+    const { finYear = 'ALL', month = 'ALL', accountId = 'ALL' } = req.query;
 
-    const wp = await computeGstWorkingPaper(companyId, { finYear, accountId, pendingOnly: false });
+    const wp = await computeGstWorkingPaper(companyId, { finYear, month, accountId, pendingOnly: false });
 
-    // Resolve FY date bounds for ERP Invoice Register filtering
+    // Resolve FY/Month date bounds for ERP Invoice Register filtering
     let fyFrom = null;
     let fyTo = null;
     if (finYear && finYear !== 'ALL' && /^\d{2}-\d{2}$/.test(finYear)) {
       const startYr = 2000 + parseInt(finYear.slice(0, 2), 10);
       fyFrom = `${startYr}-04-01`;
       fyTo = `${startYr + 1}-03-31`;
+      if (month && month !== 'ALL') {
+        const mIdx = MONTH_NAMES.findIndex((m) => m.toLowerCase() === String(month).trim().toLowerCase());
+        if (mIdx !== -1) {
+          const calYear = mIdx >= 3 ? startYr : startYr + 1;
+          const mNum = String(mIdx + 1).padStart(2, '0');
+          const lastDay = new Date(Date.UTC(calYear, mIdx + 1, 0)).getUTCDate();
+          fyFrom = `${calYear}-${mNum}-01`;
+          fyTo = `${calYear}-${mNum}-${String(lastDay).padStart(2, '0')}`;
+        }
+      }
     }
     const invoiceRegister = await fetchUnifiedErpInvoices(companyId, { from: fyFrom, to: fyTo });
 
@@ -2834,7 +2891,7 @@ async function exportGstExcel(req, res) {
     wb.creator = 'Manufacturing ERP';
 
     const addBanner = (ws, sheetTitle) => {
-      const r1 = ws.addRow([`Working paper - not a GST return | ${sheetTitle} | FY: ${finYear} | Generated: ${new Date().toISOString().slice(0, 10)}`]);
+      const r1 = ws.addRow([`Working paper - not a GST return | ${sheetTitle} | Period: ${month !== 'ALL' ? `${month} ` : ''}FY ${finYear} | Generated: ${new Date().toISOString().slice(0, 10)}`]);
       r1.font = { bold: true, color: { argb: 'FF8A5300' } };
       r1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
     };
@@ -3005,7 +3062,8 @@ async function exportGstExcel(req, res) {
 
     const buffer = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="gst-working-paper_${finYear}_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    const safeMonthSlug = month && month !== 'ALL' ? `${String(month).replace(/[^A-Za-z0-9_-]/g, '')}_` : '';
+    res.setHeader('Content-Disposition', `attachment; filename="gst-working-paper_${finYear}_${safeMonthSlug}${new Date().toISOString().slice(0, 10)}.xlsx"`);
     return res.send(Buffer.from(buffer));
   } catch (err) {
     console.error('[bankStatement.exportGstExcel]', err.message);

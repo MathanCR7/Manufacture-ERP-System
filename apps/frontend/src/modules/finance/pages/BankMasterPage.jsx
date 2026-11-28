@@ -282,8 +282,8 @@ export default function BankMasterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 transition-colors p-2.5 sm:p-4">
-      <div className="max-w-[1520px] mx-auto space-y-3">
+    <div className="min-h-screen w-full bg-[#F4F6FA] dark:bg-slate-950 text-[#14213D] dark:text-slate-100 transition-colors p-2 sm:p-2.5">
+      <div className="w-full space-y-2.5">
         {/* Top Bar (#111A36) */}
         <header className="bg-[#111A36] dark:bg-slate-900 dark:border dark:border-slate-800 text-white rounded-[14px] px-3.5 py-2.5 sm:px-4 sm:py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="flex items-center gap-2.5 min-w-0">

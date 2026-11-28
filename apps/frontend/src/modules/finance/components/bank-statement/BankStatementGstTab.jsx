@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   AlertTriangle, CheckCircle2, Clock, Download, Upload, Search, Plus, Trash2,
   X, Loader2, FileCheck2, Link2, FileText
@@ -7,11 +7,16 @@ import { api } from '@/lib/axios';
 import useCompanyStore from '@/app/store/companyStore';
 import {
   GST_TREATMENTS,
+  MONTHS_LIST,
   formatINRBank,
+  formatBankDisplayDate,
   validateGstinClient,
   downloadAuthenticatedExcel
 } from './bankStatementHelpers';
 import { exportGstFilingPdf } from '../../utils/gstFilingPdfGenerator';
+import BankStatementPagination from './BankStatementPagination';
+
+const FY_MONTHS_ORDER = [...MONTHS_LIST.slice(3), ...MONTHS_LIST.slice(0, 3)];
 
 export default function BankStatementGstTab({
   accounts = [],
@@ -21,8 +26,14 @@ export default function BankStatementGstTab({
 }) {
   const { company, fetchCompany } = useCompanyStore();
   const [finYear, setFinYear] = useState('ALL');
+  const [month, setMonth] = useState('ALL');
   const [accountId, setAccountId] = useState('ALL');
   const [pendingOnly, setPendingOnly] = useState(false);
+  const [treatmentFilter, setTreatmentFilter] = useState('ALL');
+  const [gstSearch, setGstSearch] = useState('');
+  const [gstViewSection, setGstViewSection] = useState('REVIEW'); // 'REVIEW' | 'ITC_REGISTER'
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const [kpis, setKpis] = useState({
     entries: 0,
@@ -32,11 +43,20 @@ export default function BankStatementGstTab({
     itcDocsPending: 0,
     salesReceipts: 0
   });
+  const [taxBreakup, setTaxBreakup] = useState({
+    cgst: 0,
+    sgst: 0,
+    igst: 0,
+    totalTax: 0,
+    itcCompleteTax: 0,
+    itcPendingTax: 0
+  });
   const [monthlySummary, setMonthlySummary] = useState([]);
   const [entries, setEntries] = useState([]);
   const [allEntries, setAllEntries] = useState([]);
   const [itcRegister, setItcRegister] = useState([]);
   const [availableFinYears, setAvailableFinYears] = useState([]);
+  const [availableMonths, setAvailableMonths] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingTxns, setExportingTxns] = useState(false);
@@ -63,6 +83,7 @@ export default function BankStatementGstTab({
       setErrorMsg('');
       const params = new URLSearchParams({
         finYear,
+        month,
         accountId,
         pendingOnly: String(pendingOnly)
       });
@@ -70,18 +91,22 @@ export default function BankStatementGstTab({
       if (res.data?.success) {
         const d = res.data.data;
         setKpis(d.kpis || {});
+        setTaxBreakup(d.taxBreakup || {
+          cgst: 0, sgst: 0, igst: 0, totalTax: 0, itcCompleteTax: 0, itcPendingTax: 0
+        });
         setMonthlySummary(d.monthlySummary || []);
         setEntries(d.entries || []);
         setAllEntries(d.allEntries || d.entries || []);
         setItcRegister(d.itcRegister || []);
         setAvailableFinYears(d.availableFinYears || []);
+        setAvailableMonths(d.availableMonths || []);
       }
     } catch (err) {
       setErrorMsg(err.response?.data?.error || 'Failed to load GST working paper.');
     } finally {
       setLoading(false);
     }
-  }, [finYear, accountId, pendingOnly]);
+  }, [finYear, month, accountId, pendingOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -94,10 +119,11 @@ export default function BankStatementGstTab({
   const handleExportGstExcel = async () => {
     try {
       setExporting(true);
-      const params = new URLSearchParams({ finYear, accountId });
+      const params = new URLSearchParams({ finYear, month, accountId });
+      const monthSlug = month && month !== 'ALL' ? `_${month}` : '';
       await downloadAuthenticatedExcel(
         `/finance/bank-statement/export/gst?${params.toString()}`,
-        `gst-working-paper_${finYear}_${new Date().toISOString().slice(0, 10)}.xlsx`
+        `gst-working-paper_${finYear}${monthSlug}_${new Date().toISOString().slice(0, 10)}.xlsx`
       );
     } catch (err) {
       setErrorMsg(err.response?.data?.error || 'Failed to export GST Excel.');
@@ -112,15 +138,32 @@ export default function BankStatementGstTab({
       const params = new URLSearchParams({ accountId });
       if (finYear && finYear !== 'ALL' && /^\d{2}-\d{2}$/.test(finYear)) {
         const startYr = 2000 + parseInt(finYear.slice(0, 2), 10);
-        params.set('preset', 'custom');
-        params.set('from', `${startYr}-04-01`);
-        params.set('to', `${startYr + 1}-03-31`);
+        if (month && month !== 'ALL') {
+          const mIdx = MONTHS_LIST.findIndex((m) => m.toLowerCase() === month.toLowerCase());
+          if (mIdx !== -1) {
+            const calYr = mIdx >= 3 ? startYr : startYr + 1;
+            const mNum = String(mIdx + 1).padStart(2, '0');
+            const lastDay = new Date(Date.UTC(calYr, mIdx + 1, 0)).getUTCDate();
+            params.set('preset', 'custom');
+            params.set('from', `${calYr}-${mNum}-01`);
+            params.set('to', `${calYr}-${mNum}-${String(lastDay).padStart(2, '0')}`);
+          } else {
+            params.set('preset', 'custom');
+            params.set('from', `${startYr}-04-01`);
+            params.set('to', `${startYr + 1}-03-31`);
+          }
+        } else {
+          params.set('preset', 'custom');
+          params.set('from', `${startYr}-04-01`);
+          params.set('to', `${startYr + 1}-03-31`);
+        }
       } else {
         params.set('preset', 'all');
       }
+      const monthSlug = month && month !== 'ALL' ? `_${month}` : '';
       await downloadAuthenticatedExcel(
         `/finance/bank-statement/export/transactions?${params.toString()}`,
-        `bank-transactions_FY-${finYear}_${new Date().toISOString().slice(0, 10)}.xlsx`
+        `bank-transactions_FY-${finYear}${monthSlug}_${new Date().toISOString().slice(0, 10)}.xlsx`
       );
     } catch (err) {
       setErrorMsg(err.response?.data?.error || 'Failed to export Bank Transactions Excel.');
@@ -138,8 +181,10 @@ export default function BankStatementGstTab({
       exportGstFilingPdf({
         company,
         finYear,
+        month,
         accountLabel,
         kpis,
+        taxBreakup,
         monthlySummary,
         itcRegister,
         allEntries
@@ -342,47 +387,124 @@ export default function BankStatementGstTab({
     }
   };
 
+  const filteredReviewEntries = useMemo(() => {
+    const q = gstSearch.trim().toLowerCase();
+    return entries.filter((e) => {
+      if (treatmentFilter !== 'ALL' && e.treatment !== treatmentFilter) return false;
+      if (!q) return true;
+      const hay = `${e.remarks || ''} ${e.description || ''} ${e.party_name || ''} ${e.invoice_no || ''} ${e.gstin || ''} ${e.utr || ''} ${e.hsn_sac || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [entries, treatmentFilter, gstSearch]);
+
+  const filteredItcRegister = useMemo(() => {
+    const q = gstSearch.trim().toLowerCase();
+    if (!q) return itcRegister;
+    return itcRegister.filter((inv) => {
+      const hay = `${inv.invoice_no || ''} ${inv.party_name || ''} ${inv.gstin || ''} ${inv.hsn_sac || ''} ${inv.invoice_source || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [itcRegister, gstSearch]);
+
+  const activeRows = gstViewSection === 'REVIEW' ? filteredReviewEntries : filteredItcRegister;
+  const totalItems = activeRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginatedRows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return activeRows.slice(start, start + pageSize);
+  }, [activeRows, safePage, pageSize]);
+
+  const monthOptions = useMemo(() => {
+    const availableSet = new Set(availableMonths.map((m) => String(m).toLowerCase()));
+    return FY_MONTHS_ORDER.map((m) => ({
+      value: m,
+      hasData: availableSet.has(m.toLowerCase())
+    }));
+  }, [availableMonths]);
+
+  const reviewedCount = Math.max(0, Number(kpis.entries || 0) - Number(kpis.needsReview || 0));
+  const readinessPct = Number(kpis.entries || 0) > 0
+    ? Math.round((reviewedCount / Number(kpis.entries || 0)) * 100)
+    : 0;
+
   return (
-    <div className="space-y-3">
-      {/* Filters & ALL Exports Bar (PDF + 6-Sheet GST Excel + Transactions Excel + GSTR-2B Import) */}
-      <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#E3E8F0] dark:border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={finYear}
-            onChange={(e) => setFinYear(e.target.value)}
-            aria-label="Filter by Financial Year"
-            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
-          >
-            <option value="ALL">All Financial Years</option>
-            {availableFinYears.map((fy) => (
-              <option key={fy} value={fy}>FY {fy}</option>
-            ))}
-          </select>
+    <div className="space-y-2.5">
+      {/* Unified Edge-to-Edge Filters & Exports Toolbar */}
+      <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 p-2 flex flex-wrap items-center gap-1.5 shadow-2xs">
+        <select
+          value={finYear}
+          onChange={(e) => { setFinYear(e.target.value); setPage(1); }}
+          aria-label="Filter by Financial Year"
+          className="h-8 px-2 rounded-lg border border-[#E3E8F0] dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer shrink-0"
+        >
+          <option value="ALL">All Financial Years</option>
+          {availableFinYears.map((fy) => (
+            <option key={fy} value={fy}>FY {fy}</option>
+          ))}
+        </select>
 
-          <select
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            aria-label="Filter by Account"
-            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-[#14213D] dark:text-slate-100 dark:bg-slate-950 dark:text-slate-100"
-          >
-            <option value="ALL">All Bank Accounts</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.account_name}</option>
-            ))}
-          </select>
+        <select
+          value={month}
+          onChange={(e) => { setMonth(e.target.value); setPage(1); }}
+          aria-label="Filter by Month"
+          className="h-8 px-2 rounded-lg border border-[#E3E8F0] dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer shrink-0"
+        >
+          <option value="ALL">All Months</option>
+          {monthOptions.map((mo) => (
+            <option key={mo.value} value={mo.value}>
+              {mo.value}{mo.hasData ? ' ●' : ''}
+            </option>
+          ))}
+        </select>
 
-          <label className="inline-flex items-center gap-1.5 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer px-2.5 py-1 rounded-lg border border-[#E3E8F0] dark:border-slate-800 bg-[#F4F6FA] dark:bg-slate-800">
-            <input
-              type="checkbox"
-              checked={pendingOnly}
-              onChange={(e) => setPendingOnly(e.target.checked)}
-              className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
-            />
-            <span>Pending only</span>
-          </label>
+        <select
+          value={accountId}
+          onChange={(e) => { setAccountId(e.target.value); setPage(1); }}
+          aria-label="Filter by Account"
+          className="h-8 px-2 rounded-lg border border-[#E3E8F0] dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer shrink-0"
+        >
+          <option value="ALL">All Bank Accounts</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>{a.account_name}</option>
+          ))}
+        </select>
+
+        <select
+          value={treatmentFilter}
+          onChange={(e) => { setTreatmentFilter(e.target.value); setPage(1); }}
+          aria-label="Filter by GST Treatment"
+          className="h-8 px-2 rounded-lg border border-[#E3E8F0] dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer max-w-[165px] shrink-0"
+        >
+          <option value="ALL">All Treatments</option>
+          {GST_TREATMENTS.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+
+        <label className="h-8 inline-flex items-center gap-1.5 text-xs font-bold text-[#14213D] dark:text-slate-100 cursor-pointer px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-700 bg-[#F4F6FA] dark:bg-slate-800 shrink-0 whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={pendingOnly}
+            onChange={(e) => { setPendingOnly(e.target.checked); setPage(1); }}
+            className="rounded border-slate-300 text-[#3646C9] dark:text-indigo-400"
+          />
+          <span>Pending only</span>
+        </label>
+
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={gstSearch}
+            onChange={(e) => { setGstSearch(e.target.value); setPage(1); }}
+            placeholder="Search party, invoice, GSTIN..."
+            aria-label="Search GST entries"
+            className="h-8 w-full pl-8 pr-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-700 bg-white dark:bg-slate-950 text-xs font-medium text-[#14213D] dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#3646C9]/30"
+          />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 ml-auto shrink-0">
           {canReview && (
             <>
               <input
@@ -396,7 +518,7 @@ export default function BankStatementGstTab({
                 type="button"
                 disabled={importing2B}
                 onClick={() => gstr2bInputRef.current?.click()}
-                className="h-8 px-3 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer"
+                className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-700 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 {importing2B ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 text-[#3646C9] dark:text-indigo-400" />}
                 <span>Import GSTR-2B</span>
@@ -408,7 +530,7 @@ export default function BankStatementGstTab({
             type="button"
             disabled={exportingTxns || kpis.entries === 0}
             onClick={handleExportTxnsExcel}
-            className="h-8 px-3 rounded-lg border border-[#E3E8F0] dark:border-slate-800 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 disabled:opacity-50 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer"
+            className="h-8 px-2.5 rounded-lg border border-[#E3E8F0] dark:border-slate-700 hover:bg-[#F4F6FA] dark:hover:bg-slate-800 disabled:opacity-50 text-xs font-bold text-[#14213D] dark:text-slate-100 inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
           >
             {exportingTxns ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />}
             <span>Txns Excel</span>
@@ -418,7 +540,7 @@ export default function BankStatementGstTab({
             type="button"
             disabled={exporting || kpis.entries === 0}
             onClick={handleExportGstExcel}
-            className="h-8 px-3 rounded-lg border border-[#087A55]/30 dark:border-emerald-500/30 bg-[#E6F5EF] dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 disabled:opacity-50 text-[#087A55] dark:text-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            className="h-8 px-2.5 rounded-lg border border-[#087A55]/30 dark:border-emerald-500/30 bg-[#E6F5EF] dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 disabled:opacity-50 text-[#087A55] dark:text-emerald-400 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
           >
             {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             <span>GST Working Paper Excel (6 Sheets)</span>
@@ -428,7 +550,7 @@ export default function BankStatementGstTab({
             type="button"
             disabled={exportingPdf || kpis.entries === 0}
             onClick={handleExportGstPdf}
-            className="h-8 px-3.5 rounded-lg bg-[#3646C9] hover:bg-[#2b39ab] disabled:opacity-50 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="h-8 px-3 rounded-lg bg-[#3646C9] hover:bg-[#2b39ab] disabled:opacity-50 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
           >
             {exportingPdf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
             <span>Export GST Filing PDF</span>
@@ -483,10 +605,50 @@ export default function BankStatementGstTab({
             </div>
           </div>
 
+          {/* Tax-Head Breakup & Filing Readiness Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 px-3.5 py-2.5 shadow-2xs">
+            <div>
+              <div className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">CGST (Unique ITC)</div>
+              <div className="text-sm font-black text-[#14213D] dark:text-slate-100 font-mono tabular-nums">{formatINRBank(taxBreakup.cgst)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">SGST (Unique ITC)</div>
+              <div className="text-sm font-black text-[#14213D] dark:text-slate-100 font-mono tabular-nums">{formatINRBank(taxBreakup.sgst)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">IGST (Unique ITC)</div>
+              <div className="text-sm font-black text-[#14213D] dark:text-slate-100 font-mono tabular-nums">{formatINRBank(taxBreakup.igst)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-[#087A55] dark:text-emerald-400">Total Registered ITC</div>
+              <div className="text-sm font-black text-[#087A55] dark:text-emerald-400 font-mono tabular-nums">{formatINRBank(taxBreakup.totalTax)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase text-[#3646C9] dark:text-indigo-400">Review Readiness</div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex-1 h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                  <div className="h-full rounded-full bg-[#3646C9] dark:bg-indigo-400 transition-all" style={{ width: `${readinessPct}%` }} />
+                </div>
+                <span className="text-xs font-black text-[#3646C9] dark:text-indigo-400 tabular-nums">{readinessPct}%</span>
+              </div>
+            </div>
+          </div>
+
           {/* Month Summary Table */}
           <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
-            <div className="px-3.5 py-2 border-b border-[#CBD5E1] dark:border-slate-700 bg-[#EEF2F8] dark:bg-slate-800/95 text-[11px] font-black text-[#14213D] dark:text-slate-100 uppercase tracking-wide">
-              Month Summary
+            <div className="px-3.5 py-2 border-b border-[#CBD5E1] dark:border-slate-700 bg-[#EEF2F8] dark:bg-slate-800/95 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-black text-[#14213D] dark:text-slate-100 uppercase tracking-wide">
+                Month Summary {month !== 'ALL' ? `— ${month}` : ''}
+              </span>
+              {month !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => { setMonth('ALL'); setPage(1); }}
+                  className="text-[11px] font-bold text-[#3646C9] dark:text-indigo-400 hover:underline cursor-pointer"
+                >
+                  Show all months
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[780px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
@@ -509,7 +671,13 @@ export default function BankStatementGstTab({
                     monthlySummary.map((m, idx) => (
                       <tr
                         key={`${m.month}-${m.finYear}`}
-                        className={`transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
+                        onClick={() => {
+                          setFinYear(m.finYear || 'ALL');
+                          setMonth(month === m.month ? 'ALL' : m.month);
+                          setPage(1);
+                        }}
+                        title="Click to filter working paper by this month"
+                        className={`cursor-pointer transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
                           idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#F3F6FB] dark:bg-slate-800/45'
                         }`}
                       >
@@ -529,99 +697,213 @@ export default function BankStatementGstTab({
             </div>
           </div>
 
-          {/* Entry Review Table */}
+          {/* Interactive Entry Review vs Verified ITC Invoice Register Table */}
           <div className="bg-white dark:bg-slate-900 rounded-[14px] border border-[#CBD5E1] dark:border-slate-700 overflow-hidden shadow-xs">
-            <div className="px-3.5 py-2 border-b border-[#CBD5E1] dark:border-slate-700 bg-[#EEF2F8] dark:bg-slate-800/95 text-[11px] font-black text-[#14213D] dark:text-slate-100 uppercase tracking-wide">
-              Entry Review ({entries.length})
+            <div className="px-3.5 py-2 border-b border-[#CBD5E1] dark:border-slate-700 bg-[#EEF2F8] dark:bg-slate-800/95 flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex rounded-xl border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => { setGstViewSection('REVIEW'); setPage(1); }}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
+                    gstViewSection === 'REVIEW'
+                      ? 'bg-[#3646C9] text-white shadow-2xs'
+                      : 'text-[#14213D] dark:text-slate-200 hover:bg-[#F3F6FB] dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Entry Review ({filteredReviewEntries.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setGstViewSection('ITC_REGISTER'); setPage(1); }}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-black transition-colors cursor-pointer ${
+                    gstViewSection === 'ITC_REGISTER'
+                      ? 'bg-[#3646C9] text-white shadow-2xs'
+                      : 'text-[#14213D] dark:text-slate-200 hover:bg-[#F3F6FB] dark:hover:bg-slate-800'
+                  }`}
+                >
+                  ITC Invoice Register ({filteredItcRegister.length})
+                </button>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                {gstViewSection === 'REVIEW'
+                  ? 'Classify each bank entry & link tax invoices'
+                  : 'Unique invoice level (split payments deduplicated)'}
+              </span>
             </div>
+
             <div className="overflow-x-auto max-h-[55vh]">
-              <table className="w-full text-left border-collapse min-w-[1050px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
-                <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
-                  <tr>
-                    <th className="py-2 px-2.5 w-20">Action</th>
-                    <th className="py-2 px-2.5">Status</th>
-                    <th className="py-2 px-2.5">Date</th>
-                    <th className="py-2 px-2.5 min-w-[200px]">Remarks / Description</th>
-                    <th className="py-2 px-2.5 text-right">Debit</th>
-                    <th className="py-2 px-2.5 text-right">Credit</th>
-                    <th className="py-2 px-2.5">Treatment</th>
-                    <th className="py-2 px-2.5">Invoice</th>
-                    <th className="py-2 px-2.5 text-right">GST</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
-                  {loading ? (
-                    <tr><td colSpan={9} className="py-8 text-center text-slate-400 dark:text-slate-400">Loading GST entries...</td></tr>
-                  ) : entries.length === 0 ? (
-                    <tr><td colSpan={9} className="py-8 text-center text-slate-400 dark:text-slate-400">No entries match this filter.</td></tr>
-                  ) : (
-                    entries.map((e, idx) => (
-                      <tr
-                        key={e.id}
-                        className={`align-top transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
-                          idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#F3F6FB] dark:bg-slate-800/45'
-                        }`}
-                      >
-                        <td className="py-1.5 px-2.5">
-                          <button
-                            type="button"
-                            onClick={() => openReviewModal(e)}
-                            className="px-2.5 py-1 rounded-lg bg-[#3646C9] hover:bg-[#2b39ab] text-white text-[11px] font-bold cursor-pointer whitespace-nowrap"
-                          >
-                            {canReview ? 'Review' : 'View'}
-                          </button>
-                        </td>
-                        <td className="py-1.5 px-2.5 whitespace-nowrap">
-                          {e.needs_review ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FEF4E6] dark:bg-amber-500/15 text-[#8A5300] dark:text-amber-300 border border-[#8A5300]/25 dark:border-amber-500/30">
-                              <Clock className="w-3 h-3" /> {e.needs_recheck ? 'Re-check' : 'Needs review'}
+              {gstViewSection === 'REVIEW' ? (
+                <table className="w-full text-left border-collapse min-w-[1050px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+                  <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
+                    <tr>
+                      <th className="py-2 px-2.5 w-20">Action</th>
+                      <th className="py-2 px-2.5">Status</th>
+                      <th className="py-2 px-2.5">Date</th>
+                      <th className="py-2 px-2.5 min-w-[200px]">Remarks / Description</th>
+                      <th className="py-2 px-2.5 text-right">Debit</th>
+                      <th className="py-2 px-2.5 text-right">Credit</th>
+                      <th className="py-2 px-2.5">Treatment</th>
+                      <th className="py-2 px-2.5">Invoice</th>
+                      <th className="py-2 px-2.5 text-right">GST</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
+                    {loading ? (
+                      <tr><td colSpan={9} className="py-8 text-center text-slate-400 dark:text-slate-400">Loading GST entries...</td></tr>
+                    ) : paginatedRows.length === 0 ? (
+                      <tr><td colSpan={9} className="py-8 text-center text-slate-400 dark:text-slate-400">No entries match this filter.</td></tr>
+                    ) : (
+                      paginatedRows.map((e, idx) => (
+                        <tr
+                          key={e.id}
+                          className={`align-top transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
+                            idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#F3F6FB] dark:bg-slate-800/45'
+                          }`}
+                        >
+                          <td className="py-1.5 px-2.5">
+                            <button
+                              type="button"
+                              onClick={() => openReviewModal(e)}
+                              className="px-2.5 py-1 rounded-lg bg-[#3646C9] hover:bg-[#2b39ab] text-white text-[11px] font-bold cursor-pointer whitespace-nowrap"
+                            >
+                              {canReview ? 'Review' : 'View'}
+                            </button>
+                          </td>
+                          <td className="py-1.5 px-2.5 whitespace-nowrap">
+                            {e.needs_review ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FEF4E6] dark:bg-amber-500/15 text-[#8A5300] dark:text-amber-300 border border-[#8A5300]/25 dark:border-amber-500/30">
+                                <Clock className="w-3 h-3" /> {e.needs_recheck ? 'Re-check' : 'Needs review'}
+                              </span>
+                            ) : e.docs_complete ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30">
+                                <CheckCircle2 className="w-3 h-3" /> Docs complete
+                              </span>
+                            ) : e.docs_pending ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border border-[#B4232F]/25 dark:border-rose-500/30">
+                                <AlertTriangle className="w-3 h-3" /> Docs pending
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30">
+                                <FileCheck2 className="w-3 h-3" /> Reviewed
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2.5 font-mono whitespace-nowrap text-[11.5px]">{e.txn_date_display}</td>
+                          <td className="py-1.5 px-2.5 max-w-[260px]">
+                            <div className="font-semibold text-[#14213D] dark:text-slate-100 break-words text-[11.5px]">{e.remarks || e.party_name || '—'}</div>
+                            <div className="text-[10.5px] text-slate-500 dark:text-slate-400 truncate" title={e.description}>{e.description}</div>
+                          </td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold text-[#B4232F] dark:text-rose-400 whitespace-nowrap">
+                            {e.debit > 0 ? formatINRBank(e.debit) : '—'}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold text-[#087A55] dark:text-emerald-400 whitespace-nowrap">
+                            {e.credit > 0 ? formatINRBank(e.credit) : '—'}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-[11.5px]">
+                            <div className="font-bold text-[#14213D] dark:text-slate-100">{e.treatment}</div>
+                            {e.suggested_treatment && e.suggested_treatment !== 'Unreviewed' && e.treatment === 'Unreviewed' && (
+                              <div className="text-[10px] font-semibold text-[#8A5300] dark:text-amber-300">
+                                Suggested: {e.suggested_treatment}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2.5 font-mono text-[11px]">
+                            {e.invoice_no || (e.allocations?.length > 0 ? `${e.allocations.length} linked` : '—')}
+                            {e.gstin && <div className="text-[10px] text-slate-500 dark:text-slate-400">{e.gstin}</div>}
+                          </td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold whitespace-nowrap">
+                            {e.total_tax > 0 ? formatINRBank(e.total_tax) : '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-left border-collapse min-w-[1120px] [&_th]:border-r [&_th]:border-[#CBD5E1] dark:border-slate-700 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-[#E2E8F0] dark:border-slate-800 [&_td:last-child]:border-r-0">
+                  <thead className="sticky top-0 z-10 bg-[#EEF2F8] dark:bg-slate-800/95 border-b-2 border-[#CBD5E1] dark:border-slate-700 text-[10.5px] font-bold uppercase text-[#14213D] dark:text-slate-100">
+                    <tr>
+                      <th className="py-2 px-2.5">Invoice No</th>
+                      <th className="py-2 px-2.5">Inv Date</th>
+                      <th className="py-2 px-2.5">Party / Vendor</th>
+                      <th className="py-2 px-2.5">GSTIN</th>
+                      <th className="py-2 px-2.5">HSN/SAC</th>
+                      <th className="py-2 px-2.5 text-right">Taxable</th>
+                      <th className="py-2 px-2.5 text-right">CGST</th>
+                      <th className="py-2 px-2.5 text-right">SGST</th>
+                      <th className="py-2 px-2.5 text-right">IGST</th>
+                      <th className="py-2 px-2.5 text-right">Total Tax</th>
+                      <th className="py-2 px-2.5 text-center">GSTR-2B</th>
+                      <th className="py-2 px-2.5 text-center">Docs Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E3E8F0] dark:divide-slate-800 text-xs text-[#14213D] dark:text-slate-100">
+                    {loading ? (
+                      <tr><td colSpan={12} className="py-8 text-center text-slate-400 dark:text-slate-400">Loading ITC register...</td></tr>
+                    ) : paginatedRows.length === 0 ? (
+                      <tr><td colSpan={12} className="py-8 text-center text-slate-400 dark:text-slate-400">No ITC invoices linked or entered for this period.</td></tr>
+                    ) : (
+                      paginatedRows.map((inv, idx) => (
+                        <tr
+                          key={`${inv.invoice_source}-${inv.invoice_no}-${idx}`}
+                          className={`transition-colors hover:bg-[#E8EEFA]/75 dark:hover:bg-slate-800/90 ${
+                            idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-[#F3F6FB] dark:bg-slate-800/45'
+                          }`}
+                        >
+                          <td className="py-1.5 px-2.5 font-mono font-bold whitespace-nowrap">{inv.invoice_no || '—'}</td>
+                          <td className="py-1.5 px-2.5 font-mono whitespace-nowrap text-[11.5px]">
+                            {inv.invoice_date ? formatBankDisplayDate(inv.invoice_date) : '—'}
+                          </td>
+                          <td className="py-1.5 px-2.5 font-semibold max-w-[200px] truncate" title={inv.party_name}>{inv.party_name || '—'}</td>
+                          <td className="py-1.5 px-2.5 font-mono text-[11px]">{inv.gstin || '—'}</td>
+                          <td className="py-1.5 px-2.5 font-mono text-[11px]">{inv.hsn_sac || '—'}</td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums">{formatINRBank(inv.taxable)}</td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums">{formatINRBank(inv.cgst)}</td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums">{formatINRBank(inv.sgst)}</td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums">{formatINRBank(inv.igst)}</td>
+                          <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold text-[#087A55] dark:text-emerald-400">{formatINRBank(inv.total_tax)}</td>
+                          <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10.5px] font-bold border ${
+                              inv.found_in_gstr2b === 'Yes'
+                                ? 'bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border-[#087A55]/25 dark:border-emerald-500/30'
+                                : inv.found_in_gstr2b === 'No'
+                                  ? 'bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border-[#B4232F]/25 dark:border-rose-500/30'
+                                  : 'bg-[#FEF4E6] dark:bg-amber-500/15 text-[#8A5300] dark:text-amber-300 border-[#8A5300]/25 dark:border-amber-500/30'
+                            }`}>
+                              {inv.found_in_gstr2b || 'Not Checked'}
                             </span>
-                          ) : e.docs_complete ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30">
-                              <CheckCircle2 className="w-3 h-3" /> Docs complete
-                            </span>
-                          ) : e.docs_pending ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border border-[#B4232F]/25 dark:border-rose-500/30">
-                              <AlertTriangle className="w-3 h-3" /> Docs pending
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30">
-                              <FileCheck2 className="w-3 h-3" /> Reviewed
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2.5 font-mono whitespace-nowrap text-[11.5px]">{e.txn_date_display}</td>
-                        <td className="py-1.5 px-2.5 max-w-[260px]">
-                          <div className="font-semibold text-[#14213D] dark:text-slate-100 break-words text-[11.5px]">{e.remarks || e.party_name || '—'}</div>
-                          <div className="text-[10.5px] text-slate-500 dark:text-slate-400 truncate" title={e.description}>{e.description}</div>
-                        </td>
-                        <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold text-[#B4232F] dark:text-rose-400 whitespace-nowrap">
-                          {e.debit > 0 ? formatINRBank(e.debit) : '—'}
-                        </td>
-                        <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold text-[#087A55] dark:text-emerald-400 whitespace-nowrap">
-                          {e.credit > 0 ? formatINRBank(e.credit) : '—'}
-                        </td>
-                        <td className="py-1.5 px-2.5 text-[11.5px]">
-                          <div className="font-bold text-[#14213D] dark:text-slate-100">{e.treatment}</div>
-                          {e.suggested_treatment && e.suggested_treatment !== 'Unreviewed' && e.treatment === 'Unreviewed' && (
-                            <div className="text-[10px] font-semibold text-[#8A5300] dark:text-amber-300">
-                              Suggested: {e.suggested_treatment}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2.5 font-mono text-[11px]">
-                          {e.invoice_no || (e.allocations?.length > 0 ? `${e.allocations.length} linked` : '—')}
-                          {e.gstin && <div className="text-[10px] text-slate-500 dark:text-slate-400">{e.gstin}</div>}
-                        </td>
-                        <td className="py-1.5 px-2.5 text-right font-mono tabular-nums font-bold whitespace-nowrap">
-                          {e.total_tax > 0 ? formatINRBank(e.total_tax) : '—'}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                          </td>
+                          <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
+                            {inv.docs_complete ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#E6F5EF] dark:bg-emerald-500/15 text-[#087A55] dark:text-emerald-400 border border-[#087A55]/25 dark:border-emerald-500/30">
+                                Complete
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-[#FDECEC] dark:bg-rose-500/15 text-[#B4232F] dark:text-rose-400 border border-[#B4232F]/25 dark:border-rose-500/30">
+                                Docs Pending
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
+
+            <BankStatementPagination
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              pageSize={pageSize}
+              onPageChange={(nextPage) => setPage(nextPage)}
+              onPageSizeChange={(nextSize) => {
+                setPageSize(nextSize);
+                setPage(1);
+              }}
+              itemLabel={gstViewSection === 'REVIEW' ? 'entries' : 'invoices'}
+            />
           </div>
 
       {/* Review Popup Modal */}

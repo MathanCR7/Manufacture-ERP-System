@@ -275,6 +275,24 @@ describe('Bank Statement & GST Review — Unit + 12 Acceptance Tests', () => {
     expect(gstRes.body.data.kpis.itcDocsComplete).toBe(9000);
   });
 
+  test('GST Working Paper supports month filter, taxBreakup, and availableMonths', async () => {
+    const juneRes = await request(app)
+      .get('/api/finance/bank-statement/gst-review?finYear=26-27&month=June')
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(juneRes.status).toBe(200);
+    expect(juneRes.body.data.taxBreakup).toEqual(
+      expect.objectContaining({ cgst: 4500, sgst: 4500, igst: 0, totalTax: 9000 })
+    );
+    expect(juneRes.body.data.availableMonths).toContain('June');
+
+    const decRes = await request(app)
+      .get('/api/finance/bank-statement/gst-review?finYear=26-27&month=December')
+      .set('Authorization', `Bearer ${tokenA}`);
+    expect(decRes.status).toBe(200);
+    expect(decRes.body.data.kpis.entries).toBe(0);
+    expect(decRes.body.data.taxBreakup.totalTax).toBe(0);
+  });
+
   test('Acceptance 11 & Security: Supervisor read-only blocked from delete; Soft-deleted row excluded from totals', async () => {
     const target = savedRowsFromBatch.find((r) => r.txn_date === '2026-05-20');
     const supDel = await request(app)
